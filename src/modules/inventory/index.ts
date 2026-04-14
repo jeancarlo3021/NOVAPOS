@@ -1,0 +1,13 @@
+export { InventoryDashboard } from './InventoryDashboard';
+export { ProductsList } from './products/ProductsList';
+export { ProductForm } from './products/ProductsForm';
+export { ProductCard } from './products/ProductCard';
+export { SuppliersList } from './suppliers/SuppliersList';
+export { SupplierForm } from './suppliers/SupplierForm';
+export { SupplierCard } from './suppliers/SupplierCard';
+export { PurchasesList } from './purchases/purchasesList';
+export { PurchaseForm } from './purchases/PurchaseForm';
+export { PurchaseDetail } from './purchases/PurchaseDetail';
+export { StockMovements } from './stock/StockMovements';
+export { LowStockAlerts } from './stock/LowStockAlerts';
+export { InventoryStats } from './stock/InventoryStats';
