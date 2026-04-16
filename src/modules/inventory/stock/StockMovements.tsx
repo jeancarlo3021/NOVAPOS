@@ -32,7 +32,7 @@ export const StockMovements: React.FC = () => {
 
   // Obtener productos con useSafeFetch
   const {
-    data: products = [],
+    data: productsData,
     loading,
     error,
     retry
@@ -40,6 +40,9 @@ export const StockMovements: React.FC = () => {
     () => inventoryProductsService.getAllProducts(user!.tenant_id),
     { timeout: 10000, retries: 2, retryDelay: 1000 }
   );
+
+  // Asegurar que products siempre sea un array
+  const products = Array.isArray(productsData) ? productsData : [];
 
   const handleUpdateStock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,7 +120,7 @@ export const StockMovements: React.FC = () => {
         <p className="text-gray-500 mt-1">Agregar o restar stock de tus productos</p>
       </div>
 
-      {error && (
+      {error && !loading && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <span className="text-red-800">🚨 {error}</span>
@@ -236,88 +239,90 @@ export const StockMovements: React.FC = () => {
       </Card>
 
       {/* Grid de productos */}
-      <div>
-        <h3 className="text-xl font-bold text-gray-900 mb-4">Stock Actual de Productos</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {products.map((product) => {
-            const isLowStock = product.stock_quantity <= product.min_stock_level;
-            const isCritical = product.stock_quantity === 0;
+      {products.length > 0 && (
+        <div>
+          <h3 className="text-xl font-bold text-gray-900 mb-4">Stock Actual de Productos</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {products.map((product) => {
+              const isLowStock = product.stock_quantity <= product.min_stock_level;
+              const isCritical = product.stock_quantity === 0;
 
-            return (
-              <Card
-                key={product.id}
-                className={`border-2 transition-all hover:shadow-md ${
-                  isCritical
-                    ? 'border-red-300 bg-red-50'
-                    : isLowStock
-                    ? 'border-orange-300 bg-orange-50'
-                    : 'border-gray-200 bg-white'
-                }`}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h4 className="font-bold text-gray-900">{product.name}</h4>
-                      <p className="text-xs text-gray-500">SKU: {product.sku}</p>
+              return (
+                <Card
+                  key={product.id}
+                  className={`border-2 transition-all hover:shadow-md ${
+                    isCritical
+                      ? 'border-red-300 bg-red-50'
+                      : isLowStock
+                      ? 'border-orange-300 bg-orange-50'
+                      : 'border-gray-200 bg-white'
+                  }`}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h4 className="font-bold text-gray-900">{product.name}</h4>
+                        <p className="text-xs text-gray-500">SKU: {product.sku}</p>
+                      </div>
+                      {isCritical && (
+                        <Badge variant="destructive" className="text-xs">
+                          CRÍTICO
+                        </Badge>
+                      )}
+                      {isLowStock && !isCritical && (
+                        <Badge variant="warning" className="text-xs">
+                          BAJO
+                        </Badge>
+                      )}
                     </div>
-                    {isCritical && (
-                      <Badge variant="destructive" className="text-xs">
-                        CRÍTICO
-                      </Badge>
-                    )}
-                    {isLowStock && !isCritical && (
-                      <Badge variant="warning" className="text-xs">
-                        BAJO
-                      </Badge>
-                    )}
-                  </div>
 
-                  <Divider className="my-3" />
+                    <Divider className="my-3" />
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Stock Actual:</span>
-                      <span
-                        className={`text-2xl font-bold ${
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Stock Actual:</span>
+                        <span
+                          className={`text-2xl font-bold ${
+                            isCritical
+                              ? 'text-red-600'
+                              : isLowStock
+                              ? 'text-orange-600'
+                              : 'text-green-600'
+                          }`}
+                        >
+                          {product.stock_quantity}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Mínimo:</span>
+                        <span className="font-semibold text-gray-900">{product.min_stock_level}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
                           isCritical
-                            ? 'text-red-600'
+                            ? 'bg-red-500'
                             : isLowStock
-                            ? 'text-orange-600'
-                            : 'text-green-600'
+                            ? 'bg-orange-500'
+                            : 'bg-green-500'
                         }`}
-                      >
-                        {product.stock_quantity}
-                      </span>
+                        style={{
+                          width: `${Math.min(
+                            (product.stock_quantity / product.min_stock_level) * 100,
+                            100
+                          )}%`,
+                        }}
+                      />
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Mínimo:</span>
-                      <span className="font-semibold text-gray-900">{product.min_stock_level}</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                    <div
-                      className={`h-full transition-all ${
-                        isCritical
-                          ? 'bg-red-500'
-                          : isLowStock
-                          ? 'bg-orange-500'
-                          : 'bg-green-500'
-                      }`}
-                      style={{
-                        width: `${Math.min(
-                          (product.stock_quantity / product.min_stock_level) * 100,
-                          100
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

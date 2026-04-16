@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Plus, Search, Eye, Trash2, RotateCw } from 'lucide-react';
 import { inventoryPurchasesService, InventoryPurchase } from '@/services/inventoryPurchasesService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
-import { PurchaseForm } from './PurchaseForm';
 import { Alert, LoadingSpinner, Button, Card, CardContent } from '@/components/ui/uiComponents';
+import { PurchaseForm } from './PurchaseForm';
 
 export const PurchasesList: React.FC = () => {
   const { user } = useAuth();
@@ -15,7 +15,7 @@ export const PurchasesList: React.FC = () => {
 
   // Usar hook seguro para obtener compras
   const {
-    data: purchases = [],
+    data: purchasesData,
     loading,
     error,
     retry
@@ -23,6 +23,9 @@ export const PurchasesList: React.FC = () => {
     () => inventoryPurchasesService.getAllPurchases(user!.tenant_id),
     { timeout: 10000, retries: 2, retryDelay: 1000 }
   );
+
+  // Asegurar que purchases siempre sea un array
+  const purchases = Array.isArray(purchasesData) ? purchasesData : [];
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('¿Está seguro de que desea eliminar esta compra?')) {
@@ -45,8 +48,8 @@ export const PurchasesList: React.FC = () => {
   };
 
   const filteredPurchases = purchases.filter(purchase =>
-    purchase.purchase_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    purchase.supplier_id?.toLowerCase().includes(searchTerm.toLowerCase())
+    (purchase.purchase_number?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
+    (purchase.supplier_id?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
   );
 
   const getStatusColor = (status: string) => {
@@ -87,6 +90,7 @@ export const PurchasesList: React.FC = () => {
           onClick={() => setShowForm(true)}
           size="lg"
           className="bg-blue-600 hover:bg-blue-700"
+          disabled={loading}
         >
           <Plus className="w-5 h-5 mr-2" />
           Nueva Compra
@@ -137,7 +141,24 @@ export const PurchasesList: React.FC = () => {
       {/* Contenido Principal */}
       {loading ? (
         <LoadingSpinner message="Cargando compras..." />
-      ) : filteredPurchases.length > 0 ? (
+      ) : purchases.length === 0 ? (
+        <Card>
+          <CardContent className="text-center py-12">
+            <p className="text-gray-500 text-lg mb-4">
+              {searchTerm ? 'No hay compras que coincidan con tu búsqueda' : 'No hay compras registradas'}
+            </p>
+            {!searchTerm && (
+              <Button
+                onClick={() => setShowForm(true)}
+                className="mt-4 bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                Crear Primera Compra
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
         <div>
           <div className="flex justify-between items-center mb-4">
             <p className="text-sm text-gray-600">
@@ -224,25 +245,6 @@ export const PurchasesList: React.FC = () => {
             </table>
           </div>
         </div>
-      ) : (
-        <Card>
-          <CardContent className="text-center py-12">
-            <p className="text-gray-500 text-lg mb-4">
-              {searchTerm
-                ? 'No hay compras que coincidan con tu búsqueda'
-                : 'No hay compras registradas'}
-            </p>
-            {!searchTerm && (
-              <Button
-                onClick={() => setShowForm(true)}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                <Plus className="w-5 h-5 mr-2" />
-                Crear Primera Compra
-              </Button>
-            )}
-          </CardContent>
-        </Card>
       )}
     </div>
   );

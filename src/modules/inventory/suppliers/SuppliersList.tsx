@@ -32,7 +32,7 @@ export const SuppliersList: React.FC = () => {
 
   // Usar hook seguro para obtener proveedores
   const {
-    data: suppliers = [],
+    data: suppliersData,
     loading,
     error,
     retry
@@ -40,6 +40,9 @@ export const SuppliersList: React.FC = () => {
     () => inventorySuppliersService.getAllSuppliers(user!.tenant_id),
     { timeout: 10000, retries: 2, retryDelay: 1000 }
   );
+
+  // Asegurar que suppliers siempre sea un array
+  const suppliers = Array.isArray(suppliersData) ? suppliersData : [];
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('¿Está seguro de que desea eliminar este proveedor?')) {
@@ -63,7 +66,7 @@ export const SuppliersList: React.FC = () => {
 
   const filteredSuppliers = suppliers.filter(supplier =>
     supplier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    supplier.contact_person?.toLowerCase().includes(searchTerm.toLowerCase())
+    (supplier.contact_person?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
   );
 
   return (
@@ -92,6 +95,7 @@ export const SuppliersList: React.FC = () => {
           }}
           size="lg"
           className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
+          disabled={loading}
         >
           <Plus size={20} />
           Nuevo Proveedor

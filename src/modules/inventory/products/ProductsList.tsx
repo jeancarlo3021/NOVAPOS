@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Plus, Search, RotateCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
@@ -19,7 +19,7 @@ export const ProductsList: React.FC = () => {
 
   // Usar el hook seguro para obtener productos
   const {
-    data: products = [],
+    data: productsData,
     loading,
     error,
     retry
@@ -27,6 +27,9 @@ export const ProductsList: React.FC = () => {
     () => inventoryProductsService.getAllProducts(user!.tenant_id),
     { timeout: 10000, retries: 2, retryDelay: 1000 }
   );
+
+  // ✅ Convertir null a array vacío
+  const products = Array.isArray(productsData) ? productsData : [];
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('¿Estás seguro de que deseas eliminar este producto?')) {

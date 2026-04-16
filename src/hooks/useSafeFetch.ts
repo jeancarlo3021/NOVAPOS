@@ -19,6 +19,7 @@ interface UseSafeFetchState<T> {
  * - Reintentos automáticos
  * - Cleanup al desmontar
  * - Evita memory leaks
+ * - SIN PARPADEO (no re-ejecuta innecesariamente)
  */
 export function useSafeFetch<T>(
   fetchFn: () => Promise<T>,
@@ -33,6 +34,7 @@ export function useSafeFetch<T>(
 
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const hasExecutedRef = useRef(false);
 
   const executeRequest = useCallback(async () => {
     // Evitar actualizar estado si el componente fue desmontado
@@ -53,7 +55,8 @@ export function useSafeFetch<T>(
       clearTimeout(timeoutId);
 
       if (isMountedRef.current) {
-        setData(result);
+        // Asegurar que data nunca sea undefined
+        setData(result ?? null);
         setError(null);
         setRetryCount(0);
       }
@@ -64,7 +67,7 @@ export function useSafeFetch<T>(
           : 'Error desconocido en la petición';
 
         // Si es timeout y hay reintentos disponibles
-        if (errorMessage.includes('timeout') && retryCount < retries) {
+        if ((errorMessage.includes('timeout') || errorMessage.includes('abort')) && retryCount < retries) {
           setRetryCount(prev => prev + 1);
           setTimeout(() => {
             executeRequest();
@@ -81,17 +84,24 @@ export function useSafeFetch<T>(
     }
   }, [fetchFn, timeout, retries, retryDelay, retryCount]);
 
+  // ✅ Ejecutar SOLO una vez al montar, no en cada cambio de executeRequest
   useEffect(() => {
     isMountedRef.current = true;
-    executeRequest();
+    
+    // Evitar ejecutar dos veces en StrictMode
+    if (!hasExecutedRef.current) {
+      hasExecutedRef.current = true;
+      executeRequest();
+    }
 
     return () => {
       isMountedRef.current = false;
       abortControllerRef.current?.abort();
     };
-  }, [executeRequest]);
+  }, []); // ✅ Array vacío: ejecutar SOLO al montar
 
   const retry = useCallback(async () => {
+    hasExecutedRef.current = false;
     setRetryCount(0);
     await executeRequest();
   }, [executeRequest]);

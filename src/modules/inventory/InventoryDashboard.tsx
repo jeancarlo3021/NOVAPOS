@@ -5,6 +5,7 @@ import { PurchasesList } from './purchases/purchasesList';
 import { StockMovements } from './stock/StockMovements';
 import { LowStockAlerts } from './stock/LowStockAlerts';
 import { InventoryStats } from './stock/InventoryStats';
+import { CategoriesAndUnitsManagement } from './categories/CategoriesManagement';
 
 type TabType = 'dashboard' | 'products' | 'suppliers' | 'purchases' | 'stock' | 'alerts';
 
@@ -17,7 +18,8 @@ export const InventoryDashboard: React.FC = () => {
     { id: 'suppliers', label: 'Proveedores' },
     { id: 'purchases', label: 'Compras' },
     { id: 'stock', label: 'Stock' },
-    { id: 'alerts', label: 'Alertas' }
+    { id: 'alerts', label: 'Alertas' },
+    { id: 'categories', label: 'Categorías/Unidades' }
   ];
 
   return (
@@ -59,6 +61,7 @@ export const InventoryDashboard: React.FC = () => {
         {activeTab === 'purchases' && <PurchasesList />}
         {activeTab === 'stock' && <StockMovements />}
         {activeTab === 'alerts' && <LowStockAlerts />}
+        {activeTab === 'categories' && <CategoriesAndUnitsManagement />}
       </div>
     </div>
   );
