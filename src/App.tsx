@@ -9,6 +9,7 @@ import { Users } from '@/modules/users/Users';
 import Plans from '@/modules/users/Plans';
 import {SyncIndicator} from '@/components/SyncIndicator';
 import { InventoryDashboard } from './modules/inventory';
+import { CategoriesAndUnitsManagement } from './modules/inventory/categories/CategoriesManagement';
 
 function App() {
   return (
@@ -33,7 +34,7 @@ function App() {
             <Route path='/users' element={<Users/>}></Route>
             <Route path='/plans' element={<Plans/>}/>
             <Route path="/inventory" element={<InventoryDashboard />} />
-      
+            <Route path='/categorie' element={<CategoriesAndUnitsManagement/>}/>
             <Route path="reports" element={<div className="p-6"><h1>Reportes</h1></div>} />
             <Route path="settings" element={<div className="p-6"><h1>Configuración</h1></div>} />
           </Route>

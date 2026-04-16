@@ -1,29 +1,14 @@
-import { useEffect, useState } from 'react';
-import { offlineSyncService } from '@/services/offlineSyncService';
 
-export function useOfflineSync() {
+import { useState, useEffect } from 'react';
+
+export const useOfflineSync = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [syncStatus, setSyncStatus] = useState({ pending: 0, lastSync: null });
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState({ pending: 0, lastSync: null as string | null });
 
   useEffect(() => {
-    const handleOnline = async () => {
-      setIsOnline(true);
-      setIsSyncing(true);
-      try {
-        const result = await offlineSyncService.syncOperations();
-        console.log('Sincronización completada:', result);
-        setSyncStatus(await offlineSyncService.getSyncStatus());
-      } catch (error) {
-        console.error('Error en sincronización:', error);
-      } finally {
-        setIsSyncing(false);
-      }
-    };
-
-    const handleOffline = () => {
-      setIsOnline(false);
-    };
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -34,5 +19,5 @@ export function useOfflineSync() {
     };
   }, []);
 
-  return { isOnline, syncStatus, isSyncing };
-}
+  return { isOnline, isSyncing, setIsSyncing, syncStatus, setSyncStatus };
+};

@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, AlertCircle, CheckCircle } from 'lucide-react';
+import { inventorySuppliersService } from '@/services/inventorySuppliersService';
+import { useAuth } from '@/context/AuthContext';
+import { Alert, Button } from '@/components/ui/uiComponents';
 
 interface SupplierFormProps {
   supplierId?: string | null;
@@ -15,9 +18,13 @@ interface SupplierData {
   city: string;
   country: string;
   payment_terms: string;
+  contact_person?: string;
 }
 
 export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSuccess, onCancel }) => {
+  const { user } = useAuth();
+  const isMountedRef = useRef(true);
+
   const [formData, setFormData] = useState<SupplierData>({
     name: '',
     email: '',
@@ -25,10 +32,20 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
     address: '',
     city: '',
     country: '',
-    payment_terms: ''
+    payment_terms: '',
+    contact_person: ''
   });
+
   const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(supplierId ? true : false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (supplierId) {
@@ -38,14 +55,29 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
 
   const fetchSupplier = async () => {
     try {
-      const response = await fetch(`/api/suppliers/${supplierId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setFormData(data);
+      setLoadingData(true);
+      const supplier = await inventorySuppliersService.getSupplierById(supplierId!);
+      if (isMountedRef.current) {
+        setFormData({
+          name: supplier.name || '',
+          email: supplier.email || '',
+          phone: supplier.phone || '',
+          address: supplier.address || '',
+          city: supplier.city || '',
+          country: supplier.country || '',
+          payment_terms: supplier.payment_terms || '',
+          contact_person: supplier.contact_person || ''
+        });
       }
     } catch (err) {
-      setError('Error al cargar el proveedor');
-      console.error(err);
+      if (isMountedRef.current) {
+        setError('Error al cargar el proveedor');
+        console.error(err);
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoadingData(false);
+      }
     }
   };
 
@@ -57,129 +89,239 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
     }));
   };
 
+  const validateForm = (): boolean => {
+    if (!formData.name.trim()) {
+      setError('El nombre del proveedor es requerido');
+      return false;
+    }
+    if (formData.email && !formData.email.includes('@')) {
+      setError('El email no es válido');
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setSuccess(false);
 
     try {
-      const method = supplierId ? 'PUT' : 'POST';
-      const url = supplierId ? `/api/suppliers/${supplierId}` : '/api/suppliers';
+      if (!validateForm()) {
+        setLoading(false);
+        return;
+      }
 
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-
-      if (response.ok) {
-        onSuccess();
+      if (supplierId) {
+        await inventorySuppliersService.updateSupplier(supplierId, formData);
       } else {
-        setError('Error al guardar el proveedor');
+        await inventorySuppliersService.createSupplier(user!.tenant_id, formData);
+      }
+
+      if (isMountedRef.current) {
+        setSuccess(true);
+        setTimeout(() => {
+          onSuccess();
+          onCancel();
+        }, 1500);
       }
     } catch (err) {
-      setError('Error de conexión');
-      console.error(err);
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Error al guardar el proveedor');
+        console.error(err);
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
+  if (loadingData) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl shadow-2xl p-6">
+          <p className="text-gray-600">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">
-            {supplierId ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-screen overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-white">
+            {supplierId ? '✏️ Editar Proveedor' : '➕ Nuevo Proveedor'}
           </h2>
-          <button onClick={onCancel} className="text-gray-500 hover:text-gray-700">
+          <button 
+            onClick={onCancel} 
+            disabled={loading}
+            className="text-white hover:bg-white hover:bg-opacity-20 p-2 rounded-lg transition disabled:opacity-50"
+          >
             <X size={24} />
           </button>
         </div>
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded">
-            {error}
-          </div>
-        )}
+        {/* Content */}
+        <div className="p-6">
+          {error && (
+            <Alert 
+              type="error" 
+              message={error}
+              onClose={() => setError('')}
+            />
+          )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="text"
-              name="name"
-              placeholder="Nombre del proveedor"
-              value={formData.name}
-              onChange={handleChange}
-              required
-              className="col-span-2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <input
-              type="email"
-              name="email"
-              placeholder="Email"
-              value={formData.email}
-              onChange={handleChange}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <input
-              type="tel"
-              name="phone"
-              placeholder="Teléfono"
-              value={formData.phone}
-              onChange={handleChange}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <textarea
-              name="address"
-              placeholder="Dirección"
-              value={formData.address}
-              onChange={handleChange}
-              className="col-span-2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <input
-              type="text"
-              name="city"
-              placeholder="Ciudad"
-              value={formData.city}
-              onChange={handleChange}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <input
-              type="text"
-              name="country"
-              placeholder="País"
-              value={formData.country}
-              onChange={handleChange}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <input
-              type="text"
-              name="payment_terms"
-              placeholder="Términos de pago (ej: 30 días)"
-              value={formData.payment_terms}
-              onChange={handleChange}
-              className="col-span-2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
+          {success && (
+            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+              <CheckCircle size={20} className="text-green-600" />
+              <span className="text-green-700 font-medium">¡Proveedor guardado exitosamente!</span>
+            </div>
+          )}
 
-          <div className="flex gap-4 justify-end">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
-            >
-              {loading ? 'Guardando...' : 'Guardar'}
-            </button>
-          </div>
-        </form>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Name */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Nombre del Proveedor *
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="Ej: Proveedor ABC"
+                  value={formData.name}
+                  onChange={handleChange}
+                  disabled={loading}
+                  required
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
+                />
+              </div>
+
+              {/* Contact Person */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Persona de Contacto
+                </label>
+                <input
+                  type="text"
+                  name="contact_person"
+                  placeholder="Nombre del contacto"
+                  value={formData.contact_person || ''}
+                  onChange={handleChange}
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
+                <input
+                  type="email"
+                  name="email"
+                  placeholder="correo@ejemplo.com"
+                  value={formData.email}
+                  onChange={handleChange}
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
+                />
+              </div>
+
+              {/* Phone */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Teléfono</label>
+                <input
+                  type="tel"
+                  name="phone"
+                  placeholder="+1 234 567 8900"
+                  value={formData.phone}
+                  onChange={handleChange}
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
+                />
+              </div>
+
+              {/* Address */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Dirección</label>
+                <textarea
+                  name="address"
+                  placeholder="Calle, número, apartamento..."
+                  value={formData.address}
+                  onChange={handleChange}
+                  disabled={loading}
+                  rows={2}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none disabled:bg-gray-100"
+                />
+              </div>
+
+              {/* City */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Ciudad</label>
+                <input
+                  type="text"
+                  name="city"
+                  placeholder="Ej: San José"
+                  value={formData.city}
+                  onChange={handleChange}
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
+                />
+              </div>
+
+              {/* Country */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">País</label>
+                <input
+                  type="text"
+                  name="country"
+                  placeholder="Ej: Costa Rica"
+                  value={formData.country}
+                  onChange={handleChange}
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
+                />
+              </div>
+
+              {/* Payment Terms */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Términos de Pago</label>
+                <input
+                  type="text"
+                  name="payment_terms"
+                  placeholder="Ej: 30 días neto, 2/10 neto 30"
+                  value={formData.payment_terms}
+                  onChange={handleChange}
+                  disabled={loading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 justify-end pt-4 border-t">
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={loading}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 font-medium transition flex items-center gap-2"
+              >
+                {loading ? '⏳ Guardando...' : '💾 Guardar'}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

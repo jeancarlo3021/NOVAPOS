@@ -1,7 +1,7 @@
 import React from 'react';
 import { TrendingUp, ShoppingCart, Package, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Card, CardHeader, CardContent, Badge, Button } from '@/components/ui/components';
+import { Card, CardHeader, CardContent, StatusBadge, Button } from '@/components/ui/uiComponents';
 
 // Datos de ejemplo
 const salesData = [
@@ -157,13 +157,13 @@ export const Dashboard = () => {
                     <td className="py-3 px-4 text-sm text-gray-600">{order.customer}</td>
                     <td className="py-3 px-4 text-sm font-semibold text-gray-900">{order.amount}</td>
                     <td className="py-3 px-4 text-sm">
-                      <Badge variant={
+                      <StatusBadge variant={
                         order.status === 'Completada' ? 'success' : 
                         order.status === 'En preparación' ? 'warning' : 
                         'info'
                       }>
                         {order.status}
-                      </Badge>
+                      </StatusBadge>
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-500">{order.time}</td>
                   </tr>

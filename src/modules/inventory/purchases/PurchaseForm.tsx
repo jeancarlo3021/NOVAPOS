@@ -1,227 +1,445 @@
-import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
-
-interface PurchaseFormProps {
-  onSuccess: () => void;
-  onCancel: () => void;
-}
-
-interface Supplier {
-  id: number;
-  name: string;
-}
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Trash2, Loader, X, AlertCircle } from 'lucide-react';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
+import { useFormState, useOfflineOperation } from '@/hooks/customHooks';
+import { offlineSyncService } from '@/services/offlineSyncService';
+import { Alert, StatusBadge, SyncingIndicator, Button, Input, Card, CardHeader, CardContent } from '@/components/ui/uiComponents';
 
 interface Product {
-  id: number;
+  id: string;
   name: string;
-  sku: string;
-  cost_price: number;
-}
-
-interface PurchaseItem {
-  product_id: number;
   quantity: number;
-  unit_price: number;
+  unitPrice: number;
+  total: number;
 }
 
-interface PurchaseData {
-  supplier_id: number;
-  purchase_date: string;
-  expected_delivery_date: string;
-  items: PurchaseItem[];
+interface PurchaseFormData {
+  purchaseNumber: string;
+  supplier: string;
+  purchaseDate: string;
+  expectedDelivery: string;
+  products: Product[];
   notes: string;
 }
 
-export const PurchaseForm: React.FC<PurchaseFormProps> = ({ onSuccess, onCancel }) => {
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [formData, setFormData] = useState<PurchaseData>({
-    supplier_id: 0,
-    purchase_date: new Date().toISOString().split('T')[0],
-    expected_delivery_date: '',
-    items: [],
-    notes: ''
-  });
-  const [loading, setLoading] = useState(false);
+const INITIAL_STATE: PurchaseFormData = {
+  purchaseNumber: '',
+  supplier: '',
+  purchaseDate: new Date().toISOString().split('T')[0],
+  expectedDelivery: '',
+  products: [],
+  notes: ''
+};
+
+interface PurchaseFormProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onSuccess }) => {
+  const { isOnline, isSyncing } = useOfflineSync();
+  const { formData, handleChange, reset } = useFormState(INITIAL_STATE);
+  const { saveOffline, message, setMessage, isLoading } = useOfflineOperation();
+  const [syncStatus, setSyncStatus] = useState({ pending: 0, lastSync: null as string | null });
+  const [newProduct, setNewProduct] = useState({ name: '', quantity: 1, unitPrice: 0 });
+  const [submitting, setSubmitting] = useState(false);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
-    fetchSuppliers();
-    fetchProducts();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
-  const fetchSuppliers = async () => {
+  useEffect(() => {
+    if (isOpen) {
+      loadSyncStatus();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOnline && syncStatus.pending > 0) {
+      handleSync();
+    }
+  }, [isOnline]);
+
+  const loadSyncStatus = async () => {
     try {
-      const response = await fetch('/api/suppliers');
-      const data = await response.json();
-      setSuppliers(data);
+      const status = await offlineSyncService.getSyncStatus();
+      if (isMountedRef.current) {
+        setSyncStatus(status);
+      }
     } catch (error) {
-      console.error('Error fetching suppliers:', error);
+      console.error('Error loading sync status:', error);
     }
   };
 
-  const fetchProducts = async () => {
+  const handleSync = async () => {
     try {
-      const response = await fetch('/api/products');
-      const data = await response.json();
-      setProducts(data);
+      const result = await offlineSyncService.syncOperations();
+      if (isMountedRef.current) {
+        setMessage({
+          type: result.success ? 'success' : 'info',
+          text: `✅ ${result.synced} operación(es) sincronizada(s)`
+        });
+        await loadSyncStatus();
+      }
     } catch (error) {
-      console.error('Error fetching products:', error);
+      if (isMountedRef.current) {
+        setMessage({ type: 'error', text: '❌ Error durante la sincronización' });
+      }
     }
   };
 
-  const handleAddItem = () => {
-    setFormData(prev => ({
-      ...prev,
-      items: [...prev.items, { product_id: 0, quantity: 1, unit_price: 0 }]
-    }));
+  const handleAddProduct = () => {
+    if (!newProduct.name.trim()) {
+      setMessage({ type: 'error', text: 'El nombre del producto es requerido' });
+      return;
+    }
+    if (newProduct.quantity <= 0) {
+      setMessage({ type: 'error', text: 'La cantidad debe ser mayor a 0' });
+      return;
+    }
+    if (newProduct.unitPrice <= 0) {
+      setMessage({ type: 'error', text: 'El precio unitario debe ser mayor a 0' });
+      return;
+    }
+
+    const product: Product = {
+      id: `${Date.now()}-${Math.random()}`,
+      ...newProduct,
+      total: newProduct.quantity * newProduct.unitPrice
+    };
+
+    formData.products.push(product);
+    setNewProduct({ name: '', quantity: 1, unitPrice: 0 });
+    setMessage({ type: 'success', text: 'Producto agregado' });
+    setTimeout(() => setMessage(null), 2000);
   };
 
-  const handleRemoveItem = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index)
-    }));
+  const handleRemoveProduct = (id: string) => {
+    formData.products = formData.products.filter(p => p.id !== id);
+    setMessage({ type: 'success', text: 'Producto removido' });
+    setTimeout(() => setMessage(null), 2000);
   };
 
-  const handleItemChange = (index: number, field: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      items: prev.items.map((item, i) =>
-        i === index ? { ...item, [field]: value } : item
-      )
-    }));
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    handleChange({ target: { name, value } } as any);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSubmitting(true);
 
     try {
-      const response = await fetch('/api/purchases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+      // Validaciones
+      if (!formData.purchaseNumber.trim()) {
+        setMessage({ type: 'error', text: 'El número de compra es requerido' });
+        return;
+      }
+      if (!formData.supplier.trim()) {
+        setMessage({ type: 'error', text: 'El proveedor es requerido' });
+        return;
+      }
+      if (formData.products.length === 0) {
+        setMessage({ type: 'error', text: 'Agrega al menos un producto' });
+        return;
+      }
+
+      const totalAmount = formData.products.reduce((sum, p) => sum + p.total, 0);
+
+      const success = await saveOffline('create', 'purchases', {
+        ...formData,
+        totalAmount
       });
 
-      if (response.ok) {
-        onSuccess();
+      if (success && isMountedRef.current) {
+        setMessage({ type: 'success', text: 'Compra guardada exitosamente' });
+        setTimeout(() => {
+          reset();
+          onSuccess();
+          onClose();
+        }, 1500);
+        await loadSyncStatus();
       }
     } catch (error) {
-      console.error('Error saving purchase:', error);
+      if (isMountedRef.current) {
+        setMessage({
+          type: 'error',
+          text: error instanceof Error ? error.message : 'Error al guardar la compra'
+        });
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setSubmitting(false);
+      }
     }
   };
 
+  const totalAmount = formData.products.reduce((sum, p) => sum + p.total, 0);
+
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl p-6 my-8">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">Nueva Compra</h2>
-          <button onClick={onCancel} className="text-gray-500 hover:text-gray-700">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-4xl max-h-screen overflow-y-auto">
+        <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
+          <h2 className="text-2xl font-bold">➕ Nueva Compra</h2>
+          <button
+            onClick={onClose}
+            disabled={submitting || isLoading}
+            className="text-white hover:bg-blue-800 p-2 rounded disabled:opacity-50"
+          >
             <X size={24} />
           </button>
-        </div>
+        </CardHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <select
-              value={formData.supplier_id}
-              onChange={(e) => setFormData(prev => ({ ...prev, supplier_id: parseInt(e.target.value) }))}
-              required
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Seleccionar proveedor</option>
-              {suppliers.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-            <input
-              type="date"
-              value={formData.purchase_date}
-              onChange={(e) => setFormData(prev => ({ ...prev, purchase_date: e.target.value }))}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+        <CardContent className="p-6 space-y-6">
+          {message && (
+            <Alert
+              type={message.type}
+              message={message.text}
+              onClose={() => setMessage(null)}
             />
-            <input
-              type="date"
-              value={formData.expected_delivery_date}
-              onChange={(e) => setFormData(prev => ({ ...prev, expected_delivery_date: e.target.value }))}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+          )}
+
+          {isSyncing && <SyncingIndicator />}
+
+          <div className="flex items-center justify-between">
+            <StatusBadge isOnline={isOnline} pending={syncStatus.pending} />
+            {syncStatus.pending > 0 && (
+              <Button onClick={handleSync} disabled={isSyncing} size="sm">
+                {isSyncing ? <Loader className="w-4 h-4 animate-spin mr-2" /> : null}
+                Sincronizar
+              </Button>
+            )}
           </div>
 
-          <div className="border rounded-lg p-4">
-            <h3 className="font-semibold mb-4">Productos</h3>
-            {formData.items.map((item, index) => (
-              <div key={index} className="grid grid-cols-4 gap-2 mb-2">
-                <select
-                  value={item.product_id}
-                  onChange={(e) => handleItemChange(index, 'product_id', parseInt(e.target.value))}
-                  className="px-2 py-2 border border-gray-300 rounded text-sm"
-                >
-                  <option value="">Producto</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  value={item.quantity}
-                  onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value))}
-                  placeholder="Cantidad"
-                  className="px-2 py-2 border border-gray-300 rounded text-sm"
-                />
-                <input
-                  type="number"
-                  value={item.unit_price}
-                  onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value))}
-                  placeholder="Precio"
-                  step="0.01"
-                  className="px-2 py-2 border border-gray-300 rounded text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleRemoveItem(index)}
-                  className="px-2 py-2 text-red-600 hover:bg-red-50 rounded text-sm"
-                >
-                  Eliminar
-                </button>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Información General */}
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Información General</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Número de Compra *
+                  </label>
+                  <Input
+                    name="purchaseNumber"
+                    placeholder="OC-001"
+                    value={formData.purchaseNumber}
+                    onChange={handleChange}
+                    disabled={submitting}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Proveedor *
+                  </label>
+                  <Input
+                    name="supplier"
+                    placeholder="Nombre del proveedor"
+                    value={formData.supplier}
+                    onChange={handleChange}
+                    disabled={submitting}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Fecha de Compra
+                  </label>
+                  <Input
+                    type="date"
+                    name="purchaseDate"
+                    value={formData.purchaseDate}
+                    onChange={handleChange}
+                    disabled={submitting}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Entrega Esperada
+                  </label>
+                  <Input
+                    type="date"
+                    name="expectedDelivery"
+                    value={formData.expectedDelivery}
+                    onChange={handleChange}
+                    disabled={submitting}
+                  />
+                </div>
               </div>
-            ))}
-            <button
-              type="button"
-              onClick={handleAddItem}
-              className="mt-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm"
-            >
-              + Agregar producto
-            </button>
-          </div>
+            </div>
 
-          <textarea
-            placeholder="Notas"
-            value={formData.notes}
-            onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-          />
+            {/* Productos */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-semibold mb-4">Productos</h3>
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Producto *
+                  </label>
+                  <Input
+                    placeholder="Nombre"
+                    value={newProduct.name}
+                    onChange={(e) =>
+                      setNewProduct({ ...newProduct, name: e.target.value })
+                    }
+                    disabled={submitting}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Cantidad *
+                  </label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={newProduct.quantity}
+                    onChange={(e) =>
+                      setNewProduct({
+                        ...newProduct,
+                        quantity: parseInt(e.target.value) || 1
+                      })
+                    }
+                    disabled={submitting}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Precio Unit. *
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={newProduct.unitPrice}
+                    onChange={(e) =>
+                      setNewProduct({
+                        ...newProduct,
+                        unitPrice: parseFloat(e.target.value) || 0
+                      })
+                    }
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    onClick={handleAddProduct}
+                    disabled={submitting || !newProduct.name.trim()}
+                    className="w-full"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Agregar
+                  </Button>
+                </div>
+              </div>
 
-          <div className="flex gap-4 justify-end">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? 'Guardando...' : 'Guardar'}
-            </button>
-          </div>
-        </form>
-      </div>
+              {formData.products.length > 0 && (
+                <div className="bg-gray-50 rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100 border-b">
+                      <tr>
+                        <th className="px-4 py-2 text-left">Producto</th>
+                        <th className="px-4 py-2 text-right">Cantidad</th>
+                        <th className="px-4 py-2 text-right">Precio Unit.</th>
+                        <th className="px-4 py-2 text-right">Total</th>
+                        <th className="px-4 py-2 text-center">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {formData.products.map((p) => (
+                        <tr key={p.id} className="border-b hover:bg-gray-100">
+                          <td className="px-4 py-2">{p.name}</td>
+                          <td className="px-4 py-2 text-right">{p.quantity}</td>
+                          <td className="px-4 py-2 text-right">
+                            ${p.unitPrice.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-2 text-right font-semibold">
+                            ${p.total.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveProduct(p.id)}
+                              disabled={submitting}
+                              className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {formData.products.length === 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex gap-2">
+                  <AlertCircle className="text-yellow-600 flex-shrink-0" size={20} />
+                  <p className="text-yellow-800">Agrega al menos un producto</p>
+                </div>
+              )}
+            </div>
+
+            {/* Notas */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Notas
+              </label>
+              <textarea
+                name="notes"
+                value={formData.notes}
+                onChange={handleTextareaChange}
+                placeholder="Notas adicionales sobre la compra..."
+                disabled={submitting}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                rows={3}
+              />
+            </div>
+
+            {/* Total */}
+            <div className="bg-blue-50 p-4 rounded-lg flex justify-between items-center">
+              <span className="font-semibold text-gray-900">Total:</span>
+              <span className="text-3xl font-bold text-blue-600">
+                ${totalAmount.toFixed(2)}
+              </span>
+            </div>
+          </form>
+        </CardContent>
+
+        <div className="bg-gray-50 border-t border-gray-200 flex justify-end gap-3 p-6">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            onClick={handleSubmit}
+            disabled={submitting || isLoading || isSyncing}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {submitting ? (
+              <>
+                <Loader className="w-4 h-4 animate-spin mr-2" />
+                Guardando...
+              </>
+            ) : (
+              '💾 Guardar Compra'
+            )}
+          </Button>
+        </div>
+      </Card>
     </div>
   );
 };
