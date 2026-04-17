@@ -9,7 +9,9 @@ import { Users } from '@/modules/users/Users';
 import Plans from '@/modules/users/Plans';
 import {SyncIndicator} from '@/components/SyncIndicator';
 import { InventoryDashboard } from './modules/inventory';
-import { CategoriesAndUnitsManagement } from './modules/inventory/categories/CategoriesManagement';
+import { CategoriesManagement } from './modules/inventory/categories/CategoriesManagement';
+import { UnitTypesManagement } from './modules/inventory/categories/UnitTypesManagement';
+import { POSMain } from './modules/pos/POSMain';
 
 function App() {
   return (
@@ -29,12 +31,13 @@ function App() {
             }
           >
             <Route index element={<Dashboard />} />
-            <Route path="pos" element={<div className="p-6"><h1>POS</h1></div>} />
+            <Route path="/pos" element={<POSMain/>} />
             <Route path='/create-owner' element={<CreateOwner />} />
             <Route path='/users' element={<Users/>}></Route>
             <Route path='/plans' element={<Plans/>}/>
             <Route path="/inventory" element={<InventoryDashboard />} />
-            <Route path='/categorie' element={<CategoriesAndUnitsManagement/>}/>
+            <Route path='/categorie' element={<CategoriesManagement/>}/>
+            <Route path='/unit-types' element={<UnitTypesManagement/>}/>
             <Route path="reports" element={<div className="p-6"><h1>Reportes</h1></div>} />
             <Route path="settings" element={<div className="p-6"><h1>Configuración</h1></div>} />
           </Route>

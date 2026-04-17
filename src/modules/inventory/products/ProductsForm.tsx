@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, AlertCircle } from 'lucide-react';
-import { inventoryProductsService, categoriesService, unitTypesService, Category, UnitType } from '@/services/InventoryProductsService';
+import { X, AlertCircle } from 'lucide-react';
+import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardHeader, CardContent, CardFooter, Spinner } from '@/components/ui/uiComponents';
@@ -53,22 +53,24 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
   // Cargar categorías y tipos de unidad
   const {
-    data: categories = [],
+    data: categoriesData,
     loading: categoriesLoading,
     error: categoriesError
   } = useSafeFetch(
     () => categoriesService.getAllCategories(user!.tenant_id),
     { timeout: 8000, retries: 2 }
   );
+  const categories = categoriesData ?? [];
 
   const {
-    data: unitTypes = [],
+    data: unitTypesData,
     loading: unitTypesLoading,
     error: unitTypesError
   } = useSafeFetch(
     () => unitTypesService.getAllUnitTypes(user!.tenant_id),
     { timeout: 8000, retries: 2 }
   );
+  const unitTypes = unitTypesData ?? [];
 
   // Cargar producto si es edición
   useEffect(() => {
@@ -85,7 +87,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
   const loadProduct = async () => {
     try {
-      const product = await inventoryProductsService.getProductById(productId!);
+      const product = await inventoryProductsService.getProductById(productId!, user!.tenant_id);
+      if (!product) return;
       if (isMountedRef.current) {
         setFormData({
           name: product.name,
@@ -123,7 +126,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     try {
       const category = await categoriesService.createCategory(user!.tenant_id, {
         name: newCategory,
-        description: '',
         color: '#3B82F6',
       });
       if (isMountedRef.current) {
@@ -153,7 +155,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       const unitType = await unitTypesService.createUnitType(user!.tenant_id, {
         name: newUnit.name,
         abbreviation: newUnit.abbreviation,
-        description: '',
       });
       if (isMountedRef.current) {
         setFormData(prev => ({ ...prev, unit_type_id: unitType.id }));
@@ -192,11 +193,11 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       const productData = {
         name: formData.name,
         sku: formData.sku,
-        description: formData.description || null,
-        category_id: formData.category_id || null,
-        unit_type_id: formData.unit_type_id || null,
-        unit_price: formData.unit_price ? parseFloat(formData.unit_price) : null,
-        cost_price: formData.cost_price ? parseFloat(formData.cost_price) : null,
+        description: formData.description || undefined,
+        category_id: formData.category_id || undefined,
+        unit_type_id: formData.unit_type_id || undefined,
+        unit_price: formData.unit_price ? parseFloat(formData.unit_price) : 0,
+        cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
         stock_quantity: parseInt(formData.stock_quantity) || 0,
         min_stock_level: parseInt(formData.min_stock_level) || 10,
         max_stock_level: parseInt(formData.max_stock_level) || 100,
@@ -228,7 +229,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
   if (isLoadingData) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50">
         <Card className="w-full max-w-2xl">
           <CardContent className="flex justify-center py-8">
             <Spinner />
@@ -239,8 +240,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-3xl max-h-screen overflow-y-auto">
+    <div className="fixed inset-0  backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 w-full p-8">
+      <Card className="w-full max-w-3xl max-h-3xl overflow-y-auto">
         <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
           <h2 className="text-2xl font-bold">
             {productId ? '✏️ Editar Producto' : '➕ Nuevo Producto'}
@@ -336,14 +337,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => setShowCategoryForm(!showCategoryForm)}
-                    disabled={submitting || categoryLoading}
-                    className="px-3 py-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 disabled:opacity-50"
-                  >
-                    <Plus size={20} />
-                  </button>
                 </div>
                 {showCategoryForm && (
                   <div className="mt-2 flex gap-2">
@@ -384,14 +377,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => setShowUnitForm(!showUnitForm)}
-                    disabled={submitting || unitLoading}
-                    className="px-3 py-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 disabled:opacity-50"
-                  >
-                    <Plus size={20} />
-                  </button>
+                  
                 </div>
                 {showUnitForm && (
                   <div className="mt-2 grid grid-cols-2 gap-2">

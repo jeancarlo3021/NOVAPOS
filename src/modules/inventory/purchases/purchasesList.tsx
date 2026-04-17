@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Plus, Search, Eye, Trash2, RotateCw } from 'lucide-react';
-import { inventoryPurchasesService, InventoryPurchase } from '@/services/inventoryPurchasesService';
+import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
-import { Alert, LoadingSpinner, Button, Card, CardContent } from '@/components/ui/uiComponents';
+import { Alert, LoadingState, Button, Card, CardContent } from '@/components/ui/uiComponents';
 import { PurchaseForm } from './PurchaseForm';
 
 export const PurchasesList: React.FC = () => {
@@ -140,7 +140,7 @@ export const PurchasesList: React.FC = () => {
 
       {/* Contenido Principal */}
       {loading ? (
-        <LoadingSpinner message="Cargando compras..." />
+        <LoadingState message="Cargando compras..." />
       ) : purchases.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
@@ -167,7 +167,7 @@ export const PurchasesList: React.FC = () => {
             <Button
               onClick={retry}
               size="sm"
-              variant="outline"
+              variant="secondary"
               className="flex items-center gap-2"
             >
               <RotateCw size={16} />

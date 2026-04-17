@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, AlertCircle, CheckCircle } from 'lucide-react';
-import { inventorySuppliersService } from '@/services/inventorySuppliersService';
+import { X, CheckCircle } from 'lucide-react';
+import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { useAuth } from '@/context/AuthContext';
-import { Alert, Button } from '@/components/ui/uiComponents';
+import { Alert } from '@/components/ui/uiComponents';
 
 interface SupplierFormProps {
   supplierId?: string | null;
@@ -116,7 +116,11 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
       if (supplierId) {
         await inventorySuppliersService.updateSupplier(supplierId, formData);
       } else {
-        await inventorySuppliersService.createSupplier(user!.tenant_id, formData);
+        await inventorySuppliersService.createSupplier(user!.tenant_id, {
+            ...formData,
+            is_active: true,
+            contact_person: formData.contact_person ?? null,
+          });
       }
 
       if (isMountedRef.current) {
@@ -140,7 +144,7 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
 
   if (loadingData) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50">
         <div className="bg-white rounded-xl shadow-2xl p-6">
           <p className="text-gray-600">Cargando...</p>
         </div>
@@ -149,7 +153,7 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-screen overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center">

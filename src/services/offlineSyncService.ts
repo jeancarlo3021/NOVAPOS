@@ -7,16 +7,19 @@ export interface OfflineOperation {
   data: any;
   timestamp: number;
   synced: boolean;
+  retries: number;
+  lastError?: string;
 }
 
 class OfflineSyncService {
   private DB_NAME = 'plansDB';
   private STORE_NAME = 'operations';
   private db: IDBDatabase | null = null;
+  private MAX_RETRIES = 3;
 
   async init() {
     return new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(this.DB_NAME, 1);
+      const request = indexedDB.open(this.DB_NAME, 2);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -27,21 +30,24 @@ class OfflineSyncService {
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
         if (!db.objectStoreNames.contains(this.STORE_NAME)) {
-          db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
+          const store = db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
+          store.createIndex('synced', 'synced', { unique: false });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
     });
   }
 
-  async addOperation(operation: Omit<OfflineOperation, 'id' | 'timestamp'>) {
+  async addOperation(operation: Omit<OfflineOperation, 'id' | 'timestamp' | 'retries' | 'synced'>) {
     await this.init();
     if (!this.db) throw new Error('IndexedDB no inicializado');
 
     const op: OfflineOperation = {
       ...operation,
-      id: `${Date.now()}-${Math.random()}`,
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now(),
       synced: false,
+      retries: 0,
     };
 
     return new Promise<OfflineOperation>((resolve, reject) => {
@@ -61,11 +67,12 @@ class OfflineSyncService {
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([this.STORE_NAME], 'readonly');
       const store = transaction.objectStore(this.STORE_NAME);
-      const request = store.getAll();
+      const index = store.index('synced');
+      const request = index.getAll(false);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
-        const operations = request.result.filter((op) => !op.synced);
+        const operations = request.result.sort((a, b) => a.timestamp - b.timestamp);
         resolve(operations);
       };
     });
@@ -73,21 +80,31 @@ class OfflineSyncService {
 
   async syncOperations() {
     const operations = await this.getPendingOperations();
-    if (operations.length === 0) return { success: true, synced: 0 };
+    if (operations.length === 0) return { success: true, synced: 0, errors: [] };
 
     let synced = 0;
     const errors: any[] = [];
 
     for (const op of operations) {
       try {
+        if (op.retries >= this.MAX_RETRIES) {
+          errors.push({
+            operationId: op.id,
+            error: 'Máximo número de reintentos alcanzado',
+          });
+          continue;
+        }
+
         const result = await this.executeOperation(op);
         if (result.error) {
+          await this.incrementRetries(op.id, result.error.message);
           errors.push({ operationId: op.id, error: result.error });
         } else {
           await this.markAsSynced(op.id);
           synced++;
         }
       } catch (error) {
+        await this.incrementRetries(op.id, String(error));
         errors.push({ operationId: op.id, error });
       }
     }
@@ -127,9 +144,31 @@ class OfflineSyncService {
       getRequest.onsuccess = () => {
         const op = getRequest.result;
         op.synced = true;
+        op.retries = 0;
         const updateRequest = store.put(op);
         updateRequest.onerror = () => reject(updateRequest.error);
         updateRequest.onsuccess = () => resolve(op);
+      };
+      getRequest.onerror = () => reject(getRequest.error);
+    });
+  }
+
+  private async incrementRetries(operationId: string, error: string) {
+    await this.init();
+    if (!this.db) throw new Error('IndexedDB no inicializado');
+
+    return new Promise<void>((resolve, reject) => {
+      const transaction = this.db!.transaction([this.STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(this.STORE_NAME);
+      const getRequest = store.get(operationId);
+
+      getRequest.onsuccess = () => {
+        const op = getRequest.result;
+        op.retries = (op.retries || 0) + 1;
+        op.lastError = error;
+        const updateRequest = store.put(op);
+        updateRequest.onerror = () => reject(updateRequest.error);
+        updateRequest.onsuccess = () => resolve();
       };
       getRequest.onerror = () => reject(getRequest.error);
     });
@@ -140,7 +179,31 @@ class OfflineSyncService {
     return {
       pending: operations.length,
       lastSync: localStorage.getItem('lastSync'),
+      operations,
     };
+  }
+
+  async clearSyncedOperations() {
+    await this.init();
+    if (!this.db) throw new Error('IndexedDB no inicializado');
+
+    return new Promise<void>((resolve, reject) => {
+      const transaction = this.db!.transaction([this.STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(this.STORE_NAME);
+      const index = store.index('synced');
+      const request = index.openCursor(IDBKeyRange.only(true));
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        } else {
+          resolve();
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
   }
 }
 

@@ -1,37 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Package, AlertTriangle, TrendingUp, DollarSign, RefreshCw } from 'lucide-react';
-import { inventoryProductsService } from '@/services/InventoryProductsService';
+import { Package, AlertTriangle } from 'lucide-react';
+import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useAuth } from '@/context/AuthContext';
-import { 
-  Card, 
-  CardHeader, 
-  CardContent, 
-  CardFooter,
-  Button,
-  Spinner,
-  Alert,
-  Badge,
-  Divider
-} from '@/components/ui/uiComponents';
-
-interface LowStockProduct {
-  id: string;
-  name: string;
-  quantity_on_hand: number;
-  reorder_level: number;
-  sku: string;
-}
+import { Card, CardHeader, CardContent, Spinner, Alert, Badge } from '@/components/ui/uiComponents';
+import type { Product } from '@/types/Types_POS';
 
 export const LowStockAlerts: React.FC = () => {
   const { user } = useAuth();
-  const [products, setProducts] = useState<LowStockProduct[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user?.tenant_id) {
-      fetchLowStockProducts();
-    }
+    if (user?.tenant_id) fetchLowStockProducts();
   }, [user?.tenant_id]);
 
   const fetchLowStockProducts = async () => {
@@ -42,7 +23,6 @@ export const LowStockAlerts: React.FC = () => {
       setProducts(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar alertas');
-      console.error('Error fetching low stock products:', err);
     } finally {
       setLoading(false);
     }
@@ -51,9 +31,7 @@ export const LowStockAlerts: React.FC = () => {
   if (loading) {
     return (
       <Card className="p-6">
-        <div className="flex justify-center">
-          <Spinner />
-        </div>
+        <div className="flex justify-center"><Spinner /></div>
       </Card>
     );
   }
@@ -86,8 +64,8 @@ export const LowStockAlerts: React.FC = () => {
     );
   }
 
-  const criticalCount = products.filter(p => p.quantity_on_hand === 0).length;
-  const warningCount = products.filter(p => p.quantity_on_hand > 0 && p.quantity_on_hand <= p.reorder_level).length;
+  const criticalCount = products.filter(p => p.stock_quantity === 0).length;
+  const warningCount = products.filter(p => p.stock_quantity > 0 && p.stock_quantity <= (p.min_stock_level ?? 0)).length;
 
   return (
     <Card className="border-yellow-200 bg-yellow-50 overflow-hidden">
@@ -110,19 +88,18 @@ export const LowStockAlerts: React.FC = () => {
       <CardContent className="p-4">
         <div className="space-y-3">
           {products.map((product) => {
-            const stockPercentage = (product.quantity_on_hand / product.reorder_level) * 100;
-            const isCritical = product.quantity_on_hand === 0;
-            const isWarning = product.quantity_on_hand > 0 && product.quantity_on_hand <= product.reorder_level;
+            const minStock = product.min_stock_level ?? 0;
+            const stockPct = minStock > 0 ? (product.stock_quantity / minStock) * 100 : 100;
+            const isCritical = product.stock_quantity === 0;
+            const isWarning = product.stock_quantity > 0 && product.stock_quantity <= minStock;
 
             return (
               <div
                 key={product.id}
                 className={`p-4 rounded-lg border-2 transition-colors ${
-                  isCritical
-                    ? 'bg-red-50 border-red-300'
-                    : isWarning
-                    ? 'bg-orange-50 border-orange-300'
-                    : 'bg-white border-gray-200'
+                  isCritical ? 'bg-red-50 border-red-300'
+                  : isWarning ? 'bg-orange-50 border-orange-300'
+                  : 'bg-white border-gray-200'
                 }`}
               >
                 <div className="flex items-start justify-between mb-2">
@@ -130,29 +107,24 @@ export const LowStockAlerts: React.FC = () => {
                     <h4 className="font-semibold text-gray-900">{product.name}</h4>
                     <p className="text-xs text-gray-500">SKU: {product.sku}</p>
                   </div>
-                  <Badge
-                    variant={isCritical ? 'destructive' : isWarning ? 'warning' : 'default'}
-                    className="text-xs"
-                  >
+                  <Badge variant={isCritical ? 'error' : isWarning ? 'warning' : 'default'} className="text-xs">
                     {isCritical ? 'CRÍTICO' : 'ADVERTENCIA'}
                   </Badge>
                 </div>
 
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">
-                    Stock actual: <span className="font-bold text-gray-900">{product.quantity_on_hand}</span>
+                    Stock actual: <span className="font-bold text-gray-900">{product.stock_quantity}</span>
                   </span>
                   <span className="text-gray-600">
-                    Mínimo: <span className="font-bold text-gray-900">{product.reorder_level}</span>
+                    Mínimo: <span className="font-bold text-gray-900">{minStock}</span>
                   </span>
                 </div>
 
                 <div className="mt-3 w-full bg-gray-200 rounded-full h-2 overflow-hidden">
                   <div
-                    className={`h-full transition-all ${
-                      isCritical ? 'bg-red-500' : isWarning ? 'bg-orange-500' : 'bg-green-500'
-                    }`}
-                    style={{ width: `${Math.min(stockPercentage, 100)}%` }}
+                    className={`h-full transition-all ${isCritical ? 'bg-red-500' : isWarning ? 'bg-orange-500' : 'bg-green-500'}`}
+                    style={{ width: `${Math.min(stockPct, 100)}%` }}
                   />
                 </div>
               </div>
@@ -161,14 +133,14 @@ export const LowStockAlerts: React.FC = () => {
         </div>
       </CardContent>
 
-      <CardFooter className="bg-yellow-100 border-t border-yellow-200">
+      <div className="bg-yellow-100 border-t border-yellow-200 px-6 py-3">
         <button
           onClick={fetchLowStockProducts}
           className="w-full text-yellow-700 hover:text-yellow-900 font-medium text-sm py-2 transition-colors"
         >
           ↻ Actualizar alertas
         </button>
-      </CardFooter>
+      </div>
     </Card>
   );
 };

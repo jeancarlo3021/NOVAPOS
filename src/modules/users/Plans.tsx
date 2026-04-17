@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Edit2, Plus, X, Wifi, WifiOff, RefreshCw } from 'lucide-react';
-import { subscriptionPlansService, SubscriptionPlan } from '@/services/subscriptionPlansService';
+import { useState, useEffect } from 'react';
+import { Edit2, Plus, X } from 'lucide-react';
+import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { offlineSyncService } from '@/services/offlineSyncService';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 
@@ -11,7 +11,7 @@ export default function Plans() {
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState<Partial<SubscriptionPlan>>({});
-  const { isOnline, syncStatus, isSyncing } = useOfflineSync();
+  const { isOnline } = useOfflineSync();
 
   useEffect(() => {
     fetchPlans();

@@ -54,7 +54,6 @@ export const useOfflineOperation = (options?: UseOfflineOperationOptions) => {
           type,
           table,
           data,
-          synced: false,
         });
 
         // Si hay conexión, ejecutar API inmediatamente

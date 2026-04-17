@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { inventoryProductsService } from '@/services/InventoryProductsService';
+import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
+import type { Product } from '@/types/Types_POS';
 
 export interface Stats {
   totalProducts: number;
@@ -43,7 +44,7 @@ export const useInventoryStats = (tenantId: string | undefined) => {
 };
 
 export const useLowStockProducts = (tenantId: string | undefined) => {
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +71,7 @@ export const useLowStockProducts = (tenantId: string | undefined) => {
 };
 
 export const useStockMovements = (tenantId: string | undefined) => {
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,9 +95,9 @@ export const useStockMovements = (tenantId: string | undefined) => {
       const product = products.find((p: any) => p.id === productId);
       if (!product) throw new Error('Producto no encontrado');
 
-      const newQuantity = operation === 'add' 
-        ? product.quantity_on_hand + quantity
-        : product.quantity_on_hand - quantity;
+      const newQuantity = operation === 'add'
+        ? (product as any).stock_quantity + quantity
+        : (product as any).stock_quantity - quantity;
 
       if (newQuantity < 0) {
         throw new Error('No puedes restar más stock del disponible');

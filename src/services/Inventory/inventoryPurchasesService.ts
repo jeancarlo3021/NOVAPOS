@@ -144,6 +144,12 @@ export const inventoryPurchasesService = {
     return data || [];
   },
 
+  // Eliminar compra
+  async deletePurchase(id: string): Promise<void> {
+    const { error } = await supabase.from('purchases').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   // Generar número de compra único
   async generatePurchaseNumber(tenantId: string) {
     const { data, error } = await supabase

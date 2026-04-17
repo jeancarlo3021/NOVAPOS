@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { rolesService, ROLE_LABELS } from '@/services/rolesService';
+import { supabase } from '@/lib/supabase';
+import { rolesService, ROLE_LABELS } from '@/services/users/rolesService';
 import { Plus, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface UserData {

@@ -1,160 +1,331 @@
+'use client';
+
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { authService } from '@/services/authService';
-import { tenantsService } from '@/services/tenantsService';
-import { ROLE_LABELS } from '@/services/rolesService';
 
-export interface User {
+// ============================================
+// INTERFACES
+// ============================================
+
+export interface AuthUser {
   id: string;
   email: string;
+  tenant_id: string;
   role: string;
-  business_name: string;
   full_name?: string;
-  owner_id?: string;
-  tenant_id?: string;
+  business_name?: string;
 }
 
 export interface Tenant {
   id: string;
-  owner_id: string;
   name: string;
-  schema_name: string;
-  status: string;
+  owner_id: string;
   is_demo: boolean;
-  trial_ends_at?: string;
-  created_at: string;
+  created_at?: string;
 }
 
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   tenant: Tenant | null;
   tenants: Tenant[];
   loading: boolean;
+  error: string | null;
   login: (emailOrUsername: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  switchTenant: (tenantId: string) => Promise<void>;
+  clearError: () => void;
   getRoleLabel: (role: string) => string;
+  switchTenant: (tenantId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// ============================================
+// GET ROLE LABEL
+// ============================================
+
+export const getRoleLabel = (role: string): string => {
+  const roleMap: Record<string, string> = {
+    'owner': 'Propietario',
+    'admin': 'Administrador',
+    'manager': 'Gerente',
+    'cashier': 'Cajero',
+    'chef': 'Chef',
+    'waiter': 'Mesero',
+    'kitchen': 'Cocina',
+    'user': 'Usuario',
+  };
+  return roleMap[role] || role.charAt(0).toUpperCase() + role.slice(1);
+};
+
+// ============================================
+// AUTH PROVIDER
+// ============================================
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // ============================================
+  // LOAD TENANTS
+  // ============================================
+
+  const loadTenants = async (userId: string, userTenantId: string) => {
+    try {
+      // Obtener todos los tenants del usuario
+      const { data: userTenants, error: tenantsError } = await supabase
+        .from('tenants')
+        .select('id, name, owner_id, is_demo, created_at')
+        .eq('owner_id', userId);
+
+      if (tenantsError) throw tenantsError;
+
+      setTenants(userTenants || []);
+
+      // Establecer tenant actual
+      if (userTenants && userTenants.length > 0) {
+        const currentTenant = userTenants.find(t => t.id === userTenantId) || userTenants[0];
+        setTenant(currentTenant);
+      }
+    } catch (err) {
+      console.error('Error loading tenants:', err);
+    }
+  };
+
+  // ============================================
+  // INITIALIZE AUTH
+  // ============================================
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
-          try {
-            const { data: userData, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
+    let mounted = true;
 
-            if (error) {
-              console.error('Error al obtener datos del usuario:', error);
-              setUser(null);
-              setTenant(null);
-            } else {
-              setUser(userData);
+    const initializeAuth = async () => {
+      try {
+        setLoading(true);
 
-              // Obtener tenants del usuario
-              const userTenants = await tenantsService.getUserTenants(session.user.id);
-              setTenants(userTenants);
+        // Obtener sesión actual
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-              // Obtener tenant actual
-              if (userData.tenant_id) {
-                const currentTenant = userTenants.find(t => t.id === userData.tenant_id);
-                setTenant(currentTenant || null);
-              } else if (userTenants.length > 0) {
-                setTenant(userTenants[0]);
-              }
-            }
-          } catch (error) {
-            console.error('Error:', error);
+        if (sessionError) throw sessionError;
+
+        if (!session?.user) {
+          if (mounted) {
             setUser(null);
             setTenant(null);
+            setTenants([]);
+            setLoading(false);
           }
-        } else {
+          return;
+        }
+
+        // Obtener datos del usuario
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('id, email, tenant_id, role, full_name, business_name')
+          .eq('id', session.user.id)
+          .single();
+
+        if (userError) throw userError;
+
+        if (mounted) {
+          setUser(userData);
+          setError(null);
+
+          // Cargar tenants
+          await loadTenants(userData.id, userData.tenant_id);
+
+          setLoading(false);
+        }
+      } catch (err) {
+        if (mounted) {
+          const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
+          setError(errorMsg);
           setUser(null);
           setTenant(null);
           setTenants([]);
+          setLoading(false);
         }
-        setLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    // Listener para cambios de sesión
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
+
+        if (!session?.user) {
+          setUser(null);
+          setTenant(null);
+          setTenants([]);
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('id, email, tenant_id, role, full_name, business_name')
+            .eq('id', session.user.id)
+            .single();
+
+          if (userError) throw userError;
+
+          setUser(userData);
+          setError(null);
+
+          // Cargar tenants
+          await loadTenants(userData.id, userData.tenant_id);
+
+          setLoading(false);
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
+          setError(errorMsg);
+          setUser(null);
+          setTenant(null);
+          setTenants([]);
+          setLoading(false);
+        }
       }
     );
 
-    return () => subscription?.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
   }, []);
 
+  // ============================================
+  // LOGIN
+  // ============================================
+
   const login = async (emailOrUsername: string, password: string) => {
-    setLoading(true);
     try {
-      const result = await authService.login(emailOrUsername, password);
-      setUser(result.userData);
+      setError(null);
+      setLoading(true);
 
-      // Obtener tenants
-      const userTenants = await tenantsService.getUserTenants(result.userData.id);
-      setTenants(userTenants);
+      // Convertir username a email si es necesario
+      const email = emailOrUsername.includes('@')
+        ? emailOrUsername
+        : `${emailOrUsername}@nexoerp.local`;
 
-      if (result.userData.tenant_id) {
-        const currentTenant = userTenants.find(t => t.id === result.userData.tenant_id);
-        setTenant(currentTenant || null);
-      } else if (userTenants.length > 0) {
-        setTenant(userTenants[0]);
-      }
-    } finally {
+      // Iniciar sesión
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError) throw signInError;
+      if (!data.user) throw new Error('No user data returned');
+
+      // Obtener datos del usuario
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('id, email, tenant_id, role, full_name, business_name')
+        .eq('id', data.user.id)
+        .single();
+
+      if (userError) throw userError;
+      if (!userData) throw new Error('User not found in database');
+
+      setUser(userData);
+
+      // Cargar tenants
+      await loadTenants(userData.id, userData.tenant_id);
+
       setLoading(false);
-    }
-  };
-
-  const logout = async () => {
-    setLoading(true);
-    try {
-      await authService.logout();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Error al iniciar sesión';
+      setError(errorMsg);
       setUser(null);
       setTenant(null);
       setTenants([]);
-    } finally {
       setLoading(false);
+      throw err;
     }
   };
+
+  // ============================================
+  // LOGOUT
+  // ============================================
+
+  const logout = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+
+      const { error: signOutError } = await supabase.auth.signOut();
+
+      if (signOutError) throw signOutError;
+
+      setUser(null);
+      setTenant(null);
+      setTenants([]);
+      setLoading(false);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Error al cerrar sesión';
+      setError(errorMsg);
+      setLoading(false);
+      throw err;
+    }
+  };
+
+  // ============================================
+  // SWITCH TENANT
+  // ============================================
 
   const switchTenant = async (tenantId: string) => {
     try {
-      const newTenant = tenants.find(t => t.id === tenantId);
-      if (newTenant) {
-        setTenant(newTenant);
-        // Actualizar en BD
-        await supabase
+      setError(null);
+
+      // Encontrar el tenant
+      const selectedTenant = tenants.find(t => t.id === tenantId);
+      if (!selectedTenant) throw new Error('Tenant not found');
+
+      // Actualizar tenant_id del usuario
+      if (user) {
+        const { error: updateError } = await supabase
           .from('users')
           .update({ tenant_id: tenantId })
-          .eq('id', user!.id);
+          .eq('id', user.id);
+
+        if (updateError) throw updateError;
+
+        // Actualizar estado local
+        setUser({ ...user, tenant_id: tenantId });
+        setTenant(selectedTenant);
       }
-    } catch (error) {
-      console.error('Error al cambiar tenant:', error);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Error al cambiar tenant';
+      setError(errorMsg);
+      throw err;
     }
   };
 
-  const getRoleLabel = (role: string) => {
-    return ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role;
+  // ============================================
+  // CLEAR ERROR
+  // ============================================
+
+  const clearError = () => {
+    setError(null);
   };
 
   return (
     <AuthContext.Provider 
       value={{ 
         user, 
-        tenant, 
+        tenant,
         tenants,
         loading, 
+        error, 
         login, 
         logout, 
+        clearError,
+        getRoleLabel,
         switchTenant,
-        getRoleLabel 
       }}
     >
       {children}
@@ -164,8 +335,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth debe usarse dentro de AuthProvider');
+  if (context === undefined) {
+    throw new Error('useAuth debe ser usado dentro de AuthProvider');
   }
   return context;
 };

@@ -1,21 +1,27 @@
 import React from 'react';
 import { Edit2, Trash2, AlertTriangle, TrendingUp, Package } from 'lucide-react';
 import { Card, Badge } from '@/components/ui/uiComponents';
-import { InventoryProduct } from '@/services/InventoryProductsService';
+import { Product } from '@/types/Types_POS';
+
+interface ProductWithRelations extends Product {
+  category?: { id: string; name: string } | null;
+  unit_type?: { id: string; name: string; abbreviation: string } | null;
+}
 
 interface ProductCardProps {
-  product: InventoryProduct;
+  product: ProductWithRelations;
   onEdit: () => void;
   onDelete: () => void;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDelete }) => {
-  const isLowStock = product.stock_quantity < product.min_stock_level;
-  const margin = product.unit_price > 0 
+  const minStock = product.min_stock_level ?? 0;
+  const isLowStock = product.stock_quantity < minStock;
+  const margin = product.unit_price > 0
     ? ((product.unit_price - (product.cost_price || 0)) / product.unit_price * 100).toFixed(1)
     : '0';
-  
-  const stockPercentage = (product.stock_quantity / product.min_stock_level) * 100;
+
+  const stockPercentage = minStock > 0 ? (product.stock_quantity / minStock) * 100 : 100;
   const stockStatus = stockPercentage > 100 ? 'optimal' : stockPercentage > 50 ? 'warning' : 'critical';
 
   return (
@@ -130,7 +136,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
 
           {/* Stock Levels */}
           <div className="flex justify-between text-xs text-gray-500">
-            <span>Mínimo: {product.min_stock_level}</span>
+            <span>Mínimo: {minStock}</span>
             <span>Actual: {product.stock_quantity}</span>
           </div>
         </div>
@@ -140,7 +146,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           <Badge variant={
             stockStatus === 'optimal' ? 'success' :
             stockStatus === 'warning' ? 'warning' :
-            'danger'
+            'error'
           } className="w-full text-center justify-center">
             {stockStatus === 'optimal' ? '✓ Stock Óptimo' :
              stockStatus === 'warning' ? '⚠ Stock Bajo' :

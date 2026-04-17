@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Package, AlertTriangle, TrendingUp, DollarSign, RefreshCw, RotateCw } from 'lucide-react';
-import { inventoryProductsService } from '@/services/InventoryProductsService';
+import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
 import { 
@@ -47,7 +47,6 @@ const StatCard: React.FC<StatCardProps> = ({ icon: Icon, label, value, color, tr
 
 export const InventoryStats: React.FC = () => {
   const { user } = useAuth();
-  const [retryCount, setRetryCount] = useState(0);
 
   // Obtener estadísticas de inventario
   const {
@@ -72,7 +71,6 @@ export const InventoryStats: React.FC = () => {
   );
 
   const handleRetry = () => {
-    setRetryCount(prev => prev + 1);
     retryStats();
     retryLowStock();
   };

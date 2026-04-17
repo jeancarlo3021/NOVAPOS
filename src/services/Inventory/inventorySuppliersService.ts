@@ -71,6 +71,12 @@ export const inventorySuppliersService = {
     return this.updateSupplier(id, { is_active: false });
   },
 
+  // Eliminar proveedor
+  async deleteSupplier(id: string): Promise<void> {
+    const { error } = await supabase.from('suppliers').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   // Buscar proveedores
   async searchSuppliers(tenantId: string, query: string) {
     const { data, error } = await supabase

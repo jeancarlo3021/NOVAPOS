@@ -38,9 +38,11 @@ interface PurchaseFormProps {
 }
 
 export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { isOnline, isSyncing } = useOfflineSync();
-  const { formData, handleChange, reset } = useFormState(INITIAL_STATE);
-  const { saveOffline, message, setMessage, isLoading } = useOfflineOperation();
+  const { isOnline, syncStatus: hookSyncStatus } = useOfflineSync();
+  const isSyncing = hookSyncStatus.isSyncing;
+  const { formData, handleChange, resetForm } = useFormState(INITIAL_STATE);
+  const { saveOffline, isLoading } = useOfflineOperation();
+  const [localMessage, setLocalMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [syncStatus, setSyncStatus] = useState({ pending: 0, lastSync: null as string | null });
   const [newProduct, setNewProduct] = useState({ name: '', quantity: 1, unitPrice: 0 });
   const [submitting, setSubmitting] = useState(false);
@@ -183,7 +185,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 p-8">
       <Card className="w-full max-w-4xl max-h-screen overflow-y-auto">
         <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
           <h2 className="text-2xl font-bold">➕ Nueva Compra</h2>

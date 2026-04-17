@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Wifi, WifiOff, RotateCw } from 'lucide-react';
+import { Plus, Search, RotateCw, WifiOff } from 'lucide-react';
 import { SupplierCard } from './SupplierCard';
-import { inventorySuppliersService, InventorySupplier } from '@/services/inventorySuppliersService';
+import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, Spinner, Button, Alert } from '@/components/ui/uiComponents';
@@ -15,7 +15,7 @@ export const SuppliersList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);

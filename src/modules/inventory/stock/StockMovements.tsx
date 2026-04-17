@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { AlertCircle, RotateCw } from 'lucide-react';
-import { inventoryProductsService, InventoryProduct } from '@/services/InventoryProductsService';
+import { RotateCw } from 'lucide-react';
+import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
 import { 
@@ -244,7 +244,7 @@ export const StockMovements: React.FC = () => {
           <h3 className="text-xl font-bold text-gray-900 mb-4">Stock Actual de Productos</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {products.map((product) => {
-              const isLowStock = product.stock_quantity <= product.min_stock_level;
+              const isLowStock = product.stock_quantity <= (product.min_stock_level ?? 0);
               const isCritical = product.stock_quantity === 0;
 
               return (
@@ -265,7 +265,7 @@ export const StockMovements: React.FC = () => {
                         <p className="text-xs text-gray-500">SKU: {product.sku}</p>
                       </div>
                       {isCritical && (
-                        <Badge variant="destructive" className="text-xs">
+                        <Badge variant="error" className="text-xs">
                           CRÍTICO
                         </Badge>
                       )}
@@ -310,7 +310,9 @@ export const StockMovements: React.FC = () => {
                         }`}
                         style={{
                           width: `${Math.min(
-                            (product.stock_quantity / product.min_stock_level) * 100,
+                            (product.min_stock_level ?? 0) > 0
+                              ? (product.stock_quantity / (product.min_stock_level ?? 1)) * 100
+                              : 100,
                             100
                           )}%`,
                         }}
