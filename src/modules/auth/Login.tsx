@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { Utensils, User, Lock, AlertCircle } from 'lucide-react';
@@ -8,8 +8,14 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user && !authLoading) {
+      navigate('/');
+    }
+  }, [user, authLoading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,7 +24,6 @@ export const Login: React.FC = () => {
 
     try {
       await login(username, password);
-      navigate('/');
     } catch (err: any) {
       setError(err.message || 'Error al iniciar sesión');
     } finally {
@@ -27,7 +32,7 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -44,7 +49,7 @@ export const Login: React.FC = () => {
 
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
               <p className="text-sm text-red-700">{error}</p>
             </div>
           )}

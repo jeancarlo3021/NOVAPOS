@@ -372,6 +372,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
+        // Skip SIGNED_IN if login() already loaded this user explicitly
+        if (event === 'SIGNED_IN' && session?.user?.id === currentUserIdRef.current) {
+          console.log('⏭️ Ignorando SIGNED_IN duplicado (ya cargado por login)');
+          return;
+        }
+
         setLoading(true);
         await handleSession(session);
       }
@@ -391,7 +397,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     console.log('🔑 Intentando login:', emailOrUsername);
     setError(null);
     setLoading(true);
-    
+
     clearAuthState();
 
     const email = emailOrUsername.includes('@')
@@ -399,7 +405,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       : `${emailOrUsername}@nexoerp.local`;
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
       if (signInError) {
         console.error('❌ Error de login:', signInError.message);
@@ -408,7 +414,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw signInError;
       }
 
-      console.log('✅ Login exitoso, esperando onAuthStateChange...');
+      // Explicitly load user data here — don't rely solely on onAuthStateChange
+      // because Chrome fires it with different timing, causing a race condition
+      if (data.session) {
+        await handleSession(data.session);
+      }
     } catch (err) {
       setLoading(false);
       throw err;
