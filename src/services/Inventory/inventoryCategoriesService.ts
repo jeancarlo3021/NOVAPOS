@@ -28,7 +28,7 @@ export const inventoryCategoriesService = {
       .from('categories')
       .insert([{ ...category, tenant_id: tenantId }])
       .select()
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;
@@ -41,7 +41,7 @@ export const inventoryCategoriesService = {
       .update(updates)
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;

@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { rolesService, ROLE_LABELS } from '@/services/users/rolesService';
+import { ROLE_LABELS } from '@/services/users/rolesService';
 import { Plus, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
+
+
 
 interface UserData {
   id: string;
@@ -59,21 +61,20 @@ export const Users: React.FC = () => {
     try {
       const email = `${formData.username}@nexoerp.local`;
 
-      // Crear usuario en Auth
-      const { data, error: authError } = await supabase.auth.admin.createUser({
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password: formData.password,
-        email_confirm: true,
       });
 
       if (authError) throw authError;
+      if (!authData.user) throw new Error('No se pudo crear el usuario');
 
       // Crear registro en tabla users
       const { error: userError } = await supabase
         .from('users')
         .insert([
           {
-            id: data.user.id,
+            id: authData.user.id,
             email,
             role: formData.role,
             full_name: formData.fullName || formData.username,

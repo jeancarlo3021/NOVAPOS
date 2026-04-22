@@ -2,6 +2,7 @@ import React from 'react';
 import { Edit2, Trash2, AlertTriangle, TrendingUp, Package } from 'lucide-react';
 import { Card, Badge } from '@/components/ui/uiComponents';
 import { Product } from '@/types/Types_POS';
+import { useAuth } from '@/context/AuthContext';
 
 interface ProductWithRelations extends Product {
   category?: { id: string; name: string } | null;
@@ -15,6 +16,9 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDelete }) => {
+  const { planFeatures } = useAuth();
+  const isProductsOnly = planFeatures?.inventory_products_only ?? false;
+
   const minStock = product.min_stock_level ?? 0;
   const isLowStock = product.stock_quantity < minStock;
   const margin = product.unit_price > 0
@@ -26,7 +30,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
 
   return (
     <Card className={`hover:shadow-xl transition-all duration-300 overflow-hidden group border-0 ${
-      isLowStock 
+      isLowStock && !isProductsOnly
         ? 'bg-gradient-to-br from-orange-50 to-orange-100' 
         : 'bg-gradient-to-br from-white to-gray-50'
     }`}>
@@ -62,8 +66,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           </div>
         </div>
 
-        {/* Categoría */}
-        {product.category && (
+        {/* Categoría - Solo si NO es products_only */}
+        {!isProductsOnly && product.category && (
           <div className="mb-4">
             <Badge variant="info" className="text-xs">
               {product.category.name}
@@ -104,55 +108,59 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
         {/* Divider */}
         <div className="h-px bg-gradient-to-r from-gray-200 to-transparent mb-4"></div>
 
-        {/* Stock Status */}
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 font-medium">Stock</span>
-            <div className="flex items-center gap-2">
-              {isLowStock && (
-                <AlertTriangle size={16} className="text-orange-600 animate-pulse" />
-              )}
-              <span className={`text-sm font-bold ${
-                stockStatus === 'optimal' ? 'text-green-600' :
-                stockStatus === 'warning' ? 'text-orange-600' :
-                'text-red-600'
-              }`}>
-                {product.stock_quantity} unidades
-              </span>
+        {/* Stock Status - Solo si NO es products_only */}
+        {!isProductsOnly && (
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-medium">Stock</span>
+              <div className="flex items-center gap-2">
+                {isLowStock && (
+                  <AlertTriangle size={16} className="text-orange-600 animate-pulse" />
+                )}
+                <span className={`text-sm font-bold ${
+                  stockStatus === 'optimal' ? 'text-green-600' :
+                  stockStatus === 'warning' ? 'text-orange-600' :
+                  'text-red-600'
+                }`}>
+                  {product.stock_quantity} unidades
+                </span>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 rounded-full ${
+                  stockStatus === 'optimal' ? 'bg-green-500' :
+                  stockStatus === 'warning' ? 'bg-orange-500' :
+                  'bg-red-500'
+                }`}
+                style={{ width: `${Math.min(stockPercentage, 100)}%` }}
+              ></div>
+            </div>
+
+            {/* Stock Levels */}
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Mínimo: {minStock}</span>
+              <span>Actual: {product.stock_quantity}</span>
             </div>
           </div>
+        )}
 
-          {/* Progress Bar */}
-          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 rounded-full ${
-                stockStatus === 'optimal' ? 'bg-green-500' :
-                stockStatus === 'warning' ? 'bg-orange-500' :
-                'bg-red-500'
-              }`}
-              style={{ width: `${Math.min(stockPercentage, 100)}%` }}
-            ></div>
+        {/* Status Badge - Solo si NO es products_only */}
+        {!isProductsOnly && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <Badge variant={
+              stockStatus === 'optimal' ? 'success' :
+              stockStatus === 'warning' ? 'warning' :
+              'error'
+            } className="w-full text-center justify-center">
+              {stockStatus === 'optimal' ? '✓ Stock Óptimo' :
+               stockStatus === 'warning' ? '⚠ Stock Bajo' :
+               '✕ Stock Crítico'}
+            </Badge>
           </div>
-
-          {/* Stock Levels */}
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>Mínimo: {minStock}</span>
-            <span>Actual: {product.stock_quantity}</span>
-          </div>
-        </div>
-
-        {/* Status Badge */}
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <Badge variant={
-            stockStatus === 'optimal' ? 'success' :
-            stockStatus === 'warning' ? 'warning' :
-            'error'
-          } className="w-full text-center justify-center">
-            {stockStatus === 'optimal' ? '✓ Stock Óptimo' :
-             stockStatus === 'warning' ? '⚠ Stock Bajo' :
-             '✕ Stock Crítico'}
-          </Badge>
-        </div>
+        )}
       </div>
     </Card>
   );

@@ -35,7 +35,7 @@ export const inventorySuppliersService = {
       .from('suppliers')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;
@@ -47,7 +47,7 @@ export const inventorySuppliersService = {
       .from('suppliers')
       .insert([{ ...supplier, tenant_id: tenantId }])
       .select()
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;
@@ -60,7 +60,7 @@ export const inventorySuppliersService = {
       .update(updates)
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;

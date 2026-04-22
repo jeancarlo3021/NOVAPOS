@@ -3,9 +3,8 @@ import { Package, AlertTriangle, TrendingUp, DollarSign, RefreshCw, RotateCw } f
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
-import { 
-  Card, 
-  CardContent,
+import {
+  Card,
   Spinner,
   Alert,
   Button
@@ -110,7 +109,7 @@ export const InventoryStats: React.FC = () => {
     totalProducts: inventoryStats.totalProducts || 0,
     totalValue: inventoryStats.totalValue || 0,
     totalCost: inventoryStats.totalCost || 0,
-    lowStockCount: lowStockProducts.length || 0,
+    lowStockCount: (lowStockProducts ?? []).length,
   };
 
   const profit = stats.totalValue - stats.totalCost;

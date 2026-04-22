@@ -44,7 +44,7 @@ export async function login(
       .from('users')
       .select('id, email, role, full_name, business_name, tenant_id')
       .eq('id', data.user.id)
-      .single();
+      .maybeSingle();
 
     if (userError) throw userError;
     if (!userData) throw new Error('User not found in database');
@@ -88,7 +88,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       .from('users')
       .select('id, email, role, full_name, business_name, tenant_id')
       .eq('id', session.user.id)
-      .single();
+      .maybeSingle();
 
     if (userError) {
       console.error('Error getting user data:', userError);
@@ -159,7 +159,7 @@ export async function createOwnerUser(
       .from('tenants')
       .select('id')
       .eq('owner_id', data.user.id)
-      .single();
+      .maybeSingle();
 
     let tenantId = tenantData?.id;
 
@@ -175,7 +175,7 @@ export async function createOwnerUser(
           },
         ])
         .select()
-        .single();
+        .maybeSingle();
 
       if (tenantError) throw tenantError;
       tenantId = newTenant?.id;
@@ -207,7 +207,7 @@ export async function isOwner(userId: string): Promise<boolean> {
       .from('users')
       .select('role')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data?.role === 'owner';
@@ -265,7 +265,7 @@ export async function updateProfile(
       .update(updates)
       .eq('id', userId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data as AuthUser;
@@ -285,7 +285,7 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
       .from('users')
       .select('id, email, role, full_name, business_name, tenant_id')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data as AuthUser;
@@ -325,7 +325,7 @@ export async function emailExists(email: string): Promise<boolean> {
       .from('users')
       .select('id')
       .eq('email', email)
-      .single();
+      .maybeSingle();
 
     if (error && error.code !== 'PGRST116') throw error;
     return !!data;

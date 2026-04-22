@@ -204,7 +204,7 @@ export const CategoriesManagement: React.FC = () => {
                 <Button
                   type="button"
                   onClick={resetForm}
-                  variant="outline"
+                  variant="secondary"
                   disabled={saving}
                 >
                   Cancelar

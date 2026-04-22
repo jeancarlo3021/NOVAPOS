@@ -51,7 +51,7 @@ export const cashSessionsService = {
       .eq('status', 'open')
       .order('opened_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
     return data || null;
@@ -63,7 +63,7 @@ export const cashSessionsService = {
       .from('cash_sessions')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -89,7 +89,7 @@ export const cashSessionsService = {
         },
       ])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -97,7 +97,7 @@ export const cashSessionsService = {
     await cashMovementsService.createMovement(
       data.id,
       tenantId,
-      'opening',
+      'income',
       openingAmount,
       'Apertura de caja'
     );
@@ -121,7 +121,7 @@ export const cashSessionsService = {
       })
       .eq('id', sessionId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -129,7 +129,7 @@ export const cashSessionsService = {
     await cashMovementsService.createMovement(
       sessionId,
       data.tenant_id,
-      'closing',
+      'expense',
       closingAmount,
       'Cierre de caja'
     );
@@ -257,8 +257,8 @@ export const cashMovementsService = {
   // Crear movimiento
   async createMovement(
     sessionId: string,
-    tenantId: string,
-    type: 'opening' | 'sale' | 'adjustment' | 'closing',
+    _tenantId: string,
+    type: 'income' | 'expense' | 'sale',
     amount: number,
     description: string,
     referenceId?: string
@@ -268,16 +268,14 @@ export const cashMovementsService = {
       .insert([
         {
           cash_session_id: sessionId,
-          tenant_id: tenantId,
           type,
           amount,
           description,
           reference_id: referenceId,
-          created_at: new Date().toISOString(),
         },
       ])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

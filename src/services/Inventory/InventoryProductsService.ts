@@ -94,7 +94,7 @@ export async function getAllProducts(tenantId: string): Promise<Product[]> {
         console.log('ℹ️ No hay productos');
       }
 
-      return (data || []) as Product[];
+      return (data || []) as unknown as Product[];
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error('❌ Error:', msg);
@@ -181,7 +181,7 @@ export async function searchProducts(
       if (error) throw error;
 
       console.log(`✅ ${data?.length || 0} productos encontrados`);
-      return (data || []) as Product[];
+      return (data || []) as unknown as Product[];
     } catch (error) {
       console.error('❌ Error:', error);
       throw error;
@@ -202,7 +202,7 @@ export async function createProduct(
       .from('products')
       .insert([{ tenant_id: tenantId, ...productData }])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data as Product;
@@ -223,7 +223,7 @@ export async function updateProduct(
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', productId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data as Product;

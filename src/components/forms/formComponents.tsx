@@ -96,14 +96,14 @@ interface FormActionsProps {
   onSubmit: (e: React.FormEvent) => void;
 }
 
-export const FormActions: React.FC<FormActionsProps> = ({ 
-  isLoading, 
-  isSyncing, 
-  onCancel, 
-  onSubmit 
+export const FormActions: React.FC<FormActionsProps> = ({
+  isLoading,
+  isSyncing,
+  onCancel,
+  onSubmit: _onSubmit
 }) => (
   <div className="flex gap-4 justify-end pt-4 border-t">
-    <Button type="button" onClick={onCancel} variant="outline">
+    <Button type="button" onClick={onCancel} variant="secondary">
       Cancelar
     </Button>
     <Button type="submit" disabled={isLoading || isSyncing}>

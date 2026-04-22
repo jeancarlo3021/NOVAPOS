@@ -2,46 +2,69 @@ import { useState, useEffect, useMemo } from 'react';
 import { Product } from '@/types/Types_POS';
 import { supabase } from '@/lib/supabase';
 import { useTenant } from '../useTenant';
+import { posOfflineService } from '@/services/pos/posOfflineService';
 
 export function usePOSProducts() {
   const { tenantId } = useTenant();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Cargar productos
   useEffect(() => {
     const loadProducts = async () => {
       if (!tenantId) {
-        console.warn('⚠️ No tenant ID disponible');
         setLoading(false);
         return;
       }
 
-      try {
-        setLoading(true);
-        setError(null);
+      setLoading(true);
+      setError(null);
 
-        console.log('📦 Cargando productos para tenant:', tenantId);
+      // 1. Try Supabase first
+      if (navigator.onLine) {
+        try {
+          const { data, error: sbError } = await supabase
+            .from('products')
+            .select('*, category:product_categories(id,name)')
+            .eq('tenant_id', tenantId)
+            .order('name', { ascending: true });
 
-        const { data, error: supabaseError } = await supabase
-          .from('products')
-          .select('*')
-          .eq('tenant_id', tenantId)
-          .order('name', { ascending: true });
+          if (sbError) throw sbError;
 
-        if (supabaseError) {
-          throw supabaseError;
+          const fetched = (data || []) as unknown as Product[];
+          setProducts(fetched);
+          setFromCache(false);
+          setError(null);
+
+          // Cache for offline use
+          posOfflineService.cacheProducts(tenantId, fetched).catch(() => {});
+          setLoading(false);
+          return;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('❌ usePOSProducts Supabase error:', msg, err);
+          setError(`Error cargando productos: ${msg}`);
+          setLoading(false);
+          return;
         }
+      }
 
-        console.log('✅ Productos cargados:', data?.length || 0);
-        setProducts(data || []);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
-        console.error('❌ Error cargando productos:', errorMessage);
-        setError(errorMessage);
+      // 2. Offline fallback: load from IndexedDB cache
+      try {
+        const cached = await posOfflineService.getCachedProducts(tenantId);
+        if (cached && cached.length > 0) {
+          setProducts(cached);
+          setFromCache(true);
+          setError(null);
+        } else {
+          setProducts([]);
+          setError('Sin conexión y sin datos en caché');
+        }
+      } catch (cacheErr) {
         setProducts([]);
+        setError('No hay productos disponibles sin conexión');
       } finally {
         setLoading(false);
       }
@@ -50,18 +73,14 @@ export function usePOSProducts() {
     loadProducts();
   }, [tenantId]);
 
-  // Filtrar productos por búsqueda
   const filteredProducts = useMemo(() => {
-    if (!searchTerm.trim()) {
-      return products;
-    }
-
+    if (!searchTerm.trim()) return products;
     const term = searchTerm.toLowerCase();
     return products.filter(
-      (product) =>
-        product.name.toLowerCase().includes(term) ||
-        product.sku?.toLowerCase().includes(term) ||
-        product.description?.toLowerCase().includes(term)
+      (p) =>
+        p.name.toLowerCase().includes(term) ||
+        p.sku?.toLowerCase().includes(term) ||
+        p.description?.toLowerCase().includes(term)
     );
   }, [products, searchTerm]);
 
@@ -70,8 +89,12 @@ export function usePOSProducts() {
     filteredProducts,
     loading,
     error,
+    fromCache,
     searchTerm,
     setSearchTerm,
-    refetch: () => { setProducts([]); },
+    refetch: () => {
+      setLoading(true);
+      setProducts([]);
+    },
   };
 }

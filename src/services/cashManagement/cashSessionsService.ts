@@ -153,7 +153,7 @@ export async function createCashSession(
           },
         ])
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       if (!data) throw new Error('No data returned');
@@ -189,7 +189,7 @@ export async function closeCashSession(
         })
         .eq('id', input.id)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       if (!data) throw new Error('No data returned');

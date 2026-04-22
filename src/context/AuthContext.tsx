@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // ============================================
@@ -24,10 +24,76 @@ export interface Tenant {
   created_at?: string;
 }
 
+export interface PlanFeatures {
+  // Module access
+  pos: boolean;
+  inventory: boolean;
+  reports: boolean;
+  settings: boolean;
+  users: boolean;
+  // POS capabilities
+  pos_card: boolean;
+  pos_sinpe: boolean;
+  pos_discount: boolean;
+  // Inventory tiers
+  inventory_products_only: boolean;
+  // Reports tiers
+  reports_basic: boolean;
+  // Admin features
+  admin_dashboard?: boolean;
+  webhooks?: boolean;
+  analytics?: boolean;
+  api_access?: boolean;
+  white_label?: boolean;
+  integrations?: boolean;
+  custom_branding?: boolean;
+  unlimited_users?: boolean;
+  user_management?: boolean;
+  advanced_reports?: boolean;
+  priority_support?: boolean;
+  unlimited_orders?: boolean;
+  team_collaboration?: boolean;
+  unlimited_products?: boolean;
+}
+
+export const DEFAULT_FEATURES: PlanFeatures = {
+  pos: true,
+  inventory: false,
+  reports: false,
+  settings: true,
+  users: false,
+  pos_card: false,
+  pos_sinpe: false,
+  pos_discount: false,
+  inventory_products_only: false,
+  reports_basic: false,
+};
+
+export const FULL_FEATURES: PlanFeatures = {
+  pos: true,
+  inventory: true,
+  reports: true,
+  settings: true,
+  users: true,
+  pos_card: true,
+  pos_sinpe: true,
+  pos_discount: true,
+  inventory_products_only: false,
+  reports_basic: false,
+};
+
+// ✅ NUEVO: Tipo para el retorno de loadPlanFeatures
+interface PlanData {
+  features: PlanFeatures;
+  name: string;
+}
+
 interface AuthContextType {
   user: AuthUser | null;
   tenant: Tenant | null;
   tenants: Tenant[];
+  planFeatures: PlanFeatures;
+  planName: string;
   loading: boolean;
   error: string | null;
   login: (emailOrUsername: string, password: string) => Promise<void>;
@@ -35,6 +101,7 @@ interface AuthContextType {
   clearError: () => void;
   getRoleLabel: (role: string) => string;
   switchTenant: (tenantId: string) => Promise<void>;
+  refreshPlan: (tenantId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -47,12 +114,15 @@ export const getRoleLabel = (role: string): string => {
   const roleMap: Record<string, string> = {
     'owner': 'Propietario',
     'admin': 'Administrador',
-    'manager': 'Gerente',
-    'cashier': 'Cajero',
-    'chef': 'Chef',
-    'waiter': 'Mesero',
-    'kitchen': 'Cocina',
-    'user': 'Usuario',
+    'gerente': 'Gerente',
+    'asistente_1': 'Asistente 1',
+    'asistente_2': 'Asistente 2',
+    'asistente_3': 'Asistente 3',
+    'cocinero': 'Cocinero',
+    'mesero': 'Mesero',
+    'cajero': 'Cajero',
+    'almacenero': 'Almacenero',
+    'contador': 'Contador',
   };
   return roleMap[role] || role.charAt(0).toUpperCase() + role.slice(1);
 };
@@ -65,130 +135,245 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [planFeatures, setPlanFeatures] = useState<PlanFeatures>(DEFAULT_FEATURES);
+  const [planName, setPlanName] = useState<string>('demo');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const currentUserIdRef = useRef<string | null>(null);
+  const loadingSessionRef = useRef(false);
+
+  // ============================================
+  // LOAD PLAN FEATURES - ✅ CORREGIDO
+  // ============================================
+
+  const loadPlanFeatures = async (tenantId: string): Promise<PlanData> => {
+    try {
+      console.log('🔄 Cargando plan para tenant:', tenantId);
+      
+      const { data: rows, error: err } = await supabase
+        .from('subscriptions')
+        .select('status, ends_at, subscription_plans(name, features)')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (err) {
+        console.warn('⚠️ Error cargando suscripción:', err);
+      }
+
+      const data = rows?.[0] ?? null;
+      if (!data) {
+        console.log('📋 No hay suscripción, usando plan por defecto: demo');
+        return {
+          features: DEFAULT_FEATURES,
+          name: 'demo',
+        };
+      }
+
+      // ✅ Verificar que la suscripción esté activa Y no expirada
+      const now = new Date();
+      const endsAt = data.ends_at ? new Date(data.ends_at) : null;
+      const isExpired = endsAt && endsAt < now;
+
+      if (data.status !== 'active' || isExpired) {
+        console.log('⏰ Suscripción expirada o inactiva, usando plan por defecto');
+        return {
+          features: DEFAULT_FEATURES,
+          name: 'demo',
+        };
+      }
+
+      const plan = (data as any).subscription_plans;
+      const planName: string = plan?.name ?? 'demo';
+      console.log('✅ Plan cargado:', planName);
+
+      // ✅ Merge DB features with defaults
+      const dbFeatures: Partial<PlanFeatures> = plan?.features ?? {};
+      const mergedFeatures = { ...DEFAULT_FEATURES, ...dbFeatures };
+
+      // ✅ DEBUG: Mostrar las features cargadas
+      console.log('DEBUG - Features cargadas:', mergedFeatures);
+
+      return {
+        features: mergedFeatures,
+        name: planName,
+      };
+    } catch (err) {
+      console.error('❌ Error cargando plan:', err);
+      return {
+        features: DEFAULT_FEATURES,
+        name: 'demo',
+      };
+    }
+  };
 
   // ============================================
   // LOAD TENANTS
   // ============================================
 
-  const loadTenants = async (userId: string, userTenantId: string) => {
+  const loadTenants = async (userId: string, userTenantId: string): Promise<{
+    tenants: Tenant[];
+    selectedTenant: Tenant | null;
+  }> => {
     try {
-      // Obtener todos los tenants del usuario
-      const { data: userTenants, error: tenantsError } = await supabase
+      console.log('📦 Cargando tenants para usuario:', userId);
+
+      const { data: ownedTenants } = await supabase
         .from('tenants')
         .select('id, name, owner_id, is_demo, created_at')
         .eq('owner_id', userId);
 
-      if (tenantsError) throw tenantsError;
+      let resolvedTenant = null;
 
-      setTenants(userTenants || []);
-
-      // Establecer tenant actual
-      if (userTenants && userTenants.length > 0) {
-        const currentTenant = userTenants.find(t => t.id === userTenantId) || userTenants[0];
-        setTenant(currentTenant);
+      if (ownedTenants && ownedTenants.length > 0) {
+        resolvedTenant = ownedTenants.find(t => t.id === userTenantId) ?? ownedTenants[0];
+      } else if (userTenantId) {
+        const { data: staffTenant } = await supabase
+          .from('tenants')
+          .select('id, name, owner_id, is_demo, created_at')
+          .eq('id', userTenantId)
+          .maybeSingle();
+        resolvedTenant = staffTenant ?? null;
       }
+
+      if (resolvedTenant) {
+        console.log('🏢 Tenant encontrado:', resolvedTenant.name);
+      } else {
+        console.warn('⚠️ No se encontró tenant para el usuario');
+      }
+
+      return {
+        tenants: ownedTenants || [],
+        selectedTenant: resolvedTenant,
+      };
     } catch (err) {
-      console.error('Error loading tenants:', err);
+      console.error('❌ Error loading tenants:', err);
+      return { tenants: [], selectedTenant: null };
     }
   };
 
   // ============================================
-  // INITIALIZE AUTH
+  // CLEAR STATE
+  // ============================================
+
+  const clearAuthState = () => {
+    console.log('🧹 Limpiando estado de autenticación');
+    setUser(null);
+    setTenant(null);
+    setTenants([]);
+    setPlanFeatures(DEFAULT_FEATURES);
+    setPlanName('demo');
+    currentUserIdRef.current = null;
+  };
+
+  // ============================================
+  // HANDLE SESSION - ✅ CORREGIDO
+  // ============================================
+
+  const handleSession = async (session: { user: { id: string } } | null) => {
+    if (loadingSessionRef.current && currentUserIdRef.current === session?.user?.id) {
+      console.log('⏳ Ya hay una carga en progreso para este usuario, ignorando...');
+      return;
+    }
+
+    if (!session?.user) {
+      console.log('👤 Sin sesión detectada');
+      clearAuthState();
+      setLoading(false);
+      loadingSessionRef.current = false;
+      return;
+    }
+
+    if (currentUserIdRef.current && currentUserIdRef.current !== session.user.id) {
+      console.log('🔄 Cambio de usuario detectado:', currentUserIdRef.current, '→', session.user.id);
+      clearAuthState();
+    }
+
+    currentUserIdRef.current = session.user.id;
+    loadingSessionRef.current = true;
+
+    try {
+      console.log('🔐 Cargando datos del usuario:', session.user.id);
+
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('id, email, tenant_id, role, full_name, business_name')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (userError) throw userError;
+      if (!userData) throw new Error('Usuario no encontrado en el sistema');
+
+      setUser(userData);
+      setError(null);
+      console.log('✅ Usuario cargado:', userData.email);
+
+      console.log('⚡ Iniciando carga paralela de tenants y plan...');
+      const [{ tenants: loadedTenants, selectedTenant }, planData] = await Promise.all([
+        loadTenants(userData.id, userData.tenant_id),
+        loadPlanFeatures(userData.tenant_id),
+      ]);
+
+      setTenants(loadedTenants);
+      if (selectedTenant) {
+        setTenant(selectedTenant);
+      }
+      
+      // ✅ USAR EL NOMBRE REAL DEL PLAN DESDE LA BD
+      setPlanFeatures(planData.features);
+      setPlanName(planData.name);
+
+      console.log('✅ Tenants y plan cargados completamente (PARALELO)');
+      console.log('🎉 Autenticación completada - Plan:', planData.name);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
+      console.error('❌ Error:', errorMsg);
+      setError(errorMsg);
+      clearAuthState();
+    } finally {
+      loadingSessionRef.current = false;
+      setLoading(false);
+    }
+  };
+
+  // ============================================
+  // EFFECT: SETUP AUTH LISTENERS
   // ============================================
 
   useEffect(() => {
     let mounted = true;
 
-    const initializeAuth = async () => {
-      try {
-        setLoading(true);
-
-        // Obtener sesión actual
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-        if (sessionError) throw sessionError;
-
-        if (!session?.user) {
-          if (mounted) {
-            setUser(null);
-            setTenant(null);
-            setTenants([]);
-            setLoading(false);
-          }
-          return;
-        }
-
-        // Obtener datos del usuario
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('id, email, tenant_id, role, full_name, business_name')
-          .eq('id', session.user.id)
-          .single();
-
-        if (userError) throw userError;
-
-        if (mounted) {
-          setUser(userData);
-          setError(null);
-
-          // Cargar tenants
-          await loadTenants(userData.id, userData.tenant_id);
-
-          setLoading(false);
-        }
-      } catch (err) {
-        if (mounted) {
-          const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
-          setError(errorMsg);
-          setUser(null);
-          setTenant(null);
-          setTenants([]);
-          setLoading(false);
-        }
+    const setupAuth = async () => {
+      console.log('📍 Obteniendo sesión inicial...');
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (mounted) {
+        await handleSession(session);
       }
     };
 
-    initializeAuth();
+    setupAuth();
 
-    // Listener para cambios de sesión
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log('🔔 Auth event:', event);
+        
         if (!mounted) return;
 
-        if (!session?.user) {
-          setUser(null);
-          setTenant(null);
-          setTenants([]);
-          setLoading(false);
+        if (event === 'INITIAL_SESSION') {
+          console.log('⏭️ Ignorando INITIAL_SESSION (ya manejado)');
           return;
         }
 
-        try {
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('id, email, tenant_id, role, full_name, business_name')
-            .eq('id', session.user.id)
-            .single();
-
-          if (userError) throw userError;
-
-          setUser(userData);
-          setError(null);
-
-          // Cargar tenants
-          await loadTenants(userData.id, userData.tenant_id);
-
-          setLoading(false);
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
-          setError(errorMsg);
-          setUser(null);
-          setTenant(null);
-          setTenants([]);
-          setLoading(false);
+        if (event === 'TOKEN_REFRESHED') {
+          console.log('⏭️ Ignorando TOKEN_REFRESHED');
+          return;
         }
+
+        setLoading(true);
+        await handleSession(session);
       }
     );
 
@@ -203,46 +388,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const login = async (emailOrUsername: string, password: string) => {
+    console.log('🔑 Intentando login:', emailOrUsername);
+    setError(null);
+    setLoading(true);
+    
+    clearAuthState();
+
+    const email = emailOrUsername.includes('@')
+      ? emailOrUsername
+      : `${emailOrUsername}@nexoerp.local`;
+
     try {
-      setError(null);
-      setLoading(true);
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
-      // Convertir username a email si es necesario
-      const email = emailOrUsername.includes('@')
-        ? emailOrUsername
-        : `${emailOrUsername}@nexoerp.local`;
+      if (signInError) {
+        console.error('❌ Error de login:', signInError.message);
+        setError(signInError.message);
+        setLoading(false);
+        throw signInError;
+      }
 
-      // Iniciar sesión
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (signInError) throw signInError;
-      if (!data.user) throw new Error('No user data returned');
-
-      // Obtener datos del usuario
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('id, email, tenant_id, role, full_name, business_name')
-        .eq('id', data.user.id)
-        .single();
-
-      if (userError) throw userError;
-      if (!userData) throw new Error('User not found in database');
-
-      setUser(userData);
-
-      // Cargar tenants
-      await loadTenants(userData.id, userData.tenant_id);
-
-      setLoading(false);
+      console.log('✅ Login exitoso, esperando onAuthStateChange...');
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Error al iniciar sesión';
-      setError(errorMsg);
-      setUser(null);
-      setTenant(null);
-      setTenants([]);
       setLoading(false);
       throw err;
     }
@@ -253,6 +420,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const logout = async () => {
+    console.log('🚪 Cerrando sesión');
     try {
       setError(null);
       setLoading(true);
@@ -261,12 +429,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (signOutError) throw signOutError;
 
-      setUser(null);
-      setTenant(null);
-      setTenants([]);
+      clearAuthState();
       setLoading(false);
+      console.log('✅ Sesión cerrada');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al cerrar sesión';
+      console.error('❌ Error al logout:', errorMsg);
       setError(errorMsg);
       setLoading(false);
       throw err;
@@ -274,18 +442,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // ============================================
-  // SWITCH TENANT
+  // SWITCH TENANT - ✅ CORREGIDO
   // ============================================
 
   const switchTenant = async (tenantId: string) => {
+    console.log('🏢 Cambiando a tenant:', tenantId);
     try {
       setError(null);
 
-      // Encontrar el tenant
       const selectedTenant = tenants.find(t => t.id === tenantId);
       if (!selectedTenant) throw new Error('Tenant not found');
 
-      // Actualizar tenant_id del usuario
       if (user) {
         const { error: updateError } = await supabase
           .from('users')
@@ -294,15 +461,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (updateError) throw updateError;
 
-        // Actualizar estado local
         setUser({ ...user, tenant_id: tenantId });
         setTenant(selectedTenant);
+        
+        // ✅ USAR EL NUEVO OBJETO PlanData
+        const planData = await loadPlanFeatures(tenantId);
+        setPlanFeatures(planData.features);
+        setPlanName(planData.name);
+        
+        console.log('✅ Tenant cambiado exitosamente - Plan:', planData.name);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al cambiar tenant';
+      console.error('❌ Error:', errorMsg);
       setError(errorMsg);
       throw err;
     }
+  };
+
+  // ============================================
+  // REFRESH PLAN - ✅ CORREGIDO
+  // ============================================
+
+  const refreshPlan = async (tenantId: string) => {
+    console.log('🔄 Refrescando plan del tenant:', tenantId);
+    const planData = await loadPlanFeatures(tenantId);
+    setPlanFeatures(planData.features);
+    setPlanName(planData.name);
+    console.log('✅ Plan refrescado:', planData.name);
   };
 
   // ============================================
@@ -315,17 +501,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider 
-      value={{ 
-        user, 
+      value={{
+        user,
         tenant,
         tenants,
-        loading, 
-        error, 
-        login, 
-        logout, 
+        planFeatures,
+        planName,
+        loading,
+        error,
+        login,
+        logout,
         clearError,
         getRoleLabel,
         switchTenant,
+        refreshPlan,
       }}
     >
       {children}

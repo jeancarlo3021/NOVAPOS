@@ -31,7 +31,7 @@ export const subscriptionPlansService = {
       .from('subscription_plans')
       .select('*')
       .eq('id', planId)
-      .single();
+      .maybeSingle(); // ✅ CAMBIO: .single() → .maybeSingle()
 
     if (error) throw error;
     return data;

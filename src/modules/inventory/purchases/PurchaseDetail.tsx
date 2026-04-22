@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Package, Truck, Calendar, DollarSign, FileText } from 'lucide-react';
+import { X, Package, Truck, Calendar, FileText } from 'lucide-react';
 import { Card, CardHeader, CardContent, Badge } from '@/components/ui/uiComponents';
 
 interface PurchaseDetailProps {
@@ -33,7 +33,7 @@ const getStatusBadgeVariant = (status: string) => {
   switch (status) {
     case 'completed': return 'success';
     case 'pending': return 'warning';
-    case 'cancelled': return 'danger';
+    case 'cancelled': return 'error';
     default: return 'info';
   }
 };
@@ -90,14 +90,12 @@ export const PurchaseDetail: React.FC<PurchaseDetailProps> = ({ purchaseId, onCl
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
       <Card className="w-full max-w-3xl my-8">
         {/* Header */}
-        <CardHeader 
-          title={`Compra #${purchase.purchase_number}`}
-          action={
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-700 transition">
-              <X size={24} />
-            </button>
-          }
-        />
+        <CardHeader className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-900">Compra #{purchase.purchase_number}</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 transition">
+            <X size={24} />
+          </button>
+        </CardHeader>
 
         <CardContent className="space-y-6">
           {/* Status Badge */}

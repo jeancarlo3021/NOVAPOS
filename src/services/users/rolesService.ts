@@ -46,7 +46,7 @@ export const rolesService = {
       .from('role_permissions')
       .select('permissions')
       .eq('role', role)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data?.permissions || {};
@@ -58,9 +58,9 @@ export const rolesService = {
       .from('users')
       .select('role')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
-    if (userError) return false;
+    if (userError || !userData) return false;
 
     // Owner tiene todos los permisos
     if (userData.role === 'owner') return true;
@@ -69,7 +69,7 @@ export const rolesService = {
       .from('role_permissions')
       .select('permissions')
       .eq('role', userData.role)
-      .single();
+      .maybeSingle();
 
     if (roleError) return false;
 
@@ -95,35 +95,31 @@ export const rolesService = {
     password: string,
     role: string,
     ownerId: string,
-    fullName?: string
+    fullName?: string,
+    tenantId?: string
   ) {
     const email = `${username}@nexoerp.local`;
 
-    // Crear usuario en Auth
-    const { data, error: authError } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
-
+    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
     if (authError) throw authError;
+    if (!authData.user) throw new Error('No se pudo crear el usuario');
 
-    // Crear registro en tabla users
     const { error: userError } = await supabase
       .from('users')
       .insert([
         {
-          id: data.user.id,
+          id: authData.user.id,
           email,
           role,
           full_name: fullName || username,
           owner_id: ownerId,
+          ...(tenantId ? { tenant_id: tenantId } : {}),
         },
       ]);
 
     if (userError) throw userError;
 
-    return data.user;
+    return authData.user;
   },
 
   // Actualizar rol de un usuario

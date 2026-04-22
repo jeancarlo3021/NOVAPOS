@@ -55,7 +55,7 @@ export const inventoryPurchasesService = {
         )
       `)
       .eq('id', id)
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;
@@ -67,7 +67,7 @@ export const inventoryPurchasesService = {
       .from('purchases')
       .insert([{ ...purchase, tenant_id: tenantId }])
       .select()
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;
@@ -91,24 +91,26 @@ export const inventoryPurchasesService = {
       .update({ status })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;
   },
 
   // Recibir compra
-  async receivePurchase(id: string, actualDeliveryDate: string) {
+  async receivePurchase(id: string, _actualDeliveryDate: string) {
     const purchase = await this.getPurchaseById(id);
-    
+
     // Actualizar stock de productos
     for (const item of purchase.items) {
       const product = await supabase
         .from('products')
         .select('quantity_on_hand')
         .eq('id', item.product_id)
-        .single();
-      
+        .maybeSingle();
+
+      if (!product.data) continue;
+
       await supabase
         .from('products')
         .update({ quantity_on_hand: product.data.quantity_on_hand + item.quantity_ordered })

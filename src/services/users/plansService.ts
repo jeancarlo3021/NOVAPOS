@@ -30,7 +30,7 @@ export const plansService = {
   // Obtener todos los planes
   async getAllPlans() {
     const { data, error } = await supabase
-      .from('subscription_plans')  // ← Cambiar aquí
+      .from('subscription_plans')
       .select('*')
       .eq('is_active', true)
       .order('price', { ascending: true });
@@ -42,10 +42,10 @@ export const plansService = {
   // Obtener plan por ID
   async getPlanById(planId: string) {
     const { data, error } = await supabase
-      .from('subscription_plans')  // ← Cambiar aquí
+      .from('subscription_plans')
       .select('*')
       .eq('id', planId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -53,15 +53,16 @@ export const plansService = {
 
   // Obtener suscripción de un tenant
   async getTenantSubscription(tenantId: string) {
-    const { data, error } = await supabase
+    const { data: rows, error } = await supabase
       .from('subscriptions')
-      .select('*, plans(*)')
+      .select('*, subscription_plans(*)')
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1);
 
     if (error) return null;
-    return data;
+    return rows?.[0] ?? null;
   },
 
   // Crear suscripción
@@ -103,30 +104,103 @@ export const plansService = {
   },
 
   // Cambiar plan de un tenant
-  async changePlan(tenantId: string, newPlanId: string) {
-    const { data: subscription, error: subError } = await supabase
+async changePlan(tenantId: string, newPlanId: string) {
+  console.log('🔄 [changePlan] Iniciando...');
+  console.log('  tenantId:', tenantId);
+  console.log('  newPlanId:', newPlanId);
+
+  try {
+    // 1️⃣ Buscar suscripción existente
+    const { data: rows, error: subError } = await supabase
       .from('subscriptions')
-      .select('*')
+      .select('id, status')
       .eq('tenant_id', tenantId)
-      .eq('status', 'active')
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1);
 
     if (subError) throw subError;
 
-    // Actualizar suscripción
-    const { error } = await supabase
-      .from('subscriptions')
-      .update({ plan_id: newPlanId, updated_at: new Date().toISOString() })
-      .eq('id', subscription.id);
+    const subscription = rows?.[0] ?? null;
+    console.log('  Suscripción encontrada:', subscription);
 
-    if (error) throw error;
+    if (subscription) {
+      // 2️⃣ ACTUALIZAR (sin .select() para evitar problemas de RLS)
+      console.log('  📝 Actualizando suscripción:', subscription.id);
+      
+      const { error: updateError } = await supabase
+        .from('subscriptions')
+        .update({ 
+          plan_id: newPlanId,
+          status: 'active',
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', subscription.id);
 
-    // Actualizar tenant
-    await supabase
+      if (updateError) {
+        console.error('  ❌ Error al actualizar:', updateError);
+        throw updateError;
+      }
+
+      console.log('  ✅ Suscripción actualizada');
+
+      // 3️⃣ VERIFICAR que se actualizó (query separada)
+      const { data: verified } = await supabase
+        .from('subscriptions')
+        .select('plan_id')
+        .eq('id', subscription.id)
+        .maybeSingle();
+
+      console.log('  🔍 Verificación - plan_id ahora es:', verified?.plan_id);
+      
+      if (verified?.plan_id !== newPlanId) {
+        console.warn('  ⚠️ ADVERTENCIA: El plan_id no cambió en la BD!');
+        console.warn('     Esperado:', newPlanId);
+        console.warn('     Actual:', verified?.plan_id);
+      }
+    } else {
+      // 4️⃣ CREAR nueva suscripción si no existe
+      console.log('  📝 Creando nueva suscripción...');
+      
+      const endsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      
+      const { error: insertError } = await supabase
+        .from('subscriptions')
+        .insert({
+          tenant_id: tenantId,
+          plan_id: newPlanId,
+          status: 'active',
+          ends_at: endsAt,
+          auto_renew: true
+        });
+
+      if (insertError) {
+        console.error('  ❌ Error al insertar:', insertError);
+        throw insertError;
+      }
+
+      console.log('  ✅ Suscripción creada');
+    }
+
+    // 5️⃣ Actualizar tenant
+    console.log('  📝 Actualizando tenant...');
+    
+    const { error: tenantError } = await supabase
       .from('tenants')
       .update({ plan_id: newPlanId })
       .eq('id', tenantId);
-  },
+
+    if (tenantError) {
+      console.error('  ❌ Error al actualizar tenant:', tenantError);
+      throw tenantError;
+    }
+
+    console.log('  ✅ Tenant actualizado');
+    console.log('✅ [changePlan] Completado exitosamente');
+  } catch (error) {
+    console.error('❌ [changePlan] Error:', error);
+    throw error;
+  }
+},
 
   // Cancelar suscripción
   async cancelSubscription(subscriptionId: string) {
@@ -151,7 +225,7 @@ export const plansService = {
         created_at,
         subscriptions(
           status,
-          plans(name, price)
+          subscription_plans(name, price)
         )
       `)
       .order('created_at', { ascending: false });

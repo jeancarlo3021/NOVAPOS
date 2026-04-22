@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, RefreshCw, Package, DollarSign, TrendingUp } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 // Loading Spinner
 export const LoadingSpinner: React.FC<{ message?: string }> = ({ message = 'Cargando...' }) => (

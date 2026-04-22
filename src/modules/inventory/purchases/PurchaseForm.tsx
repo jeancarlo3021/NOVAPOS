@@ -81,30 +81,30 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     try {
       const result = await offlineSyncService.syncOperations();
       if (isMountedRef.current) {
-        setMessage({
-          type: result.success ? 'success' : 'info',
+        setLocalMessage({
+          type: result.errors.length === 0 ? 'success' : 'info',
           text: `✅ ${result.synced} operación(es) sincronizada(s)`
         });
         await loadSyncStatus();
       }
     } catch (error) {
       if (isMountedRef.current) {
-        setMessage({ type: 'error', text: '❌ Error durante la sincronización' });
+        setLocalMessage({ type: 'error', text: '❌ Error durante la sincronización' });
       }
     }
   };
 
   const handleAddProduct = () => {
     if (!newProduct.name.trim()) {
-      setMessage({ type: 'error', text: 'El nombre del producto es requerido' });
+      setLocalMessage({ type: 'error', text: 'El nombre del producto es requerido' });
       return;
     }
     if (newProduct.quantity <= 0) {
-      setMessage({ type: 'error', text: 'La cantidad debe ser mayor a 0' });
+      setLocalMessage({ type: 'error', text: 'La cantidad debe ser mayor a 0' });
       return;
     }
     if (newProduct.unitPrice <= 0) {
-      setMessage({ type: 'error', text: 'El precio unitario debe ser mayor a 0' });
+      setLocalMessage({ type: 'error', text: 'El precio unitario debe ser mayor a 0' });
       return;
     }
 
@@ -116,14 +116,14 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
 
     formData.products.push(product);
     setNewProduct({ name: '', quantity: 1, unitPrice: 0 });
-    setMessage({ type: 'success', text: 'Producto agregado' });
-    setTimeout(() => setMessage(null), 2000);
+    setLocalMessage({ type: 'success', text: 'Producto agregado' });
+    setTimeout(() => setLocalMessage(null), 2000);
   };
 
   const handleRemoveProduct = (id: string) => {
     formData.products = formData.products.filter(p => p.id !== id);
-    setMessage({ type: 'success', text: 'Producto removido' });
-    setTimeout(() => setMessage(null), 2000);
+    setLocalMessage({ type: 'success', text: 'Producto removido' });
+    setTimeout(() => setLocalMessage(null), 2000);
   };
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -131,22 +131,21 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     handleChange({ target: { name, value } } as any);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setSubmitting(true);
 
     try {
-      // Validaciones
       if (!formData.purchaseNumber.trim()) {
-        setMessage({ type: 'error', text: 'El número de compra es requerido' });
+        setLocalMessage({ type: 'error', text: 'El número de compra es requerido' });
         return;
       }
       if (!formData.supplier.trim()) {
-        setMessage({ type: 'error', text: 'El proveedor es requerido' });
+        setLocalMessage({ type: 'error', text: 'El proveedor es requerido' });
         return;
       }
       if (formData.products.length === 0) {
-        setMessage({ type: 'error', text: 'Agrega al menos un producto' });
+        setLocalMessage({ type: 'error', text: 'Agrega al menos un producto' });
         return;
       }
 
@@ -158,9 +157,9 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
       });
 
       if (success && isMountedRef.current) {
-        setMessage({ type: 'success', text: 'Compra guardada exitosamente' });
+        setLocalMessage({ type: 'success', text: 'Compra guardada exitosamente' });
         setTimeout(() => {
-          reset();
+          resetForm();
           onSuccess();
           onClose();
         }, 1500);
@@ -168,7 +167,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
       }
     } catch (error) {
       if (isMountedRef.current) {
-        setMessage({
+        setLocalMessage({
           type: 'error',
           text: error instanceof Error ? error.message : 'Error al guardar la compra'
         });
@@ -199,18 +198,18 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
         </CardHeader>
 
         <CardContent className="p-6 space-y-6">
-          {message && (
+          {localMessage && (
             <Alert
-              type={message.type}
-              message={message.text}
-              onClose={() => setMessage(null)}
+              type={localMessage.type}
+              message={localMessage.text}
+              onClose={() => setLocalMessage(null)}
             />
           )}
 
-          {isSyncing && <SyncingIndicator />}
+          {isSyncing && <SyncingIndicator isSyncing={isSyncing} />}
 
           <div className="flex items-center justify-between">
-            <StatusBadge isOnline={isOnline} pending={syncStatus.pending} />
+            <StatusBadge status={isOnline ? 'success' : 'warning'} label={isOnline ? `En línea${syncStatus.pending > 0 ? ` · ${syncStatus.pending} pendiente(s)` : ''}` : 'Sin conexión'} />
             {syncStatus.pending > 0 && (
               <Button onClick={handleSync} disabled={isSyncing} size="sm">
                 {isSyncing ? <Loader className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -419,15 +418,15 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
         <div className="bg-gray-50 border-t border-gray-200 flex justify-end gap-3 p-6">
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             onClick={onClose}
             disabled={submitting}
           >
             Cancelar
           </Button>
           <Button
-            type="submit"
-            onClick={handleSubmit}
+            type="button"
+            onClick={() => handleSubmit()}
             disabled={submitting || isLoading || isSyncing}
             className="bg-blue-600 hover:bg-blue-700"
           >

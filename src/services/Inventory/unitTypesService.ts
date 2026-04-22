@@ -32,7 +32,7 @@ export const unitTypesService = {
       .from('unit_types')
       .select('*')
       .eq('id', unitId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -54,7 +54,7 @@ export const unitTypesService = {
         },
       ])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -72,7 +72,7 @@ export const unitTypesService = {
       .update(updates)
       .eq('id', unitId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

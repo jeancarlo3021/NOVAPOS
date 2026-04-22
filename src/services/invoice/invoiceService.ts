@@ -16,6 +16,9 @@ export interface Invoice {
   tax_amount: number;
   total: number;
   payment_method: 'cash' | 'card' | 'sinpe';
+  amount_received?: number;
+  change_amount?: number;
+  voucher_number?: string;
   notes?: string;
   status: 'completed' | 'cancelled';
   created_at: string;
@@ -62,7 +65,7 @@ export const invoicesService = {
         items:invoice_items(*)
       `)
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -91,7 +94,7 @@ export const invoicesService = {
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (error && error.code !== 'PGRST116') throw error;
 
@@ -104,7 +107,7 @@ export const invoicesService = {
     return `INV-${String(nextNumber).padStart(3, '0')}`;
   },
 
-  // Crear factura
+  // Crear factura - ACTUALIZADO CON NUEVOS CAMPOS
   async createInvoice(
     tenantId: string,
     sessionId: string,
@@ -117,12 +120,26 @@ export const invoicesService = {
     paymentMethod: 'cash' | 'card' | 'sinpe',
     customerName?: string,
     notes?: string,
-    customerPhone?: string
+    customerPhone?: string,
+    amountReceived?: number,
+    changeAmount?: number,
+    voucherNumber?: string
   ) {
+    // Validaciones según método de pago
+    if (paymentMethod === 'cash') {
+      if (!amountReceived || amountReceived < total) {
+        throw new Error('Monto recibido inválido para pago en efectivo');
+      }
+    } else if (paymentMethod === 'card' || paymentMethod === 'sinpe') {
+      if (!voucherNumber || !voucherNumber.trim()) {
+        throw new Error(`Número de comprobante requerido para pago con ${paymentMethod}`);
+      }
+    }
+
     // Obtener número de factura
     const invoiceNumber = await this.getNextInvoiceNumber(tenantId);
 
-    // Crear factura
+    // Crear factura con nuevos campos
     const { data: invoice, error: invoiceError } = await supabase
       .from('invoices')
       .insert([
@@ -134,17 +151,21 @@ export const invoicesService = {
           customer_phone: customerPhone,
           subtotal,
           discount_amount: discountAmount,
-          discount_percentage: discountPercentage,
+          discount_percent: discountPercentage,
           tax_amount: taxAmount,
           total,
           payment_method: paymentMethod,
+          amount_received: paymentMethod === 'cash' ? amountReceived : null,
+          change_amount: paymentMethod === 'cash' ? changeAmount : null,
+          voucher_number: (paymentMethod === 'card' || paymentMethod === 'sinpe') ? voucherNumber : null,
           notes,
           status: 'completed',
+          issued_at: new Date().toISOString(),
           created_at: new Date().toISOString(),
         },
       ])
       .select()
-      .single();
+      .maybeSingle();
 
     if (invoiceError) throw invoiceError;
 
@@ -152,11 +173,9 @@ export const invoicesService = {
     const items = cartItems.map((item) => ({
       invoice_id: invoice.id,
       product_id: item.product_id,
-      product_name: item.product.name,
       quantity: item.quantity,
       unit_price: item.unit_price,
       subtotal: item.subtotal,
-      created_at: new Date().toISOString(),
     }));
 
     const { error: itemsError } = await supabase
@@ -181,11 +200,11 @@ export const invoicesService = {
         .from('products')
         .select('stock_quantity')
         .eq('id', item.product_id)
-        .single();
+        .maybeSingle();
 
       if (productError) throw productError;
 
-      const newStock = (product.stock_quantity || 0) - item.quantity;
+      const newStock = ((product?.stock_quantity) || 0) - item.quantity;
 
       const { error: updateError } = await supabase
         .from('products')
@@ -215,7 +234,7 @@ export const invoicesService = {
       })
       .eq('id', invoiceId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -261,11 +280,11 @@ export const invoicesService = {
     return data || [];
   },
 
-  // Obtener estadísticas de ventas
+  // Obtener estadísticas de ventas - ACTUALIZADO
   async getSalesStats(tenantId: string) {
     const { data, error } = await supabase
       .from('invoices')
-      .select('total, payment_method, status')
+      .select('total, payment_method, status, amount_received, change_amount')
       .eq('tenant_id', tenantId)
       .eq('status', 'completed');
 
@@ -280,11 +299,16 @@ export const invoicesService = {
       sinpe: data?.filter((i) => i.payment_method === 'sinpe').reduce((sum, i) => sum + i.total, 0) || 0,
     };
 
+    // Calcular total de vuelto en efectivo
+    const totalChange = data?.filter((i) => i.payment_method === 'cash')
+      .reduce((sum, i) => sum + (i.change_amount || 0), 0) || 0;
+
     return {
       totalSales,
       totalInvoices,
       averagePerInvoice: totalInvoices > 0 ? totalSales / totalInvoices : 0,
       byPaymentMethod,
+      totalChange,
     };
   },
 
@@ -304,7 +328,7 @@ export const invoicesService = {
     return data || [];
   },
 
-  // Obtener resumen de factura
+  // Obtener resumen de factura - ACTUALIZADO
   async getInvoiceSummary(invoiceId: string) {
     const invoice = await this.getInvoiceById(invoiceId);
 
@@ -319,6 +343,9 @@ export const invoicesService = {
       taxAmount: invoice.tax_amount,
       total: invoice.total,
       paymentMethod: invoice.payment_method,
+      amountReceived: invoice.amount_received,
+      changeAmount: invoice.change_amount,
+      voucherNumber: invoice.voucher_number,
       createdAt: invoice.created_at,
       notes: invoice.notes,
     };

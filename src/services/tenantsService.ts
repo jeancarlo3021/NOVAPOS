@@ -7,7 +7,7 @@ export const tenantsService = {
       .from('tenants')
       .select('*')
       .eq('owner_id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('Error al obtener tenant:', error);
@@ -64,7 +64,7 @@ export const tenantsService = {
       .from('tenants')
       .select('*')
       .eq('schema_name', schemaName)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { AlertCircle, CheckCircle, Info, X, Loader, Wifi, WifiOff, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, CheckCircle, Info, X, Loader, Wifi, Eye, EyeOff } from 'lucide-react';
 
 // ============ ALERT ============
 export const Alert = ({ 

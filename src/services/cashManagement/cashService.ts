@@ -81,7 +81,7 @@ export const cashSessionsService = {
       .eq('status', 'open')
       .order('opened_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
     return data || null;
@@ -93,7 +93,7 @@ export const cashSessionsService = {
       .from('cash_sessions')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -119,7 +119,7 @@ export const cashSessionsService = {
         },
       ])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -151,7 +151,7 @@ export const cashSessionsService = {
       })
       .eq('id', sessionId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -307,7 +307,7 @@ export const cashMovementsService = {
         },
       ])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

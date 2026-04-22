@@ -183,7 +183,7 @@ export const UnitTypesManagement: React.FC = () => {
                 <Button
                   type="button"
                   onClick={resetForm}
-                  variant="outline"
+                  variant="secondary"
                   disabled={saving}
                 >
                   Cancelar

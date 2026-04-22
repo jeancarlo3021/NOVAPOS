@@ -27,7 +27,7 @@ export const salesService = {
       .from('products')
       .select('*')
       .eq('id', productId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

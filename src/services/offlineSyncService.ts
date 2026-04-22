@@ -68,7 +68,7 @@ class OfflineSyncService {
       const transaction = this.db!.transaction([this.STORE_NAME], 'readonly');
       const store = transaction.objectStore(this.STORE_NAME);
       const index = store.index('synced');
-      const request = index.getAll(false);
+      const request = index.getAll(IDBKeyRange.only(false));
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {

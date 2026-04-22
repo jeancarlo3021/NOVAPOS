@@ -21,7 +21,7 @@ export const useTenantId = () => {
         }
 
         // 1️⃣ Intentar obtener del user_metadata
-        let id = user?.user_metadata?.tenant_id;
+        let id = (user as any)?.user_metadata?.tenant_id;
         console.log('📍 Tenant ID desde user_metadata:', id);
 
         // 2️⃣ Si no está, intentar desde user.tenant_id
@@ -30,19 +30,19 @@ export const useTenantId = () => {
           console.log('📍 Tenant ID desde user.tenant_id:', id);
         }
 
-        // 3️⃣ Si aún no hay, buscar en la tabla profiles
+        // 3️⃣ Si aún no hay, buscar en la tabla users
         if (!id) {
-          const { data, error: profileError } = await supabase
-            .from('profiles')
+          const { data, error: userError } = await supabase
+            .from('users')
             .select('tenant_id')
             .eq('id', user.id)
-            .single();
+            .maybeSingle();
 
-          if (profileError) {
-            console.warn('⚠️ Error buscando tenant_id en profiles:', profileError);
+          if (userError) {
+            console.warn('⚠️ Error buscando tenant_id en users:', userError);
           } else if (data?.tenant_id) {
             id = data.tenant_id;
-            console.log('📍 Tenant ID desde profiles:', id);
+            console.log('📍 Tenant ID desde users:', id);
           }
         }
 
@@ -52,7 +52,7 @@ export const useTenantId = () => {
             .from('tenants')
             .select('id')
             .eq('owner_id', user.id)
-            .single();
+            .maybeSingle();
 
           if (tenantError) {
             console.warn('⚠️ Error buscando tenant del propietario:', tenantError);

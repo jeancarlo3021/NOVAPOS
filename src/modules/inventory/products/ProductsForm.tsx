@@ -25,8 +25,9 @@ interface FormData {
 }
 
 export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, onCancel }) => {
-  const { user } = useAuth();
+  const { user, planFeatures } = useAuth();
   const isMountedRef = useRef(true);
+  const isProductsOnly = planFeatures?.inventory_products_only ?? false;
 
   const [formData, setFormData] = useState<FormData>({
     name: '',
@@ -190,18 +191,22 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         return;
       }
 
-      const productData = {
+      const productData: any = {
         name: formData.name,
         sku: formData.sku,
         description: formData.description || undefined,
-        category_id: formData.category_id || undefined,
-        unit_type_id: formData.unit_type_id || undefined,
         unit_price: formData.unit_price ? parseFloat(formData.unit_price) : 0,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
-        stock_quantity: parseInt(formData.stock_quantity) || 0,
-        min_stock_level: parseInt(formData.min_stock_level) || 10,
-        max_stock_level: parseInt(formData.max_stock_level) || 100,
       };
+
+      // Si NO es products_only, agrega los campos de stock, categoría y tipo de unidad
+      if (!isProductsOnly) {
+        productData.category_id = formData.category_id || undefined;
+        productData.unit_type_id = formData.unit_type_id || undefined;
+        productData.stock_quantity = parseInt(formData.stock_quantity) || 0;
+        productData.min_stock_level = parseInt(formData.min_stock_level) || 10;
+        productData.max_stock_level = parseInt(formData.max_stock_level) || 100;
+      }
 
       if (productId) {
         await inventoryProductsService.updateProduct(productId, productData);
@@ -239,8 +244,14 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     );
   }
 
+  // Obtener el nombre del tipo de unidad actual
+  const currentUnitType = unitTypes.find(u => u.id === formData.unit_type_id);
+  const unitTypeDisplay = currentUnitType 
+    ? `${currentUnitType.name} (${currentUnitType.abbreviation})`
+    : 'No seleccionado';
+
   return (
-    <div className="fixed inset-0  backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 w-full p-8">
+    <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 w-full p-8">
       <Card className="w-full max-w-3xl max-h-3xl overflow-y-auto">
         <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
           <h2 className="text-2xl font-bold">
@@ -318,97 +329,111 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
               />
             </div>
 
-            {/* Fila 2: Categoría y Tipo de Unidad */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría</label>
-                <div className="flex gap-2">
-                  <select
-                    name="category_id"
-                    value={formData.category_id}
-                    onChange={handleChange}
-                    disabled={submitting || categoriesLoading}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                  >
-                    <option value="">Seleccionar categoría...</option>
-                    {categories.map(cat => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {showCategoryForm && (
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      type="text"
-                      value={newCategory}
-                      onChange={(e) => setNewCategory(e.target.value)}
-                      placeholder="Nueva categoría..."
-                      disabled={categoryLoading}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddCategory}
-                      disabled={categoryLoading}
-                      className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
-                    >
-                      {categoryLoading ? '⏳' : 'Agregar'}
-                    </button>
+            {/* Campos que se ocultan si es products_only */}
+            {!isProductsOnly && (
+              <>
+                {/* Fila 2: Categoría y Tipo de Unidad */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría</label>
+                    <div className="flex gap-2">
+                      <select
+                        name="category_id"
+                        value={formData.category_id}
+                        onChange={handleChange}
+                        disabled={submitting || categoriesLoading}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                      >
+                        <option value="">Seleccionar categoría...</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {showCategoryForm && (
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="text"
+                          value={newCategory}
+                          onChange={(e) => setNewCategory(e.target.value)}
+                          placeholder="Nueva categoría..."
+                          disabled={categoryLoading}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCategory}
+                          disabled={categoryLoading}
+                          className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
+                        >
+                          {categoryLoading ? '⏳' : 'Agregar'}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de Unidad</label>
+                    <div className="flex gap-2">
+                      <select
+                        name="unit_type_id"
+                        value={formData.unit_type_id}
+                        onChange={handleChange}
+                        disabled={submitting || unitTypesLoading}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                      >
+                        <option value="">Seleccionar unidad...</option>
+                        {unitTypes.map(unit => (
+                          <option key={unit.id} value={unit.id}>
+                            {unit.name} ({unit.abbreviation})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {showUnitForm && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={newUnit.name}
+                          onChange={(e) => setNewUnit({ ...newUnit, name: e.target.value })}
+                          placeholder="Nombre..."
+                          disabled={unitLoading}
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
+                        />
+                        <input
+                          type="text"
+                          value={newUnit.abbreviation}
+                          onChange={(e) => setNewUnit({ ...newUnit, abbreviation: e.target.value })}
+                          placeholder="Abreviatura..."
+                          disabled={unitLoading}
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddUnitType}
+                          disabled={unitLoading}
+                          className="col-span-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
+                        >
+                          {unitLoading ? '⏳ Agregando...' : 'Agregar Unidad'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Mostrar tipo de unidad en modo products_only */}
+            {isProductsOnly && (
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de Unidad</label>
-                <div className="flex gap-2">
-                  <select
-                    name="unit_type_id"
-                    value={formData.unit_type_id}
-                    onChange={handleChange}
-                    disabled={submitting || unitTypesLoading}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                  >
-                    <option value="">Seleccionar unidad...</option>
-                    {unitTypes.map(unit => (
-                      <option key={unit.id} value={unit.id}>
-                        {unit.name} ({unit.abbreviation})
-                      </option>
-                    ))}
-                  </select>
-                  
+                <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
+                  {unitTypeDisplay}
                 </div>
-                {showUnitForm && (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={newUnit.name}
-                      onChange={(e) => setNewUnit({ ...newUnit, name: e.target.value })}
-                      placeholder="Nombre..."
-                      disabled={unitLoading}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
-                    />
-                    <input
-                      type="text"
-                      value={newUnit.abbreviation}
-                      onChange={(e) => setNewUnit({ ...newUnit, abbreviation: e.target.value })}
-                      placeholder="Abreviatura..."
-                      disabled={unitLoading}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddUnitType}
-                      disabled={unitLoading}
-                      className="col-span-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
-                    >
-                      {unitLoading ? '⏳ Agregando...' : 'Agregar Unidad'}
-                    </button>
-                  </div>
-                )}
               </div>
-            </div>
+            )}
 
             {/* Fila 3: Precios */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -442,48 +467,50 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
               </div>
             </div>
 
-            {/* Fila 4: Stock */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Actual</label>
-                <input
-                  type="number"
-                  name="stock_quantity"
-                  value={formData.stock_quantity}
-                  onChange={handleChange}
-                  placeholder="0"
-                  min="0"
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
+            {/* Fila 4: Stock - Solo si NO es products_only */}
+            {!isProductsOnly && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Actual</label>
+                  <input
+                    type="number"
+                    name="stock_quantity"
+                    value={formData.stock_quantity}
+                    onChange={handleChange}
+                    placeholder="0"
+                    min="0"
+                    disabled={submitting}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Mínimo</label>
+                  <input
+                    type="number"
+                    name="min_stock_level"
+                    value={formData.min_stock_level}
+                    onChange={handleChange}
+                    placeholder="10"
+                    min="0"
+                    disabled={submitting}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Máximo</label>
+                  <input
+                    type="number"
+                    name="max_stock_level"
+                    value={formData.max_stock_level}
+                    onChange={handleChange}
+                    placeholder="100"
+                    min="0"
+                    disabled={submitting}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Mínimo</label>
-                <input
-                  type="number"
-                  name="min_stock_level"
-                  value={formData.min_stock_level}
-                  onChange={handleChange}
-                  placeholder="10"
-                  min="0"
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Máximo</label>
-                <input
-                  type="number"
-                  name="max_stock_level"
-                  value={formData.max_stock_level}
-                  onChange={handleChange}
-                  placeholder="100"
-                  min="0"
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
-              </div>
-            </div>
+            )}
           </form>
         </CardContent>
 

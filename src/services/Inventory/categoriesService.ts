@@ -33,7 +33,7 @@ export const categoriesService = {
       .from('product_categories')
       .select('*')
       .eq('id', categoryId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -55,7 +55,7 @@ export const categoriesService = {
         },
       ])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -73,7 +73,7 @@ export const categoriesService = {
       .update(updates)
       .eq('id', categoryId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
