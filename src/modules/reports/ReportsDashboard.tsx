@@ -137,7 +137,6 @@ const ReportsDashboard: React.FC = () => {
   const { planFeatures } = useAuth();
   const { tenantId } = useTenantId();
 
-  const hasBasic = planFeatures.reports_basic || planFeatures.reports;
   const hasAdvanced = planFeatures.reports;
 
   const [activeTab, setActiveTab] = useState<TabId>('basic');

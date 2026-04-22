@@ -142,6 +142,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const currentUserIdRef = useRef<string | null>(null);
   const loadingSessionRef = useRef(false);
+  // Generation counter: incremented on clearAuthState to cancel stale handlers
+  const sessionGenRef = useRef(0);
 
   // ============================================
   // LOAD PLAN FEATURES - ✅ CORREGIDO
@@ -259,6 +261,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearAuthState = () => {
     console.log('🧹 Limpiando estado de autenticación');
+    sessionGenRef.current++; // Invalidate any in-progress handleSession
     setUser(null);
     setTenant(null);
     setTenants([]);
@@ -272,22 +275,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const handleSession = async (session: { user: { id: string } } | null) => {
-    if (loadingSessionRef.current && currentUserIdRef.current === session?.user?.id) {
-      console.log('⏳ Ya hay una carga en progreso para este usuario, ignorando...');
-      return;
-    }
+    // Capture generation at entry — if clearAuthState() is called while we
+    // await, our generation becomes stale and we bail out early.
+    const gen = ++sessionGenRef.current;
+    const isActive = () => gen === sessionGenRef.current;
 
     if (!session?.user) {
       console.log('👤 Sin sesión detectada');
-      clearAuthState();
-      setLoading(false);
+      setUser(null);
+      setTenant(null);
+      setTenants([]);
+      setPlanFeatures(DEFAULT_FEATURES);
+      setPlanName('demo');
+      currentUserIdRef.current = null;
       loadingSessionRef.current = false;
+      setLoading(false);
       return;
     }
 
-    if (currentUserIdRef.current && currentUserIdRef.current !== session.user.id) {
-      console.log('🔄 Cambio de usuario detectado:', currentUserIdRef.current, '→', session.user.id);
-      clearAuthState();
+    // Skip if already loading this exact user (de-duplicate rapid-fire events)
+    if (loadingSessionRef.current && currentUserIdRef.current === session.user.id) {
+      console.log('⏳ Ya hay una carga en progreso para este usuario, ignorando...');
+      return;
     }
 
     currentUserIdRef.current = session.user.id;
@@ -302,6 +311,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', session.user.id)
         .maybeSingle();
 
+      if (!isActive()) return; // Superseded by a newer login/logout
       if (userError) throw userError;
       if (!userData) throw new Error('Usuario no encontrado en el sistema');
 
@@ -309,31 +319,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       console.log('✅ Usuario cargado:', userData.email);
 
-      console.log('⚡ Iniciando carga paralela de tenants y plan...');
       const [{ tenants: loadedTenants, selectedTenant }, planData] = await Promise.all([
         loadTenants(userData.id, userData.tenant_id),
         loadPlanFeatures(userData.tenant_id),
       ]);
 
+      if (!isActive()) return; // Superseded while loading tenants/plan
+
       setTenants(loadedTenants);
-      if (selectedTenant) {
-        setTenant(selectedTenant);
-      }
-      
-      // ✅ USAR EL NOMBRE REAL DEL PLAN DESDE LA BD
+      if (selectedTenant) setTenant(selectedTenant);
       setPlanFeatures(planData.features);
       setPlanName(planData.name);
 
-      console.log('✅ Tenants y plan cargados completamente (PARALELO)');
       console.log('🎉 Autenticación completada - Plan:', planData.name);
     } catch (err) {
+      if (!isActive()) return; // Stale error — don't corrupt fresh state
       const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
       console.error('❌ Error:', errorMsg);
       setError(errorMsg);
       clearAuthState();
     } finally {
-      loadingSessionRef.current = false;
-      setLoading(false);
+      if (isActive()) {
+        loadingSessionRef.current = false;
+        setLoading(false);
+      }
     }
   };
 
@@ -372,12 +381,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        // Skip SIGNED_IN if login() already loaded this user explicitly
-        if (event === 'SIGNED_IN' && session?.user?.id === currentUserIdRef.current) {
-          console.log('⏭️ Ignorando SIGNED_IN duplicado (ya cargado por login)');
-          return;
-        }
-
         setLoading(true);
         await handleSession(session);
       }
@@ -405,7 +408,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       : `${emailOrUsername}@nexoerp.local`;
 
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
       if (signInError) {
         console.error('❌ Error de login:', signInError.message);
@@ -413,12 +416,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         throw signInError;
       }
-
-      // Explicitly load user data here — don't rely solely on onAuthStateChange
-      // because Chrome fires it with different timing, causing a race condition
-      if (data.session) {
-        await handleSession(data.session);
-      }
+      // onAuthStateChange fires SIGNED_IN and calls handleSession.
+      // Navigation happens in Login.tsx via useEffect watching user+loading.
     } catch (err) {
       setLoading(false);
       throw err;
