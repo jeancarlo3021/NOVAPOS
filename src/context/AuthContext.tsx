@@ -366,9 +366,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setupAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         console.log('🔔 Auth event:', event);
-        
+
         if (!mounted) return;
 
         if (event === 'INITIAL_SESSION') {
@@ -382,7 +382,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         setLoading(true);
-        await handleSession(session);
+        // Defer past the Supabase internal session lock — calling authenticated
+        // queries synchronously inside onAuthStateChange causes a deadlock.
+        setTimeout(() => {
+          if (mounted) handleSession(session);
+        }, 0);
       }
     );
 
