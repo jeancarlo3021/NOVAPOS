@@ -47,6 +47,12 @@ export interface Product {
   cost_price?: number;
   category_id?: string;
   unit_type_id?: string;
+  unit_type?: {
+    id: string;
+    name: string;
+    abbreviation: string;
+    requires_weight?: boolean;
+  } | null;
   stock_quantity: number;
   min_stock_level?: number;
   max_stock_level?: number;

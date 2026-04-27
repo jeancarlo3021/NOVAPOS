@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 
 interface ProductWithRelations extends Product {
   category?: { id: string; name: string } | null;
-  unit_type?: { id: string; name: string; abbreviation: string } | null;
+  unit_type?: { id: string; name: string; abbreviation: string; requires_weight?: boolean } | null;
 }
 
 interface ProductCardProps {
@@ -85,11 +85,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             <span className="text-sm text-gray-600 font-medium">Precio</span>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-blue-600">
-                ${product.unit_price.toFixed(2)}
+                ₡{product.unit_price.toFixed(2)}
               </span>
               {product.cost_price && (
                 <span className="text-xs text-gray-500 line-through">
-                  ${product.cost_price.toFixed(2)}
+                  ₡{product.cost_price.toFixed(2)}
                 </span>
               )}
             </div>

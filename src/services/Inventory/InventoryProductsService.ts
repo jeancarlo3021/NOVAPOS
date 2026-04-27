@@ -122,12 +122,16 @@ export async function getProductById(
           id,
           name,
           sku,
+          description,
           unit_price,
+          cost_price,
           stock_quantity,
+          min_stock_level,
+          max_stock_level,
           category_id,
           category:category_id (id, name),
           unit_type_id,
-          unit_type:unit_type_id (id, name, abbreviation)
+          unit_type:unit_type_id (id, name, abbreviation, requires_weight)
         `
         )
         .eq('id', productId)

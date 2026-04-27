@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, supabaseAdmin } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
 import { Link } from 'react-router-dom';
@@ -12,6 +12,7 @@ interface OwnerData {
   is_demo: boolean;
   status: string;
   created_at: string;
+  plan_id?: string;
   plan_name?: string;
   plan_price?: number;
   subscription_status?: string;
@@ -43,43 +44,55 @@ export const CreateOwner: React.FC = () => {
 
   useEffect(() => {
     fetchOwners();
-    fetchPlans();
   }, []);
-
-  const fetchPlans = async () => {
-    try {
-      setPlans(await plansService.getAllPlans());
-    } catch (err: any) {
-      console.error('Error al obtener planes:', err);
-    }
-  };
 
   const fetchOwners = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('tenants')
-        .select(`
-          id, name, owner_id, is_demo, status, created_at,
-          subscriptions(status, ends_at, subscription_plans(name, price))
-        `)
-        .order('created_at', { ascending: false });
+
+      // Fetch tenants and all plans in parallel
+      const [{ data, error }, allPlans] = await Promise.all([
+        supabase
+          .from('tenants')
+          .select(`
+            id, name, owner_id, is_demo, status, created_at, plan_id,
+            subscription:subscriptions!tenants_subscription_id_fkey (
+              id, status, started_at, ends_at, auto_renew,
+              plan:plan_id ( id, name, price, features )
+            )
+          `)
+          .order('created_at', { ascending: false }),
+        plansService.getAllPlans(),
+      ]);
+
+      setPlans(allPlans);
 
       if (error) throw error;
 
       setOwners(
-        (data ?? []).map((tenant: any) => ({
-          id: tenant.id,
-          name: tenant.name,
-          owner_id: tenant.owner_id,
-          is_demo: tenant.is_demo,
-          status: tenant.status,
-          created_at: tenant.created_at,
-          plan_name: tenant.subscriptions?.[0]?.subscription_plans?.name ?? 'Sin plan',
-          plan_price: tenant.subscriptions?.[0]?.subscription_plans?.price ?? 0,
-          subscription_status: tenant.subscriptions?.[0]?.status ?? 'inactiva',
-          ends_at: tenant.subscriptions?.[0]?.ends_at,
-        }))
+        (data ?? []).map((tenant: any) => {
+          // FK join returns single object; Supabase types it as array — normalise
+          const sub = Array.isArray(tenant.subscription)
+            ? tenant.subscription[0] ?? null
+            : tenant.subscription ?? null;
+          const subPlan = Array.isArray(sub?.plan) ? sub.plan[0] ?? null : sub?.plan ?? null;
+
+          // Prefer data from the joined plan; fall back to allPlans list
+          const planFromList = allPlans.find((p) => p.id === tenant.plan_id);
+          return {
+            id: tenant.id,
+            name: tenant.name,
+            owner_id: tenant.owner_id,
+            is_demo: tenant.is_demo,
+            status: tenant.status,
+            created_at: tenant.created_at,
+            plan_id: tenant.plan_id,
+            plan_name: subPlan?.name ?? planFromList?.name ?? 'Sin plan',
+            plan_price: subPlan?.price ?? planFromList?.price ?? 0,
+            subscription_status: sub?.status ?? 'inactiva',
+            ends_at: sub?.ends_at,
+          };
+        })
       );
     } catch (err: any) {
       setError(err.message);
@@ -124,7 +137,7 @@ export const CreateOwner: React.FC = () => {
     return isValid;
   };
 
-const handleCreateOwner = async (e: React.FormEvent) => {
+const handleCreateOwner = async (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   setLoading(true);
   setError('');
@@ -138,103 +151,21 @@ const handleCreateOwner = async (e: React.FormEvent) => {
   try {
     console.log('📧 Creando usuario con email:', formData.email);
 
-    // ✅ Validar que supabaseAdmin esté disponible
-    if (!supabaseAdmin) {
-      throw new Error('❌ Service Role Key no configurada. No se puede crear usuarios.');
-    }
-
-    // 1. ✅ Crear usuario en Auth (Usando supabaseAdmin)
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: formData.email,
-      password: formData.password,
-      email_confirm: true, // ✅ Confirmar email automáticamente
-      user_metadata: {
-        full_name: formData.businessName,
-        role: 'owner'
-      }
+    const { data, error: fnError } = await supabase.functions.invoke('admin-create-owner', {
+      body: {
+        email: formData.email,
+        password: formData.password,
+        businessName: formData.businessName,
+        planId: formData.planId,
+        withDemo: formData.withDemo,
+      },
     });
 
-    if (authError) throw new Error(`❌ Auth error: ${authError.message}`);
-    if (!authData.user) throw new Error('❌ No user created');
+    if (fnError) throw new Error(fnError.message);
+    if (data?.error) throw new Error(data.error);
 
-    const userId = authData.user.id;
-    console.log('✅ Usuario creado en Auth:', userId);
-
-    // 2. Esperar a que el trigger se ejecute
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // 3. Verificar si fue insertado en public.users
-    const { data: userExists, error: checkError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', userId)
-      .single();
-
-    if (!userExists && !checkError) {
-      console.log('⚠️ Usuario no encontrado en public.users, insertando manualmente...');
-      
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert({
-          id: userId,
-          email: formData.email,
-          full_name: formData.businessName,
-          role: 'owner',
-          business_name: formData.businessName,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-
-      if (insertError) {
-        console.error('❌ Error insertando en public.users:', insertError);
-        throw new Error(`Insert error: ${insertError.message}`);
-      }
-      console.log('✅ Usuario insertado manualmente en public.users');
-    } else if (userExists) {
-      console.log('✅ Usuario ya existe en public.users');
-    }
-
-    // 4. Crear tenant (owner)
-    const schemaName = `tenant_${userId.replace(/-/g, '_')}`;
-    const { data: tenantData, error: tenantError } = await supabase
-      .from('tenants')
-      .insert({
-        name: formData.businessName,
-        owner_id: userId,
-        is_demo: formData.withDemo,
-        status: 'active',
-        schema_name: schemaName
-      })
-      .select()
-      .single();
-
-    if (tenantError) throw new Error(`Tenant error: ${tenantError.message}`);
-    console.log('✅ Tenant creado:', tenantData.id);
-
-    // 5. Crear suscripción si hay plan
-    if (formData.planId) {
-      const subscriptionStatus = formData.withDemo ? 'inactive' : 'active';
-      
-      console.log('📋 Creando suscripción con status:', subscriptionStatus);
-      
-      const { error: subError } = await supabase
-        .from('subscriptions')
-        .insert({
-          tenant_id: tenantData.id,
-          plan_id: formData.planId,
-          status: subscriptionStatus,
-          started_at: new Date().toISOString(),
-          ends_at: formData.withDemo 
-            ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-            : null,
-          auto_renew: true
-        });
-
-      if (subError) throw new Error(`Subscription error: ${subError.message}`);
-      console.log('✅ Suscripción creada');
-    }
-
-    setSuccess(`✅ Owner creado exitosamente!\\n📧 Email: ${formData.email}\n✅ Email confirmado automáticamente`);
+    console.log('✅ Owner creado:', data);
+    setSuccess(`✅ Owner creado exitosamente!\n📧 Email: ${formData.email}\n✅ Email confirmado automáticamente`);
     setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false });
     setShowForm(false);
     
@@ -259,42 +190,12 @@ const handleDeleteOwner = async (tenantId: string, ownerId: string) => {
   try {
     console.log('🗑️ Iniciando eliminación del owner:', ownerId);
 
-    // 1. Eliminar suscripciones
-    console.log('📋 Eliminando suscripciones...');
-    const { error: subErr } = await supabase
-      .from('subscriptions')
-      .delete()
-      .eq('tenant_id', tenantId);
-    if (subErr) throw new Error(`Error eliminando suscripciones: ${subErr.message}`);
-    console.log('✅ Suscripciones eliminadas');
+    const { data, error: fnError } = await supabase.functions.invoke('admin-delete-owner', {
+      body: { tenantId, ownerId },
+    });
 
-    // 2. Eliminar tenant
-    console.log('🏢 Eliminando tenant...');
-    const { error: tErr } = await supabase
-      .from('tenants')
-      .delete()
-      .eq('id', tenantId);
-    if (tErr) throw new Error(`Error eliminando tenant: ${tErr.message}`);
-    console.log('✅ Tenant eliminado');
-
-    // 3. Eliminar de public.users
-    console.log('👤 Eliminando de public.users...');
-    const { error: userErr } = await supabase
-      .from('users')
-      .delete()
-      .eq('id', ownerId);
-    if (userErr) throw new Error(`Error eliminando de public.users: ${userErr.message}`);
-    console.log('✅ Usuario eliminado de public.users');
-
-    // 4. ✅ ELIMINAR DE AUTH (Usando supabaseAdmin)
-    console.log('🔐 Eliminando de Auth...');
-    if (!supabaseAdmin) {
-      throw new Error('❌ Service Role Key no configurada. No se puede eliminar de Auth.');
-    }
-    
-    const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(ownerId);
-    if (authErr) throw new Error(`Error eliminando de Auth: ${authErr.message}`);
-    console.log('✅ Usuario eliminado de Auth');
+    if (fnError) throw new Error(fnError.message);
+    if (data?.error) throw new Error(data.error);
 
     setSuccess('✅ Owner y todos sus datos eliminados exitosamente');
     
@@ -313,13 +214,14 @@ const handleDeleteOwner = async (tenantId: string, ownerId: string) => {
   const handleChangePlan = async (tenantId: string, newPlanId: string) => {
     if (!newPlanId) return;
     try {
-      console.log('🔄 Iniciando cambio de plan...');
-      await plansService.changePlan(tenantId, newPlanId);
-      console.log('✅ changePlan() completado');
-      
+      const { data, error: fnError } = await supabase.functions.invoke('admin-change-plan', {
+        body: { tenantId, newPlanId },
+      });
+
+      if (fnError) throw new Error(fnError.message);
+      if (data?.error) throw new Error(data.error);
+
       await refreshPlan(tenantId);
-      console.log('✅ refreshPlan() completado');
-      
       setSuccess('Plan actualizado exitosamente');
       fetchOwners();
     } catch (err: any) {

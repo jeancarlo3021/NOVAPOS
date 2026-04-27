@@ -4,6 +4,61 @@ import React, { createContext, useContext, useEffect, useState, useRef } from 'r
 import { supabase } from '@/lib/supabase';
 
 // ============================================
+// AUTH CACHE (localStorage) — offline support
+// ============================================
+
+const AUTH_CACHE_KEY = 'novapos_auth_cache';
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+interface AuthCache {
+  userId: string;
+  user: AuthUser;
+  tenant: Tenant | null;
+  tenants: Tenant[];
+  planFeatures: PlanFeatures;
+  planName: string;
+  cachedAt: number;
+}
+
+function readAuthCache(): AuthCache | null {
+  try {
+    const raw = localStorage.getItem(AUTH_CACHE_KEY);
+    if (!raw) return null;
+    const cache: AuthCache = JSON.parse(raw);
+    if (Date.now() - cache.cachedAt > CACHE_TTL_MS) {
+      localStorage.removeItem(AUTH_CACHE_KEY);
+      return null;
+    }
+    return cache;
+  } catch {
+    return null;
+  }
+}
+
+function writeAuthCache(data: Omit<AuthCache, 'cachedAt'>) {
+  try {
+    localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ...data, cachedAt: Date.now() }));
+  } catch {}
+}
+
+function clearAuthCache() {
+  localStorage.removeItem(AUTH_CACHE_KEY);
+}
+
+function isNetworkError(err: unknown): boolean {
+  if (!navigator.onLine) return true;
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    return (
+      msg.includes('network') || msg.includes('fetch') ||
+      msg.includes('timeout') || msg.includes('connection') ||
+      msg.includes('failed to fetch') || msg.includes('load failed')
+    );
+  }
+  return false;
+}
+
+// ============================================
 // INTERFACES
 // ============================================
 
@@ -16,12 +71,34 @@ export interface AuthUser {
   business_name?: string;
 }
 
+export interface TenantSubscription {
+  id: string;
+  status: string;
+  started_at?: string;
+  ends_at?: string;
+  auto_renew?: boolean;
+  plan?: {
+    id: string;
+    name: string;
+    description?: string;
+    price?: number;
+    billing_cycle?: string;
+    max_users?: number;
+    max_products?: number;
+    max_orders?: number;
+    features?: Record<string, unknown>;
+  } | null;
+}
+
 export interface Tenant {
   id: string;
   name: string;
   owner_id: string;
   is_demo: boolean;
   created_at?: string;
+  subscription_id?: string;
+  plan_id?: string;
+  subscription?: TenantSubscription | null;
 }
 
 export interface PlanFeatures {
@@ -31,6 +108,7 @@ export interface PlanFeatures {
   reports: boolean;
   settings: boolean;
   users: boolean;
+  expenses: boolean;
   // POS capabilities
   pos_card: boolean;
   pos_sinpe: boolean;
@@ -67,6 +145,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   pos_discount: false,
   inventory_products_only: false,
   reports_basic: false,
+  expenses: false,
 };
 
 export const FULL_FEATURES: PlanFeatures = {
@@ -79,13 +158,33 @@ export const FULL_FEATURES: PlanFeatures = {
   pos_sinpe: true,
   pos_discount: true,
   inventory_products_only: false,
-  reports_basic: false,
+  reports_basic: true,
+  expenses: true,
 };
 
-// ✅ NUEVO: Tipo para el retorno de loadPlanFeatures
 interface PlanData {
   features: PlanFeatures;
   name: string;
+}
+
+// Extracts plan features from a tenant's joined subscription (no extra DB call needed)
+function extractPlanData(tenant: Tenant | null, defaults: PlanFeatures): PlanData {
+  const sub = tenant?.subscription;
+  if (!sub) return { features: defaults, name: 'demo' };
+
+  const now = new Date();
+  const endsAt = sub.ends_at ? new Date(sub.ends_at) : null;
+  if (sub.status !== 'active' || (endsAt && endsAt < now)) {
+    return { features: defaults, name: 'demo' };
+  }
+
+  const plan = sub.plan;
+  if (!plan) return { features: defaults, name: 'demo' };
+
+  return {
+    features: { ...defaults, ...(plan.features as Partial<PlanFeatures>) },
+    name: plan.name,
+  };
 }
 
 interface AuthContextType {
@@ -214,29 +313,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // LOAD TENANTS
   // ============================================
 
+  const TENANT_SELECT = `
+    id, name, owner_id, is_demo, created_at, subscription_id, plan_id,
+    subscription:subscriptions!tenants_subscription_id_fkey (
+      id, status, started_at, ends_at, auto_renew,
+      plan:plan_id (
+        id, name, description, price, billing_cycle,
+        max_users, max_products, max_orders, features
+      )
+    )
+  `;
+
   const loadTenants = async (userId: string, userTenantId: string): Promise<{
     tenants: Tenant[];
     selectedTenant: Tenant | null;
+    planData: PlanData;
   }> => {
     try {
       console.log('📦 Cargando tenants para usuario:', userId);
 
       const { data: ownedTenants } = await supabase
         .from('tenants')
-        .select('id, name, owner_id, is_demo, created_at')
+        .select(TENANT_SELECT)
         .eq('owner_id', userId);
 
-      let resolvedTenant = null;
+      let resolvedTenant: Tenant | null = null;
+
+      const toTenant = (raw: any): Tenant => ({
+        ...raw,
+        // Supabase returns FK-joined rows as single objects but types them as arrays
+        subscription: Array.isArray(raw.subscription) ? raw.subscription[0] ?? null : raw.subscription ?? null,
+      });
 
       if (ownedTenants && ownedTenants.length > 0) {
-        resolvedTenant = ownedTenants.find(t => t.id === userTenantId) ?? ownedTenants[0];
+        const mapped = ownedTenants.map(toTenant);
+        resolvedTenant = mapped.find(t => t.id === userTenantId) ?? mapped[0];
       } else if (userTenantId) {
         const { data: staffTenant } = await supabase
           .from('tenants')
-          .select('id, name, owner_id, is_demo, created_at')
+          .select(TENANT_SELECT)
           .eq('id', userTenantId)
           .maybeSingle();
-        resolvedTenant = staffTenant ?? null;
+        resolvedTenant = staffTenant ? toTenant(staffTenant) : null;
       }
 
       if (resolvedTenant) {
@@ -245,13 +363,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn('⚠️ No se encontró tenant para el usuario');
       }
 
+      const planData = extractPlanData(resolvedTenant, DEFAULT_FEATURES);
+      console.log('✅ Plan cargado desde tenant:', planData.name);
+
       return {
-        tenants: ownedTenants || [],
+        tenants: (ownedTenants ?? []).map(toTenant),
         selectedTenant: resolvedTenant,
+        planData,
       };
     } catch (err) {
       console.error('❌ Error loading tenants:', err);
-      return { tenants: [], selectedTenant: null };
+      return { tenants: [], selectedTenant: null, planData: { features: DEFAULT_FEATURES, name: 'demo' } };
     }
   };
 
@@ -282,6 +404,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!session?.user) {
       console.log('👤 Sin sesión detectada');
+      clearAuthCache();
       setUser(null);
       setTenant(null);
       setTenants([]);
@@ -292,6 +415,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
       return;
     }
+
+    const userId = session.user.id;
 
     // Skip if already loading this exact user (de-duplicate rapid-fire events)
     if (loadingSessionRef.current && currentUserIdRef.current === session.user.id) {
@@ -319,25 +444,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       console.log('✅ Usuario cargado:', userData.email);
 
-      const [{ tenants: loadedTenants, selectedTenant }, planData] = await Promise.all([
-        loadTenants(userData.id, userData.tenant_id),
-        loadPlanFeatures(userData.tenant_id),
-      ]);
+      const { tenants: loadedTenants, selectedTenant, planData: joinedPlanData } = await loadTenants(userData.id, userData.tenant_id);
 
       if (!isActive()) return; // Superseded while loading tenants/plan
+
+      // If the FK join didn't find a plan (tenant.subscription_id may be null),
+      // fall back to querying subscriptions directly by tenant_id.
+      let planData = joinedPlanData;
+      if (planData.name === 'demo' && selectedTenant) {
+        planData = await loadPlanFeatures(selectedTenant.id);
+      }
+
+      if (!isActive()) return;
 
       setTenants(loadedTenants);
       if (selectedTenant) setTenant(selectedTenant);
       setPlanFeatures(planData.features);
       setPlanName(planData.name);
 
+      // Persist to localStorage so next load works offline
+      writeAuthCache({
+        userId,
+        user: userData,
+        tenant: selectedTenant,
+        tenants: loadedTenants,
+        planFeatures: planData.features,
+        planName: planData.name,
+      });
+
       console.log('🎉 Autenticación completada - Plan:', planData.name);
     } catch (err) {
       if (!isActive()) return; // Stale error — don't corrupt fresh state
       const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
       console.error('❌ Error:', errorMsg);
-      setError(errorMsg);
-      clearAuthState();
+
+      // If it's a network error, fall back to cached data for this user
+      const cache = readAuthCache();
+      if (isNetworkError(err) && cache && cache.userId === userId) {
+        console.log('📦 Sin conexión — usando datos en caché');
+        setUser(cache.user);
+        setTenant(cache.tenant);
+        setTenants(cache.tenants);
+        setPlanFeatures(cache.planFeatures);
+        setPlanName(cache.planName);
+        setError(null);
+      } else {
+        setError(errorMsg);
+        clearAuthState();
+      }
     } finally {
       if (isActive()) {
         loadingSessionRef.current = false;
@@ -354,11 +508,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let mounted = true;
 
     const setupAuth = async () => {
-      console.log('📍 Obteniendo sesión inicial...');
-      
+      // Preload from cache immediately so ProtectedRoute doesn't redirect
+      // while the network call is in-flight
+      const cache = readAuthCache();
+      if (cache && mounted) {
+        console.log('📦 Sesión cargada desde caché');
+        setUser(cache.user);
+        setTenant(cache.tenant);
+        setTenants(cache.tenants);
+        setPlanFeatures(cache.planFeatures);
+        setPlanName(cache.planName);
+        setLoading(false);
+      }
+
+      console.log('📍 Verificando sesión con servidor...');
       const { data: { session } } = await supabase.auth.getSession();
-      
-      if (mounted) {
+
+      if (!mounted) return;
+
+      if (!session) {
+        // No valid session — clear any stale cache and state
+        if (cache) {
+          clearAuthCache();
+          clearAuthState();
+          setLoading(false);
+        } else {
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Refresh data in background (don't block navigation if cache exists)
+      if (cache) {
+        handleSession(session); // fire-and-forget — updates state when done
+      } else {
         await handleSession(session);
       }
     };
@@ -442,6 +625,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (signOutError) throw signOutError;
 
+      clearAuthCache();
       clearAuthState();
       setLoading(false);
       console.log('✅ Sesión cerrada');

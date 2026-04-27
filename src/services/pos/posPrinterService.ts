@@ -1,16 +1,9 @@
-/**
- * Servicio de Impresión POS - Versión 2.0
- * Integrado con configuración de factura desde Supabase
- * Soporta impresoras térmicas ESC/POS
- * Compatible con: Epson, Star, Bixolon, Zebra
- */
-
 import { supabase } from '@/lib/supabase';
 
 export interface PrinterConfig {
-  width?: number; // Ancho en caracteres (32, 40, 48, 56, 80)
-  name?: string; // Nombre de la impresora
-  encoding?: string; // Codificación (UTF-8, CP1252, etc)
+  width?: number;
+  name?: string;
+  encoding?: string;
 }
 
 export interface ReceiptData {
@@ -38,12 +31,9 @@ export interface ReceiptData {
 }
 
 export interface ReceiptConfig {
-  // Formato
   paperWidth: 32 | 40 | 48 | 56 | 80;
   showLogo: boolean;
   logoUrl?: string;
-
-  // Contenido
   showStoreName: boolean;
   showStoreAddress: boolean;
   showStorePhone: boolean;
@@ -52,30 +42,23 @@ export interface ReceiptConfig {
   showDateTime: boolean;
   showCustomerInfo: boolean;
   footerMessage: string;
-
-  // Impresora
   printerName?: string;
   printerType: 'thermal' | 'browser' | 'qztray';
   autoprint: boolean;
 }
 
-class POSPrinterService {
-  private config: PrinterConfig;
-  private width: number;
-  private receiptConfig: ReceiptConfig | null = null;
+// Paper width in mm for each character-width setting
+const PAPER_WIDTH_MM: Record<number, string> = {
+  32: '58mm',
+  40: '72mm',
+  48: '80mm',
+  56: '80mm',
+  80: '80mm',
+};
 
-  constructor(config: PrinterConfig = {}) {
-    this.config = {
-      width: 80,
-      encoding: 'UTF-8',
-      ...config,
-    };
-    this.width = this.config.width || 80;
-  }
+export class POSPrinterService {
+  constructor(_config: PrinterConfig = {}) {}
 
-  /**
-   * Carga la configuración de factura desde Supabase
-   */
   async loadReceiptConfig(tenantId: string): Promise<ReceiptConfig> {
     try {
       const { data: rows, error } = await supabase
@@ -87,25 +70,14 @@ class POSPrinterService {
         .limit(1);
 
       const data = rows?.[0] ?? null;
-      if (error || !data) {
-        console.warn('No se encontró configuración de factura, usando valores por defecto');
-        return this.getDefaultConfig();
-      }
-
-      const cfg = this.getDefaultConfig();
-      this.receiptConfig = (data?.config as ReceiptConfig) || cfg;
-      this.width = this.receiptConfig.paperWidth;
-      return this.receiptConfig;
-    } catch (error) {
-      console.error('Error cargando configuración de factura:', error);
+      if (error || !data) return this.getDefaultConfig();
+      return { ...this.getDefaultConfig(), ...(data.config as Partial<ReceiptConfig>) };
+    } catch {
       return this.getDefaultConfig();
     }
   }
 
-  /**
-   * Obtiene la configuración por defecto
-   */
-  private getDefaultConfig(): ReceiptConfig {
+  getDefaultConfig(): ReceiptConfig {
     return {
       paperWidth: 80,
       showLogo: false,
@@ -122,525 +94,367 @@ class POSPrinterService {
     };
   }
 
-  /**
-   * Genera comandos ESC/POS para imprimir
-   */
-  private generateESCPOS(receiptData: ReceiptData): Uint8Array {
-    const config = this.receiptConfig || this.getDefaultConfig();
-    const commands: number[] = [];
+  // ─── Public API ──────────────────────────────────────────────────────────────
 
-    // Inicializar impresora
-    commands.push(...this.ESC('M')); // Reset
-    commands.push(...this.ESC('@')); // Initialize
+  async printAuto(receiptData: ReceiptData, tenantId: string): Promise<void> {
+    // Always reload config so we pick up latest settings changes
+    const cfg = await this.loadReceiptConfig(tenantId);
 
-    // Configurar codificación
-    commands.push(...this.ESC('t', 33)); // UTF-8
-
-    // Logo
-    if (config.showLogo && receiptData.logoUrl) {
-      commands.push(...this.centerText('🏪'));
-      commands.push(...this.newLine());
-    }
-
-    // Encabezado
-    commands.push(...this.centerText('🛒 TICKET DE VENTA'));
-    commands.push(...this.newLine());
-
-    // Número de Factura
-    if (config.showInvoiceNumber) {
-      commands.push(...this.centerText(`Factura #${receiptData.invoiceNumber}`));
-      commands.push(...this.newLine());
-    }
-
-    // Fecha y Hora
-    if (config.showDateTime) {
-      commands.push(...this.centerText(`${receiptData.date} ${receiptData.time}`));
-      commands.push(...this.newLine());
-    }
-
-    commands.push(...this.separator());
-
-    // Datos del Negocio
-    if (config.showStoreName && receiptData.storeName) {
-      commands.push(...this.centerText(receiptData.storeName));
-      commands.push(...this.newLine());
-    }
-
-    if (config.showStoreAddress && receiptData.storeAddress) {
-      commands.push(...this.centerText(receiptData.storeAddress));
-      commands.push(...this.newLine());
-    }
-
-    if (config.showStorePhone && receiptData.storePhone) {
-      commands.push(...this.centerText(`Tel: ${receiptData.storePhone}`));
-      commands.push(...this.newLine());
-    }
-
-    // Datos del cliente
-    if (config.showCustomerInfo && (receiptData.customerName || receiptData.customerPhone)) {
-      commands.push(...this.newLine());
-      commands.push(...this.boldText('CLIENTE:'));
-      if (receiptData.customerName) {
-        commands.push(...this.text(receiptData.customerName));
-        commands.push(...this.newLine());
-      }
-      if (receiptData.customerPhone) {
-        commands.push(...this.text(`Tel: ${receiptData.customerPhone}`));
-        commands.push(...this.newLine());
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      try {
+        await this.printQZTray(receiptData, cfg);
+        return;
+      } catch (err) {
+        console.warn('QZ Tray no disponible, usando impresora del navegador:', err);
       }
     }
 
-    commands.push(...this.separator());
-
-    // Artículos
-    commands.push(...this.boldText('ARTÍCULOS:'));
-
-    receiptData.items.forEach((item) => {
-      commands.push(...this.itemLine(item.name, item.subtotal));
-      commands.push(...this.text(`  ${item.quantity}x ₡${item.unitPrice.toLocaleString()}`));
-      commands.push(...this.newLine());
-    });
-
-    commands.push(...this.separator());
-
-    // Totales
-    commands.push(...this.totalLine('Subtotal:', receiptData.subtotal));
-    commands.push(...this.totalLine('Impuesto (13%):', receiptData.tax));
-    commands.push(...this.newLine());
-    commands.push(...this.boldText('TOTAL:'));
-    commands.push(...this.largeText(`₡${receiptData.total.toLocaleString()}`));
-    commands.push(...this.newLine());
-
-    // Método de pago
-    commands.push(...this.separator());
-    commands.push(...this.boldText('MÉTODO DE PAGO:'));
-    commands.push(...this.text(receiptData.paymentMethod));
-    commands.push(...this.newLine());
-
-    // Nombre del Cajero
-    if (config.showCashierName && receiptData.cashierName) {
-      commands.push(...this.text(`Cajero: ${receiptData.cashierName}`));
-      commands.push(...this.newLine());
-    }
-
-    // Pie de página
-    commands.push(...this.separator());
-    commands.push(...this.centerText(config.footerMessage));
-    commands.push(...this.newLine());
-    commands.push(...this.centerText('Vuelva pronto'));
-    commands.push(...this.newLine());
-    commands.push(...this.newLine());
-    commands.push(...this.newLine());
-
-    // Cortar papel
-    commands.push(...this.cutPaper());
-
-    return new Uint8Array(commands);
+    await this.printBrowser(receiptData, cfg);
   }
 
-  /**
-   * Imprime usando la API Web Print
-   */
-  async printWebPrint(receiptData: ReceiptData): Promise<void> {
-    try {
-      const escpos = this.generateESCPOS(receiptData);
+  async printTest(tenantId: string): Promise<void> {
+    const cfg = await this.loadReceiptConfig(tenantId);
+    const now = new Date();
+    const testData: ReceiptData = {
+      invoiceNumber: 'TEST-001',
+      date: now.toLocaleDateString('es-CR'),
+      time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+      items: [
+        { name: 'Producto de prueba', quantity: 2, unitPrice: 1500, subtotal: 3000 },
+        { name: 'Otro artículo', quantity: 1, unitPrice: 2000, subtotal: 2000 },
+      ],
+      subtotal: 5000,
+      tax: 650,
+      total: 5650,
+      paymentMethod: 'Efectivo',
+      storeName: cfg.showStoreName ? 'MI NEGOCIO' : undefined,
+      storeAddress: cfg.showStoreAddress ? 'Calle Principal 123' : undefined,
+      storePhone: cfg.showStorePhone ? '2234-5678' : undefined,
+      cashierName: cfg.showCashierName ? 'Cajero Prueba' : undefined,
+      footerMessage: cfg.footerMessage,
+    };
 
-      // Crear blob con los comandos
-      const blob = new Blob([escpos.buffer as ArrayBuffer], {
-        type: 'application/octet-stream',
-      });
-
-      // Crear URL para descargar
-      const url = URL.createObjectURL(blob);
-
-      // Crear iframe para imprimir
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = url;
-      document.body.appendChild(iframe);
-
-      // Esperar a que cargue y luego imprimir
-      iframe.onload = () => {
-        iframe.contentWindow?.print();
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-          URL.revokeObjectURL(url);
-        }, 1000);
-      };
-    } catch (error) {
-      console.error('Error en impresión Web Print:', error);
-      throw new Error('No se pudo imprimir con Web Print');
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      try {
+        await this.printQZTray(testData, cfg);
+        return;
+      } catch {
+        // fall through to browser
+      }
     }
+    await this.printBrowser(testData, cfg);
   }
 
-  /**
-   * Imprime usando QZ Tray (Recomendado para POS)
-   * Requiere: https://qz.io/
-   */
-  async printQZTray(receiptData: ReceiptData): Promise<void> {
-    try {
-      // Verificar si QZ Tray está disponible
-      if (!(window as any).qz) {
-        throw new Error('QZ Tray no está instalado. Descárgalo desde https://qz.io/');
-      }
+  // ─── QZ Tray ─────────────────────────────────────────────────────────────────
 
-      const qz = (window as any).qz;
+  async printQZTray(receiptData: ReceiptData, cfg?: ReceiptConfig): Promise<void> {
+    const config = cfg ?? this.getDefaultConfig();
+    const qz = (window as any).qz;
+    if (!qz) throw new Error('QZ Tray no instalado');
 
-      // Conectar a QZ Tray
-      if (!qz.websocket.isActive()) {
-        await qz.websocket.connect();
-      }
-
-      // Generar comandos ESC/POS
-      const escpos = this.generateESCPOS(receiptData);
-
-      // Configurar impresora
-      const config = qz.configs.create(this.receiptConfig?.printerName || 'default');
-
-      // Imprimir
-      await qz.print(config, [escpos]);
-
-      console.log('✅ Impresión enviada a QZ Tray');
-    } catch (error) {
-      console.error('Error en impresión QZ Tray:', error);
-      throw new Error(`Error de impresión: ${error}`);
+    if (!qz.websocket.isActive()) {
+      await qz.websocket.connect();
     }
+
+    const escpos = this.generateESCPOS(receiptData, config);
+    const printerConfig = qz.configs.create(config.printerName || null);
+    await qz.print(printerConfig, [{ type: 'raw', format: 'command', data: escpos }]);
   }
 
-  /**
-   * Imprime usando un iframe oculto dentro de la página actual
-   * (no requiere popup, no es bloqueado por el navegador)
-   */
-  async printBrowser(receiptData: ReceiptData): Promise<void> {
-    try {
-      const html = this.generateHTML(receiptData);
+  // ─── Browser print ────────────────────────────────────────────────────────────
 
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;border:0;';
-      document.body.appendChild(iframe);
+  async printBrowser(receiptData: ReceiptData, cfg?: ReceiptConfig): Promise<void> {
+    const config = cfg ?? this.getDefaultConfig();
+    const html = this.generateHTML(receiptData, config);
 
-      const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
-      if (!doc) throw new Error('No se pudo crear el documento de impresión');
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;';
+    document.body.appendChild(iframe);
 
-      doc.open();
-      doc.write(html);
-      doc.close();
+    const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
+    if (!doc) throw new Error('No se pudo crear el documento de impresión');
 
-      await new Promise<void>((resolve) => {
-        setTimeout(() => {
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    await new Promise<void>((resolve) => {
+      // Give the browser time to render fonts and images
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
           iframe.contentWindow?.print();
+        } finally {
           setTimeout(() => {
             document.body.removeChild(iframe);
             resolve();
-          }, 1000);
-        }, 300);
-      });
-    } catch (error) {
-      console.error('Error en impresión del navegador:', error);
-      throw new Error('No se pudo imprimir');
-    }
+          }, 500);
+        }
+      }, 400);
+    });
   }
 
-  /**
-   * Imprime automáticamente según la configuración
-   */
-  async printAuto(receiptData: ReceiptData, tenantId: string): Promise<void> {
+  // ─── QZ Tray helpers ──────────────────────────────────────────────────────────
+
+  static async getQZPrinters(): Promise<string[]> {
+    const qz = (window as any).qz;
+    if (!qz) return [];
     try {
-      // Cargar configuración si no está cargada
-      if (!this.receiptConfig) {
-        await this.loadReceiptConfig(tenantId);
-      }
-
-      const config = this.receiptConfig || this.getDefaultConfig();
-
-      // Imprimir según el tipo configurado
-      switch (config.printerType) {
-        case 'thermal':
-          await this.printQZTray(receiptData);
-          break;
-        case 'qztray':
-          await this.printQZTray(receiptData);
-          break;
-        case 'browser':
-          await this.printBrowser(receiptData);
-          break;
-        default:
-          await this.printBrowser(receiptData);
-      }
-
-      console.log(`✅ Impresión completada (${config.printerType})`);
-    } catch (error) {
-      console.error('Error en impresión automática:', error);
-      throw error;
+      if (!qz.websocket.isActive()) await qz.websocket.connect();
+      const printers: string[] = await qz.printers.find();
+      return Array.isArray(printers) ? printers : [];
+    } catch {
+      return [];
     }
   }
 
-  /**
-   * Genera HTML para impresión
-   */
-  private generateHTML(receiptData: ReceiptData): string {
-    const config = this.receiptConfig || this.getDefaultConfig();
+  static isQZAvailable(): boolean {
+    return !!(window as any).qz;
+  }
 
-    const itemsHTML = receiptData.items
-      .map(
-        (item) => `
+  // ─── HTML receipt ─────────────────────────────────────────────────────────────
+
+  generateHTML(receiptData: ReceiptData, cfg: ReceiptConfig): string {
+    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth] ?? '80mm';
+
+    const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+    const itemsHTML = receiptData.items.map(item => `
       <tr>
-        <td>${item.name}</td>
-        <td style="text-align: right;">${item.quantity}</td>
-        <td style="text-align: right;">₡${item.unitPrice.toLocaleString()}</td>
-        <td style="text-align: right;">₡${item.subtotal.toLocaleString()}</td>
+        <td class="item-name">${item.name}</td>
+        <td class="item-qty">${item.quantity}</td>
+        <td class="item-price">₡${fmt(item.subtotal)}</td>
       </tr>
-    `
-      )
-      .join('');
+      <tr class="item-detail">
+        <td colspan="3">&nbsp;&nbsp;${item.quantity} × ₡${fmt(item.unitPrice)}</td>
+      </tr>
+    `).join('');
 
-    const widthMM = {
-      32: '58mm',
-      40: '80mm',
-      48: '80mm',
-      56: '80mm',
-      80: '210mm',
-    }[config.paperWidth] || '80mm';
+    const storeBlock = (
+      (cfg.showStoreName && receiptData.storeName) ||
+      (cfg.showStoreAddress && receiptData.storeAddress) ||
+      (cfg.showStorePhone && receiptData.storePhone)
+    ) ? `
+      <div class="store-block">
+        ${cfg.showStoreName && receiptData.storeName ? `<div class="bold">${receiptData.storeName}</div>` : ''}
+        ${cfg.showStoreAddress && receiptData.storeAddress ? `<div>${receiptData.storeAddress}</div>` : ''}
+        ${cfg.showStorePhone && receiptData.storePhone ? `<div>Tel: ${receiptData.storePhone}</div>` : ''}
+      </div>
+    ` : '';
 
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Ticket #${receiptData.invoiceNumber}</title>
-        <style>
-          @media print {
-            body { margin: 0; padding: 0; }
-            .receipt { width: ${widthMM}; }
-          }
-          body {
-            font-family: 'Courier New', monospace;
-            margin: 0;
-            padding: 10px;
-            background-color: #f5f5f5;
-          }
-          .receipt {
-            width: ${widthMM};
-            margin: 0 auto;
-            background-color: white;
-            padding: 15px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-          }
-          .header {
-            text-align: center;
-            border-bottom: 2px dashed #000;
-            padding-bottom: 10px;
-            margin-bottom: 10px;
-          }
-          .logo {
-            font-size: 32px;
-            margin-bottom: 5px;
-          }
-          .title {
-            font-size: 16px;
-            font-weight: bold;
-            margin: 5px 0;
-          }
-          .invoice-number {
-            font-size: 12px;
-            color: #666;
-          }
-          .store-info {
-            text-align: center;
-            font-size: 11px;
-            margin: 5px 0;
-            line-height: 1.4;
-          }
-          .section-title {
-            font-weight: bold;
-            margin-top: 10px;
-            margin-bottom: 5px;
-            border-bottom: 1px dashed #000;
-            font-size: 12px;
-          }
-          .customer-info {
-            font-size: 11px;
-            margin: 5px 0;
-            line-height: 1.4;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11px;
-            margin: 5px 0;
-          }
-          td {
-            padding: 3px;
-          }
-          .total-section {
-            border-top: 2px dashed #000;
-            border-bottom: 2px dashed #000;
-            padding: 10px 0;
-            margin: 10px 0;
-            text-align: right;
-            font-size: 12px;
-          }
-          .total-amount {
-            font-size: 18px;
-            font-weight: bold;
-            margin: 10px 0;
-            text-align: center;
-          }
-          .payment-method {
-            font-size: 11px;
-            margin: 5px 0;
-          }
-          .footer {
-            text-align: center;
-            margin-top: 10px;
-            font-size: 12px;
-            font-weight: bold;
-          }
-          .footer-message {
-            margin: 10px 0;
-          }
-          .cashier-info {
-            font-size: 10px;
-            color: #666;
-            margin: 5px 0;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="receipt">
-          <div class="header">
-            ${config.showLogo ? '<div class="logo">🏪</div>' : ''}
-            <div class="title">🛒 TICKET DE VENTA</div>
-            ${config.showInvoiceNumber ? `<div class="invoice-number">Factura #${receiptData.invoiceNumber}</div>` : ''}
-            ${config.showDateTime ? `<div class="invoice-number">${receiptData.date} ${receiptData.time}</div>` : ''}
-          </div>
+    const customerBlock = cfg.showCustomerInfo && (receiptData.customerName || receiptData.customerPhone) ? `
+      <div class="section-label">CLIENTE</div>
+      <div class="customer-block">
+        ${receiptData.customerName ? `<div>${receiptData.customerName}</div>` : ''}
+        ${receiptData.customerPhone ? `<div>Tel: ${receiptData.customerPhone}</div>` : ''}
+      </div>
+    ` : '';
 
-          ${
-            (config.showStoreName && receiptData.storeName) ||
-            (config.showStoreAddress && receiptData.storeAddress) ||
-            (config.showStorePhone && receiptData.storePhone)
-              ? `
-            <div class="store-info">
-              ${config.showStoreName && receiptData.storeName ? `<div><strong>${receiptData.storeName}</strong></div>` : ''}
-              ${config.showStoreAddress && receiptData.storeAddress ? `<div>${receiptData.storeAddress}</div>` : ''}
-              ${config.showStorePhone && receiptData.storePhone ? `<div>Tel: ${receiptData.storePhone}</div>` : ''}
-            </div>
-          `
-              : ''
-          }
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Ticket #${receiptData.invoiceNumber}</title>
+  <style>
+    @page {
+      size: ${widthMM} auto;
+      margin: 0;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      color: #000;
+      background: #fff;
+      width: ${widthMM};
+    }
+    .receipt {
+      width: 100%;
+      padding: 3mm 3mm 6mm;
+    }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .large { font-size: 15px; font-weight: bold; text-align: center; }
+    .divider {
+      border: none;
+      border-top: 1px dashed #000;
+      margin: 3px 0;
+    }
+    .header { text-align: center; margin-bottom: 4px; }
+    .title { font-size: 13px; font-weight: bold; }
+    .subtitle { font-size: 10px; color: #333; }
+    .store-block { text-align: center; font-size: 10px; margin: 3px 0; }
+    .customer-block { font-size: 10px; margin: 2px 0 4px; }
+    .section-label {
+      font-weight: bold;
+      font-size: 10px;
+      border-bottom: 1px dashed #000;
+      margin: 4px 0 2px;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    .item-name { width: 55%; }
+    .item-qty { width: 10%; text-align: right; }
+    .item-price { width: 35%; text-align: right; }
+    .item-detail { font-size: 10px; color: #444; }
+    .totals { font-size: 11px; }
+    .totals td:last-child { text-align: right; }
+    .total-line { font-size: 14px; font-weight: bold; text-align: center; margin: 4px 0; }
+    .payment-block { font-size: 11px; margin: 3px 0; }
+    .footer { text-align: center; font-size: 11px; font-weight: bold; margin-top: 6px; }
+    .cashier { text-align: center; font-size: 10px; color: #555; margin: 2px 0; }
+  </style>
+</head>
+<body>
+<div class="receipt">
 
-          ${
-            config.showCustomerInfo && (receiptData.customerName || receiptData.customerPhone)
-              ? `
-            <div class="section-title">CLIENTE:</div>
-            <div class="customer-info">
-              ${receiptData.customerName ? `<div>${receiptData.customerName}</div>` : ''}
-              ${receiptData.customerPhone ? `<div>Tel: ${receiptData.customerPhone}</div>` : ''}
-            </div>
-          `
-              : ''
-          }
+  <div class="header">
+    ${cfg.showLogo && receiptData.logoUrl ? `<img src="${receiptData.logoUrl}" alt="Logo" style="max-height:40px;margin-bottom:4px;">` : ''}
+    <div class="title">TICKET DE VENTA</div>
+    ${cfg.showInvoiceNumber ? `<div class="subtitle">Factura #${receiptData.invoiceNumber}</div>` : ''}
+    ${cfg.showDateTime ? `<div class="subtitle">${receiptData.date} ${receiptData.time}</div>` : ''}
+  </div>
 
-          <div class="section-title">ARTÍCULOS:</div>
-          <table>
-            <tr style="border-bottom: 1px solid #000;">
-              <th style="text-align: left;">Producto</th>
-              <th style="text-align: right;">Cant</th>
-              <th style="text-align: right;">Precio</th>
-              <th style="text-align: right;">Total</th>
-            </tr>
-            ${itemsHTML}
-          </table>
+  ${storeBlock}
 
-          <div class="total-section">
-            <div>Subtotal: ₡${receiptData.subtotal.toLocaleString()}</div>
-            <div>Impuesto (13%): ₡${receiptData.tax.toLocaleString()}</div>
-          </div>
+  <hr class="divider">
 
-          <div class="total-amount">TOTAL: ₡${receiptData.total.toLocaleString()}</div>
+  ${customerBlock}
 
-          <div class="section-title">MÉTODO DE PAGO:</div>
-          <div class="payment-method">${receiptData.paymentMethod}</div>
+  <div class="section-label">ARTÍCULOS</div>
+  <table>
+    ${itemsHTML}
+  </table>
 
-          ${config.showCashierName && receiptData.cashierName ? `<div class="cashier-info">Cajero: ${receiptData.cashierName}</div>` : ''}
+  <hr class="divider">
 
-          <div class="footer">
-            <div class="footer-message">${config.footerMessage}</div>
-            <div>Vuelva pronto</div>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
+  <table class="totals">
+    <tr><td>Subtotal:</td><td>₡${fmt(receiptData.subtotal)}</td></tr>
+    <tr><td>Impuesto (13%):</td><td>₡${fmt(receiptData.tax)}</td></tr>
+  </table>
+
+  <hr class="divider">
+
+  <div class="total-line">TOTAL: ₡${fmt(receiptData.total)}</div>
+
+  <hr class="divider">
+
+  <div class="section-label">MÉTODO DE PAGO</div>
+  <div class="payment-block">${receiptData.paymentMethod}</div>
+
+  ${cfg.showCashierName && receiptData.cashierName ? `<div class="cashier">Cajero: ${receiptData.cashierName}</div>` : ''}
+
+  <hr class="divider">
+
+  <div class="footer">
+    ${receiptData.footerMessage ?? cfg.footerMessage}<br>
+    <span style="font-weight:normal;font-size:10px;">Vuelva pronto</span>
+  </div>
+
+</div>
+</body>
+</html>`;
   }
 
-  // ============ Comandos ESC/POS ============
+  // ─── ESC/POS commands ─────────────────────────────────────────────────────────
 
-  private ESC(...args: any[]): number[] {
-    return [0x1b, ...args];
-  }
+  private generateESCPOS(receiptData: ReceiptData, cfg: ReceiptConfig): Uint8Array {
+    const charWidth = cfg.paperWidth;
+    const cmds: number[] = [];
+    const enc = new TextEncoder();
 
-  private newLine(): number[] {
-    return [0x0a];
-  }
+    const push = (...bytes: number[]) => cmds.push(...bytes);
+    const text = (s: string) => cmds.push(...enc.encode(s));
+    const nl = () => push(0x0a);
+    const sep = () => { text('-'.repeat(charWidth)); nl(); };
+    const bold = (on: boolean) => push(0x1b, 0x45, on ? 1 : 0);
+    const align = (a: 'left' | 'center' | 'right') =>
+      push(0x1b, 0x61, a === 'left' ? 0 : a === 'center' ? 1 : 2);
+    const doubleHeight = (on: boolean) => push(0x1b, 0x21, on ? 0x10 : 0x00);
 
-  private text(str: string): number[] {
-    return Array.from(new TextEncoder().encode(str));
-  }
+    // Init
+    push(0x1b, 0x40); // ESC @ — initialize
+    push(0x1b, 0x74, 0x00); // ESC t 0 — CP437 (safest for special chars)
 
-  private boldText(str: string): number[] {
-    return [
-      ...this.ESC('E', 1), // Bold on
-      ...this.text(str),
-      ...this.ESC('E', 0), // Bold off
-      ...this.newLine(),
-    ];
-  }
+    // Header
+    align('center');
+    bold(true);
+    doubleHeight(true);
+    text('TICKET DE VENTA'); nl();
+    doubleHeight(false);
+    bold(false);
 
-  private largeText(str: string): number[] {
-    return [
-      ...this.ESC('!', 0x30), // Tamaño 2x
-      ...this.text(str),
-      ...this.ESC('!', 0x00), // Tamaño normal
-      ...this.newLine(),
-    ];
-  }
+    if (cfg.showInvoiceNumber) { text(`#${receiptData.invoiceNumber}`); nl(); }
+    if (cfg.showDateTime) { text(`${receiptData.date} ${receiptData.time}`); nl(); }
 
-  private centerText(str: string): number[] {
-    return [
-      ...this.ESC('a', 1), // Center
-      ...this.text(str),
-      ...this.newLine(),
-      ...this.ESC('a', 0), // Left align
-    ];
-  }
+    align('left');
+    sep();
 
-  private itemLine(name: string, price: number): number[] {
-    const priceStr = `₡${price.toLocaleString()}`;
-    const padding = this.width - name.length - priceStr.length;
-    const line = name + ' '.repeat(Math.max(1, padding)) + priceStr;
-    return [...this.text(line), ...this.newLine()];
-  }
+    // Store
+    if (cfg.showStoreName && receiptData.storeName) { align('center'); text(receiptData.storeName); nl(); align('left'); }
+    if (cfg.showStoreAddress && receiptData.storeAddress) { align('center'); text(receiptData.storeAddress); nl(); align('left'); }
+    if (cfg.showStorePhone && receiptData.storePhone) { align('center'); text(`Tel: ${receiptData.storePhone}`); nl(); align('left'); }
 
-  private totalLine(label: string, amount: number): number[] {
-    const amountStr = `₡${amount.toLocaleString()}`;
-    const padding = this.width - label.length - amountStr.length;
-    const line = label + ' '.repeat(Math.max(1, padding)) + amountStr;
-    return [...this.text(line), ...this.newLine()];
-  }
+    // Customer
+    if (cfg.showCustomerInfo && (receiptData.customerName || receiptData.customerPhone)) {
+      sep();
+      bold(true); text('CLIENTE:'); bold(false); nl();
+      if (receiptData.customerName) { text(receiptData.customerName); nl(); }
+      if (receiptData.customerPhone) { text(`Tel: ${receiptData.customerPhone}`); nl(); }
+    }
 
-  private separator(): number[] {
-    return [...this.text('='.repeat(this.width)), ...this.newLine()];
-  }
+    sep();
+    bold(true); text('ARTICULOS:'); bold(false); nl();
 
-  private cutPaper(): number[] {
-    return this.ESC('m'); // Full cut
+    for (const item of receiptData.items) {
+      const price = `${item.subtotal.toLocaleString('es-CR')}`;
+      const name = item.name.substring(0, charWidth - price.length - 1);
+      const spaces = charWidth - name.length - price.length;
+      text(name + ' '.repeat(Math.max(1, spaces)) + price); nl();
+      text(`  ${item.quantity} x ${item.unitPrice.toLocaleString('es-CR')}`); nl();
+    }
+
+    sep();
+    const fmt = (n: number) => `${n.toLocaleString('es-CR')}`;
+    const totalLine = (label: string, val: string) => {
+      const sp = charWidth - label.length - val.length;
+      text(label + ' '.repeat(Math.max(1, sp)) + val); nl();
+    };
+    totalLine('Subtotal:', fmt(receiptData.subtotal));
+    totalLine('Impuesto (13%):', fmt(receiptData.tax));
+    sep();
+
+    align('center');
+    bold(true);
+    doubleHeight(true);
+    text(`TOTAL: ${fmt(receiptData.total)}`); nl();
+    doubleHeight(false);
+    bold(false);
+    align('left');
+
+    sep();
+    bold(true); text('PAGO:'); bold(false); nl();
+    text(receiptData.paymentMethod); nl();
+
+    if (cfg.showCashierName && receiptData.cashierName) {
+      text(`Cajero: ${receiptData.cashierName}`); nl();
+    }
+
+    sep();
+    align('center');
+    bold(true);
+    text(cfg.footerMessage); nl();
+    bold(false);
+    text('Vuelva pronto'); nl();
+    align('left');
+
+    // Feed & cut
+    push(0x0a, 0x0a, 0x0a);
+    push(0x1d, 0x56, 0x42, 0x00); // GS V B 0 — partial cut
+
+    return new Uint8Array(cmds);
   }
 }
 
-export const posPrinterService = new POSPrinterService({
-  width: 80,
-  encoding: 'UTF-8',
-});
-
+export const posPrinterService = new POSPrinterService({ width: 80 });
 export default POSPrinterService;

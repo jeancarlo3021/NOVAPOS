@@ -1,11 +1,22 @@
 import { supabase } from '@/lib/supabase';
 
+const TENANT_SELECT = `
+  id, name, owner_id, is_demo, created_at, subscription_id, plan_id,
+  subscription:subscriptions!tenants_subscription_id_fkey (
+    id, status, started_at, ends_at, auto_renew,
+    plan:plan_id (
+      id, name, description, price, billing_cycle,
+      max_users, max_products, max_orders, features
+    )
+  )
+`;
+
 export const tenantsService = {
   // Obtener tenant actual del usuario
   async getCurrentTenant(userId: string) {
     const { data, error } = await supabase
       .from('tenants')
-      .select('*')
+      .select(TENANT_SELECT)
       .eq('owner_id', userId)
       .maybeSingle();
 
@@ -20,7 +31,7 @@ export const tenantsService = {
   async getUserTenants(userId: string) {
     const { data, error } = await supabase
       .from('tenants')
-      .select('*')
+      .select(TENANT_SELECT)
       .eq('owner_id', userId)
       .order('created_at', { ascending: false });
 

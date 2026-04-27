@@ -5,6 +5,7 @@ export interface UnitType {
   tenant_id: string;
   name: string;
   abbreviation: string;
+  requires_weight?: boolean;
   created_at: string;
   updated_at: string;
 }

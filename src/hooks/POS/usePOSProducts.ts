@@ -27,7 +27,7 @@ export function usePOSProducts() {
         try {
           const { data, error: sbError } = await supabase
             .from('products')
-            .select('*, category:product_categories(id,name)')
+            .select('*, category:product_categories(id,name), unit_type:unit_types(id,name,abbreviation,requires_weight)')
             .eq('tenant_id', tenantId)
             .order('name', { ascending: true });
 

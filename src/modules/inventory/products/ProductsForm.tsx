@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, AlertCircle } from 'lucide-react';
 import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
@@ -26,7 +26,6 @@ interface FormData {
 
 export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, onCancel }) => {
   const { user, planFeatures } = useAuth();
-  const isMountedRef = useRef(true);
   const isProductsOnly = planFeatures?.inventory_products_only ?? false;
 
   const [formData, setFormData] = useState<FormData>({
@@ -43,6 +42,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   });
 
   const [submitting, setSubmitting] = useState(false);
+  const [loadingProduct, setLoadingProduct] = useState(!!productId);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
   const [showCategoryForm, setShowCategoryForm] = useState(false);
@@ -75,22 +75,17 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
   // Cargar producto si es edición
   useEffect(() => {
-    if (productId && user?.tenant_id) {
-      loadProduct();
+    if (!productId || !user?.tenant_id) {
+      setLoadingProduct(false);
+      return;
     }
-  }, [productId, user?.tenant_id]);
 
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
+    let active = true;
+    setLoadingProduct(true);
 
-  const loadProduct = async () => {
-    try {
-      const product = await inventoryProductsService.getProductById(productId!, user!.tenant_id);
-      if (!product) return;
-      if (isMountedRef.current) {
+    inventoryProductsService.getProductById(productId, user.tenant_id)
+      .then((product) => {
+        if (!active || !product) return;
         setFormData({
           name: product.name,
           sku: product.sku,
@@ -103,14 +98,18 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           min_stock_level: product.min_stock_level?.toString() || '10',
           max_stock_level: product.max_stock_level?.toString() || '100',
         });
-      }
-    } catch (err) {
-      if (isMountedRef.current) {
+      })
+      .catch((err) => {
+        if (!active) return;
         setFormError('Error al cargar el producto');
         console.error(err);
-      }
-    }
-  };
+      })
+      .finally(() => {
+        if (active) setLoadingProduct(false);
+      });
+
+    return () => { active = false; };
+  }, [productId, user?.tenant_id]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -129,22 +128,16 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         name: newCategory,
         color: '#3B82F6',
       });
-      if (isMountedRef.current) {
-        setFormData(prev => ({ ...prev, category_id: category.id }));
-        setNewCategory('');
-        setShowCategoryForm(false);
-        setFormSuccess('Categoría creada exitosamente');
-        setTimeout(() => setFormSuccess(''), 3000);
-      }
+      setFormData(prev => ({ ...prev, category_id: category.id }));
+      setNewCategory('');
+      setShowCategoryForm(false);
+      setFormSuccess('Categoría creada exitosamente');
+      setTimeout(() => setFormSuccess(''), 3000);
     } catch (err) {
-      if (isMountedRef.current) {
-        setFormError('Error al crear categoría');
-        console.error(err);
-      }
+      setFormError('Error al crear categoría');
+      console.error(err);
     } finally {
-      if (isMountedRef.current) {
-        setCategoryLoading(false);
-      }
+      setCategoryLoading(false);
     }
   };
 
@@ -157,22 +150,16 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         name: newUnit.name,
         abbreviation: newUnit.abbreviation,
       });
-      if (isMountedRef.current) {
-        setFormData(prev => ({ ...prev, unit_type_id: unitType.id }));
-        setNewUnit({ name: '', abbreviation: '' });
-        setShowUnitForm(false);
-        setFormSuccess('Tipo de unidad creado exitosamente');
-        setTimeout(() => setFormSuccess(''), 3000);
-      }
+      setFormData(prev => ({ ...prev, unit_type_id: unitType.id }));
+      setNewUnit({ name: '', abbreviation: '' });
+      setShowUnitForm(false);
+      setFormSuccess('Tipo de unidad creado exitosamente');
+      setTimeout(() => setFormSuccess(''), 3000);
     } catch (err) {
-      if (isMountedRef.current) {
-        setFormError('Error al crear tipo de unidad');
-        console.error(err);
-      }
+      setFormError('Error al crear tipo de unidad');
+      console.error(err);
     } finally {
-      if (isMountedRef.current) {
-        setUnitLoading(false);
-      }
+      setUnitLoading(false);
     }
   };
 
@@ -214,23 +201,17 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         await inventoryProductsService.createProduct(user!.tenant_id, productData);
       }
 
-      if (isMountedRef.current) {
-        setFormSuccess(productId ? 'Producto actualizado exitosamente' : 'Producto creado exitosamente');
-        setTimeout(() => onSuccess(), 1500);
-      }
+      setFormSuccess(productId ? 'Producto actualizado exitosamente' : 'Producto creado exitosamente');
+      setTimeout(() => onSuccess(), 1500);
     } catch (err) {
-      if (isMountedRef.current) {
-        setFormError(err instanceof Error ? err.message : 'Error al guardar el producto');
-        console.error(err);
-      }
+      setFormError(err instanceof Error ? err.message : 'Error al guardar el producto');
+      console.error(err);
     } finally {
-      if (isMountedRef.current) {
-        setSubmitting(false);
-      }
+      setSubmitting(false);
     }
   };
 
-  const isLoadingData = categoriesLoading || unitTypesLoading;
+  const isLoadingData = categoriesLoading || unitTypesLoading || loadingProduct;
 
   if (isLoadingData) {
     return (

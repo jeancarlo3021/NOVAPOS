@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import {
   TrendingUp, BarChart2, ShoppingCart, Package, Users,
-  Lock, RefreshCw, ChevronDown,
+  Lock, RefreshCw, ChevronDown, TrendingDown,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -13,6 +13,8 @@ import { AdvancedSalesReport } from './views/AdvancedSalesReport';
 import { PurchasesReport } from './views/PurchasesReport';
 import { StockReport } from './views/StockReport';
 import { SellerReport } from './views/SellerReport';
+import { ExpensesReport } from './views/ExpensesReport';
+import { ProductDetailReport } from './views/ProductDetailReport';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -28,7 +30,7 @@ function getDateRange(days: number) {
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type TabId = 'basic' | 'advanced' | 'purchases' | 'stock' | 'sellers';
+type TabId = 'basic' | 'advanced' | 'purchases' | 'stock' | 'sellers' | 'expenses' | 'products';
 
 interface Tab {
   id: TabId;
@@ -43,6 +45,8 @@ const TABS: Tab[] = [
   { id: 'purchases', label: 'Compras',           icon: ShoppingCart,  requiresAdvanced: true },
   { id: 'stock',     label: 'Stock',             icon: Package,       requiresAdvanced: true },
   { id: 'sellers',   label: 'Por Vendedor',      icon: Users,         requiresAdvanced: true },
+  { id: 'expenses',  label: 'Gastos',            icon: TrendingDown,  requiresAdvanced: false },
+  { id: 'products',  label: 'Detalle Productos', icon: Package,       requiresAdvanced: true  },
 ];
 
 // ── Locked overlay ────────────────────────────────────────────────────────────
@@ -181,7 +185,7 @@ const ReportsDashboard: React.FC = () => {
               {hasAdvanced ? 'Plan avanzado' : 'Plan básico'} · {range.from} → {range.to}
             </p>
           </div>
-          {isAdvancedTab && (
+          {(isAdvancedTab || activeTab === 'expenses') && (
             <DateRangeBar
               customFrom={customFrom}
               customTo={customTo}
@@ -266,6 +270,25 @@ const ReportsDashboard: React.FC = () => {
           (hasAdvanced ? (
             <SellerReport
               key={`sel-${refreshKey}`}
+              tenantId={tenantId}
+              from={range.from}
+              to={range.to}
+            />
+          ) : (
+            <LockedTab />
+          ))}
+        {activeTab === 'expenses' && (
+          <ExpensesReport
+            key={`exp-${refreshKey}`}
+            tenantId={tenantId}
+            from={range.from}
+            to={range.to}
+          />
+        )}
+        {activeTab === 'products' &&
+          (hasAdvanced ? (
+            <ProductDetailReport
+              key={`prd-${refreshKey}`}
               tenantId={tenantId}
               from={range.from}
               to={range.to}

@@ -11,7 +11,8 @@ import {
   X,
   User2,
   Users,
-  BookOpen // Icono sugerido para Recetas
+  BookOpen,
+  TrendingDown,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
@@ -28,6 +29,7 @@ const navigation: NavItem[] = [
   { name: 'Punto de Venta',      to: '/pos',           icon: ShoppingCart,    feature: 'pos'         },
   { name: 'Inventario',          to: '/inventory',     icon: Package,         feature: 'always'      },
   { name: 'Recetas',             to: '/recipes',       icon: BookOpen,        feature: 'inventory'   }, // ✅ Nueva sección de recetas
+  { name: 'Gastos',              to: '/expenses',      icon: TrendingDown,    feature: 'expenses'    },
   { name: 'Reportes',            to: '/reports',       icon: FileText,        feature: 'reports'     },
   { name: 'Usuarios',            to: '/users',         icon: Users,           feature: 'users'       },
   { name: 'Configuración',       to: '/settings',      icon: Settings,        feature: 'settings'    },

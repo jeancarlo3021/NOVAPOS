@@ -1,7 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Printer } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { posPrinterService } from '@/services/pos/posPrinterService';
 
 interface ReceiptConfig {
   paperWidth: number;
@@ -23,6 +25,25 @@ interface Props {
 }
 
 export const ReceiptPreview: React.FC<Props> = ({ config }) => {
+  const { user } = useAuth();
+  const [printing, setPrinting] = useState(false);
+  const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handleTestPrint = async () => {
+    const tenantId = user?.tenant_id;
+    if (!tenantId) return;
+    setPrinting(true);
+    setPrintMsg(null);
+    try {
+      await posPrinterService.printTest(tenantId);
+      setPrintMsg({ ok: true, text: 'Ticket enviado correctamente.' });
+    } catch (err) {
+      setPrintMsg({ ok: false, text: err instanceof Error ? err.message : 'Error al imprimir.' });
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   const getWidth = () => {
     const widths = {
       32: 'w-32',
@@ -38,11 +59,23 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-bold text-gray-900">Vista Previa</h3>
-        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-          <Printer size={18} />
-          Imprimir Prueba
+        <button
+          onClick={handleTestPrint}
+          disabled={printing}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
+        >
+          <Printer size={18} className={printing ? 'animate-pulse' : ''} />
+          {printing ? 'Imprimiendo...' : 'Imprimir Prueba'}
         </button>
       </div>
+
+      {printMsg && (
+        <div className={`text-sm font-medium px-4 py-2 rounded-lg ${
+          printMsg.ok ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
+        }`}>
+          {printMsg.ok ? '✓ ' : '✕ '}{printMsg.text}
+        </div>
+      )}
 
       {/* Preview Container */}
       <div className="flex justify-center p-8 bg-gray-100 rounded-lg overflow-auto">

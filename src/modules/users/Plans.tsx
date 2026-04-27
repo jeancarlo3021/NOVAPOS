@@ -119,7 +119,12 @@ export default function Plans() {
 
   const getActiveFeatures = (planFeatures: PlanFeatures): string[] => {
     const active = [];
-    if (planFeatures.pos) active.push('POS');
+    if (planFeatures.pos) {
+      active.push('POS');
+      if (planFeatures.pos_card)     active.push('  · Datáfono');
+      if (planFeatures.pos_sinpe)    active.push('  · SINPE');
+      if (planFeatures.pos_discount) active.push('  · Descuentos');
+    }
     if (planFeatures.inventory) {
       if (planFeatures.inventory_products_only) {
         active.push('Inventario (Solo Productos)');
@@ -134,6 +139,7 @@ export default function Plans() {
         active.push('Reportes Completos');
       }
     }
+    if (planFeatures.expenses) active.push('Gastos');
     if (planFeatures.settings) active.push('Configuración');
     if (planFeatures.users) active.push('Usuarios');
     return active;
@@ -193,19 +199,19 @@ export default function Plans() {
             <div className="flex gap-2 flex-wrap">
               <button
                 onClick={() => handleEditPlan(plan)}
-                className="flex-1 min-w-[100px] bg-blue-600 text-white px-3 py-2 rounded flex items-center justify-center gap-2 hover:bg-blue-700 text-sm"
+                className="flex-1 min-w-25 bg-blue-600 text-white px-3 py-2 rounded flex items-center justify-center gap-2 hover:bg-blue-700 text-sm"
               >
                 <Edit2 size={16} /> Editar
               </button>
               <button
                 onClick={() => handleOpenFeatures(plan)}
-                className="flex-1 min-w-[100px] bg-purple-600 text-white px-3 py-2 rounded flex items-center justify-center gap-2 hover:bg-purple-700 text-sm"
+                className="flex-1 min-w-25 bg-purple-600 text-white px-3 py-2 rounded flex items-center justify-center gap-2 hover:bg-purple-700 text-sm"
               >
                 <ChevronDown size={16} /> Características
               </button>
               <button
                 onClick={() => handleToggleStatus(plan)}
-                className={`flex-1 min-w-[100px] px-3 py-2 rounded flex items-center justify-center gap-2 text-sm ${plan.is_active ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                className={`flex-1 min-w-25 px-3 py-2 rounded flex items-center justify-center gap-2 text-sm ${plan.is_active ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
               >
                 {plan.is_active ? 'Desactivar' : 'Activar'}
               </button>
@@ -334,7 +340,7 @@ export default function Plans() {
             <div className="p-6 space-y-6">
               {/* Punto de Venta */}
               <div className="border rounded-lg p-4 bg-gray-50">
-                <label className="flex items-center gap-3 cursor-pointer">
+                <label className="flex items-center gap-3 cursor-pointer mb-3">
                   <input
                     type="checkbox"
                     checked={features.pos}
@@ -346,6 +352,47 @@ export default function Plans() {
                     <p className="text-sm text-gray-600">Acceso al módulo de punto de venta</p>
                   </div>
                 </label>
+
+                {features.pos && (
+                  <div className="ml-8 space-y-2">
+                    <label className="flex items-center gap-3 cursor-pointer p-2 bg-white border-l-4 border-blue-400 rounded">
+                      <input
+                        type="checkbox"
+                        checked={features.pos_card}
+                        onChange={(e) => setFeatures({ ...features, pos_card: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 rounded"
+                      />
+                      <div>
+                        <p className="font-semibold text-gray-900 text-sm">Datáfono (Tarjeta)</p>
+                        <p className="text-xs text-gray-600">Cobro con tarjeta de crédito/débito</p>
+                      </div>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer p-2 bg-white border-l-4 border-violet-400 rounded">
+                      <input
+                        type="checkbox"
+                        checked={features.pos_sinpe}
+                        onChange={(e) => setFeatures({ ...features, pos_sinpe: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 rounded"
+                      />
+                      <div>
+                        <p className="font-semibold text-gray-900 text-sm">SINPE Móvil</p>
+                        <p className="text-xs text-gray-600">Cobro por SINPE con comprobante</p>
+                      </div>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer p-2 bg-white border-l-4 border-orange-400 rounded">
+                      <input
+                        type="checkbox"
+                        checked={features.pos_discount}
+                        onChange={(e) => setFeatures({ ...features, pos_discount: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 rounded"
+                      />
+                      <div>
+                        <p className="font-semibold text-gray-900 text-sm">Descuentos</p>
+                        <p className="text-xs text-gray-600">Aplicar descuentos por producto</p>
+                      </div>
+                    </label>
+                  </div>
+                )}
               </div>
 
               {/* Inventario */}
@@ -414,6 +461,22 @@ export default function Plans() {
                     </label>
                   </div>
                 )}
+              </div>
+
+              {/* Gastos */}
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={features.expenses}
+                    onChange={(e) => setFeatures({ ...features, expenses: e.target.checked })}
+                    className="w-5 h-5 text-blue-600 rounded"
+                  />
+                  <div>
+                    <p className="font-semibold text-gray-900">Gastos</p>
+                    <p className="text-sm text-gray-600">Registro y gestión de gastos del negocio</p>
+                  </div>
+                </label>
               </div>
 
               {/* Configuración */}

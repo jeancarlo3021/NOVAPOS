@@ -12,7 +12,7 @@ export const UnitTypesManagement: React.FC = () => {
 
   // Formulario
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', abbreviation: '' });
+  const [form, setForm] = useState({ name: '', abbreviation: '', requires_weight: false });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -38,8 +38,8 @@ export const UnitTypesManagement: React.FC = () => {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setForm(prev => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setForm(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -88,13 +88,14 @@ export const UnitTypesManagement: React.FC = () => {
     setForm({
       name: unit.name,
       abbreviation: unit.abbreviation,
+      requires_weight: unit.requires_weight ?? false,
     });
     setEditingId(unit.id);
     setShowForm(true);
   };
 
   const resetForm = () => {
-    setForm({ name: '', abbreviation: '' });
+    setForm({ name: '', abbreviation: '', requires_weight: false });
     setEditingId(null);
     setShowForm(false);
   };
@@ -178,6 +179,21 @@ export const UnitTypesManagement: React.FC = () => {
                 />
               </div>
 
+              {/* Requiere peso */}
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  name="requires_weight"
+                  checked={form.requires_weight}
+                  onChange={handleChange}
+                  className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Requiere peso / cantidad decimal</span>
+                  <p className="text-xs text-gray-500">Activa el ingreso de peso al vender en el POS</p>
+                </div>
+              </label>
+
               {/* Botones */}
               <div className="flex gap-4 justify-end pt-4 border-t">
                 <Button
@@ -210,8 +226,15 @@ export const UnitTypesManagement: React.FC = () => {
                 <div className="flex items-start justify-between">
                   <div>
                     <h3 className="font-semibold text-gray-900 text-lg">{unit.name}</h3>
-                    <div className="mt-2 inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm font-medium">
-                      {unit.abbreviation}
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      <span className="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm font-medium">
+                        {unit.abbreviation}
+                      </span>
+                      {unit.requires_weight && (
+                        <span className="inline-block bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-medium">
+                          ⚖ Por peso
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">

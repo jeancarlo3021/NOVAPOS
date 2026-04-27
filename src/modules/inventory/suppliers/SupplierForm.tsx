@@ -21,6 +21,8 @@ interface SupplierData {
   contact_person?: string;
 }
 
+const PRESET_TERMS = ['', 'Contado', '7 días', '15 días', '30 días', '45 días', '60 días', '90 días', '120 días'];
+
 export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSuccess, onCancel }) => {
   const { user } = useAuth();
   const isMountedRef = useRef(true);
@@ -40,6 +42,7 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
   const [loadingData, setLoadingData] = useState(supplierId ? true : false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [customTerm, setCustomTerm] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -58,6 +61,7 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
       setLoadingData(true);
       const supplier = await inventorySuppliersService.getSupplierById(supplierId!);
       if (isMountedRef.current) {
+        const pt = supplier.payment_terms || '';
         setFormData({
           name: supplier.name || '',
           email: supplier.email || '',
@@ -65,9 +69,10 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
           address: supplier.address || '',
           city: supplier.city || '',
           country: supplier.country || '',
-          payment_terms: supplier.payment_terms || '',
+          payment_terms: pt,
           contact_person: supplier.contact_person || ''
         });
+        if (pt && !PRESET_TERMS.includes(pt)) setCustomTerm(true);
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -225,7 +230,7 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
                 <input
-                  type="email"
+                  type="text"
                   name="email"
                   placeholder="correo@ejemplo.com"
                   value={formData.email}
@@ -293,16 +298,45 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
 
               {/* Payment Terms */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Términos de Pago</label>
-                <input
-                  type="text"
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Plazo de Pago</label>
+                <select
                   name="payment_terms"
-                  placeholder="Ej: 30 días neto, 2/10 neto 30"
-                  value={formData.payment_terms}
-                  onChange={handleChange}
+                  value={PRESET_TERMS.includes(formData.payment_terms) || formData.payment_terms === '' ? formData.payment_terms : '__custom__'}
+                  onChange={(e) => {
+                    if (e.target.value === '__custom__') {
+                      setFormData(prev => ({ ...prev, payment_terms: '' }));
+                      setCustomTerm(true);
+                    } else {
+                      setCustomTerm(false);
+                      setFormData(prev => ({ ...prev, payment_terms: e.target.value }));
+                    }
+                  }}
                   disabled={loading}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
-                />
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100 bg-white"
+                >
+                  <option value="">Sin plazo definido</option>
+                  <option value="Contado">Contado (pago inmediato)</option>
+                  <option value="7 días">7 días</option>
+                  <option value="15 días">15 días</option>
+                  <option value="30 días">30 días</option>
+                  <option value="45 días">45 días</option>
+                  <option value="60 días">60 días</option>
+                  <option value="90 días">90 días</option>
+                  <option value="120 días">120 días</option>
+                  <option value="__custom__">Personalizado...</option>
+                </select>
+                {customTerm && (
+                  <input
+                    type="text"
+                    name="payment_terms"
+                    placeholder="Ej: 45 días neto, pago anticipado..."
+                    value={formData.payment_terms}
+                    onChange={handleChange}
+                    disabled={loading}
+                    autoFocus
+                    className="mt-2 w-full px-4 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
+                  />
+                )}
               </div>
             </div>
 

@@ -14,7 +14,9 @@ import { CategoriesManagement } from './modules/inventory/categories/CategoriesM
 import { UnitTypesManagement } from './modules/inventory/categories/UnitTypesManagement';
 import { POSMain } from './modules/pos/POSMain';
 import { SettingsPage } from './modules/settings/pages/Settingspage';
-import  ReportsDashboard  from './modules/reports/ReportsDashboard';
+import ReportsDashboard from './modules/reports/ReportsDashboard';
+import { Recipes } from './modules/recipes/Recipes';
+import { ExpensesDashboard } from './modules/expenses/ExpensesDashboard';
 
 function App() {
   return (
@@ -53,9 +55,17 @@ function App() {
             <Route path="/users" element={
               <PlanGuard feature="users"><Users /></PlanGuard>
             } />
+            <Route path="/recipes" element={
+              <PlanGuard feature="inventory"><Recipes /></PlanGuard>
+            } />
             <Route path="/reports" element={
-              <PlanGuard feature="reports_basic">
+              <PlanGuard feature="reports">
                 <ReportsDashboard />
+              </PlanGuard>
+            } />
+            <Route path="/expenses" element={
+              <PlanGuard feature="expenses">
+                <ExpensesDashboard />
               </PlanGuard>
             } />
 
