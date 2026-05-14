@@ -1,9 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Search, Package, Plus } from 'lucide-react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Search, Package, Plus, ScanBarcode, CheckCircle2, XCircle } from 'lucide-react';
 import { Product, CashSession } from '@/types/Types_POS';
 import { WeightInputModal } from './WeightInputModal';
+import { useBarcodeScanner } from '@/hooks/POS/useBarcodeScanner';
+import {
+  type Promotion,
+  getProductPromotion,
+  promoLabel,
+} from '@/services/promotions/promotionsService';
 
 // Abbreviations that require weight input when requires_weight is not set in DB
 const WEIGHT_ABBREVS = new Set(['kg', 'g', 'lb', 'lbs', 'oz', 'gr', 'kilo', 'kilos']);
@@ -15,25 +21,75 @@ function needsWeightInput(product: Product): boolean {
   return WEIGHT_ABBREVS.has(ut.abbreviation.toLowerCase());
 }
 
+interface ScanFeedback {
+  code: string;
+  found: boolean;
+  productName?: string;
+}
+
 interface POSProductsPanelProps {
   filteredProducts?: Product[];
+  allProducts?: Product[];          // full list for SKU lookup
   searchTerm: string;
   onSearchChange: (term: string) => void;
   onAddToCart: (product: Product, quantity: number) => void;
   currentSession: CashSession | null;
   productsError?: string | null;
+  /** When true, stock_quantity is ignored — plan doesn't track stock */
+  ignoreStock?: boolean;
+  activePromotions?: Promotion[];
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   filteredProducts = [],
+  allProducts = [],
   searchTerm,
   onSearchChange,
   onAddToCart,
   currentSession,
   productsError,
+  ignoreStock = false,
+  activePromotions = [],
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
-  const [weightProduct, setWeightProduct] = useState<Product | null>(null);
+  const [weightProduct, setWeightProduct]   = useState<Product | null>(null);
+  const [scanValue, setScanValue]           = useState('');
+  const [scanFeedback, setScanFeedback]     = useState<ScanFeedback | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Look up product by exact SKU (case-insensitive), add to cart
+  const handleScan = useCallback((code: string) => {
+    if (!currentSession) {
+      setScanFeedback({ code, found: false, productName: 'Abre una caja primero' });
+      return;
+    }
+    const list = allProducts.length > 0 ? allProducts : filteredProducts;
+    const product = list.find(
+      p => p.sku?.trim().toLowerCase() === code.trim().toLowerCase()
+    );
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    if (product) {
+      onAddToCart(product, 1);
+      setScanFeedback({ code, found: true, productName: product.name });
+    } else {
+      setScanFeedback({ code, found: false });
+    }
+    setScanValue('');
+    // Clear feedback after 2.5 s
+    feedbackTimerRef.current = setTimeout(() => setScanFeedback(null), 2500);
+    // Keep focus on scanner input for continuous scanning
+    scanInputRef.current?.focus();
+  }, [allProducts, filteredProducts, currentSession, onAddToCart]);
+
+  // Hook: global scanner listener (fires when scanner types while no other input is focused)
+  useBarcodeScanner({ inputRef: scanInputRef, onScan: handleScan, enabled: true });
+
+  // Auto-focus scanner input on mount
+  useEffect(() => {
+    scanInputRef.current?.focus();
+    return () => { if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current); };
+  }, []);
 
   const products = Array.isArray(filteredProducts) ? filteredProducts : [];
 
@@ -68,8 +124,70 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   return (
     <div className="flex-1 flex flex-col bg-gray-100 overflow-hidden">
 
-      {/* ── Search + categories ── */}
+      {/* ── Scanner input + search ── */}
       <div className="bg-white border-b border-gray-200 px-4 pt-4 pb-0 shrink-0">
+
+        {/* Barcode scanner row */}
+        <div className="mb-3">
+          <div className={`flex items-center gap-2 rounded-2xl border-2 px-4 py-2.5 transition ${
+            scanFeedback
+              ? scanFeedback.found
+                ? 'border-emerald-400 bg-emerald-50'
+                : 'border-red-400 bg-red-50'
+              : 'border-blue-300 bg-blue-50 focus-within:border-blue-500'
+          }`}>
+            <ScanBarcode
+              size={20}
+              className={`shrink-0 transition ${
+                scanFeedback
+                  ? scanFeedback.found ? 'text-emerald-600' : 'text-red-500'
+                  : 'text-blue-500'
+              }`}
+            />
+            <input
+              ref={scanInputRef}
+              type="text"
+              inputMode="none"          // Prevents mobile keyboard — scanner provides input
+              value={scanValue}
+              onChange={e => setScanValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (scanValue.trim()) handleScan(scanValue.trim());
+                }
+              }}
+              placeholder="Apunta la pistola aquí · F2 para enfocar"
+              className={`flex-1 bg-transparent text-sm font-semibold placeholder:font-normal focus:outline-none ${
+                scanFeedback
+                  ? scanFeedback.found ? 'text-emerald-700 placeholder:text-emerald-400' : 'text-red-700 placeholder:text-red-400'
+                  : 'text-blue-700 placeholder:text-blue-400'
+              }`}
+            />
+
+            {/* Feedback badge */}
+            {scanFeedback ? (
+              scanFeedback.found ? (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <CheckCircle2 size={16} className="text-emerald-600" />
+                  <span className="text-xs font-bold text-emerald-700 max-w-32 truncate">
+                    {scanFeedback.productName}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <XCircle size={16} className="text-red-500" />
+                  <span className="text-xs font-bold text-red-600">
+                    {scanFeedback.productName ?? `"${scanFeedback.code}" no encontrado`}
+                  </span>
+                </div>
+              )
+            ) : (
+              <span className="text-xs text-blue-400 shrink-0 hidden sm:block">SKU / código</span>
+            )}
+          </div>
+        </div>
+
+        {/* Search bar */}
         <div className="relative mb-4">
           <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -118,10 +236,15 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {displayed.map((product) => {
-              const stock = product.stock_quantity ?? 0;
-              const inStock = stock > 0;
-              const lowStock = stock > 0 && stock <= 5;
+              const stock    = product.stock_quantity ?? 0;
+              const inStock  = ignoreStock || stock > 0;
+              const lowStock = !ignoreStock && stock > 0 && stock <= 5;
               const isWeight = needsWeightInput(product);
+              const promo    = getProductPromotion(
+                product.id,
+                (product as any).category_id ?? (product as any).category?.id ?? null,
+                activePromotions,
+              );
 
               return (
                 <button
@@ -137,16 +260,18 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                     }
                   `}
                 >
-                  {/* Stock badge */}
-                  <span className={`absolute top-3 right-3 text-sm font-black px-2 py-1 rounded-xl ${
-                    lowStock
-                      ? 'bg-amber-100 text-amber-700'
-                      : stock === 0
-                      ? 'bg-red-100 text-red-600'
-                      : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {stock}
-                  </span>
+                  {/* Stock badge — hidden when plan doesn't track stock */}
+                  {!ignoreStock && (
+                    <span className={`absolute top-3 right-3 text-sm font-black px-2 py-1 rounded-xl ${
+                      lowStock
+                        ? 'bg-amber-100 text-amber-700'
+                        : stock === 0
+                        ? 'bg-red-100 text-red-600'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {stock}
+                    </span>
+                  )}
 
                   {/* Add / Scale indicator */}
                   {inStock && (
@@ -168,6 +293,13 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
                   {product.sku && (
                     <span className="text-gray-400 text-sm mb-2 font-medium">{product.sku}</span>
+                  )}
+
+                  {/* Promo badge */}
+                  {promo && (
+                    <span className="self-start mb-1 inline-flex items-center gap-1 px-2 py-0.5 bg-violet-600 text-white text-xs font-black rounded-lg">
+                      🏷️ {promoLabel(promo)}
+                    </span>
                   )}
 
                   {/* Unit type badge for weight products */}

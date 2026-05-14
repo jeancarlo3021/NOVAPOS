@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Percent } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 
 interface POSCartPanelProps {
@@ -7,11 +7,13 @@ interface POSCartPanelProps {
   subtotal: number;
   taxAmount: number;
   total: number;
+  taxEnabled?: boolean;
+  taxRate?: number;
   currentSession: CashSession | null;
   loading: boolean;
-  canDiscount?: boolean;
   onRemoveFromCart: (productId: string) => void;
   onChangeQuantity: (productId: string, quantity: number) => void;
+  canDiscount?: boolean;
   onApplyDiscount?: (productId: string, discountPct: number) => void;
   onPayment: () => void;
 }
@@ -21,19 +23,21 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   subtotal,
   taxAmount,
   total,
+  taxEnabled = true,
+  taxRate = 0.13,
   currentSession,
   loading,
-  canDiscount = false,
   onRemoveFromCart,
   onChangeQuantity,
+  canDiscount,
   onApplyDiscount,
   onPayment,
 }) => {
-  const [discounts, setDiscounts] = useState<Record<string, string>>({});
+  const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
   const canPay = cartItems.length > 0 && !!currentSession && !loading;
 
   const handleDiscountChange = (productId: string, value: string) => {
-    setDiscounts(prev => ({ ...prev, [productId]: value }));
+    setDiscountInputs(prev => ({ ...prev, [productId]: value }));
     const pct = Math.min(100, Math.max(0, parseFloat(value) || 0));
     onApplyDiscount?.(productId, pct);
   };
@@ -63,13 +67,27 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
           </div>
         ) : (
           <ul className="divide-y divide-gray-100 px-4 py-2">
-            {cartItems.map((item) => (
+            {cartItems.map((item) => {
+              const hasDiscount = (item.discount_percent ?? 0) > 0;
+              const hasPromo    = !!item.promo;
+              const originalSubtotal = item.unit_price * item.quantity;
+              const showOriginal = hasDiscount || hasPromo;
+
+              return (
               <li key={item.product_id} className="py-4">
                 {/* Name row */}
-                <div className="flex items-start gap-3 mb-3">
-                  <span className="text-gray-900 text-base font-black flex-1 leading-snug">
-                    {item.product.name}
-                  </span>
+                <div className="flex items-start gap-3 mb-2">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-gray-900 text-base font-black leading-snug">
+                      {item.product.name}
+                    </span>
+                    {/* Promo badge */}
+                    {hasPromo && (
+                      <span className="ml-2 inline-flex items-center gap-1 text-xs bg-violet-100 text-violet-700 font-bold px-1.5 py-0.5 rounded-lg">
+                        <Tag size={10} /> {item.promo!.type === '2x1' ? '2×1' : item.promo!.type === 'percentage' ? `${item.promo!.value}% desc.` : `-₡${item.promo!.value}`}
+                      </span>
+                    )}
+                  </div>
                   <button
                     onPointerDown={() => onRemoveFromCart(item.product_id)}
                     className="w-10 h-10 rounded-xl bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-500 flex items-center justify-center transition shrink-0"
@@ -77,6 +95,28 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                     <Trash2 size={18} />
                   </button>
                 </div>
+
+                {/* Discount input (only when canDiscount and no promo active) */}
+                {canDiscount && !hasPromo && (
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs text-gray-400 font-medium">Descuento %</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={discountInputs[item.product_id] ?? (item.discount_percent ? String(item.discount_percent) : '')}
+                      onChange={e => handleDiscountChange(item.product_id, e.target.value)}
+                      placeholder="0"
+                      className="w-20 text-center border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                    />
+                    {hasDiscount && (
+                      <span className="text-xs text-emerald-600 font-semibold">
+                        -{item.discount_percent}%
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Controls + price */}
                 <div className="flex items-center justify-between gap-3">
@@ -104,44 +144,57 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                     <p className="text-gray-400 text-sm font-medium">
                       ₡{item.unit_price.toLocaleString()} c/u
                     </p>
-                    <p className="text-emerald-600 font-black text-xl">
+                    {showOriginal && (
+                      <p className="text-gray-300 text-sm line-through">
+                        ₡{originalSubtotal.toLocaleString()}
+                      </p>
+                    )}
+                    <p className={`font-black text-xl ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
                       ₡{item.subtotal.toLocaleString()}
                     </p>
                   </div>
                 </div>
-
-                {/* Discount row — plan-gated */}
-                {canDiscount && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <Percent size={14} className="text-orange-400 shrink-0" />
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={100}
-                      value={discounts[item.product_id] ?? (item.discount_percent ? String(item.discount_percent) : '')}
-                      onChange={e => handleDiscountChange(item.product_id, e.target.value)}
-                      placeholder="Descuento %"
-                      className="w-full text-sm px-3 py-1.5 border border-orange-200 rounded-lg focus:outline-none focus:border-orange-400 bg-orange-50 text-orange-800 font-semibold"
-                    />
-                  </div>
-                )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>
 
       {/* ── Totals ── */}
       <div className="border-t-2 border-gray-100 px-5 py-4 bg-gray-50 shrink-0 space-y-2">
+        {/* Show gross subtotal and discount line if any item has a discount or promo */}
+        {(() => {
+          const grossSubtotal = Math.round(cartItems.reduce((s, i) => s + i.unit_price * i.quantity, 0));
+          const totalDiscount = grossSubtotal - subtotal;
+          if (totalDiscount > 0) {
+            return (
+              <>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 text-sm font-medium">Precio original</span>
+                  <span className="text-gray-400 text-sm line-through">₡{grossSubtotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-violet-600 text-sm font-semibold">Descuentos / Promos</span>
+                  <span className="text-violet-600 text-sm font-semibold">-₡{totalDiscount.toLocaleString()}</span>
+                </div>
+              </>
+            );
+          }
+          return null;
+        })()}
         <div className="flex justify-between items-center">
           <span className="text-gray-500 text-base font-semibold">Subtotal</span>
           <span className="text-gray-800 text-base font-bold">₡{subtotal.toLocaleString()}</span>
         </div>
-        <div className="flex justify-between items-center">
-          <span className="text-gray-500 text-base font-semibold">IVA (13%)</span>
-          <span className="text-gray-800 text-base font-bold">₡{taxAmount.toLocaleString()}</span>
-        </div>
+        {taxEnabled && taxAmount > 0 && (
+          <div className="flex justify-between items-center">
+            <span className="text-gray-500 text-base font-semibold">
+              IVA ({(taxRate * 100).toFixed(0)}%)
+            </span>
+            <span className="text-gray-800 text-base font-bold">₡{taxAmount.toLocaleString()}</span>
+          </div>
+        )}
         <div className="flex justify-between items-center pt-2 border-t-2 border-gray-200">
           <span className="text-gray-900 font-black text-xl">Total</span>
           <span className="text-emerald-600 font-black text-3xl">₡{total.toLocaleString()}</span>

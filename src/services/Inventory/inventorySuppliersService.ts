@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export interface InventorySupplier {
   id: string;
@@ -9,84 +9,79 @@ export interface InventorySupplier {
   address: string | null;
   city: string | null;
   country: string | null;
-  contact_person: string | null;
   payment_terms: string | null;
-  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
 
+// Fields writable by the app (must match the actual DB schema columns)
+export interface SupplierPayload {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+  payment_terms?: string | null;
+}
+
 export const inventorySuppliersService = {
   // Obtener todos los proveedores
-  async getAllSuppliers(tenantId: string) {
-    const { data, error } = await supabase
-      .from('suppliers')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('name', { ascending: true });
-    
-    if (error) throw error;
-    return data || [];
+  async getAllSuppliers(_tenantId: string | null | undefined) {
+    if (!_tenantId) return [];
+    return apiFetch<InventorySupplier[]>('/suppliers');
   },
 
   // Obtener proveedor por ID
   async getSupplierById(id: string) {
-    const { data, error } = await supabase
-      .from('suppliers')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data;
+    return apiFetch<InventorySupplier>('/suppliers/' + id);
   },
 
-  // Crear proveedor
-  async createSupplier(tenantId: string, supplier: Omit<InventorySupplier, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>) {
-    const { data, error } = await supabase
-      .from('suppliers')
-      .insert([{ ...supplier, tenant_id: tenantId }])
-      .select()
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data;
+  // Crear proveedor — only sends columns that exist in the DB schema
+  async createSupplier(_tenantId: string, supplier: SupplierPayload) {
+    return apiFetch<InventorySupplier>('/suppliers', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: supplier.name,
+        email: supplier.email || null,
+        phone: supplier.phone || null,
+        address: supplier.address || null,
+        city: supplier.city || null,
+        country: supplier.country || null,
+        payment_terms: supplier.payment_terms || null,
+      }),
+    });
   },
 
-  // Actualizar proveedor
-  async updateSupplier(id: string, updates: Partial<InventorySupplier>) {
-    const { data, error } = await supabase
-      .from('suppliers')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data;
+  // Actualizar proveedor — only sends columns that exist in the DB schema
+  async updateSupplier(id: string, updates: Partial<SupplierPayload>) {
+    return apiFetch<InventorySupplier>('/suppliers/' + id, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...(updates.name       !== undefined && { name:          updates.name }),
+        ...(updates.email      !== undefined && { email:         updates.email || null }),
+        ...(updates.phone      !== undefined && { phone:         updates.phone || null }),
+        ...(updates.address    !== undefined && { address:       updates.address || null }),
+        ...(updates.city       !== undefined && { city:          updates.city || null }),
+        ...(updates.country    !== undefined && { country:       updates.country || null }),
+        ...(updates.payment_terms !== undefined && { payment_terms: updates.payment_terms || null }),
+      }),
+    });
   },
 
-  // Desactivar proveedor
-  async deactivateSupplier(id: string) {
-    return this.updateSupplier(id, { is_active: false });
+  // Desactivar proveedor (is_active no está en el schema actual — no-op)
+  async deactivateSupplier(_id: string) {
+    return null;
   },
 
   // Eliminar proveedor
   async deleteSupplier(id: string): Promise<void> {
-    const { error } = await supabase.from('suppliers').delete().eq('id', id);
-    if (error) throw error;
+    await apiFetch('/suppliers/' + id, { method: 'DELETE' });
   },
 
   // Buscar proveedores
-  async searchSuppliers(tenantId: string, query: string) {
-    const { data, error } = await supabase
-      .from('suppliers')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%`)
-      .eq('is_active', true);
-    
-    if (error) throw error;
-    return data || [];
+  async searchSuppliers(_tenantId: string, query: string) {
+    const params = new URLSearchParams({ search: query });
+    return apiFetch<InventorySupplier[]>(`/suppliers?${params}`);
   },
 };

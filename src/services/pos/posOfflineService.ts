@@ -16,9 +16,13 @@ export interface OfflineInvoicePayload {
   taxAmount: number;
   total: number;
   paymentMethod: 'cash' | 'card' | 'sinpe';
+  amountReceived?: number;
+  changeAmount?: number;
+  voucherNumber?: string;
   notes?: string;
   timestamp: number;
   synced: 0 | 1;
+  retries: number;
   syncError?: string;
 }
 
@@ -105,13 +109,14 @@ async function getCachedProducts(tenantId: string): Promise<Product[] | null> {
 
 // ─── Pending invoices queue ───────────────────────────────────────────────────
 
-async function queueInvoice(payload: Omit<OfflineInvoicePayload, 'id' | 'timestamp' | 'synced'>): Promise<string> {
+async function queueInvoice(payload: Omit<OfflineInvoicePayload, 'id' | 'timestamp' | 'synced' | 'retries'>): Promise<string> {
   const db = await openDB();
   const invoice: OfflineInvoicePayload = {
     ...payload,
     id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp: Date.now(),
     synced: 0,
+    retries: 0,
   };
   await idbPut(db, INVOICES_STORE, invoice);
   return invoice.id;
@@ -132,7 +137,15 @@ async function markInvoiceSynced(id: string): Promise<void> {
 async function markInvoiceError(id: string, error: string): Promise<void> {
   const db = await openDB();
   const inv = await idbGet<OfflineInvoicePayload>(db, INVOICES_STORE, id);
-  if (inv) await idbPut(db, INVOICES_STORE, { ...inv, syncError: error });
+  if (!inv) return;
+  const retries = (inv.retries ?? 0) + 1;
+  // After 3 failed attempts mark as permanently failed (synced=1) so it stops retrying
+  await idbPut(db, INVOICES_STORE, {
+    ...inv,
+    retries,
+    syncError: error,
+    synced: retries >= 3 ? 1 : 0,
+  });
 }
 
 async function getPendingCount(): Promise<number> {
@@ -140,14 +153,40 @@ async function getPendingCount(): Promise<number> {
   return pending.length;
 }
 
+// ── Error message extractor ───────────────────────────────────────────────────
+
+function extractErrorMessage(err: unknown): string {
+  if (!err) return 'Error desconocido';
+  if (typeof err === 'string') return err;
+  if (err instanceof Error) return err.message;
+  // Supabase returns plain objects: { message, code, details, hint }
+  if (typeof err === 'object') {
+    const e = err as Record<string, unknown>;
+    const parts: string[] = [];
+    if (e.message)  parts.push(String(e.message));
+    if (e.details)  parts.push(String(e.details));
+    if (e.hint)     parts.push(`Sugerencia: ${e.hint}`);
+    if (e.code)     parts.push(`(${e.code})`);
+    return parts.length ? parts.join(' — ') : JSON.stringify(err);
+  }
+  return String(err);
+}
+
 // ─── Sync pending invoices (call createInvoice for each) ─────────────────────
+
+export interface SyncError {
+  invoiceId: string;
+  timestamp: number;
+  message: string;
+}
 
 async function syncPendingInvoices(
   createInvoice: (p: OfflineInvoicePayload) => Promise<void>
-): Promise<{ synced: number; errors: number }> {
+): Promise<{ synced: number; errors: number; details: SyncError[] }> {
   const pending = await getPendingInvoices();
   let synced = 0;
   let errors = 0;
+  const details: SyncError[] = [];
 
   for (const inv of pending) {
     try {
@@ -155,13 +194,31 @@ async function syncPendingInvoices(
       await markInvoiceSynced(inv.id);
       synced++;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = extractErrorMessage(err);
       await markInvoiceError(inv.id, msg);
+      details.push({ invoiceId: inv.id, timestamp: inv.timestamp, message: msg });
       errors++;
     }
   }
 
-  return { synced, errors };
+  return { synced, errors, details };
+}
+
+async function getFailedInvoices(): Promise<OfflineInvoicePayload[]> {
+  const db = await openDB();
+  // Failed = synced:1 but has syncError and retries >= 3
+  const all = await idbGetAllByIndex<OfflineInvoicePayload>(db, INVOICES_STORE, 'synced', 1);
+  return all.filter(inv => inv.syncError && (inv.retries ?? 0) >= 3);
+}
+
+async function clearFailedInvoice(id: string): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(INVOICES_STORE, 'readwrite');
+    const req = tx.objectStore(INVOICES_STORE).delete(id);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve();
+  });
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -179,4 +236,6 @@ export const posOfflineService = {
   getPendingCount,
   markInvoiceSynced,
   syncPendingInvoices,
+  getFailedInvoices,
+  clearFailedInvoice,
 };

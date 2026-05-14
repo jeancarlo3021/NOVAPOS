@@ -2,7 +2,7 @@ import React from 'react';
 import { Package, AlertTriangle, TrendingUp, DollarSign, RefreshCw, RotateCw } from 'lucide-react';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
-import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
 import {
   Card,
   Spinner,
@@ -45,7 +45,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon: Icon, label, value, color, tr
 );
 
 export const InventoryStats: React.FC = () => {
-  const { user } = useAuth();
+  const { tenantId } = useTenantId();
 
   // Obtener estadísticas de inventario
   const {
@@ -54,8 +54,8 @@ export const InventoryStats: React.FC = () => {
     error: statsError,
     retry: retryStats
   } = useSafeFetch(
-    () => inventoryProductsService.getInventoryStats(user!.tenant_id),
-    { timeout: 10000, retries: 2, retryDelay: 1000 }
+    () => inventoryProductsService.getInventoryStats(tenantId),
+    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
   );
 
   // Obtener productos con stock bajo
@@ -65,8 +65,8 @@ export const InventoryStats: React.FC = () => {
     error: lowStockError,
     retry: retryLowStock
   } = useSafeFetch(
-    () => inventoryProductsService.getLowStockProducts(user!.tenant_id),
-    { timeout: 10000, retries: 2, retryDelay: 1000 }
+    () => inventoryProductsService.getLowStockProducts(tenantId),
+    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
   );
 
   const handleRetry = () => {

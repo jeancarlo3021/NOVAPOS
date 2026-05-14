@@ -1,20 +1,26 @@
 import React, { useState } from 'react';
 import { Plus, Search, RotateCw } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
+import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
+import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { ProductForm } from './ProductsForm';
 import { ProductCard } from './ProductCard';
 import { Alert, LoadingState, Badge, Button, Card, CardContent } from '@/components/ui/uiComponents';
 
 export const ProductsList: React.FC = () => {
-  const { user } = useAuth();
+  const { tenantId } = useTenantId();
+  const { planFeatures } = useAuth();
   const { isOnline } = useOfflineSync();
+  const hasStockAlerts = planFeatures.inventory && !(planFeatures as any).inventory_products_only;
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const ck = cacheKey(tenantId, 'products_list');
 
   const {
     data: productsData,
@@ -22,8 +28,15 @@ export const ProductsList: React.FC = () => {
     error,
     retry
   } = useSafeFetch(
-    () => inventoryProductsService.getAllProducts(user!.tenant_id),
-    { timeout: 10000, retries: 2, retryDelay: 1000 }
+    async () => {
+      if (!navigator.onLine) {
+        return cacheGet(ck) ?? [];
+      }
+      const data = await inventoryProductsService.getAllProducts(tenantId);
+      cacheSet(ck, data);
+      return data;
+    },
+    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
   );
 
   const products = Array.isArray(productsData) ? productsData : [];
@@ -109,10 +122,10 @@ export const ProductsList: React.FC = () => {
         </div>
       )}
 
-      {criticalStockProducts.length > 0 && (
+      {hasStockAlerts && criticalStockProducts.length > 0 && (
         <Alert type="error" message={`🚨 ${criticalStockProducts.length} producto(s) con stock CRÍTICO`} />
       )}
-      {lowStockProducts.length > 0 && criticalStockProducts.length === 0 && (
+      {hasStockAlerts && lowStockProducts.length > 0 && criticalStockProducts.length === 0 && (
         <Alert type="warning" message={`⚠️ ${lowStockProducts.length} producto(s) con stock bajo`} />
       )}
 
@@ -154,6 +167,7 @@ export const ProductsList: React.FC = () => {
                 product={product}
                 onEdit={() => { setEditingId(product.id); setShowForm(true); }}
                 onDelete={() => handleDelete(product.id)}
+                onUpdated={() => retry()}
               />
             ))}
           </div>

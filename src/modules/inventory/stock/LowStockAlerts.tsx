@@ -1,25 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Package, AlertTriangle } from 'lucide-react';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
-import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
 import { Card, CardHeader, CardContent, Spinner, Alert, Badge } from '@/components/ui/uiComponents';
 import type { Product } from '@/types/Types_POS';
 
 export const LowStockAlerts: React.FC = () => {
-  const { user } = useAuth();
+  const { tenantId } = useTenantId();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user?.tenant_id) fetchLowStockProducts();
-  }, [user?.tenant_id]);
+    if (tenantId) fetchLowStockProducts();
+  }, [tenantId]);
 
   const fetchLowStockProducts = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await inventoryProductsService.getLowStockProducts(user!.tenant_id);
+      const data = await inventoryProductsService.getLowStockProducts(tenantId);
       setProducts(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar alertas');

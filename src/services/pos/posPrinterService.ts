@@ -1,4 +1,9 @@
 import { supabase } from '@/lib/supabase';
+import {
+  qzConnect, qzIsAvailable, qzPrintToPrinter,
+  type PrinterEntry,
+} from './qzTrayService';
+import { formatComanda, type ComandaItem } from './comandaFormatter';
 
 export interface PrinterConfig {
   width?: number;
@@ -45,7 +50,11 @@ export interface ReceiptConfig {
   printerName?: string;
   printerType: 'thermal' | 'browser' | 'qztray';
   autoprint: boolean;
+  qz_certificate?: string;
+  printers?: PrinterEntry[];
 }
+
+export type { PrinterEntry };
 
 // Paper width in mm for each character-width setting
 const PAPER_WIDTH_MM: Record<number, string> = {
@@ -149,16 +158,200 @@ export class POSPrinterService {
 
   async printQZTray(receiptData: ReceiptData, cfg?: ReceiptConfig): Promise<void> {
     const config = cfg ?? this.getDefaultConfig();
-    const qz = (window as any).qz;
-    if (!qz) throw new Error('QZ Tray no instalado');
+    if (!qzIsAvailable()) throw new Error('QZ Tray no está instalado o no está corriendo');
 
-    if (!qz.websocket.isActive()) {
-      await qz.websocket.connect();
-    }
+    await qzConnect(config.qz_certificate);
 
     const escpos = this.generateESCPOS(receiptData, config);
-    const printerConfig = qz.configs.create(config.printerName || null);
-    await qz.print(printerConfig, [{ type: 'raw', format: 'command', data: escpos }]);
+    const receiptPrinters = (config.printers ?? []).filter(
+      p => p.type === 'receipt' && p.is_active,
+    );
+
+    if (receiptPrinters.length > 0) {
+      await Promise.all(receiptPrinters.map(p => qzPrintToPrinter(p, escpos)));
+    } else {
+      // Fallback: legacy single-printer config
+      const qz = (window as any).qz;
+      const printerConfig = qz.configs.create(config.printerName ?? null);
+      await qz.print(printerConfig, [{ type: 'raw', format: 'command', data: escpos }]);
+    }
+  }
+
+  // ─── Purchase Order print ─────────────────────────────────────────────────────
+
+  async printPurchaseOrder(order: {
+    purchase_number: string;
+    purchase_date: string;
+    expected_delivery_date?: string | null;
+    supplier_name: string;
+    supplier_phone?: string | null;
+    items: Array<{ product_name: string; quantity: number; unit_price: number; subtotal: number }>;
+    total_amount: number;
+    notes?: string | null;
+    tenant_name?: string;
+  }, tenantId: string): Promise<void> {
+    const cfg = await this.loadReceiptConfig(tenantId);
+    const html = this.generatePurchaseOrderHTML(order, cfg);
+
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      try {
+        if (!qzIsAvailable()) throw new Error('QZ Tray no disponible');
+        await qzConnect(cfg.qz_certificate);
+        const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
+        if (receiptPrinters.length > 0) {
+          const qz = (window as any).qz;
+          for (const printer of receiptPrinters) {
+            const printerCfg = printer.connection === 'network'
+              ? qz.configs.create({ host: printer.ip, port: printer.port ?? 9100 })
+              : qz.configs.create(printer.printer_name);
+            await qz.print(printerCfg, [{ type: 'html', format: 'plain', data: html }]);
+          }
+          return;
+        }
+      } catch {
+        // fall through to browser
+      }
+    }
+
+    await this.printHTMLContent(html);
+  }
+
+  private generatePurchaseOrderHTML(order: {
+    purchase_number: string;
+    purchase_date: string;
+    expected_delivery_date?: string | null;
+    supplier_name: string;
+    supplier_phone?: string | null;
+    items: Array<{ product_name: string; quantity: number; unit_price: number; subtotal: number }>;
+    total_amount: number;
+    notes?: string | null;
+    tenant_name?: string;
+  }, cfg: ReceiptConfig): string {
+    const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
+    const fmtDate = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('es-CR', { dateStyle: 'short' });
+    const widthMM = cfg.paperWidth >= 80 ? '80mm' : cfg.paperWidth >= 58 ? '58mm' : '80mm';
+
+    const rows = order.items.map(i => `
+      <tr>
+        <td class="item-name">${i.product_name}</td>
+        <td class="item-qty">${i.quantity}</td>
+        <td class="item-price">${fmt(i.unit_price)}</td>
+        <td class="item-price">${fmt(i.subtotal)}</td>
+      </tr>`).join('');
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Orden ${order.purchase_number}</title>
+  <style>
+    @page { size: ${widthMM} auto; margin: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Courier New', Courier, monospace; font-size: 11px; line-height: 1.4; color: #000; background: #fff; width: ${widthMM}; }
+    .receipt { width: 100%; padding: 3mm 3mm 6mm; }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .title { font-size: 13px; font-weight: bold; text-align: center; }
+    .divider { border: none; border-top: 1px dashed #000; margin: 3px 0; }
+    .section { font-weight: bold; font-size: 10px; border-bottom: 1px dashed #000; margin: 4px 0 2px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; font-size: 10px; border-bottom: 1px solid #000; padding: 1px 0; }
+    th.right, td.right { text-align: right; }
+    .item-name { width: 40%; }
+    .item-qty  { width: 10%; text-align: center; }
+    .item-price { width: 25%; text-align: right; }
+    .total-row { font-size: 13px; font-weight: bold; border-top: 1px solid #000; padding-top: 2px; }
+    .footer { text-align: center; font-size: 10px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+<div class="receipt">
+  <div class="center bold" style="font-size:15px; margin-bottom:2px;">ORDEN DE COMPRA</div>
+  ${order.tenant_name ? `<div class="center" style="font-size:10px;">${order.tenant_name}</div>` : ''}
+  <hr class="divider">
+  <div class="bold">N°: ${order.purchase_number}</div>
+  <div>Fecha: ${fmtDate(order.purchase_date)}</div>
+  ${order.expected_delivery_date ? `<div>Entrega esperada: ${fmtDate(order.expected_delivery_date)}</div>` : ''}
+  <hr class="divider">
+  <div class="section">PROVEEDOR</div>
+  <div class="bold">${order.supplier_name}</div>
+  ${order.supplier_phone ? `<div>Tel: ${order.supplier_phone}</div>` : ''}
+  <hr class="divider">
+  <div class="section">PRODUCTOS</div>
+  <table>
+    <thead>
+      <tr>
+        <th class="item-name">Producto</th>
+        <th class="item-qty" style="text-align:center">Cant</th>
+        <th class="item-price right">Precio</th>
+        <th class="item-price right">Total</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <hr class="divider">
+  <table>
+    <tr class="total-row">
+      <td class="bold">TOTAL:</td>
+      <td class="right" style="font-size:13px; font-weight:bold; text-align:right">${fmt(order.total_amount)}</td>
+    </tr>
+  </table>
+  ${order.notes ? `<hr class="divider"><div class="section">NOTAS</div><div style="font-size:10px;">${order.notes}</div>` : ''}
+  <hr class="divider">
+  <div class="footer">Firma de recepción: ___________________</div>
+  <div class="footer" style="margin-top:3px;">Fecha: _______________</div>
+</div>
+</body>
+</html>`;
+  }
+
+  private async printHTMLContent(html: string): Promise<void> {
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
+    if (!doc) throw new Error('No se pudo crear el documento de impresión');
+    doc.open(); doc.write(html); doc.close();
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); }
+        finally { setTimeout(() => { document.body.removeChild(iframe); resolve(); }, 500); }
+      }, 400);
+    });
+  }
+
+  /**
+   * Print a comanda (kitchen/bar ticket) to all active comanda printers.
+   * Fire-and-forget safe — caller should catch errors separately.
+   */
+  async printComandas(
+    invoiceNumber: string,
+    items: ComandaItem[],
+    tenantId: string,
+    customerName?: string,
+  ): Promise<void> {
+    if (!qzIsAvailable()) return;
+
+    const cfg = await this.loadReceiptConfig(tenantId);
+    const comandaPrinters = (cfg.printers ?? []).filter(
+      p => p.type === 'comanda' && p.is_active,
+    );
+    if (comandaPrinters.length === 0) return;
+
+    await qzConnect(cfg.qz_certificate);
+
+    const now = new Date();
+    const time = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' });
+
+    await Promise.all(
+      comandaPrinters.map(printer => {
+        const data = formatComanda(
+          { invoiceNumber, time, label: printer.label, items, customerName },
+          42,
+        );
+        return qzPrintToPrinter(printer, data);
+      }),
+    );
   }
 
   // ─── Browser print ────────────────────────────────────────────────────────────
@@ -330,7 +523,7 @@ export class POSPrinterService {
 
   <table class="totals">
     <tr><td>Subtotal:</td><td>₡${fmt(receiptData.subtotal)}</td></tr>
-    <tr><td>Impuesto (13%):</td><td>₡${fmt(receiptData.tax)}</td></tr>
+    ${receiptData.tax > 0 ? `<tr><td>Impuesto:</td><td>₡${fmt(receiptData.tax)}</td></tr>` : ''}
   </table>
 
   <hr class="divider">
@@ -421,7 +614,7 @@ export class POSPrinterService {
       text(label + ' '.repeat(Math.max(1, sp)) + val); nl();
     };
     totalLine('Subtotal:', fmt(receiptData.subtotal));
-    totalLine('Impuesto (13%):', fmt(receiptData.tax));
+    if (receiptData.tax > 0) { totalLine('Impuesto:', fmt(receiptData.tax)); }
     sep();
 
     align('center');

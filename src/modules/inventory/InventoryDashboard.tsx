@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock } from 'lucide-react';
 import { ProductsList } from './products/ProductsList';
 import { SuppliersList } from './suppliers/SuppliersList';
-import { PurchasesList } from './purchases/purchasesList';
 import { StockMovements } from './stock/StockMovements';
 import { LowStockAlerts } from './stock/LowStockAlerts';
 import { InventoryStats } from './stock/InventoryStats';
@@ -10,7 +9,7 @@ import { CategoriesManagement } from './categories/CategoriesManagement';
 import { UnitTypesManagement } from './categories/UnitTypesManagement';
 import { useAuth } from '@/context/AuthContext';
 
-type TabType = 'dashboard' | 'products' | 'suppliers' | 'purchases' | 'stock' | 'alerts' | 'categories' | 'unitTypes';
+type TabType = 'dashboard' | 'products' | 'suppliers' | 'stock' | 'alerts' | 'categories' | 'unitTypes';
 
 interface TabConfig {
   id: TabType;
@@ -24,10 +23,9 @@ export const InventoryDashboard: React.FC = () => {
   const { planFeatures, planName } = useAuth();
 
   const tabs: TabConfig[] = [
-    { id: 'dashboard', label: 'Panel',requiredFeature: 'inventory' },
+    { id: 'dashboard', label: 'Panel', requiredFeature: 'inventory' },
     { id: 'products', label: 'Productos', requiredFeature: 'inventory' },
     { id: 'suppliers', label: 'Proveedores', requiredFeature: 'inventory' },
-    { id: 'purchases', label: 'Compras', requiredFeature: 'inventory' },
     { id: 'stock', label: 'Stock', requiredFeature: 'inventory' },
     { id: 'alerts', label: 'Alertas', requiredFeature: 'inventory' },
     { id: 'categories', label: 'Categorías', requiredFeature: 'inventory' },
@@ -44,25 +42,28 @@ export const InventoryDashboard: React.FC = () => {
   const getAvailableTabs = (): TabConfig[] => {
     return tabs.filter(tab => {
 
-      // Si no tiene inventario, no muestra nada de inventario
+      // Sin acceso a inventario → nada
       if (!hasInventoryAccess) return false;
 
-      // Si solo tiene productos, solo muestra productos
+      // Plan solo-productos: muestra Productos, Proveedores, Categorías y Tipos de unidad
+      // Stock y Alertas quedan ocultos (requieren inventario completo)
       if (hasProductsOnlyAccess) {
-        return tab.id === 'products';
+        return ['products', 'suppliers', 'categories', 'unitTypes'].includes(tab.id);
       }
 
-      // Si tiene acceso completo a inventario, muestra todo
+      // Inventario completo → todas las pestañas disponibles
       return true;
     });
   };
 
   const availableTabs = getAvailableTabs();
 
-  // ✅ Si la pestaña activa no está disponible, cambiar a dashboard
-  if (!availableTabs.find(t => t.id === activeTab)) {
-    setActiveTab('dashboard');
-  }
+  // Reset to first available tab when the current one isn't accessible
+  useEffect(() => {
+    if (availableTabs.length > 0 && !availableTabs.find(t => t.id === activeTab)) {
+      setActiveTab(availableTabs[0].id);
+    }
+  }, [activeTab, availableTabs.length]);
 
   // ✅ Componente para mostrar acceso denegado
   const LockedTab = ({ tabLabel }: { tabLabel: string }) => (
@@ -96,9 +97,6 @@ export const InventoryDashboard: React.FC = () => {
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <h1 className="text-xl font-bold text-gray-900">Gestión de Inventario</h1>
-              <span className="ml-4 px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">
-                {planName}
-              </span>
             </div>
           </div>
         </div>
@@ -125,58 +123,36 @@ export const InventoryDashboard: React.FC = () => {
       </div>
 
       <div className="max-w-7xl mx-auto">
-        {activeTab === 'dashboard' && <InventoryStats />}
+        {activeTab === 'dashboard' && !hasProductsOnlyAccess && <InventoryStats />}
         
         {activeTab === 'products' && (
           hasInventoryAccess ? <ProductsList /> : <LockedTab tabLabel="Productos" />
         )}
         
+        {/* Proveedores, Categorías y Tipos de unidad: accesibles también en plan solo-productos */}
         {activeTab === 'suppliers' && (
-          hasInventoryAccess && !hasProductsOnlyAccess ? (
-            <SuppliersList />
-          ) : (
-            <LockedTab tabLabel="Proveedores" />
-          )
+          hasInventoryAccess ? <SuppliersList /> : <LockedTab tabLabel="Proveedores" />
         )}
-        
-        {activeTab === 'purchases' && (
-          hasInventoryAccess && !hasProductsOnlyAccess ? (
-            <PurchasesList />
-          ) : (
-            <LockedTab tabLabel="Compras" />
-          )
-        )}
-        
-        {activeTab === 'stock' && (
-          hasInventoryAccess && !hasProductsOnlyAccess ? (
-            <StockMovements />
-          ) : (
-            <LockedTab tabLabel="Stock" />
-          )
-        )}
-        
-        {activeTab === 'alerts' && (
-          hasInventoryAccess && !hasProductsOnlyAccess ? (
-            <LowStockAlerts />
-          ) : (
-            <LockedTab tabLabel="Alertas" />
-          )
-        )}
-        
+
         {activeTab === 'categories' && (
-          hasInventoryAccess && !hasProductsOnlyAccess ? (
-            <CategoriesManagement />
-          ) : (
-            <LockedTab tabLabel="Categorías" />
-          )
+          hasInventoryAccess ? <CategoriesManagement /> : <LockedTab tabLabel="Categorías" />
         )}
-        
+
         {activeTab === 'unitTypes' && (
-          hasInventoryAccess && !hasProductsOnlyAccess ? (
-            <UnitTypesManagement />
-          ) : (
-            <LockedTab tabLabel="Tipo de unidades" />
-          )
+          hasInventoryAccess ? <UnitTypesManagement /> : <LockedTab tabLabel="Tipo de unidades" />
+        )}
+
+        {/* Stock y Alertas: solo en inventario completo */}
+        {activeTab === 'stock' && (
+          hasInventoryAccess && !hasProductsOnlyAccess
+            ? <StockMovements />
+            : <LockedTab tabLabel="Stock" />
+        )}
+
+        {activeTab === 'alerts' && (
+          hasInventoryAccess && !hasProductsOnlyAccess
+            ? <LowStockAlerts />
+            : <LockedTab tabLabel="Alertas" />
         )}
       </div>
     </div>

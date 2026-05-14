@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock } from 'lucide-react';
-import { inventorySuppliersService, type InventorySupplier } from '@/services/Inventory/inventorySuppliersService';
+import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff } from 'lucide-react';
+import type { InventorySupplier } from '@/services/Inventory/inventorySuppliersService';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
-import { getAllProducts } from '@/services/Inventory/InventoryProductsService';
+import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
+import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
+import { supabase } from '@/lib/supabase';
 import type { Product } from '@/types/Types_POS';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -27,7 +30,9 @@ interface PurchaseFormProps {
 
 export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user } = useAuth();
+  const { tenantId: resolvedTenantId } = useTenantId();
   const isMountedRef = useRef(true);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   // Form fields
   const [purchaseNumber, setPurchaseNumber] = useState('');
@@ -52,50 +57,105 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
   const [error, setError]           = useState('');
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
 
   useEffect(() => {
-    if (!isOpen) return;
-    loadData();
-    autoNumber();
-  }, [isOpen]);
+    const onOnline  = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener('online',  onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online',  onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
 
-  const loadData = async () => {
-    if (!user?.tenant_id) return;
+  // Use resolvedTenantId (works for staff) with fallback to user.tenant_id
+  const tenantId = resolvedTenantId ?? user?.tenant_id ?? null;
+
+  useEffect(() => {
+    if (!isOpen || !tenantId) return;
+    loadData(tenantId);
+    autoNumber(tenantId);
+  }, [isOpen, tenantId]);
+
+  const loadData = async (tid: string) => {
     setLoadingData(true);
+    setError('');
     try {
-      const [sup, prod] = await Promise.all([
-        inventorySuppliersService.getAllSuppliers(user.tenant_id),
-        getAllProducts(user.tenant_id),
-      ]);
-      if (!isMountedRef.current) return;
-      setSuppliers((sup as InventorySupplier[]).filter(s => s.is_active));
-      setProducts(prod);
-    } catch {
-      // non-fatal
+      if (navigator.onLine) {
+        const [suppRes, prodRes] = await Promise.all([
+          supabase.from('suppliers').select('id, name, payment_terms').eq('tenant_id', tid).order('name'),
+          supabase.from('products').select('id, name, sku, unit_price, cost_price').eq('tenant_id', tid).order('name'),
+        ]);
+        if (suppRes.error) throw suppRes.error;
+        if (prodRes.error) throw prodRes.error;
+        const supps = (suppRes.data ?? []) as unknown as InventorySupplier[];
+        const prods = (prodRes.data ?? []) as unknown as Product[];
+        setSuppliers(supps);
+        setProducts(prods);
+        // Cache for offline use — both IndexedDB and localStorage
+        purchasesOfflineService.cacheSuppliers(tid, supps).catch(() => {});
+        purchasesOfflineService.cacheProducts(tid, prods).catch(() => {});
+        cacheSet(cacheKey(tid, 'suppliers_list'), supps);
+        cacheSet(cacheKey(tid, 'products_list'), prods);
+      } else {
+        // Try IndexedDB first, then localStorage as fallback
+        let [supps, prods] = await Promise.all([
+          purchasesOfflineService.getCachedSuppliers(tid),
+          purchasesOfflineService.getCachedProducts(tid),
+        ]);
+        if (supps.length === 0) supps = cacheGet<InventorySupplier[]>(cacheKey(tid, 'suppliers_list')) ?? [];
+        if (prods.length === 0) prods = cacheGet<Product[]>(cacheKey(tid, 'products_list')) ?? [];
+        setSuppliers(supps as InventorySupplier[]);
+        setProducts(prods as Product[]);
+        if (supps.length === 0 && prods.length === 0) {
+          setError('Sin conexión y sin datos en caché. Conecta internet para crear una compra.');
+        }
+      }
+    } catch (err) {
+      // Network failed — try both caches
+      try {
+        let [supps, prods] = await Promise.all([
+          purchasesOfflineService.getCachedSuppliers(tid),
+          purchasesOfflineService.getCachedProducts(tid),
+        ]);
+        if (supps.length === 0) supps = cacheGet<InventorySupplier[]>(cacheKey(tid, 'suppliers_list')) ?? [];
+        if (prods.length === 0) prods = cacheGet<Product[]>(cacheKey(tid, 'products_list')) ?? [];
+        setSuppliers(supps as InventorySupplier[]);
+        setProducts(prods as Product[]);
+      } catch {
+        setError((err as any)?.message ?? 'Error al cargar datos');
+      }
     } finally {
-      if (isMountedRef.current) setLoadingData(false);
+      setLoadingData(false);
     }
   };
 
-  const autoNumber = async () => {
-    if (!user?.tenant_id) return;
+  const autoNumber = async (tid: string) => {
     try {
-      const num = await inventoryPurchasesService.generatePurchaseNumber(user.tenant_id);
-      if (isMountedRef.current) setPurchaseNumber(num);
+      if (navigator.onLine) {
+        const num = await inventoryPurchasesService.generatePurchaseNumber(tid);
+        if (isMountedRef.current) setPurchaseNumber(num);
+      } else {
+        const pending = await purchasesOfflineService.getPendingCreates(tid);
+        if (isMountedRef.current) setPurchaseNumber(`PO-BORRADOR-${pending.length + 1}`);
+      }
     } catch {
-      if (isMountedRef.current) setPurchaseNumber('PO-0001');
+      const pending = await purchasesOfflineService.getPendingCreates(tid).catch(() => []);
+      if (isMountedRef.current) setPurchaseNumber(`PO-BORRADOR-${pending.length + 1}`);
     }
   };
 
   const selectedSupplier = suppliers.find(s => s.id === supplierId) ?? null;
 
-  // Pre-fill unit price from product catalog when product is chosen
+  // Pre-fill with cost_price (what we pay the supplier), not unit_price (what we sell)
   const handleProductSelect = (pid: string) => {
     setNewProductId(pid);
     const prod = products.find(p => p.id === pid);
-    if (prod) setNewUnitPrice(String(prod.unit_price ?? ''));
+    if (prod) setNewUnitPrice(String(prod.cost_price ?? ''));
   };
 
   const handleAddItem = () => {
@@ -124,45 +184,72 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
 
   const handleSubmit = async () => {
     setError('');
-    if (!purchaseNumber.trim()) { setError('El número de compra es requerido'); return; }
-    if (!supplierId)             { setError('Selecciona un proveedor'); return; }
-    if (items.length === 0)      { setError('Agrega al menos un producto'); return; }
+    if (!tenantId)        { setError('Usuario no autenticado'); return; }
+    if (!supplierId)      { setError('Selecciona un proveedor'); return; }
+    if (items.length === 0) { setError('Agrega al menos un producto'); return; }
+
+    // Ensure we have a purchase number (generate on-the-fly if autoNumber failed)
+    let num = purchaseNumber.trim();
+    if (!num) {
+      num = await inventoryPurchasesService.generatePurchaseNumber(tenantId);
+      setPurchaseNumber(num);
+    }
 
     setSubmitting(true);
     try {
-      const purchase = await inventoryPurchasesService.createPurchase(user!.tenant_id, {
-        supplier_id: supplierId,
-        purchase_number: purchaseNumber,
-        purchase_date: purchaseDate,
-        expected_delivery_date: expectedDelivery || null,
-        actual_delivery_date: null,
-        status: 'pending',
-        total_amount: totalAmount,
-        notes: notes || null,
-      });
-
-      if (purchase?.id) {
-        await inventoryPurchasesService.addPurchaseItems(
-          purchase.id,
-          items.map(i => ({
-            purchase_id: purchase.id,
-            product_id: i.product_id,
-            quantity_ordered: i.quantity,
-            quantity_received: 0,
-            unit_price: i.unit_price,
-            total_price: i.total,
-          }))
-        );
+      if (!navigator.onLine) {
+        // Queue for offline sync
+        const supplier = suppliers.find(s => s.id === supplierId);
+        await purchasesOfflineService.queueCreate({
+          tenantId,
+          purchaseData: {
+            supplier_id:            supplierId,
+            supplier_name:          supplier?.name ?? '—',
+            purchase_number:        num,
+            purchase_date:          purchaseDate,
+            expected_delivery_date: expectedDelivery || null,
+            total_amount:           totalAmount,
+            notes:                  notes || null,
+          },
+          items: items.map(i => ({
+            product_id:   i.product_id,
+            product_name: i.product_name,
+            quantity:     i.quantity,
+            unit_price:   i.unit_price,
+            subtotal:     i.total,
+          })),
+        });
+      } else {
+        const purchase = await inventoryPurchasesService.createPurchase(tenantId, {
+          supplier_id:            supplierId,
+          purchase_number:        num,
+          purchase_date:          purchaseDate,
+          expected_delivery_date: expectedDelivery || null,
+          actual_delivery_date:   null,
+          status:                 'pending',
+          total_amount:           totalAmount,
+          notes:                  notes || null,
+        });
+        if (purchase?.id) {
+          await inventoryPurchasesService.addPurchaseItems(
+            purchase.id,
+            items.map(i => ({
+              product_id: i.product_id,
+              quantity:   i.quantity,
+              unit_price: i.unit_price,
+              subtotal:   i.total,
+            }))
+          );
+        }
       }
 
-      if (!isMountedRef.current) return;
       onSuccess();
       handleClose();
     } catch (err) {
-      if (isMountedRef.current)
-        setError(err instanceof Error ? err.message : 'Error al guardar la compra');
+      const msg = (err as any)?.message ?? String(err) ?? 'Error al guardar la compra';
+      setError(msg);
     } finally {
-      if (isMountedRef.current) setSubmitting(false);
+      setSubmitting(false);
     }
   };
 
@@ -187,8 +274,15 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
       <div className="bg-white w-full max-w-4xl max-h-[95vh] overflow-y-auto rounded-2xl shadow-2xl flex flex-col">
 
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center shrink-0">
-          <h2 className="text-xl font-bold text-white">Nueva Compra</h2>
+        <div className="bg-linear-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold text-white">Nueva Compra</h2>
+            {isOffline && (
+              <span className="flex items-center gap-1 text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">
+                <WifiOff size={10} /> offline
+              </span>
+            )}
+          </div>
           <button onClick={handleClose} disabled={submitting} className="text-white hover:bg-white/20 p-2 rounded-lg transition disabled:opacity-50">
             <X size={22} />
           </button>
@@ -209,16 +303,18 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Información General</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-              {/* Purchase number */}
+              {/* Purchase number — auto-generated, read-only */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Número de Compra *</label>
-                <input
-                  value={purchaseNumber}
-                  onChange={e => setPurchaseNumber(e.target.value)}
-                  placeholder="PO-0001"
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Número de Compra
+                  <span className="ml-2 text-xs font-normal text-gray-400">automático</span>
+                </label>
+                <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg">
+                  <span className="font-mono font-bold text-gray-700 flex-1">
+                    {purchaseNumber || <span className="text-gray-400 font-normal">Generando...</span>}
+                  </span>
+                  <span className="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full">Auto</span>
+                </div>
               </div>
 
               {/* Supplier dropdown */}
@@ -396,7 +492,12 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             disabled={submitting || items.length === 0 || !supplierId}
             className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 text-white font-semibold rounded-lg transition"
           >
-            {submitting ? <><Loader size={16} className="animate-spin" /> Guardando...</> : '💾 Guardar Compra'}
+            {submitting
+              ? <><Loader size={16} className="animate-spin" /> Guardando...</>
+              : isOffline
+                ? <><WifiOff size={16} /> Guardar (offline)</>
+                : '💾 Guardar Compra'
+            }
           </button>
         </div>
       </div>

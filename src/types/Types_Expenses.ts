@@ -86,6 +86,42 @@ export const DEFAULT_CATEGORY_COLORS = [
   '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899',
 ];
 
+export type RecurringFrequency = 'weekly' | 'biweekly' | 'monthly' | 'annual';
+
+export interface RecurringExpense {
+  id: string;
+  tenant_id: string;
+  category_id: string | null;
+  category?: ExpenseCategory | null;
+  description: string;
+  default_amount: number;
+  frequency: RecurringFrequency;
+  day_of_month: number | null;   // 1-31, for monthly frequency
+  payment_method: PaymentMethod;
+  notes: string | null;
+  is_active: boolean;
+  last_generated_date: string | null; // YYYY-MM-DD
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecurringExpenseFormData {
+  description: string;
+  default_amount: string;
+  category_id: string;
+  frequency: RecurringFrequency;
+  day_of_month: string;
+  payment_method: PaymentMethod;
+  notes: string;
+}
+
+export const FREQUENCY_LABELS: Record<RecurringFrequency, string> = {
+  weekly:   'Semanal (cada 7 días)',
+  biweekly: 'Quincenal (cada 14 días)',
+  monthly:  'Mensual',
+  annual:   'Anual',
+};
+
 export const DEFAULT_CATEGORY_ICONS = [
   '🏢', '💡', '🚗', '📦', '👥', '🍽️', '🔧', '📱',
   '💰', '🎯', '📊', '🏥', '📚', '🛒', '🖥️', '🌐',

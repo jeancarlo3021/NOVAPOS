@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export interface InventoryPurchase {
   id: string;
@@ -15,156 +15,83 @@ export interface InventoryPurchase {
   updated_at: string;
 }
 
+// Matches the actual purchase_items table schema
 export interface PurchaseItem {
   id: string;
   purchase_id: string;
   product_id: string;
-  quantity_ordered: number;
-  quantity_received: number;
+  quantity: number;            // column: quantity
+  received_quantity: number;   // column: received_quantity
   unit_price: number;
-  total_price: number;
+  subtotal: number;            // column: subtotal
 }
 
 export const inventoryPurchasesService = {
   // Obtener todas las compras
-  async getAllPurchases(tenantId: string) {
-    const { data, error } = await supabase
-      .from('purchases')
-      .select(`
-        *,
-        supplier:suppliers(name, email, phone),
-        items:purchase_items(*)
-      `)
-      .eq('tenant_id', tenantId)
-      .order('purchase_date', { ascending: false });
-    
-    if (error) throw error;
-    return data || [];
+  async getAllPurchases(_tenantId: string) {
+    return apiFetch<InventoryPurchase[]>('/purchases');
   },
 
   // Obtener compra por ID
   async getPurchaseById(id: string) {
-    const { data, error } = await supabase
-      .from('purchases')
-      .select(`
-        *,
-        supplier:suppliers(*),
-        items:purchase_items(
-          *,
-          product:products(name, sku)
-        )
-      `)
-      .eq('id', id)
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data;
+    return apiFetch<InventoryPurchase>('/purchases/' + id);
   },
 
   // Crear compra
-  async createPurchase(tenantId: string, purchase: Omit<InventoryPurchase, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>) {
-    const { data, error } = await supabase
-      .from('purchases')
-      .insert([{ ...purchase, tenant_id: tenantId }])
-      .select()
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data;
+  async createPurchase(_tenantId: string, purchase: Omit<InventoryPurchase, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>) {
+    return apiFetch<InventoryPurchase>('/purchases', {
+      method: 'POST',
+      body: JSON.stringify(purchase),
+    });
   },
 
-  // Agregar items a la compra
-  async addPurchaseItems(purchaseId: string, items: Omit<PurchaseItem, 'id'>[]) {
-    const { data, error } = await supabase
-      .from('purchase_items')
-      .insert(items.map(item => ({ ...item, purchase_id: purchaseId })))
-      .select();
-    
-    if (error) throw error;
-    return data;
+  // Agregar items a la compra — maps to actual DB column names
+  async addPurchaseItems(purchaseId: string, items: Array<{
+    product_id: string;
+    quantity: number;
+    unit_price: number;
+    subtotal: number;
+  }>) {
+    return apiFetch<PurchaseItem[]>('/purchases/' + purchaseId + '/receive', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
   },
 
   // Actualizar estado de compra
   async updatePurchaseStatus(id: string, status: 'pending' | 'received' | 'cancelled') {
-    const { data, error } = await supabase
-      .from('purchases')
-      .update({ status })
-      .eq('id', id)
-      .select()
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data;
+    return apiFetch<InventoryPurchase>('/purchases/' + id, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
   },
 
   // Recibir compra
   async receivePurchase(id: string, _actualDeliveryDate: string) {
-    const purchase = await this.getPurchaseById(id);
-
-    // Actualizar stock de productos
-    for (const item of purchase.items) {
-      const product = await supabase
-        .from('products')
-        .select('quantity_on_hand')
-        .eq('id', item.product_id)
-        .maybeSingle();
-
-      if (!product.data) continue;
-
-      await supabase
-        .from('products')
-        .update({ quantity_on_hand: product.data.quantity_on_hand + item.quantity_ordered })
-        .eq('id', item.product_id);
-      
-      // Registrar movimiento de stock
-      await supabase
-        .from('stock_movements')
-        .insert([{
-          tenant_id: purchase.tenant_id,
-          product_id: item.product_id,
-          movement_type: 'purchase',
-          quantity: item.quantity_ordered,
-          reference_id: id,
-          reference_type: 'purchase',
-        }]);
-    }
-
-    // Actualizar estado de compra
-    return this.updatePurchaseStatus(id, 'received');
+    return apiFetch<InventoryPurchase>('/purchases/' + id + '/receive', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   },
 
   // Obtener compras pendientes
-  async getPendingPurchases(tenantId: string) {
-    const { data, error } = await supabase
-      .from('purchases')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'pending')
-      .order('expected_delivery_date', { ascending: true });
-    
-    if (error) throw error;
-    return data || [];
+  async getPendingPurchases(_tenantId: string) {
+    return apiFetch<InventoryPurchase[]>('/purchases?status=pending');
   },
 
   // Eliminar compra
   async deletePurchase(id: string): Promise<void> {
-    const { error } = await supabase.from('purchases').delete().eq('id', id);
-    if (error) throw error;
+    await apiFetch('/purchases/' + id, { method: 'DELETE' });
   },
 
   // Generar número de compra único
-  async generatePurchaseNumber(tenantId: string) {
-    const { data, error } = await supabase
-      .from('purchases')
-      .select('purchase_number')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
-      .limit(1);
-    
-    if (error) throw error;
-
-    const lastNumber = data?.[0]?.purchase_number || 'PO-0000';
-    const number = parseInt(lastNumber.split('-')[1]) + 1;
-    return `PO-${String(number).padStart(4, '0')}`;
+  async generatePurchaseNumber(_tenantId: string): Promise<string> {
+    const purchases = await apiFetch<Array<{ purchase_number: string }>>('/purchases');
+    const max = (purchases ?? []).reduce((m, row) => {
+      const suffix = row.purchase_number?.split('-').pop();
+      const n = suffix ? parseInt(suffix, 10) : NaN;
+      return isNaN(n) ? m : Math.max(m, n);
+    }, 0);
+    return `PO-${String(max + 1).padStart(4, '0')}`;
   },
 };

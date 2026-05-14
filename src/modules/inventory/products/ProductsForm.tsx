@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { X, AlertCircle } from 'lucide-react';
+import { X, AlertCircle, TrendingUp } from 'lucide-react';
+import { calcMargin, MARGIN_TEXT } from '@/utils/priceUtils';
 import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
 import { Card, CardHeader, CardContent, CardFooter, Spinner } from '@/components/ui/uiComponents';
+
+// ── Form ───────────────────────────────────────────────────────────────────────
 
 interface ProductFormProps {
   productId?: string | null;
@@ -26,7 +30,10 @@ interface FormData {
 
 export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, onCancel }) => {
   const { user, planFeatures } = useAuth();
+  const { tenantId } = useTenantId();
   const isProductsOnly = planFeatures?.inventory_products_only ?? false;
+  // Resolved tenantId: works for both owners (user.tenant_id) and staff (via useTenantId lookup)
+  const tid = tenantId ?? user?.tenant_id ?? '';
 
   const [formData, setFormData] = useState<FormData>({
     name: '',
@@ -58,8 +65,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     loading: categoriesLoading,
     error: categoriesError
   } = useSafeFetch(
-    () => categoriesService.getAllCategories(user!.tenant_id),
-    { timeout: 8000, retries: 2 }
+    () => categoriesService.getAllCategories(tid),
+    { timeout: 8000, retries: 2, key: tid }
   );
   const categories = categoriesData ?? [];
 
@@ -68,8 +75,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     loading: unitTypesLoading,
     error: unitTypesError
   } = useSafeFetch(
-    () => unitTypesService.getAllUnitTypes(user!.tenant_id),
-    { timeout: 8000, retries: 2 }
+    () => unitTypesService.getAllUnitTypes(tid),
+    { timeout: 8000, retries: 2, key: tid }
   );
   const unitTypes = unitTypesData ?? [];
 
@@ -124,7 +131,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
     setCategoryLoading(true);
     try {
-      const category = await categoriesService.createCategory(user!.tenant_id, {
+      const category = await categoriesService.createCategory(tid, {
         name: newCategory,
         color: '#3B82F6',
       });
@@ -146,7 +153,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
     setUnitLoading(true);
     try {
-      const unitType = await unitTypesService.createUnitType(user!.tenant_id, {
+      const unitType = await unitTypesService.createUnitType(tid, {
         name: newUnit.name,
         abbreviation: newUnit.abbreviation,
       });
@@ -198,7 +205,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       if (productId) {
         await inventoryProductsService.updateProduct(productId, productData);
       } else {
-        await inventoryProductsService.createProduct(user!.tenant_id, productData);
+        await inventoryProductsService.createProduct(tid, productData);
       }
 
       setFormSuccess(productId ? 'Producto actualizado exitosamente' : 'Producto creado exitosamente');
@@ -419,20 +426,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
             {/* Fila 3: Precios */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Precio Unitario</label>
-                <input
-                  type="number"
-                  name="unit_price"
-                  value={formData.unit_price}
-                  onChange={handleChange}
-                  placeholder="0.00"
-                  step="0.01"
-                  min="0"
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
-              </div>
-              <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Precio de Costo</label>
                 <input
                   type="number"
@@ -446,7 +439,48 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Precio de Venta</label>
+                <input
+                  type="number"
+                  name="unit_price"
+                  value={formData.unit_price}
+                  onChange={handleChange}
+                  placeholder="0.00"
+                  step="0.01"
+                  min="0"
+                  disabled={submitting}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                />
+              </div>
             </div>
+
+            {/* Margen — solo display */}
+            {(() => {
+              const { label, profit, color } = calcMargin(formData.unit_price, formData.cost_price);
+              const mc = MARGIN_TEXT[color];
+              const bg =
+                color === 'gray'  ? 'bg-gray-50 border-gray-100'   :
+                color === 'red'   ? 'bg-red-50 border-red-100'     :
+                color === 'amber' ? 'bg-amber-50 border-amber-100' :
+                                    'bg-emerald-50 border-emerald-100';
+              return (
+                <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 ${bg}`}>
+                  <div className="flex items-center gap-2">
+                    <TrendingUp size={15} className={mc} />
+                    <span className="text-sm font-semibold text-gray-600">Margen</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {profit !== null && (
+                      <span className={`text-xs font-semibold ${mc}`}>
+                        {profit >= 0 ? '+' : ''}₡{Math.abs(profit).toLocaleString('es-CR', { minimumFractionDigits: 0 })} ganancia
+                      </span>
+                    )}
+                    <span className={`text-lg font-black ${mc}`}>{label}</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Fila 4: Stock - Solo si NO es products_only */}
             {!isProductsOnly && (

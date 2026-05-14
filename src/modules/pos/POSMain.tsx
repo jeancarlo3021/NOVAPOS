@@ -4,6 +4,12 @@ import { useCashSession } from '@/hooks/useCashSession';
 import { useTenantId } from '@/hooks/useTenant';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
+import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
+import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
+import {
+  getProductPromotion,
+  calcPromoSubtotal,
+} from '@/services/promotions/promotionsService';
 import { invoicesService } from '@/services/invoice/invoiceService';
 import { posOfflineService, OfflineInvoicePayload } from '@/services/pos/posOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -25,14 +31,13 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   sinpe: 'SINPE Móvil',
 };
 
-const TAX_RATE = 0.13;
-
 export const POSMain = () => {
   const { user, planFeatures } = useAuth();
   const { tenantId, loading: tenantLoading, error: tenantError } = useTenantId();
   const { currentSession, loading: sessionLoading, refetchSession } = useCashSession();
   const { isOnline } = useOfflineSync();
-  const { filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, error: productsError } = usePOSProducts();
+  const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError } = usePOSProducts();
+  const activePromotions = usePOSPromotions(tenantId);
 
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [showOpenModal, setShowOpenModal] = useState(false);
@@ -43,9 +48,44 @@ export const POSMain = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
+
+  // Tax settings loaded from general config
+  const [taxEnabled, setTaxEnabled]   = useState(true);
+  const [taxRate, setTaxRate]         = useState(0.13);
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
+
+  // Load tax settings — with offline cache fallback
+  useEffect(() => {
+    if (!tenantId) return;
+    const ck = cacheKey(tenantId, 'general_settings');
+
+    const applyConfig = (cfg: any) => {
+      if (typeof cfg.taxEnabled === 'boolean') setTaxEnabled(cfg.taxEnabled);
+      if (typeof cfg.taxPercentage === 'number' && cfg.taxPercentage >= 0)
+        setTaxRate(cfg.taxPercentage / 100);
+    };
+
+    // Apply cached config immediately (so POS works instantly offline)
+    const cached = cacheGet<any>(ck);
+    if (cached) applyConfig(cached);
+
+    if (!navigator.onLine) return;
+
+    supabase
+      .from('settings')
+      .select('config')
+      .eq('tenant_id', tenantId)
+      .eq('type', 'general')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data?.config) return;
+        const cfg = data.config as any;
+        applyConfig(cfg);
+        cacheSet(ck, cfg);
+      });
+  }, [tenantId]);
 
   // Keep pending invoice count up to date
   const refreshPendingCount = useCallback(async () => {
@@ -63,6 +103,19 @@ export const POSMain = () => {
     setSyncing(true);
     try {
       const result = await posOfflineService.syncPendingInvoices(async (inv: OfflineInvoicePayload) => {
+        // Provide safe defaults for invoices queued before the payment fields were added.
+        // - Cash: if amountReceived is missing, assume exact payment (total paid).
+        // - Card/SINPE: if voucherNumber is missing, use 'OFFLINE' as placeholder.
+        const amountReceived =
+          inv.paymentMethod === 'cash'
+            ? (inv.amountReceived ?? inv.total)
+            : undefined;
+
+        const voucherNumber =
+          inv.paymentMethod === 'card' || inv.paymentMethod === 'sinpe'
+            ? (inv.voucherNumber ?? 'OFFLINE')
+            : undefined;
+
         await invoicesService.createInvoice(
           inv.tenantId,
           inv.sessionId,
@@ -74,16 +127,27 @@ export const POSMain = () => {
           inv.total,
           inv.paymentMethod,
           undefined,
-          inv.notes
+          inv.notes,
+          undefined,
+          amountReceived,
+          inv.changeAmount ?? 0,
+          voucherNumber,
         );
       });
 
       await refreshPendingCount();
+
       if (result.synced > 0) {
-        setSuccess(`${result.synced} factura(s) sincronizada(s)`);
+        setSuccess(`${result.synced} factura(s) sincronizada(s) correctamente`);
       }
-      if (result.errors > 0) {
-        setError(`${result.errors} factura(s) no pudieron sincronizarse`);
+
+      if (result.errors > 0 && result.details.length > 0) {
+        // Show the first real error message to help diagnose
+        const firstError = result.details[0].message;
+        setError(
+          `${result.errors} factura(s) no pudieron sincronizarse: ${firstError}` +
+          (result.details.length > 1 ? ` (+${result.details.length - 1} más)` : '')
+        );
       }
     } finally {
       setSyncing(false);
@@ -94,26 +158,42 @@ export const POSMain = () => {
     if (isOnline) syncOfflineInvoices();
   }, [isOnline, syncOfflineInvoices]);
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
-  const taxAmount = subtotal * TAX_RATE;
+  const subtotal = Math.round(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
+  const effectiveTaxRate = taxEnabled ? taxRate : 0;
+  const taxAmount = Math.round(subtotal * effectiveTaxRate);
   const total = subtotal + taxAmount;
 
   const handleAddToCart = (product: Product, quantity: number = 1) => {
+    const promo = getProductPromotion(
+      product.id,
+      (product as any).category_id ?? (product as any).category?.id ?? null,
+      activePromotions,
+    );
     setCartItems(prev => {
       const existing = prev.find(item => item.product_id === product.id);
       if (existing) {
+        const newQty = existing.quantity + quantity;
+        const subtotal = Math.round(promo
+          ? calcPromoSubtotal(existing.unit_price, newQty, promo)
+          : newQty * existing.unit_price);
         return prev.map(item =>
           item.product_id === product.id
-            ? { ...item, quantity: item.quantity + quantity, subtotal: (item.quantity + quantity) * item.unit_price }
+            ? { ...item, quantity: newQty, subtotal }
             : item
         );
       }
+      const subtotal = Math.round(promo
+        ? calcPromoSubtotal(product.unit_price, quantity, promo)
+        : product.unit_price * quantity);
       return [...prev, {
         product_id: product.id,
         product,
         quantity,
-        unit_price: product.unit_price,
-        subtotal: product.unit_price * quantity,
+        unit_price: Math.round(product.unit_price),
+        subtotal,
+        promo: promo
+          ? { id: promo.id, name: promo.name, type: promo.type, value: promo.value }
+          : undefined,
       }];
     });
   };
@@ -126,11 +206,16 @@ export const POSMain = () => {
       handleRemoveFromCart(productId);
     } else {
       setCartItems(prev =>
-        prev.map(item =>
-          item.product_id === productId
-            ? { ...item, quantity, subtotal: quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100) }
-            : item
-        )
+        prev.map(item => {
+          if (item.product_id !== productId) return item;
+          let subtotal: number;
+          if (item.promo) {
+            subtotal = Math.round(calcPromoSubtotal(item.unit_price, quantity, item.promo as any));
+          } else {
+            subtotal = Math.round(quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100));
+          }
+          return { ...item, quantity, subtotal };
+        })
       );
     }
   };
@@ -139,7 +224,7 @@ export const POSMain = () => {
     setCartItems(prev =>
       prev.map(item =>
         item.product_id === productId
-          ? { ...item, discount_percent, subtotal: item.quantity * item.unit_price * (1 - discount_percent / 100) }
+          ? { ...item, discount_percent, subtotal: Math.round(item.quantity * item.unit_price * (1 - discount_percent / 100)) }
           : item
       )
     );
@@ -152,6 +237,7 @@ export const POSMain = () => {
     tax: number,
     tot: number,
     paymentMethod: string,
+    customerName?: string,
   ) => {
     if (!tenantId) return;
     try {
@@ -165,6 +251,7 @@ export const POSMain = () => {
       const general = generalData?.config as any;
       const now = new Date();
 
+      // Receipt
       await posPrinterService.printAuto(
         {
           invoiceNumber,
@@ -184,9 +271,19 @@ export const POSMain = () => {
           storeAddress: general?.address,
           storePhone: general?.phone,
           cashierName: user?.email ?? undefined,
+          customerName,
         },
         tenantId,
       );
+
+      // Comandas (fire-and-forget — non-blocking)
+      posPrinterService.printComandas(
+        invoiceNumber,
+        items.map(item => ({ name: item.product.name, quantity: item.quantity })),
+        tenantId,
+        customerName,
+      ).catch(err => console.warn('Error al imprimir comanda:', err));
+
     } catch (err) {
       console.error('Error al imprimir recibo:', err);
     }
@@ -224,7 +321,7 @@ export const POSMain = () => {
         setLastInvoice(invoice);
         setPaymentData(data);
         setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
-        printReceipt(invoice.invoice_number, cartItems, subtotal, taxAmount, total, data.paymentMethod);
+        printReceipt(invoice.invoice_number, cartItems, subtotal, taxAmount, total, data.paymentMethod, invoice.customer_name ?? undefined);
       } else {
         // ── Offline: queue for later sync ────────────────────────────────────
         const offlineId = await posOfflineService.queueInvoice({
@@ -235,6 +332,9 @@ export const POSMain = () => {
           taxAmount,
           total,
           paymentMethod: data.paymentMethod,
+          amountReceived: data.amountReceived,
+          changeAmount: data.change,
+          voucherNumber: data.voucherNumber,
           notes,
         });
         await refreshPendingCount();
@@ -277,6 +377,7 @@ export const POSMain = () => {
         pendingCount={pendingInvoices}
         syncing={syncing}
         productsCached={productsCached}
+        productsCachedAt={productsCachedAt}
         currentSession={currentSession}
         onClearError={() => setError('')}
         onClearSuccess={() => setSuccess('')}
@@ -289,11 +390,14 @@ export const POSMain = () => {
       <div className="flex flex-1 overflow-hidden">
         <POSProductsPanel
           filteredProducts={filteredProducts}
+          allProducts={products}
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
           onAddToCart={handleAddToCart}
           currentSession={currentSession}
           productsError={productsError}
+          ignoreStock={!planFeatures.inventory || (planFeatures as any).inventory_products_only}
+          activePromotions={activePromotions}
         />
 
         <POSCartPanel
@@ -301,6 +405,8 @@ export const POSMain = () => {
           subtotal={subtotal}
           taxAmount={taxAmount}
           total={total}
+          taxEnabled={taxEnabled}
+          taxRate={taxRate}
           currentSession={currentSession}
           loading={paymentLoading}
           canDiscount={planFeatures.pos_discount}
@@ -379,6 +485,7 @@ export const POSMain = () => {
           subtotal={subtotal}
           taxAmount={taxAmount}
           total={total}
+          taxEnabled={taxEnabled}
           onConfirm={handlePaymentConfirm}
           onCancel={() => setShowPaymentModal(false)}
           loading={paymentLoading}

@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { Product } from '@/types/Types_POS';
 
 // ============================================
@@ -56,45 +56,15 @@ async function withRetry<T>(
 // GET ALL PRODUCTS
 // ============================================
 
-export async function getAllProducts(tenantId: string): Promise<Product[]> {
-  console.log('📦 Cargando productos...');
-  console.log('Tenant ID:', tenantId);
+export async function getAllProducts(_tenantId: string | null | undefined): Promise<Product[]> {
+  if (!_tenantId) return [];
 
   return withRetry(async () => {
     try {
       console.log('🔍 Ejecutando query de productos...');
-
-      const { data, error, status } = await supabase
-        .from('products')
-        .select(
-          `
-          id,
-          name,
-          sku,
-          unit_price,
-          stock_quantity,
-          category_id,
-          category:category_id (id, name),
-          unit_type_id,
-          unit_type:unit_type_id (id, name, abbreviation)
-        `
-        )
-        .eq('tenant_id', tenantId);
-
-      console.log('📊 Response status:', status);
-
-      if (error) {
-        console.error('❌ Error de Supabase:', error);
-        throw error;
-      }
-
-      if (data) {
-        console.log(`✅ ${data.length} productos encontrados`);
-      } else {
-        console.log('ℹ️ No hay productos');
-      }
-
-      return (data || []) as unknown as Product[];
+      const data = await apiFetch<Product[]>('/products');
+      console.log(`✅ ${data.length} productos encontrados`);
+      return data;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error('❌ Error:', msg);
@@ -109,42 +79,17 @@ export async function getAllProducts(tenantId: string): Promise<Product[]> {
 
 export async function getProductById(
   productId: string,
-  tenantId: string
+  _tenantId: string
 ): Promise<Product | null> {
   console.log('📦 Cargando producto:', productId);
 
   return withRetry(async () => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select(
-          `
-          id,
-          name,
-          sku,
-          description,
-          unit_price,
-          cost_price,
-          stock_quantity,
-          min_stock_level,
-          max_stock_level,
-          category_id,
-          category:category_id (id, name),
-          unit_type_id,
-          unit_type:unit_type_id (id, name, abbreviation, requires_weight)
-        `
-        )
-        .eq('id', productId)
-        .eq('tenant_id', tenantId)
-        .maybeSingle();
-
-      if (error) throw error;
-
+      const data = await apiFetch<Product>('/products/' + productId);
       if (data) {
         console.log('✅ Producto encontrado:', data.id);
       }
-
-      return data as Product | null;
+      return data ?? null;
     } catch (error) {
       console.error('❌ Error:', error);
       throw error;
@@ -157,35 +102,17 @@ export async function getProductById(
 // ============================================
 
 export async function searchProducts(
-  tenantId: string,
+  _tenantId: string,
   searchTerm: string
 ): Promise<Product[]> {
   console.log('🔍 Buscando productos:', searchTerm);
 
   return withRetry(async () => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select(
-          `
-          id,
-          name,
-          sku,
-          unit_price,
-          stock_quantity,
-          category_id,
-          category:category_id (id, name),
-          unit_type_id,
-          unit_type:unit_type_id (id, name, abbreviation)
-        `
-        )
-        .eq('tenant_id', tenantId)
-        .or(`name.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`);
-
-      if (error) throw error;
-
-      console.log(`✅ ${data?.length || 0} productos encontrados`);
-      return (data || []) as unknown as Product[];
+      const params = new URLSearchParams({ search: searchTerm });
+      const data = await apiFetch<Product[]>(`/products?${params}`);
+      console.log(`✅ ${data.length} productos encontrados`);
+      return data;
     } catch (error) {
       console.error('❌ Error:', error);
       throw error;
@@ -198,18 +125,14 @@ export async function searchProducts(
 // ============================================
 
 export async function createProduct(
-  tenantId: string,
+  _tenantId: string,
   productData: Omit<Product, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>
 ): Promise<Product> {
   return withRetry(async () => {
-    const { data, error } = await supabase
-      .from('products')
-      .insert([{ tenant_id: tenantId, ...productData }])
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-    return data as Product;
+    return apiFetch<Product>('/products', {
+      method: 'POST',
+      body: JSON.stringify(productData),
+    });
   });
 }
 
@@ -222,15 +145,10 @@ export async function updateProduct(
   updates: Partial<Omit<Product, 'id' | 'tenant_id' | 'created_at'>>
 ): Promise<Product> {
   return withRetry(async () => {
-    const { data, error } = await supabase
-      .from('products')
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq('id', productId)
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-    return data as Product;
+    return apiFetch<Product>('/products/' + productId, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
   });
 }
 
@@ -240,12 +158,7 @@ export async function updateProduct(
 
 export async function deleteProduct(productId: string): Promise<void> {
   return withRetry(async () => {
-    const { error } = await supabase
-      .from('products')
-      .delete()
-      .eq('id', productId);
-
-    if (error) throw error;
+    await apiFetch('/products/' + productId, { method: 'DELETE' });
   });
 }
 
@@ -255,12 +168,10 @@ export async function deleteProduct(productId: string): Promise<void> {
 
 export async function updateStock(productId: string, newQuantity: number): Promise<void> {
   return withRetry(async () => {
-    const { error } = await supabase
-      .from('products')
-      .update({ stock_quantity: newQuantity, updated_at: new Date().toISOString() })
-      .eq('id', productId);
-
-    if (error) throw error;
+    await apiFetch('/products/' + productId, {
+      method: 'PUT',
+      body: JSON.stringify({ stock_quantity: newQuantity }),
+    });
   });
 }
 
@@ -269,17 +180,12 @@ export async function updateStock(productId: string, newQuantity: number): Promi
 // ============================================
 
 export async function getInventoryStats(
-  tenantId: string
+  _tenantId: string | null | undefined
 ): Promise<{ totalProducts: number; totalValue: number; totalCost: number }> {
+  if (!_tenantId) return { totalProducts: 0, totalValue: 0, totalCost: 0 };
+
   return withRetry(async () => {
-    const { data, error } = await supabase
-      .from('products')
-      .select('unit_price, cost_price, stock_quantity')
-      .eq('tenant_id', tenantId);
-
-    if (error) throw error;
-
-    const products = data || [];
+    const products = await apiFetch<Array<{ unit_price?: number; cost_price?: number; stock_quantity?: number }>>('/products');
     return {
       totalProducts: products.length,
       totalValue: products.reduce(
@@ -298,20 +204,13 @@ export async function getInventoryStats(
 // GET LOW STOCK PRODUCTS
 // ============================================
 
-export async function getLowStockProducts(tenantId: string): Promise<Product[]> {
+export async function getLowStockProducts(_tenantId: string | null | undefined): Promise<Product[]> {
+  if (!_tenantId) return [];
+
   return withRetry(async () => {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .filter('stock_quantity', 'lte', 'min_stock_level');
-
-    if (error) throw error;
-
-    // Filter in JS since Supabase column-to-column comparison requires raw SQL
-    const products = (data || []) as Product[];
+    const products = await apiFetch<Product[]>('/products');
     return products.filter(
-      (p) => p.stock_quantity <= (p.min_stock_level ?? 0)
+      (p) => (p.stock_quantity ?? 0) <= (p.min_stock_level ?? 0)
     );
   });
 }

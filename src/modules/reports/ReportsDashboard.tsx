@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, BarChart2, ShoppingCart, Package, Users,
-  Lock, RefreshCw, ChevronDown, TrendingDown,
+  Lock, RefreshCw, ChevronDown, TrendingDown, Vault, Target, WifiOff,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -15,6 +15,8 @@ import { StockReport } from './views/StockReport';
 import { SellerReport } from './views/SellerReport';
 import { ExpensesReport } from './views/ExpensesReport';
 import { ProductDetailReport } from './views/ProductDetailReport';
+import { CashSessionsReport } from './views/CashSessionsReport';
+import { ProfitReport } from './views/ProfitReport';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -30,7 +32,7 @@ function getDateRange(days: number) {
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type TabId = 'basic' | 'advanced' | 'purchases' | 'stock' | 'sellers' | 'expenses' | 'products';
+type TabId = 'basic' | 'advanced' | 'purchases' | 'stock' | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit';
 
 interface Tab {
   id: TabId;
@@ -41,12 +43,14 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: 'basic',     label: 'Ventas Básicas',   icon: TrendingUp,    requiresAdvanced: false },
-  { id: 'advanced',  label: 'Ventas Avanzadas',  icon: BarChart2,     requiresAdvanced: true },
-  { id: 'purchases', label: 'Compras',           icon: ShoppingCart,  requiresAdvanced: true },
-  { id: 'stock',     label: 'Stock',             icon: Package,       requiresAdvanced: true },
-  { id: 'sellers',   label: 'Por Vendedor',      icon: Users,         requiresAdvanced: true },
+  { id: 'advanced',  label: 'Ventas Avanzadas',  icon: BarChart2,     requiresAdvanced: true  },
+  { id: 'purchases', label: 'Compras',           icon: ShoppingCart,  requiresAdvanced: true  },
+  { id: 'stock',     label: 'Stock',             icon: Package,       requiresAdvanced: true  },
+  { id: 'sellers',   label: 'Por Vendedor',      icon: Users,         requiresAdvanced: true  },
   { id: 'expenses',  label: 'Gastos',            icon: TrendingDown,  requiresAdvanced: false },
   { id: 'products',  label: 'Detalle Productos', icon: Package,       requiresAdvanced: true  },
+  { id: 'cash',      label: 'Cierres de Caja',   icon: Vault,         requiresAdvanced: true  },
+  { id: 'profit',    label: 'Ganancias',         icon: Target,        requiresAdvanced: true  },
 ];
 
 // ── Locked overlay ────────────────────────────────────────────────────────────
@@ -140,10 +144,20 @@ function DateRangeBar({
 const ReportsDashboard: React.FC = () => {
   const { planFeatures } = useAuth();
   const { tenantId } = useTenantId();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const up = () => setIsOnline(true);
+    const dn = () => setIsOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', dn);
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', dn); };
+  }, []);
 
   const hasAdvanced = planFeatures.reports;
 
-  const [activeTab, setActiveTab] = useState<TabId>('basic');
+  // Advanced plan starts on 'advanced'; basic plan starts on 'basic'
+  const [activeTab, setActiveTab] = useState<TabId>(() => hasAdvanced ? 'advanced' : 'basic');
   const [range, setRange] = useState(() => getDateRange(7));
   const [customFrom, setCustomFrom] = useState(range.from);
   const [customTo, setCustomTo] = useState(range.to);
@@ -167,13 +181,17 @@ const ReportsDashboard: React.FC = () => {
     }
   };
 
-  const visibleTabs = TABS.filter((t) => !t.requiresAdvanced || hasAdvanced);
-  const currentTab = TABS.find((t) => t.id === activeTab) ?? TABS[0];
-  const isAdvancedTab = currentTab.requiresAdvanced;
+  // Advanced plan: hide 'basic' tab (advanced report replaces it)
+  // Basic plan: only show non-advanced tabs
+  const visibleTabs = TABS.filter(t => {
+    if (t.id === 'basic' && hasAdvanced) return false;
+    return !t.requiresAdvanced || hasAdvanced;
+  });
 
-  if (!hasAdvanced && currentTab.requiresAdvanced) {
-    setActiveTab('basic');
-  }
+  // Ensure activeTab is always valid
+  const validTab = visibleTabs.find(t => t.id === activeTab) ?? visibleTabs[0];
+  const currentTab = validTab ?? TABS[0];
+  const isAdvancedTab = currentTab.requiresAdvanced;
 
   return (
     <div className="space-y-0 max-w-7xl mx-auto">
@@ -185,7 +203,7 @@ const ReportsDashboard: React.FC = () => {
               {hasAdvanced ? 'Plan avanzado' : 'Plan básico'} · {range.from} → {range.to}
             </p>
           </div>
-          {(isAdvancedTab || activeTab === 'expenses') && (
+          {(isAdvancedTab || currentTab.id === 'expenses') && (
             <DateRangeBar
               customFrom={customFrom}
               customTo={customTo}
@@ -218,8 +236,9 @@ const ReportsDashboard: React.FC = () => {
               </button>
             );
           })}
+          {/* Show locked placeholder tabs only on basic plan */}
           {!hasAdvanced &&
-            TABS.filter((t) => t.requiresAdvanced).map((tab) => {
+            TABS.filter(t => t.requiresAdvanced).map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
@@ -237,8 +256,14 @@ const ReportsDashboard: React.FC = () => {
       </div>
 
       <div className="p-6">
-        {activeTab === 'basic' && <BasicSalesReport key={refreshKey} tenantId={tenantId} />}
-        {activeTab === 'advanced' &&
+        {!isOnline && (
+          <div className="mb-4 flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-sm text-orange-700">
+            <WifiOff size={16} className="shrink-0" />
+            <span>Sin conexión — los reportes requieren internet para calcularse en tiempo real. Reconéctate para ver datos actualizados.</span>
+          </div>
+        )}
+        {currentTab.id === 'basic' && <BasicSalesReport key={refreshKey} tenantId={tenantId} />}
+        {currentTab.id === 'advanced' &&
           (hasAdvanced ? (
             <AdvancedSalesReport
               key={`adv-${refreshKey}`}
@@ -249,7 +274,7 @@ const ReportsDashboard: React.FC = () => {
           ) : (
             <LockedTab />
           ))}
-        {activeTab === 'purchases' &&
+        {currentTab.id === 'purchases' &&
           (hasAdvanced ? (
             <PurchasesReport
               key={`pur-${refreshKey}`}
@@ -260,13 +285,13 @@ const ReportsDashboard: React.FC = () => {
           ) : (
             <LockedTab />
           ))}
-        {activeTab === 'stock' &&
+        {currentTab.id === 'stock' &&
           (hasAdvanced ? (
             <StockReport key={`stk-${refreshKey}`} tenantId={tenantId} />
           ) : (
             <LockedTab />
           ))}
-        {activeTab === 'sellers' &&
+        {currentTab.id === 'sellers' &&
           (hasAdvanced ? (
             <SellerReport
               key={`sel-${refreshKey}`}
@@ -277,7 +302,7 @@ const ReportsDashboard: React.FC = () => {
           ) : (
             <LockedTab />
           ))}
-        {activeTab === 'expenses' && (
+        {currentTab.id === 'expenses' && (
           <ExpensesReport
             key={`exp-${refreshKey}`}
             tenantId={tenantId}
@@ -285,10 +310,32 @@ const ReportsDashboard: React.FC = () => {
             to={range.to}
           />
         )}
-        {activeTab === 'products' &&
+        {currentTab.id === 'products' &&
           (hasAdvanced ? (
             <ProductDetailReport
               key={`prd-${refreshKey}`}
+              tenantId={tenantId}
+              from={range.from}
+              to={range.to}
+            />
+          ) : (
+            <LockedTab />
+          ))}
+        {currentTab.id === 'cash' &&
+          (hasAdvanced ? (
+            <CashSessionsReport
+              key={`cash-${refreshKey}`}
+              tenantId={tenantId}
+              from={range.from}
+              to={range.to}
+            />
+          ) : (
+            <LockedTab />
+          ))}
+        {currentTab.id === 'profit' &&
+          (hasAdvanced ? (
+            <ProfitReport
+              key={`profit-${refreshKey}`}
               tenantId={tenantId}
               from={range.from}
               to={range.to}

@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  DollarSign, ShoppingCart, TrendingUp, AlertTriangle,
-  ArrowUpRight, ShoppingBag, Package, BarChart2, Settings,
-  Users, Clock, CheckCircle, XCircle,
+  ShoppingCart, TrendingUp, AlertTriangle,
+  ArrowUpRight, Package, BarChart2, Settings, Users,
+  Clock, CheckCircle, XCircle, TrendingDown, Wallet,
+  ClipboardList, Tag, CalendarClock, Zap,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -11,8 +12,12 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
+import type { PlanFeatures } from '@/context/AuthContext';
+import { KpiCard } from './components/KpiCard';
+import { AlertItem } from './components/AlertItem';
+import { QuickTile } from './components/QuickTile';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -20,7 +25,7 @@ const fmt = (n: number) =>
 const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
 function greeting(name?: string) {
-  const h = new Date().getHours();
+  const h      = new Date().getHours();
   const saludo = h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
   return name ? `${saludo}, ${name.split(' ')[0]}` : saludo;
 }
@@ -28,95 +33,58 @@ function greeting(name?: string) {
 // ── types ─────────────────────────────────────────────────────────────────────
 
 interface Stats {
-  todayTotal: number;
-  todayCount: number;
-  avgTicket: number;
+  todayTotal:    number;
+  todayCount:    number;
+  avgTicket:     number;
+  weekTotal:     number;
   lowStockCount: number;
+  expensesMonth: number;
+  pendingAP:     number;
+  overdueAP:     number;
+  pendingPurchases: number;
+  activePromos:  number;
 }
 
-interface DayBar { label: string; total: number }
-
+interface DayBar      { label: string; total: number }
 interface RecentInvoice {
-  id: string;
-  invoice_number: string;
-  issued_at: string;
-  total: number;
-  payment_method: string;
-  status: string;
+  id: string; invoice_number: string;
+  issued_at: string; total: number;
+  payment_method: string; status: string;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
   cash: 'Efectivo', card: 'Tarjeta', sinpe: 'SINPE',
-  check: 'Cheque', transfer: 'Transferencia',
+  check: 'Cheque',  transfer: 'Transferencia',
 };
 
-// ── sub-components ────────────────────────────────────────────────────────────
-
-const KpiCard = ({
-  icon: Icon, label, value, sub, color,
-}: { icon: any; label: string; value: string; sub?: string; color: string }) => (
-  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-start gap-4">
-    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
-      <Icon size={22} className="text-white" />
-    </div>
-    <div className="min-w-0">
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
-      <p className="text-2xl font-black text-gray-900 mt-0.5 truncate">{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-    </div>
-  </div>
-);
-
-const QuickCard = ({
-  icon: Icon, label, description, color, bg, onClick, disabled,
-}: { icon: any; label: string; description: string; color: string; bg: string; onClick: () => void; disabled?: boolean }) => (
-  <button
-    onClick={onClick}
-    disabled={disabled}
-    className={`group text-left w-full rounded-2xl border p-5 transition-all duration-150 ${
-      disabled
-        ? 'opacity-40 cursor-not-allowed bg-gray-50 border-gray-200'
-        : `${bg} border-transparent hover:shadow-md hover:-translate-y-0.5 active:translate-y-0`
-    }`}
-  >
-    <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-3 ${color}`}>
-      <Icon size={22} className="text-white" />
-    </div>
-    <p className="font-black text-gray-900 text-sm">{label}</p>
-    <p className="text-xs text-gray-500 mt-0.5">{description}</p>
-    {!disabled && (
-      <div className="flex items-center gap-1 mt-3 text-xs font-semibold text-gray-500 group-hover:text-gray-700 transition">
-        Abrir <ArrowUpRight size={13} />
-      </div>
-    )}
-  </button>
-);
-
-// ── main component ────────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 export const Dashboard = () => {
   const { user, planFeatures, tenant } = useAuth();
   const { tenantId } = useTenantId();
-  const navigate = useNavigate();
+  const navigate     = useNavigate();
 
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [bars, setBars] = useState<DayBar[]>([]);
-  const [recent, setRecent] = useState<RecentInvoice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [stats,     setStats]     = useState<Stats | null>(null);
+  const [bars,      setBars]      = useState<DayBar[]>([]);
+  const [recent,    setRecent]    = useState<RecentInvoice[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [subEndsAt, setSubEndsAt] = useState<string | null>(null);
+
+  const pf = planFeatures as PlanFeatures & Record<string, boolean>;
+
+  const hasFullInventory = pf.inventory && !pf.inventory_products_only;
 
   const load = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true);
     try {
       const todayStr = new Date().toISOString().slice(0, 10);
-
-      // Last 7 days range
-      const since = new Date();
+      const since    = new Date();
       since.setDate(since.getDate() - 6);
       since.setHours(0, 0, 0, 0);
       const sinceStr = since.toISOString().slice(0, 10);
 
-      // Invoices last 7 days
+      // ── Invoices (always needed for POS) ───────────────────────────────────
       const { data: invoices } = await supabase
         .from('invoices')
         .select('id, invoice_number, issued_at, total, payment_method, status')
@@ -125,161 +93,261 @@ export const Dashboard = () => {
         .gte('issued_at', `${sinceStr}T00:00:00`)
         .order('issued_at', { ascending: false });
 
-      const all = invoices ?? [];
+      const all         = invoices ?? [];
+      const todayItems  = all.filter(r => r.issued_at.startsWith(todayStr));
+      const todayTotal  = todayItems.reduce((s, r) => s + Number(r.total), 0);
+      const todayCount  = todayItems.length;
+      const weekTotal   = all.reduce((s, r) => s + Number(r.total), 0);
 
-      // Today subset
-      const todayItems = all.filter(r => r.issued_at.startsWith(todayStr));
-      const todayTotal = todayItems.reduce((s, r) => s + Number(r.total), 0);
-      const todayCount = todayItems.length;
-
-      // 7-day bar chart
+      // 7-day bars
       const dayMap: Record<string, number> = {};
-      all.forEach(r => {
-        const k = r.issued_at.slice(0, 10);
-        dayMap[k] = (dayMap[k] ?? 0) + Number(r.total);
-      });
+      all.forEach(r => { const k = r.issued_at.slice(0, 10); dayMap[k] = (dayMap[k] ?? 0) + Number(r.total); });
       const barData: DayBar[] = [];
       for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
+        const d = new Date(); d.setDate(d.getDate() - i);
         const k = d.toISOString().slice(0, 10);
         barData.push({ label: DAY_LABELS[d.getDay()], total: dayMap[k] ?? 0 });
       }
       setBars(barData);
-
-      // Recent 5 invoices (most recent first, already ordered)
       setRecent(all.slice(0, 5));
 
-      // Low stock count
-      const { data: lowStockRows } = await supabase
-        .from('products')
-        .select('id, stock_quantity, min_stock_level')
-        .eq('tenant_id', tenantId)
-        .eq('is_active', true);
+      // ── Low stock (full inventory only) ────────────────────────────────────
+      let lowStockCount = 0;
+      if (hasFullInventory) {
+        const { data: stockRows } = await supabase
+          .from('products').select('stock_quantity, min_stock_level').eq('tenant_id', tenantId);
+        lowStockCount = (stockRows ?? []).filter(
+          p => (p.stock_quantity ?? 0) <= (p.min_stock_level ?? 0)
+        ).length;
+      }
 
-      const lowStockCount = (lowStockRows ?? []).filter(
-        p => p.stock_quantity <= (p.min_stock_level ?? 0)
-      ).length;
+      // ── Expenses this month ────────────────────────────────────────────────
+      let expensesMonth = 0;
+      if (pf.expenses) {
+        const firstOfMonth = todayStr.slice(0, 7) + '-01';
+        const { data: expRows } = await supabase
+          .from('expenses').select('amount').eq('tenant_id', tenantId)
+          .gte('date', firstOfMonth).lte('date', todayStr);
+        expensesMonth = (expRows ?? []).reduce((s, r) => s + Number(r.amount), 0);
+      }
 
-      setStats({
-        todayTotal,
-        todayCount,
-        avgTicket: todayCount > 0 ? todayTotal / todayCount : 0,
-        lowStockCount,
-      });
+      // ── Accounts payable ───────────────────────────────────────────────────
+      let pendingAP = 0, overdueAP = 0;
+      if (pf.accounts_payable) {
+        try {
+          const { data: apRows } = await supabase
+            .from('accounts_payable').select('status').eq('tenant_id', tenantId)
+            .in('status', ['pending', 'partial', 'overdue']);
+          pendingAP = (apRows ?? []).length;
+          overdueAP = (apRows ?? []).filter(r => r.status === 'overdue').length;
+        } catch {}
+      }
+
+      // ── Pending purchases ──────────────────────────────────────────────────
+      let pendingPurchases = 0;
+      if (pf.purchases) {
+        const { data: pRows } = await supabase
+          .from('purchases').select('id').eq('tenant_id', tenantId).eq('status', 'pending');
+        pendingPurchases = (pRows ?? []).length;
+      }
+
+      // ── Active promotions ──────────────────────────────────────────────────
+      let activePromos = 0;
+      if (pf.promotions) {
+        try {
+          const { data: promoRows } = await supabase
+            .from('promotions').select('id').eq('tenant_id', tenantId)
+            .eq('is_active', true).lte('starts_at', todayStr).gte('ends_at', todayStr);
+          activePromos = (promoRows ?? []).length;
+        } catch {}
+      }
+
+      // ── Subscription expiry ────────────────────────────────────────────────
+      try {
+        const { data: subRow } = await supabase
+          .from('subscriptions').select('ends_at')
+          .eq('tenant_id', tenantId).eq('status', 'active')
+          .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        setSubEndsAt(subRow?.ends_at ?? null);
+      } catch {}
+
+      setStats({ todayTotal, todayCount, avgTicket: todayCount > 0 ? todayTotal / todayCount : 0,
+        weekTotal, lowStockCount, expensesMonth, pendingAP, overdueAP, pendingPurchases, activePromos });
+
     } catch (e) {
       console.error('Dashboard load error:', e);
     } finally {
       setLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, hasFullInventory, pf.expenses, pf.accounts_payable, pf.purchases, pf.promotions]);
 
   useEffect(() => { load(); }, [load]);
 
-  const val = (v: string) => loading ? '—' : v;
+  // Subscription warning
+  const subDaysLeft = (() => {
+    if (!subEndsAt) return null;
+    const d = subEndsAt.includes('T') ? new Date(subEndsAt) : new Date(subEndsAt + 'T00:00:00');
+    return Math.ceil((d.getTime() - Date.now()) / 86400000);
+  })();
+  const showSubBanner = subDaysLeft !== null && subDaysLeft <= 15;
+
+  const spin = loading ? '—' : undefined;
+  const v    = (n: number) => spin ?? fmt(n);
+  const vn   = (n: number) => spin ?? String(n);
+
+  // ── Quick access tiles (only enabled features) ────────────────────────────
+  const tiles = [
+    { feature: 'pos',              label: 'Punto de Venta',    desc: 'Cobrar a clientes',     icon: ShoppingCart,  path: '/pos',              color: 'bg-emerald-500', bg: 'bg-emerald-50'  },
+    { feature: 'inventory',        label: 'Inventario',        desc: 'Productos y stock',      icon: Package,       path: '/inventory',        color: 'bg-blue-500',   bg: 'bg-blue-50'    },
+    { feature: 'promotions',       label: 'Promociones',       desc: 'Ofertas del día',        icon: Tag,           path: '/promotions',       color: 'bg-violet-500', bg: 'bg-violet-50'  },
+    { feature: 'expenses',         label: 'Gastos',            desc: 'Registrar egresos',      icon: TrendingDown,  path: '/expenses',         color: 'bg-red-400',    bg: 'bg-red-50'     },
+    { feature: 'purchases',        label: 'Órdenes de Compra', desc: 'Pedidos a proveedores',  icon: ClipboardList, path: '/purchases',        color: 'bg-cyan-500',   bg: 'bg-cyan-50'    },
+    { feature: 'accounts_payable', label: 'Cuentas por Pagar', desc: 'Pagos a proveedores',    icon: Wallet,        path: '/accounts-payable', color: 'bg-rose-500',   bg: 'bg-rose-50'    },
+    { feature: 'reports',          label: 'Reportes',          desc: 'Analítica de ventas',    icon: BarChart2,     path: '/reports',          color: 'bg-indigo-500', bg: 'bg-indigo-50'  },
+    { feature: 'users',            label: 'Usuarios',          desc: 'Equipo y roles',         icon: Users,         path: '/users',            color: 'bg-amber-500',  bg: 'bg-amber-50'   },
+    { feature: 'settings',         label: 'Configuración',     desc: 'Ajustes del negocio',    icon: Settings,      path: '/settings',         color: 'bg-gray-600',   bg: 'bg-gray-100'   },
+  ].filter(t => t.feature === 'settings' || (pf[t.feature as keyof PlanFeatures] ?? false));
+
+  // ── Alerts (items needing attention) ─────────────────────────────────────
+  const alerts: Array<{ color: string; icon: any; text: string; path: string }> = [];
+
+  if (stats) {
+    if (hasFullInventory && stats.lowStockCount > 0)
+      alerts.push({ color: 'bg-amber-50 border-amber-200 text-amber-800', icon: AlertTriangle, text: `${stats.lowStockCount} producto${stats.lowStockCount !== 1 ? 's' : ''} con stock bajo`, path: '/inventory' });
+    if (pf.accounts_payable && stats.overdueAP > 0)
+      alerts.push({ color: 'bg-red-50 border-red-200 text-red-700', icon: Wallet, text: `${stats.overdueAP} cuenta${stats.overdueAP !== 1 ? 's' : ''} por pagar vencida${stats.overdueAP !== 1 ? 's' : ''}`, path: '/accounts-payable' });
+    if (pf.purchases && stats.pendingPurchases > 0)
+      alerts.push({ color: 'bg-blue-50 border-blue-200 text-blue-700', icon: ClipboardList, text: `${stats.pendingPurchases} orden${stats.pendingPurchases !== 1 ? 'es' : ''} de compra pendiente${stats.pendingPurchases !== 1 ? 's' : ''}`, path: '/purchases' });
+    if (pf.promotions && stats.activePromos > 0)
+      alerts.push({ color: 'bg-violet-50 border-violet-200 text-violet-700', icon: Zap, text: `${stats.activePromos} promoción${stats.activePromos !== 1 ? 'es' : ''} activa${stats.activePromos !== 1 ? 's' : ''} hoy`, path: '/promotions' });
+  }
 
   return (
-    <div className="space-y-7 pb-6">
+    <div className="space-y-6 pb-8">
 
-      {/* ── Greeting header ──────────────────────────────────────────────── */}
-      <div className="bg-linear-to-br from-emerald-600 to-teal-700 rounded-2xl p-6 text-white shadow-lg">
-        <div className="flex items-start justify-between flex-wrap gap-3">
+      {/* ── Subscription expiry banner ────────────────────────────────────── */}
+      {showSubBanner && (
+        <div className={`flex items-center gap-3 rounded-2xl px-5 py-4 border ${
+          subDaysLeft! < 0
+            ? 'bg-red-50 border-red-200 text-red-800'
+            : subDaysLeft! <= 7
+            ? 'bg-orange-50 border-orange-200 text-orange-800'
+            : 'bg-amber-50 border-amber-200 text-amber-800'
+        }`}>
+          <CalendarClock size={20} className="shrink-0" />
+          <div className="flex-1">
+            <p className="font-black text-sm">
+              {subDaysLeft! < 0
+                ? `Tu suscripción venció hace ${Math.abs(subDaysLeft!)} día${Math.abs(subDaysLeft!) !== 1 ? 's' : ''}`
+                : subDaysLeft === 0
+                ? 'Tu suscripción vence hoy'
+                : `Tu suscripción vence en ${subDaysLeft} día${subDaysLeft !== 1 ? 's' : ''}`}
+            </p>
+            <p className="text-xs mt-0.5 opacity-80">
+              Contactá al administrador para renovarla a tiempo y no perder acceso.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Hero greeting ─────────────────────────────────────────────────── */}
+      <div className="bg-linear-to-br from-emerald-600 via-emerald-600 to-teal-700 rounded-2xl p-6 text-white shadow-lg">
+        <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <p className="text-emerald-100 text-sm font-medium mb-1">
+            <p className="text-emerald-200 text-sm font-medium mb-1 capitalize">
               {new Date().toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
-            <h1 className="text-3xl font-black tracking-tight">
+            <h1 className="text-3xl font-black tracking-tight leading-tight">
               {greeting(user?.full_name || user?.email)}
             </h1>
-            {tenant && (
-              <p className="text-emerald-200 text-sm mt-1">{tenant.name}</p>
-            )}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {tenant && <p className="text-emerald-200 text-sm">{tenant.name}</p>}
+            </div>
           </div>
-          <div className="bg-white/15 rounded-xl px-4 py-2 text-center">
-            <p className="text-xs text-emerald-100 font-medium">Ventas hoy</p>
-            <p className="text-2xl font-black">
-              {loading ? '—' : fmt(stats?.todayTotal ?? 0)}
-            </p>
+          <div className="flex gap-3">
+            <div className="bg-white/15 rounded-xl px-4 py-3 text-center min-w-24">
+              <p className="text-xs text-emerald-100 font-semibold">Hoy</p>
+              <p className="text-2xl font-black mt-0.5">{loading ? '—' : fmt(stats?.todayTotal ?? 0)}</p>
+              <p className="text-xs text-emerald-200">{loading ? '' : `${stats?.todayCount ?? 0} factura${stats?.todayCount !== 1 ? 's' : ''}`}</p>
+            </div>
+            <div className="bg-white/10 rounded-xl px-4 py-3 text-center min-w-24">
+              <p className="text-xs text-emerald-100 font-semibold">Esta semana</p>
+              <p className="text-2xl font-black mt-0.5">{loading ? '—' : fmt(stats?.weekTotal ?? 0)}</p>
+              <p className="text-xs text-emerald-200">7 días</p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── KPI cards ────────────────────────────────────────────────────── */}
+      {/* ── KPIs (adaptive) ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          icon={DollarSign} label="Ingresos hoy"
-          value={val(fmt(stats?.todayTotal ?? 0))}
-          sub={`${stats?.todayCount ?? 0} factura${stats?.todayCount !== 1 ? 's' : ''}`}
-          color="bg-emerald-500"
-        />
-        <KpiCard
-          icon={ShoppingCart} label="Facturas hoy"
-          value={val(String(stats?.todayCount ?? 0))}
-          color="bg-blue-500"
-        />
-        <KpiCard
-          icon={TrendingUp} label="Ticket promedio"
-          value={val(fmt(stats?.avgTicket ?? 0))}
-          color="bg-violet-500"
-        />
-        <KpiCard
-          icon={AlertTriangle} label="Bajo stock"
-          value={val(String(stats?.lowStockCount ?? 0))}
-          sub="productos"
-          color={stats?.lowStockCount ? 'bg-orange-500' : 'bg-gray-400'}
-        />
+        <KpiCard icon={ShoppingCart} label="Facturas hoy"
+          value={vn(stats?.todayCount ?? 0)} sub={`Ticket promedio: ${loading ? '—' : fmt(stats?.avgTicket ?? 0)}`} color="bg-blue-500" />
+        <KpiCard icon={TrendingUp}   label="Ticket promedio"
+          value={v(stats?.avgTicket ?? 0)} color="bg-violet-500" />
+        {hasFullInventory && (
+          <KpiCard icon={AlertTriangle} label="Bajo stock"
+            value={vn(stats?.lowStockCount ?? 0)} sub="productos" color={(stats?.lowStockCount ?? 0) > 0 ? 'bg-amber-500' : 'bg-gray-400'}
+            onClick={() => navigate('/inventory')} />
+        )}
+        {pf.expenses && (
+          <KpiCard icon={TrendingDown} label="Gastos del mes"
+            value={v(stats?.expensesMonth ?? 0)} color="bg-red-400" onClick={() => navigate('/expenses')} />
+        )}
+        {pf.accounts_payable && (
+          <KpiCard icon={Wallet} label="Cuentas por pagar"
+            value={vn(stats?.pendingAP ?? 0)} sub={(stats?.overdueAP ?? 0) > 0 ? `${stats?.overdueAP} vencida${(stats?.overdueAP ?? 0) !== 1 ? 's' : ''}` : 'al día'}
+            color={(stats?.overdueAP ?? 0) > 0 ? 'bg-red-500' : 'bg-rose-400'} onClick={() => navigate('/accounts-payable')} />
+        )}
+        {pf.promotions && (
+          <KpiCard icon={Tag} label="Promos activas hoy"
+            value={vn(stats?.activePromos ?? 0)} color={(stats?.activePromos ?? 0) > 0 ? 'bg-violet-600' : 'bg-gray-400'}
+            onClick={() => navigate('/promotions')} />
+        )}
       </div>
+
+      {/* ── Alerts strip ─────────────────────────────────────────────────── */}
+      {alerts.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Necesita atención</p>
+          <div className="flex flex-wrap gap-2">
+            {alerts.map((a, i) => (
+              <AlertItem key={i} {...a} navigate={navigate} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Quick access + chart ──────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Quick access */}
-        <div className="lg:col-span-1">
-          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Acceso rápido</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <QuickCard
-              icon={ShoppingBag} label="POS"
-              description="Punto de venta"
-              color="bg-emerald-500" bg="bg-emerald-50"
-              onClick={() => navigate('/pos')}
-              disabled={!planFeatures.pos}
-            />
-            <QuickCard
-              icon={Package} label="Inventario"
-              description="Productos y stock"
-              color="bg-blue-500" bg="bg-blue-50"
-              onClick={() => navigate('/inventory')}
-              disabled={!planFeatures.inventory}
-            />
-            <QuickCard
-              icon={BarChart2} label="Reportes"
-              description="Ventas y análisis"
-              color="bg-violet-500" bg="bg-violet-50"
-              onClick={() => navigate('/reports')}
-              disabled={!planFeatures.reports}
-            />
-            <QuickCard
-              icon={Users} label="Usuarios"
-              description="Equipo y roles"
-              color="bg-rose-500" bg="bg-rose-50"
-              onClick={() => navigate('/users')}
-              disabled={!planFeatures.users}
-            />
-            <QuickCard
-              icon={Settings} label="Configuración"
-              description="Ajustes del sistema"
-              color="bg-gray-600" bg="bg-gray-50"
-              onClick={() => navigate('/settings')}
-              disabled={!planFeatures.settings}
-            />
+        <div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Acceso rápido</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-3">
+            {tiles.slice(0, 6).map(t => (
+              <QuickTile key={t.feature} {...t} onClick={() => navigate(t.path)} />
+            ))}
           </div>
+          {tiles.length > 6 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-3 mt-3">
+              {tiles.slice(6).map(t => (
+                <QuickTile key={t.feature} {...t} onClick={() => navigate(t.path)} />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 7-day chart */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-black text-gray-900">Últimos 7 días</h2>
-            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-1 rounded-lg">Ingresos</span>
+            <h2 className="font-black text-gray-900">Ingresos — últimos 7 días</h2>
+            {pf.reports && (
+              <button onClick={() => navigate('/reports')}
+                className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition">
+                Ver reporte <ArrowUpRight size={13} />
+              </button>
+            )}
           </div>
           {loading ? (
             <div className="h-48 flex items-center justify-center">
@@ -289,15 +357,21 @@ export const Dashboard = () => {
             <div className="h-48 flex flex-col items-center justify-center gap-2">
               <BarChart2 size={32} className="text-gray-200" />
               <p className="text-gray-400 text-sm">Sin ventas en los últimos 7 días</p>
+              {pf.pos && (
+                <button onClick={() => navigate('/pos')}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 transition mt-1">
+                  <ShoppingCart size={14} /> Ir al POS
+                </button>
+              )}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={bars} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} tickFormatter={v => `₡${(v / 1000).toFixed(0)}k`} axisLine={false} tickLine={false} width={52} />
+                <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} tickFormatter={v => `₡${(Number(v)/1000).toFixed(0)}k`} axisLine={false} tickLine={false} width={52} />
                 <Tooltip
-                  formatter={(v: any) => [fmt(Number(v)), 'Total']}
+                  formatter={(v: unknown) => [fmt(Number(v)), 'Total']}
                   contentStyle={{ borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
                   cursor={{ fill: '#f0fdf4' }}
                 />
@@ -312,13 +386,12 @@ export const Dashboard = () => {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 className="font-black text-gray-900">Facturas recientes</h2>
-          <button
-            onClick={() => navigate('/reports')}
-            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition"
-            disabled={!planFeatures.reports}
-          >
-            Ver todas <ArrowUpRight size={13} />
-          </button>
+          {pf.reports && (
+            <button onClick={() => navigate('/reports')}
+              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition">
+              Ver todas <ArrowUpRight size={13} />
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -326,15 +399,21 @@ export const Dashboard = () => {
             <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-emerald-500" />
           </div>
         ) : recent.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-14 gap-2">
+          <div className="flex flex-col items-center justify-center py-14 gap-3">
             <ShoppingCart size={32} className="text-gray-200" />
-            <p className="text-gray-400 text-sm">No hay facturas en los últimos 7 días</p>
+            <p className="text-gray-400 text-sm font-medium">Sin facturas en los últimos 7 días</p>
+            {pf.pos && (
+              <button onClick={() => navigate('/pos')}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 transition">
+                <ShoppingCart size={14} /> Empezar a vender
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100">
+                <tr className="border-b border-gray-50 bg-gray-50">
                   <th className="text-left py-3 px-6 text-xs font-bold text-gray-400 uppercase tracking-wide">Factura</th>
                   <th className="text-left py-3 px-4 text-xs font-bold text-gray-400 uppercase tracking-wide hidden sm:table-cell">Hora</th>
                   <th className="text-left py-3 px-4 text-xs font-bold text-gray-400 uppercase tracking-wide hidden md:table-cell">Método</th>
@@ -344,25 +423,25 @@ export const Dashboard = () => {
               </thead>
               <tbody>
                 {recent.map(inv => (
-                  <tr key={inv.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                    <td className="py-3 px-6 font-mono font-bold text-gray-800">{inv.invoice_number}</td>
-                    <td className="py-3 px-4 text-gray-500 hidden sm:table-cell">
-                      <span className="flex items-center gap-1">
+                  <tr key={inv.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors last:border-0">
+                    <td className="py-3.5 px-6 font-mono font-bold text-gray-800">{inv.invoice_number}</td>
+                    <td className="py-3.5 px-4 text-gray-500 hidden sm:table-cell">
+                      <span className="flex items-center gap-1.5">
                         <Clock size={12} className="text-gray-300" />
                         {new Date(inv.issued_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-gray-500 hidden md:table-cell">
+                    <td className="py-3.5 px-4 text-gray-500 hidden md:table-cell">
                       {PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
                     </td>
-                    <td className="py-3 px-6 font-black text-gray-900 text-right">{fmt(inv.total)}</td>
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3.5 px-6 font-black text-gray-900 text-right">{fmt(Number(inv.total))}</td>
+                    <td className="py-3.5 px-4 text-center">
                       {inv.status === 'completed' ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
                           <CheckCircle size={11} /> Completada
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-2.5 py-1 rounded-full">
                           <XCircle size={11} /> Anulada
                         </span>
                       )}

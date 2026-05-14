@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { CartItem } from '@/types/Types_POS';
 import { cashMovementsService } from '../cashManagement/cashManagementService';
 
@@ -42,74 +42,28 @@ export interface InvoiceItem {
 
 export const invoicesService = {
   // Obtener todas las facturas
-  async getAllInvoices(tenantId: string) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select(`
-        *,
-        items:invoice_items(*)
-      `)
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+  async getAllInvoices(_tenantId: string) {
+    return apiFetch<Invoice[]>('/invoices');
   },
 
   // Obtener factura por ID
   async getInvoiceById(id: string) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select(`
-        *,
-        items:invoice_items(*)
-      `)
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<Invoice>('/invoices/' + id);
   },
 
   // Obtener facturas por sesión de caja
   async getInvoicesBySession(sessionId: string) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select(`
-        *,
-        items:invoice_items(*)
-      `)
-      .eq('cash_session_id', sessionId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    return apiFetch<Invoice[]>('/invoices?session=' + sessionId);
   },
 
   // Obtener número de factura siguiente
-  async getNextInvoiceNumber(tenantId: string): Promise<string> {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select('invoice_number')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (error && error.code !== 'PGRST116') throw error;
-
-    if (!data) {
-      return 'INV-001';
-    }
-
-    const lastNumber = parseInt(data.invoice_number.split('-')[1]) || 0;
-    const nextNumber = lastNumber + 1;
-    return `INV-${String(nextNumber).padStart(3, '0')}`;
+  async getNextInvoiceNumber(_tenantId: string): Promise<string> {
+    return apiFetch<string>('/invoices/next-number');
   },
 
   // Crear factura - ACTUALIZADO CON NUEVOS CAMPOS
   async createInvoice(
-    tenantId: string,
+    _tenantId: string,
     sessionId: string,
     cartItems: CartItem[],
     subtotal: number,
@@ -136,172 +90,78 @@ export const invoicesService = {
       }
     }
 
-    // Obtener número de factura
-    const invoiceNumber = await this.getNextInvoiceNumber(tenantId);
-
-    // Crear factura con nuevos campos
-    const { data: invoice, error: invoiceError } = await supabase
-      .from('invoices')
-      .insert([
-        {
-          tenant_id: tenantId,
-          cash_session_id: sessionId,
-          invoice_number: invoiceNumber,
-          customer_name: customerName,
-          customer_phone: customerPhone,
-          subtotal,
-          discount_amount: discountAmount,
-          discount_percent: discountPercentage,
-          tax_amount: taxAmount,
-          total,
-          payment_method: paymentMethod,
-          amount_received: paymentMethod === 'cash' ? amountReceived : null,
-          change_amount: paymentMethod === 'cash' ? changeAmount : null,
-          voucher_number: (paymentMethod === 'card' || paymentMethod === 'sinpe') ? voucherNumber : null,
-          notes,
-          status: 'completed',
-          issued_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .maybeSingle();
-
-    if (invoiceError) throw invoiceError;
-
-    // Crear items de factura
-    const items = cartItems.map((item) => ({
-      invoice_id: invoice.id,
-      product_id: item.product_id,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      subtotal: item.subtotal,
-    }));
-
-    const { error: itemsError } = await supabase
-      .from('invoice_items')
-      .insert(items);
-
-    if (itemsError) throw itemsError;
+    const invoice = await apiFetch<Invoice & { items: CartItem[] }>('/invoices', {
+      method: 'POST',
+      body: JSON.stringify({
+        cash_session_id: sessionId,
+        items: cartItems,
+        subtotal,
+        discount_amount: discountAmount,
+        discount_percent: discountPercentage,
+        tax_amount: taxAmount,
+        total,
+        payment_method: paymentMethod,
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        amount_received: paymentMethod === 'cash' ? amountReceived : null,
+        change_amount: paymentMethod === 'cash' ? changeAmount : null,
+        voucher_number: (paymentMethod === 'card' || paymentMethod === 'sinpe') ? voucherNumber : null,
+        notes,
+      }),
+    });
 
     // Registrar movimiento de caja
     await cashMovementsService.createMovement(
       sessionId,
-      tenantId,
+      invoice.tenant_id,
       'sale',
       total,
-      `Venta ${invoiceNumber}`,
+      `Venta ${invoice.invoice_number}`,
       invoice.id
     );
 
-    // Actualizar stock de productos
-    for (const item of cartItems) {
-      const { data: product, error: productError } = await supabase
-        .from('products')
-        .select('stock_quantity')
-        .eq('id', item.product_id)
-        .maybeSingle();
-
-      if (productError) throw productError;
-
-      const newStock = ((product?.stock_quantity) || 0) - item.quantity;
-
-      const { error: updateError } = await supabase
-        .from('products')
-        .update({
-          stock_quantity: Math.max(0, newStock),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', item.product_id);
-
-      if (updateError) throw updateError;
-    }
-
-    return {
-      ...invoice,
-      items,
-      invoice_number: invoiceNumber,
-    };
+    return invoice;
   },
 
   // Cancelar factura
   async cancelInvoice(invoiceId: string) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'cancelled',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', invoiceId)
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<Invoice>('/invoices/' + invoiceId + '/void', { method: 'POST' });
   },
 
   // Obtener facturas por rango de fechas
   async getInvoicesByDateRange(
-    tenantId: string,
+    _tenantId: string,
     startDate: string,
     endDate: string
   ) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select(`
-        *,
-        items:invoice_items(*)
-      `)
-      .eq('tenant_id', tenantId)
-      .gte('created_at', startDate)
-      .lte('created_at', endDate)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    return apiFetch<Invoice[]>(`/invoices?from=${startDate}&to=${endDate}`);
   },
 
   // Obtener facturas por método de pago
   async getInvoicesByPaymentMethod(
-    tenantId: string,
+    _tenantId: string,
     paymentMethod: 'cash' | 'card' | 'sinpe'
   ) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select(`
-        *,
-        items:invoice_items(*)
-      `)
-      .eq('tenant_id', tenantId)
-      .eq('payment_method', paymentMethod)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    return apiFetch<Invoice[]>(`/invoices?payment_method=${paymentMethod}`);
   },
 
   // Obtener estadísticas de ventas - ACTUALIZADO
-  async getSalesStats(tenantId: string) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select('total, payment_method, status, amount_received, change_amount')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'completed');
+  async getSalesStats(_tenantId: string) {
+    const data = await apiFetch<Invoice[]>('/invoices?status=completed');
 
-    if (error) throw error;
-
-    const totalSales = data?.reduce((sum, i) => sum + i.total, 0) || 0;
-    const totalInvoices = data?.length || 0;
+    const totalSales = data.reduce((sum, i) => sum + i.total, 0);
+    const totalInvoices = data.length;
 
     const byPaymentMethod = {
-      cash: data?.filter((i) => i.payment_method === 'cash').reduce((sum, i) => sum + i.total, 0) || 0,
-      card: data?.filter((i) => i.payment_method === 'card').reduce((sum, i) => sum + i.total, 0) || 0,
-      sinpe: data?.filter((i) => i.payment_method === 'sinpe').reduce((sum, i) => sum + i.total, 0) || 0,
+      cash: data.filter((i) => i.payment_method === 'cash').reduce((sum, i) => sum + i.total, 0),
+      card: data.filter((i) => i.payment_method === 'card').reduce((sum, i) => sum + i.total, 0),
+      sinpe: data.filter((i) => i.payment_method === 'sinpe').reduce((sum, i) => sum + i.total, 0),
     };
 
     // Calcular total de vuelto en efectivo
-    const totalChange = data?.filter((i) => i.payment_method === 'cash')
-      .reduce((sum, i) => sum + (i.change_amount || 0), 0) || 0;
+    const totalChange = data
+      .filter((i) => i.payment_method === 'cash')
+      .reduce((sum, i) => sum + (i.change_amount || 0), 0);
 
     return {
       totalSales,
@@ -313,19 +173,8 @@ export const invoicesService = {
   },
 
   // Obtener facturas por cliente
-  async getInvoicesByCustomer(tenantId: string, customerName: string) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select(`
-        *,
-        items:invoice_items(*)
-      `)
-      .eq('tenant_id', tenantId)
-      .ilike('customer_name', `%${customerName}%`)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+  async getInvoicesByCustomer(_tenantId: string, customerName: string) {
+    return apiFetch<Invoice[]>(`/invoices?customer=${encodeURIComponent(customerName)}`);
   },
 
   // Obtener resumen de factura - ACTUALIZADO
@@ -336,7 +185,7 @@ export const invoicesService = {
       invoiceNumber: invoice.invoice_number,
       customerName: invoice.customer_name,
       customerPhone: invoice.customer_phone,
-      items: invoice.items,
+      items: (invoice as unknown as { items: InvoiceItem[] }).items,
       subtotal: invoice.subtotal,
       discountAmount: invoice.discount_amount,
       discountPercentage: invoice.discount_percentage,
@@ -359,30 +208,13 @@ export const invoicesService = {
 export const invoiceItemsService = {
   // Obtener items de factura
   async getInvoiceItems(invoiceId: string) {
-    const { data, error } = await supabase
-      .from('invoice_items')
-      .select('*')
-      .eq('invoice_id', invoiceId)
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
+    const invoice = await apiFetch<Invoice & { items: InvoiceItem[] }>('/invoices/' + invoiceId);
+    return invoice.items ?? [];
   },
 
   // Obtener items por producto
-  async getItemsByProduct(tenantId: string, productId: string) {
-    const { data, error } = await supabase
-      .from('invoice_items')
-      .select(`
-        *,
-        invoice:invoices(tenant_id)
-      `)
-      .eq('product_id', productId);
-
-    if (error) throw error;
-
-    // Filtrar por tenant
-    return (data || []).filter((item) => item.invoice?.tenant_id === tenantId);
+  async getItemsByProduct(_tenantId: string, productId: string) {
+    return apiFetch<InvoiceItem[]>(`/invoices/items?product_id=${productId}`);
   },
 
   // Obtener estadísticas de producto

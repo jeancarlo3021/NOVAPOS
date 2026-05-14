@@ -10,6 +10,7 @@ interface POSHeaderProps {
   pendingCount: number;
   syncing: boolean;
   productsCached: boolean;
+  productsCachedAt?: Date | null;
   currentSession: CashSession | null;
   onClearError: () => void;
   onClearSuccess: () => void;
@@ -26,6 +27,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   pendingCount,
   syncing,
   productsCached,
+  productsCachedAt,
   currentSession,
   onClearError,
   onClearSuccess,
@@ -111,8 +113,14 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
             </span>
           )}
           {productsCached && (
-            <span className="inline-flex items-center gap-1 bg-sky-50 border border-sky-200 text-sky-700 text-xs font-semibold px-2 py-1 rounded-lg">
-              Productos en caché
+            <span className="inline-flex items-center gap-1.5 bg-sky-50 border border-sky-200 text-sky-700 text-xs font-semibold px-2 py-1 rounded-lg">
+              <span className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse shrink-0" />
+              Caché
+              {productsCachedAt && (
+                <span className="font-normal text-sky-500">
+                  · {productsCachedAt.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
             </span>
           )}
           {pendingCount > 0 && (

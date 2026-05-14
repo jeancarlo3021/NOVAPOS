@@ -2,9 +2,16 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 
+const TENANT_CACHE_KEY = (userId: string) => `novapos_tenant_${userId}`;
+
 export const useTenantId = () => {
   const { user } = useAuth();
-  const [tenantId, setTenantId] = useState<string | null>(null);
+
+  // Initialize from localStorage so offline users get tenantId immediately
+  const [tenantId, setTenantId] = useState<string | null>(() => {
+    if (!user?.id) return null;
+    return localStorage.getItem(TENANT_CACHE_KEY(user.id));
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,59 +27,58 @@ export const useTenantId = () => {
           return;
         }
 
-        // 1️⃣ Intentar obtener del user_metadata
+        // 0️⃣ If we already have it from localStorage, set it fast
+        const cached = localStorage.getItem(TENANT_CACHE_KEY(user.id));
+        if (cached) setTenantId(cached);
+
+        // 1️⃣ Try from user_metadata (JWT — available offline)
         let id = (user as any)?.user_metadata?.tenant_id;
-        console.log('📍 Tenant ID desde user_metadata:', id);
 
-        // 2️⃣ Si no está, intentar desde user.tenant_id
-        if (!id) {
-          id = (user as any)?.tenant_id;
-          console.log('📍 Tenant ID desde user.tenant_id:', id);
-        }
+        // 2️⃣ Try from user.tenant_id (JWT — available offline)
+        if (!id) id = (user as any)?.tenant_id;
 
-        // 3️⃣ Si aún no hay, buscar en la tabla users
-        if (!id) {
-          const { data, error: userError } = await supabase
-            .from('users')
-            .select('tenant_id')
-            .eq('id', user.id)
-            .maybeSingle();
-
-          if (userError) {
-            console.warn('⚠️ Error buscando tenant_id en users:', userError);
-          } else if (data?.tenant_id) {
-            id = data.tenant_id;
-            console.log('📍 Tenant ID desde users:', id);
-          }
-        }
-
-        // 4️⃣ Si aún no hay, buscar en la tabla tenants
-        if (!id) {
-          const { data, error: tenantError } = await supabase
-            .from('tenants')
-            .select('id')
-            .eq('owner_id', user.id)
-            .maybeSingle();
-
-          if (tenantError) {
-            console.warn('⚠️ Error buscando tenant del propietario:', tenantError);
-          } else if (data?.id) {
-            id = data.id;
-            console.log('📍 Tenant ID como propietario:', id);
-          }
-        }
-
-        if (!id) {
-          setError('No se pudo obtener el Tenant ID');
-          console.error('❌ Tenant ID no disponible después de todos los intentos');
-        } else {
+        if (id) {
           setTenantId(id);
-          console.log('✅ Tenant ID obtenido:', id);
+          localStorage.setItem(TENANT_CACHE_KEY(user.id), id);
+          return;
+        }
+
+        // 3️⃣+ DB lookups — only when online; use cache if offline
+        if (!navigator.onLine) {
+          if (cached) {
+            setTenantId(cached);
+          } else {
+            setError('Sin conexión — no se pudo obtener el tenant');
+          }
+          return;
+        }
+
+        // 3️⃣ Look in users table
+        const { data: userData } = await supabase
+          .from('users').select('tenant_id').eq('id', user.id).maybeSingle();
+        if (userData?.tenant_id) id = userData.tenant_id;
+
+        // 4️⃣ Look in tenants table (owner)
+        if (!id) {
+          const { data: tenantData } = await supabase
+            .from('tenants').select('id').eq('owner_id', user.id).maybeSingle();
+          if (tenantData?.id) id = tenantData.id;
+        }
+
+        if (id) {
+          setTenantId(id);
+          localStorage.setItem(TENANT_CACHE_KEY(user.id), id);
+        } else {
+          setError('No se pudo obtener el Tenant ID');
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Error desconocido';
-        setError(message);
-        console.error('❌ Error obteniendo Tenant ID:', err);
+        const cached = user?.id ? localStorage.getItem(TENANT_CACHE_KEY(user.id)) : null;
+        if (cached) {
+          setTenantId(cached);
+        } else {
+          const message = err instanceof Error ? err.message : 'Error desconocido';
+          setError(message);
+        }
       } finally {
         setLoading(false);
       }

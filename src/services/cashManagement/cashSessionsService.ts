@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { CashSession, CreateCashSessionInput, CloseCashSessionInput } from '@/types/Types_POS';
 
 // ============================================
@@ -57,30 +57,14 @@ async function withRetry<T>(
 // ============================================
 
 export async function getOpenCashSession(
-  tenantId: string
+  _tenantId: string
 ): Promise<CashSession | null> {
   console.log('📋 Buscando caja abierta...');
-  console.log('Tenant ID:', tenantId);
 
   return withRetry(async () => {
     try {
       console.log('🔍 Ejecutando query...');
-
-      const { data, error, status } = await supabase
-        .from('cash_sessions')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'open')
-        .order('opening_date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      console.log('📊 Response status:', status);
-
-      if (error) {
-        console.error('❌ Error de Supabase:', error);
-        throw error;
-      }
+      const data = await apiFetch<CashSession | null>('/cash-sessions/active');
 
       if (data) {
         console.log('✅ Caja encontrada:', data.id);
@@ -89,7 +73,7 @@ export async function getOpenCashSession(
         console.log('ℹ️ No hay caja abierta');
       }
 
-      return data as CashSession | null;
+      return data;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error('❌ Error:', msg);
@@ -103,24 +87,16 @@ export async function getOpenCashSession(
 // ============================================
 
 export async function getCashSessionsByTenant(
-  tenantId: string,
+  _tenantId: string,
   limit: number = 10
 ): Promise<CashSession[]> {
   console.log('📋 Buscando cajas...');
 
   return withRetry(async () => {
     try {
-      const { data, error } = await supabase
-        .from('cash_sessions')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .order('opening_date', { ascending: false })
-        .limit(limit);
-
-      if (error) throw error;
-
-      console.log(`✅ ${data?.length || 0} cajas encontradas`);
-      return (data || []) as CashSession[];
+      const data = await apiFetch<CashSession[]>(`/cash-sessions?limit=${limit}`);
+      console.log(`✅ ${data.length} cajas encontradas`);
+      return data;
     } catch (error) {
       console.error('❌ Error:', error);
       throw error;
@@ -140,26 +116,16 @@ export async function createCashSession(
 
   return withRetry(async () => {
     try {
-      const { data, error } = await supabase
-        .from('cash_sessions')
-        .insert([
-          {
-            tenant_id: input.tenant_id,
-            user_id: input.user_id,
-            opening_amount: input.opening_amount,
-            notes: input.notes || null,
-            status: 'open',
-            opening_date: new Date().toISOString(),
-          },
-        ])
-        .select()
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!data) throw new Error('No data returned');
+      const data = await apiFetch<CashSession>('/cash-sessions/open', {
+        method: 'POST',
+        body: JSON.stringify({
+          opening_amount: input.opening_amount,
+          notes: input.notes || null,
+        }),
+      });
 
       console.log('✅ Caja creada:', data.id);
-      return data as CashSession;
+      return data;
     } catch (error) {
       console.error('❌ Error:', error);
       throw error;
@@ -179,23 +145,16 @@ export async function closeCashSession(
 
   return withRetry(async () => {
     try {
-      const { data, error } = await supabase
-        .from('cash_sessions')
-        .update({
-          status: 'closed',
+      const data = await apiFetch<CashSession>('/cash-sessions/' + input.id + '/close', {
+        method: 'POST',
+        body: JSON.stringify({
           closing_amount: input.closing_amount,
-          closing_date: new Date().toISOString(),
           notes: input.notes || null,
-        })
-        .eq('id', input.id)
-        .select()
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!data) throw new Error('No data returned');
+        }),
+      });
 
       console.log('✅ Caja cerrada:', data.id);
-      return data as CashSession;
+      return data;
     } catch (error) {
       console.error('❌ Error:', error);
       throw error;

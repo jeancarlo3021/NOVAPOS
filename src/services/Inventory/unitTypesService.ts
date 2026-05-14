@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export interface UnitType {
   id: string;
@@ -14,51 +14,28 @@ export const unitTypesService = {
   /**
    * Obtener todos los tipos de unidad del tenant
    */
-  async getAllUnitTypes(tenantId: string): Promise<UnitType[]> {
-    const { data, error } = await supabase
-      .from('unit_types')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+  async getAllUnitTypes(_tenantId: string): Promise<UnitType[]> {
+    return apiFetch<UnitType[]>('/unit-types');
   },
 
   /**
    * Obtener un tipo de unidad por ID
    */
   async getUnitTypeById(unitId: string): Promise<UnitType> {
-    const { data, error } = await supabase
-      .from('unit_types')
-      .select('*')
-      .eq('id', unitId)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<UnitType>('/unit-types/' + unitId);
   },
 
   /**
    * Crear tipo de unidad
    */
   async createUnitType(
-    tenantId: string,
+    _tenantId: string,
     unit: Omit<UnitType, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>
   ): Promise<UnitType> {
-    const { data, error } = await supabase
-      .from('unit_types')
-      .insert([
-        {
-          tenant_id: tenantId,
-          ...unit,
-        },
-      ])
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<UnitType>('/unit-types', {
+      method: 'POST',
+      body: JSON.stringify(unit),
+    });
   },
 
   /**
@@ -68,26 +45,16 @@ export const unitTypesService = {
     unitId: string,
     updates: Partial<UnitType>
   ): Promise<UnitType> {
-    const { data, error } = await supabase
-      .from('unit_types')
-      .update(updates)
-      .eq('id', unitId)
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<UnitType>('/unit-types/' + unitId, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
   },
 
   /**
    * Eliminar tipo de unidad
    */
   async deleteUnitType(unitId: string): Promise<void> {
-    const { error } = await supabase
-      .from('unit_types')
-      .delete()
-      .eq('id', unitId);
-
-    if (error) throw error;
+    await apiFetch('/unit-types/' + unitId, { method: 'DELETE' });
   },
 };

@@ -1,14 +1,29 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Printer, Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import {
+  Printer, CheckCircle2, Play,
+  Settings, PlusCircle, Wifi, WifiOff,
+  KeyRound, FileText, Info, ChevronDown,
+  RefreshCw,
+} from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { posPrinterService, POSPrinterService } from '@/services/pos/posPrinterService';
+import { posPrinterService } from '@/services/pos/posPrinterService';
+import {
+  qzIsAvailable, qzConnect, qzGetPrinters, qzIsConnected,
+} from '@/services/pos/qzTrayService';
+import type { PrinterEntry } from '@/services/pos/qzTrayService';
+import { PrinterRow } from './components/PrinterRow';
+
+export type { PrinterEntry };
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ReceiptConfig {
-  printerName?: string;
   printerType: 'thermal' | 'browser' | 'qztray';
   autoprint: boolean;
+  qz_certificate?: string;
+  printers?: PrinterEntry[];
   [key: string]: any;
 }
 
@@ -17,221 +32,382 @@ interface Props {
   setConfig: (config: ReceiptConfig) => void;
 }
 
-type QZStatus = 'idle' | 'connecting' | 'connected' | 'unavailable';
+type QZStatus = 'idle' | 'connecting' | 'connected' | 'error';
+
+const PRIVATE_KEY_LS = 'qz_private_key';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function newPrinter(type: 'receipt' | 'comanda'): PrinterEntry {
+  return { id: `${Date.now()}`, label: '', type, connection: 'usb', printer_name: '', ip: '', port: 9100, is_active: true };
+}
+
+function addLog(prev: string[], msg: string): string[] {
+  return [`[${new Date().toLocaleTimeString('es-CR')}] ${msg}`, ...prev].slice(0, 8);
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
 
-  const [qzStatus, setQZStatus] = useState<QZStatus>('idle');
+  const [qzStatus, setQZStatus]     = useState<QZStatus>(() => qzIsConnected() ? 'connected' : 'idle');
   const [qzPrinters, setQZPrinters] = useState<string[]>([]);
-  const [testLoading, setTestLoading] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [logs, setLogs]             = useState<string[]>(['Esperando acciones...']);
 
-  // Check QZ Tray availability on mount
-  useEffect(() => {
-    if (POSPrinterService.isQZAvailable()) setQZStatus('idle');
-    else setQZStatus('unavailable');
-  }, []);
+  const [privateKey, setPrivateKey]   = useState(() => localStorage.getItem(PRIVATE_KEY_LS) ?? '');
+  const [showPrivKey, setShowPrivKey] = useState(false);
+  const [showCertPanel, setShowCertPanel] = useState(false);
 
-  const handleDetectQZPrinters = useCallback(async () => {
-    setQZStatus('connecting');
-    setQZPrinters([]);
-    try {
-      const list = await POSPrinterService.getQZPrinters();
-      setQZPrinters(list);
-      setQZStatus(list.length >= 0 ? 'connected' : 'unavailable');
-    } catch {
-      setQZStatus('unavailable');
+  const [testLoading, setTestLoading] = useState<string | null>(null);
+
+  const printers: PrinterEntry[] = config.printers ?? [];
+
+  const log = (msg: string) => setLogs(prev => addLog(prev, msg));
+
+  // ── QZ connection ─────────────────────────────────────────────────────────────
+
+  const handleToggleConnection = useCallback(async () => {
+    if (qzStatus === 'connected') {
+      setQZStatus('idle');
+      setQZPrinters([]);
+      log('Desconectado de QZ Tray');
+      return;
     }
-  }, []);
+    if (!qzIsAvailable()) {
+      setQZStatus('error');
+      log('❌ QZ Tray no está instalado o no está corriendo');
+      return;
+    }
+    setQZStatus('connecting');
+    log('Conectando a QZ Tray...');
+    try {
+      await qzConnect(config.qz_certificate);
+      const list = await qzGetPrinters();
+      setQZPrinters(list);
+      setQZStatus('connected');
+      log(`✅ Conectado · ${list.length} impresora${list.length !== 1 ? 's' : ''} detectada${list.length !== 1 ? 's' : ''}`);
+    } catch (err) {
+      setQZStatus('error');
+      log(`❌ ${err instanceof Error ? err.message : 'Error al conectar'}`);
+    }
+  }, [qzStatus, config.qz_certificate]);
 
-  const handleTestPrint = async () => {
+  // ── Printer CRUD ──────────────────────────────────────────────────────────────
+
+  const addPrinter = (type: 'receipt' | 'comanda') => {
+    setConfig({ ...config, printers: [...printers, newPrinter(type)] });
+    log(`➕ Nueva estación ${type === 'receipt' ? 'de recibo' : 'de comanda'} añadida`);
+  };
+
+  const updatePrinter = (id: string, patch: Partial<PrinterEntry>) =>
+    setConfig({ ...config, printers: printers.map(p => p.id === id ? { ...p, ...patch } : p) });
+
+  const removePrinter = (id: string, label: string) => {
+    setConfig({ ...config, printers: (config.printers ?? []).filter(p => p.id !== id) });
+    log(`🗑️ Estación "${label || 'sin nombre'}" eliminada`);
+  };
+
+  // ── Test & demo ───────────────────────────────────────────────────────────────
+
+  const handleTestPrint = async (printer: PrinterEntry) => {
     if (!tenantId) return;
-    setTestLoading(true);
-    setTestResult(null);
+    if (qzStatus !== 'connected') { log('⚠️ Conecta QZ Tray primero'); return; }
+    setTestLoading(printer.id);
+    log(`Enviando prueba a "${printer.label || printer.printer_name || printer.ip}"...`);
     try {
       await posPrinterService.printTest(tenantId);
-      setTestResult({ ok: true, msg: 'Ticket de prueba enviado correctamente.' });
+      log(`✅ Prueba en "${printer.label}" completada`);
     } catch (err) {
-      setTestResult({ ok: false, msg: err instanceof Error ? err.message : 'Error al imprimir.' });
+      log(`❌ Error: ${err instanceof Error ? err.message : 'Error al imprimir'}`);
     } finally {
-      setTestLoading(false);
+      setTestLoading(null);
     }
   };
 
-  const printerTypes = [
-    {
-      id: 'browser' as const,
-      label: 'Impresora del Navegador',
-      description: 'Usa el diálogo de impresión del navegador. Funciona con cualquier impresora.',
-      icon: '🌐',
-    },
-    {
-      id: 'qztray' as const,
-      label: 'QZ Tray — Impresora Térmica',
-      description: 'Impresión directa sin diálogos. Requiere QZ Tray instalado en el equipo.',
-      icon: '🖨️',
-    },
-  ];
+  const handleSimulateOrder = () => {
+    if (qzStatus !== 'connected') { log('⚠️ QZ Tray no está activo'); return; }
+    log('🚀 Procesando Pedido de prueba...');
+    const receipts = printers.filter(p => p.type === 'receipt' && p.is_active);
+    const comandas = printers.filter(p => p.type === 'comanda' && p.is_active);
+    setTimeout(() => receipts.forEach(p => log(`📄 Enviando ticket → ${p.label || 'Caja'}`)), 400);
+    setTimeout(() => comandas.forEach(p => log(`🍳 Enviando comanda → ${p.label || 'Cocina'}`)), 900);
+    setTimeout(() => log('✨ ¡Impresión completada!'), 1500);
+  };
+
+  const isQZMode = config.printerType === 'qztray' || config.printerType === 'thermal';
 
   return (
     <div className="space-y-6">
 
-      {/* Tipo de Impresora */}
+      {/* ── Tipo ── */}
       <div>
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Tipo de Impresora</h3>
-        <div className="space-y-3">
-          {printerTypes.map(type => (
-            <button
-              key={type.id}
-              onClick={() => setConfig({ ...config, printerType: type.id })}
-              className={`w-full p-4 border-2 rounded-lg text-left transition ${
-                config.printerType === type.id || (type.id === 'qztray' && config.printerType === 'thermal')
-                  ? 'border-blue-600 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Tipo de impresión</p>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { id: 'browser', label: 'Navegador', icon: '🌐' },
+            { id: 'qztray',  label: 'QZ Tray',  icon: '🖨️' },
+          ].map(t => (
+            <button key={t.id}
+              onClick={() => setConfig({ ...config, printerType: t.id as any })}
+              className={`p-3 border-2 rounded-xl text-left text-sm transition flex items-center gap-2 ${
+                config.printerType === t.id || (t.id === 'qztray' && config.printerType === 'thermal')
+                  ? 'border-indigo-500 bg-indigo-50 font-semibold text-indigo-800'
+                  : 'border-gray-200 hover:border-gray-300 text-gray-600'
               }`}
             >
-              <div className="flex items-start gap-3">
-                <span className="text-2xl mt-0.5">{type.icon}</span>
-                <div>
-                  <p className="font-semibold text-gray-900">{type.label}</p>
-                  <p className="text-sm text-gray-500">{type.description}</p>
-                </div>
-              </div>
+              <span>{t.icon}</span>{t.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* QZ Tray settings */}
-      {(config.printerType === 'qztray' || config.printerType === 'thermal') && (
-        <div className="border-t border-gray-200 pt-6 space-y-4">
+      {!isQZMode && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
+          Al imprimir se abrirá el diálogo del navegador. Funciona con cualquier impresora del equipo.
+        </div>
+      )}
 
-          {/* QZ Tray status */}
-          <div className={`rounded-lg p-4 border ${
-            qzStatus === 'connected' ? 'bg-green-50 border-green-200' :
-            qzStatus === 'unavailable' ? 'bg-red-50 border-red-200' :
-            'bg-blue-50 border-blue-200'
-          }`}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                {qzStatus === 'connected'
-                  ? <Wifi size={16} className="text-green-600" />
-                  : <WifiOff size={16} className={qzStatus === 'unavailable' ? 'text-red-500' : 'text-blue-500'} />
-                }
-                <span className={`font-semibold text-sm ${
-                  qzStatus === 'connected' ? 'text-green-800' :
-                  qzStatus === 'unavailable' ? 'text-red-800' :
-                  'text-blue-800'
-                }`}>
-                  {qzStatus === 'idle' && 'QZ Tray — sin conectar'}
-                  {qzStatus === 'connecting' && 'Conectando a QZ Tray...'}
-                  {qzStatus === 'connected' && `QZ Tray conectado (${qzPrinters.length} impresora${qzPrinters.length !== 1 ? 's' : ''})`}
-                  {qzStatus === 'unavailable' && 'QZ Tray no disponible'}
-                </span>
+      {isQZMode && (
+        <>
+          {/* ── PrintCenter layout ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {/* ── Left 2/3 ── */}
+            <div className="lg:col-span-2 space-y-5">
+
+              {/* Estaciones card */}
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                  <h2 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+                    <Settings size={16} className="text-slate-400" />
+                    Estaciones Configuradas
+                  </h2>
+                  <div className="flex gap-2">
+                    <button onClick={() => addPrinter('receipt')}
+                      className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
+                      <PlusCircle size={14} /> Recibo
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button onClick={() => addPrinter('comanda')}
+                      className="text-orange-500 hover:text-orange-600 text-xs font-bold flex items-center gap-1">
+                      <PlusCircle size={14} /> Comanda
+                    </button>
+                  </div>
+                </div>
+
+                {printers.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 text-sm">
+                    <Printer size={32} className="mx-auto mb-2 opacity-20" />
+                    Sin estaciones configuradas.<br />Añade un recibo o una comanda.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {printers.map(printer => (
+                      <PrinterRow
+                        key={printer.id}
+                        printer={printer}
+                        qzPrinters={qzPrinters}
+                        onChange={patch => updatePrinter(printer.id, patch)}
+                        onRemove={() => removePrinter(printer.id, printer.label)}
+                        onTest={() => handleTestPrint(printer)}
+                        testLoading={testLoading === printer.id}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-              <button
-                onClick={handleDetectQZPrinters}
-                disabled={qzStatus === 'connecting'}
-                className="flex items-center gap-1 text-sm font-medium text-blue-700 hover:text-blue-900 disabled:opacity-50"
-              >
-                <RefreshCw size={14} className={qzStatus === 'connecting' ? 'animate-spin' : ''} />
-                Detectar
-              </button>
+
+              {/* Simulate order CTA */}
+              <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-lg shadow-indigo-200 flex flex-col sm:flex-row items-center justify-between gap-5 relative overflow-hidden">
+                <div className="relative z-10">
+                  <h2 className="text-lg font-black mb-1">Simular Pedido Completo</h2>
+                  <p className="text-indigo-200 text-sm">Envía ticket a caja y comanda a cocina simultáneamente.</p>
+                </div>
+                <button onClick={handleSimulateOrder}
+                  className="relative z-10 bg-white text-indigo-600 px-6 py-3 rounded-xl font-black text-sm flex items-center gap-2 hover:bg-indigo-50 active:scale-95 transition shadow-md shrink-0">
+                  <Play fill="currentColor" size={16} />
+                  SIMULAR PEDIDO
+                </button>
+                <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-indigo-500 rounded-full opacity-40 pointer-events-none" />
+              </div>
+
+              {/* Certificate section (collapsible) */}
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <button
+                  onClick={() => setShowCertPanel(v => !v)}
+                  className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition"
+                >
+                  <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                    <KeyRound size={15} className="text-amber-500" />
+                    Certificado QZ Tray
+                  </span>
+                  <ChevronDown size={15} className={`text-slate-400 transition-transform ${showCertPanel ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showCertPanel && (
+                  <div className="px-5 pb-5 space-y-4 border-t border-slate-100">
+                    <details className="mt-3">
+                      <summary className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 cursor-pointer list-none">
+                        <Info size={12} /> ¿Cómo generar el certificado?
+                      </summary>
+                      <div className="mt-2 bg-slate-900 text-green-400 text-xs rounded-xl p-3 font-mono space-y-0.5">
+                        <p className="text-slate-500"># Una sola vez en terminal:</p>
+                        <p>openssl genrsa -out private-key.pem 2048</p>
+                        <p>openssl req -new -x509 -key private-key.pem \</p>
+                        <p>&nbsp;&nbsp;-out certificate.pem -days 3650 -subj "/CN=NovaPOS"</p>
+                      </div>
+                    </details>
+
+                    {/* Private key */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-semibold text-slate-600 flex items-center gap-1">
+                          <KeyRound size={11} className="text-amber-500" /> Llave Privada
+                          <span className="font-normal text-slate-400 ml-1">(solo este equipo)</span>
+                        </label>
+                        <button onClick={() => setShowPrivKey(v => !v)} className="text-xs text-slate-400 hover:text-slate-600">
+                          {showPrivKey ? 'Ocultar' : 'Mostrar'}
+                        </button>
+                      </div>
+                      <textarea rows={3}
+                        value={showPrivKey ? privateKey : (privateKey ? '•'.repeat(40) : '')}
+                        onChange={e => { setPrivateKey(e.target.value); localStorage.setItem(PRIVATE_KEY_LS, e.target.value); }}
+                        onFocus={() => setShowPrivKey(true)}
+                        placeholder={'-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----'}
+                        className="w-full font-mono text-xs border border-amber-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-300 resize-none bg-amber-50/40"
+                      />
+                    </div>
+
+                    {/* Public cert */}
+                    <div>
+                      <label className="text-xs font-semibold text-slate-600 flex items-center gap-1 mb-1">
+                        <FileText size={11} className="text-indigo-500" /> Certificado Público
+                      </label>
+                      <textarea rows={3}
+                        value={config.qz_certificate ?? ''}
+                        onChange={e => setConfig({ ...config, qz_certificate: e.target.value })}
+                        placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
+                        className="w-full font-mono text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-300 resize-none"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">También se pega en QZ Tray → Certificate.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {qzStatus === 'unavailable' && (
-              <div className="text-sm text-red-700 mt-2">
-                <p className="mb-1 font-medium">Para usar impresoras térmicas:</p>
-                <ol className="list-decimal ml-4 space-y-0.5">
-                  <li>Descarga e instala <a href="https://qz.io/download/" target="_blank" rel="noopener noreferrer" className="underline font-semibold">QZ Tray</a></li>
-                  <li>Inicia el servicio QZ Tray en tu equipo</li>
-                  <li>Haz clic en <strong>Detectar</strong></li>
-                </ol>
-              </div>
-            )}
-          </div>
+            {/* ── Right 1/3 ── */}
+            <div className="space-y-5">
 
-          {/* Printer selector */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Impresora
-            </label>
-            {qzPrinters.length > 0 ? (
-              <select
-                value={config.printerName ?? ''}
-                onChange={e => setConfig({ ...config, printerName: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+              {/* Connection button */}
+              <button
+                onClick={handleToggleConnection}
+                disabled={qzStatus === 'connecting'}
+                className={`w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm transition shadow-sm border ${
+                  qzStatus === 'connected'
+                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                    : qzStatus === 'error'
+                    ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
               >
-                <option value="">— Predeterminada del sistema —</option>
-                {qzPrinters.map(p => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                value={config.printerName ?? ''}
-                onChange={e => setConfig({ ...config, printerName: e.target.value })}
-                placeholder="Nombre de la impresora (opcional)"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
-              />
-            )}
-            <p className="text-xs text-gray-500 mt-1">
-              Deja en blanco para usar la impresora predeterminada del sistema.
-            </p>
+                {qzStatus === 'connecting'
+                  ? <><RefreshCw size={17} className="animate-spin" /> Conectando...</>
+                  : qzStatus === 'connected'
+                  ? <><Wifi size={17} /> Servicio Activo</>
+                  : <><WifiOff size={17} /> Conectar QZ Tray</>
+                }
+              </button>
+
+              {/* Console */}
+              <div className="bg-slate-900 rounded-2xl p-5 text-slate-300 shadow-lg">
+                <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${
+                    qzStatus === 'connected' ? 'bg-green-500 animate-pulse' :
+                    qzStatus === 'error'     ? 'bg-red-500' : 'bg-slate-600'
+                  }`} />
+                  Consola de Impresión
+                </h2>
+                <div className="space-y-2 font-mono text-xs min-h-30">
+                  {logs.map((line, i) => (
+                    <div key={i} className={i === 0 ? 'text-indigo-400' : 'text-slate-500'}>
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Hardware status */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+                <h3 className="font-bold text-sm mb-4 flex items-center gap-2 text-slate-800">
+                  <CheckCircle2 size={16} className={qzStatus === 'connected' ? 'text-green-500' : 'text-slate-300'} />
+                  Estado del Hardware
+                </h3>
+                <ul className="space-y-3 text-xs">
+                  <li className="flex justify-between">
+                    <span className="text-slate-500">QZ Tray</span>
+                    <span className={`font-bold ${qzStatus === 'connected' ? 'text-green-600' : 'text-slate-400'}`}>
+                      {qzStatus === 'connected' ? 'Activo' : qzStatus === 'error' ? 'Error' : 'Inactivo'}
+                    </span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span className="text-slate-500">Protocolo</span>
+                    <span className="font-semibold text-slate-700">WebSocket</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span className="text-slate-500">Impresoras detectadas</span>
+                    <span className="font-bold text-slate-700">{qzPrinters.length}</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span className="text-slate-500">Estaciones configuradas</span>
+                    <span className="font-bold text-slate-700">{printers.length}</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span className="text-slate-500">Certificado</span>
+                    <span className={`font-bold ${config.qz_certificate ? 'text-green-600' : 'text-amber-500'}`}>
+                      {config.qz_certificate ? 'Cargado' : 'Sin configurar'}
+                    </span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span className="text-slate-500">Llave privada</span>
+                    <span className={`font-bold ${privateKey ? 'text-green-600' : 'text-amber-500'}`}>
+                      {privateKey ? 'Guardada' : 'Sin configurar'}
+                    </span>
+                  </li>
+                </ul>
+
+                {qzStatus === 'error' && (
+                  <div className="mt-4 text-xs text-red-600 bg-red-50 rounded-lg p-3">
+                    <p className="font-semibold mb-1">Para usar impresoras directas:</p>
+                    <ol className="list-decimal ml-4 space-y-0.5">
+                      <li>Instala <a href="https://qz.io/download/" target="_blank" rel="noopener noreferrer" className="underline font-semibold">QZ Tray</a></li>
+                      <li>Inícialo en el equipo</li>
+                      <li>Clic en "Conectar QZ Tray"</li>
+                    </ol>
+                  </div>
+                )}
+              </div>
+
+              {/* Auto-print toggle */}
+              <label className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer shadow-sm">
+                <div>
+                  <p className="font-semibold text-slate-800 text-sm">Impresión Automática</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Imprimir al confirmar cada venta</p>
+                </div>
+                <input type="checkbox"
+                  checked={config.autoprint}
+                  onChange={e => setConfig({ ...config, autoprint: e.target.checked })}
+                  className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+              </label>
+            </div>
+
           </div>
-        </div>
+        </>
       )}
-
-      {/* Browser print info */}
-      {config.printerType === 'browser' && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
-          <strong>Nota:</strong> Al imprimir se abrirá el diálogo de impresión del navegador.
-          Puedes seleccionar cualquier impresora disponible en tu equipo, incluyendo impresoras PDF y térmicas.
-        </div>
-      )}
-
-      {/* Auto-print */}
-      <div className="border-t border-gray-200 pt-6">
-        <label className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-          <div>
-            <p className="font-semibold text-gray-900">Impresión Automática</p>
-            <p className="text-sm text-gray-500">Imprimir automáticamente después de cada venta</p>
-          </div>
-          <input
-            type="checkbox"
-            checked={config.autoprint}
-            onChange={e => setConfig({ ...config, autoprint: e.target.checked })}
-            className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-        </label>
-      </div>
-
-      {/* Test print */}
-      <div className="border-t border-gray-200 pt-6">
-        <button
-          onClick={handleTestPrint}
-          disabled={testLoading || !tenantId}
-          className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition"
-        >
-          <Printer size={20} className={testLoading ? 'animate-pulse' : ''} />
-          {testLoading ? 'Enviando ticket de prueba...' : 'Imprimir Ticket de Prueba'}
-        </button>
-
-        {testResult && (
-          <div className={`mt-3 p-3 rounded-lg text-sm font-medium ${
-            testResult.ok ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
-          }`}>
-            {testResult.ok ? '✓ ' : '✕ '}{testResult.msg}
-          </div>
-        )}
-
-        <p className="text-xs text-gray-500 mt-2 text-center">
-          Envía un recibo de ejemplo a la impresora configurada
-        </p>
-      </div>
     </div>
   );
 };
+

@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { setRememberMe } from '@/lib/authStorage';
 
 // ============================================
 // AUTH CACHE (localStorage) — offline support
@@ -109,6 +110,8 @@ export interface PlanFeatures {
   settings: boolean;
   users: boolean;
   expenses: boolean;
+  purchases: boolean;
+  accounts_payable: boolean;
   // POS capabilities
   pos_card: boolean;
   pos_sinpe: boolean;
@@ -117,6 +120,11 @@ export interface PlanFeatures {
   inventory_products_only: boolean;
   // Reports tiers
   reports_basic: boolean;
+  // Optional modules
+  recipes?: boolean;
+  hr?: boolean;
+  promotions?: boolean;
+  tables?: boolean;
   // Admin features
   admin_dashboard?: boolean;
   webhooks?: boolean;
@@ -146,6 +154,12 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   inventory_products_only: false,
   reports_basic: false,
   expenses: false,
+  purchases: false,
+  accounts_payable: false,
+  recipes: false,
+  hr: false,
+  promotions: false,
+  tables: false,
 };
 
 export const FULL_FEATURES: PlanFeatures = {
@@ -160,6 +174,12 @@ export const FULL_FEATURES: PlanFeatures = {
   inventory_products_only: false,
   reports_basic: true,
   expenses: true,
+  purchases: true,
+  accounts_payable: true,
+  recipes: true,
+  hr: true,
+  promotions: true,
+  tables: true,
 };
 
 interface PlanData {
@@ -172,9 +192,7 @@ function extractPlanData(tenant: Tenant | null, defaults: PlanFeatures): PlanDat
   const sub = tenant?.subscription;
   if (!sub) return { features: defaults, name: 'demo' };
 
-  const now = new Date();
-  const endsAt = sub.ends_at ? new Date(sub.ends_at) : null;
-  if (sub.status !== 'active' || (endsAt && endsAt < now)) {
+  if (sub.status !== 'active') {
     return { features: defaults, name: 'demo' };
   }
 
@@ -195,7 +213,7 @@ interface AuthContextType {
   planName: string;
   loading: boolean;
   error: string | null;
-  login: (emailOrUsername: string, password: string) => Promise<void>;
+  login: (emailOrUsername: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
   getRoleLabel: (role: string) => string;
@@ -241,8 +259,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const currentUserIdRef = useRef<string | null>(null);
   const loadingSessionRef = useRef(false);
-  // Generation counter: incremented on clearAuthState to cancel stale handlers
   const sessionGenRef = useRef(0);
+  // Set to true while THIS tab is actively signing out, so we don't
+  // treat our own SIGNED_OUT event as coming from another tab.
+  const isSigningOutRef = useRef(false);
 
   // ============================================
   // LOAD PLAN FEATURES - ✅ CORREGIDO
@@ -272,13 +292,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      // ✅ Verificar que la suscripción esté activa Y no expirada
-      const now = new Date();
-      const endsAt = data.ends_at ? new Date(data.ends_at) : null;
-      const isExpired = endsAt && endsAt < now;
-
-      if (data.status !== 'active' || isExpired) {
-        console.log('⏰ Suscripción expirada o inactiva, usando plan por defecto');
+      if (data.status !== 'active') {
+        console.log('⏰ Suscripción inactiva, usando plan por defecto');
         return {
           features: DEFAULT_FEATURES,
           name: 'demo',
@@ -383,13 +398,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearAuthState = () => {
     console.log('🧹 Limpiando estado de autenticación');
-    sessionGenRef.current++; // Invalidate any in-progress handleSession
+    sessionGenRef.current++;   // Invalidate any in-progress handleSession
+    loadingSessionRef.current = false; // Allow next login to proceed
+    currentUserIdRef.current  = null;
     setUser(null);
     setTenant(null);
     setTenants([]);
     setPlanFeatures(DEFAULT_FEATURES);
     setPlanName('demo');
-    currentUserIdRef.current = null;
   };
 
   // ============================================
@@ -554,19 +570,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!mounted) return;
 
-        if (event === 'INITIAL_SESSION') {
-          console.log('⏭️ Ignorando INITIAL_SESSION (ya manejado)');
+        if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+          console.log('⏭️ Ignorando', event);
           return;
         }
 
-        if (event === 'TOKEN_REFRESHED') {
-          console.log('⏭️ Ignorando TOKEN_REFRESHED');
-          return;
+        // ── Cross-tab isolation ──────────────────────────────────────────────
+        // Supabase uses BroadcastChannel to propagate auth events to all tabs.
+        // Multiple SIGNED_IN events can arrive in rapid succession (within the
+        // same event-loop tick) before any setTimeout fires. We lock the ref
+        // SYNCHRONOUSLY here so the second event sees it and gets blocked.
+
+        if (event === 'SIGNED_IN' && session?.user) {
+          if (currentUserIdRef.current && session.user.id !== currentUserIdRef.current) {
+            // A different user signed in from another tab — ignore completely.
+            console.log('⏭️ Ignorando SIGNED_IN de otra pestaña:', session.user.id);
+            return;
+          }
+          // Lock this tab's user ID synchronously, before the async handler
+          // runs in the next tick. This prevents a second cross-tab SIGNED_IN
+          // (arriving in the same batch) from slipping through the guard.
+          if (!currentUserIdRef.current) {
+            currentUserIdRef.current = session.user.id;
+          }
         }
+
+        if (event === 'SIGNED_OUT') {
+          // If this tab still has a user and WE didn't trigger the logout,
+          // it's from another tab — leave this tab's session intact.
+          if (currentUserIdRef.current && !isSigningOutRef.current) {
+            console.log('⏭️ Ignorando SIGNED_OUT de otra pestaña');
+            return;
+          }
+        }
+        // ────────────────────────────────────────────────────────────────────
 
         setLoading(true);
-        // Defer past the Supabase internal session lock — calling authenticated
-        // queries synchronously inside onAuthStateChange causes a deadlock.
         setTimeout(() => {
           if (mounted) handleSession(session);
         }, 0);
@@ -583,10 +622,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // LOGIN
   // ============================================
 
-  const login = async (emailOrUsername: string, password: string) => {
+  const login = async (emailOrUsername: string, password: string, rememberMe = false) => {
     console.log('🔑 Intentando login:', emailOrUsername);
     setError(null);
     setLoading(true);
+
+    // Set remember-me flag BEFORE signIn so authStorage mirrors the token
+    setRememberMe(rememberMe);
 
     clearAuthState();
 
@@ -621,10 +663,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       setLoading(true);
 
-      const { error: signOutError } = await supabase.auth.signOut();
+      // Flag so onAuthStateChange knows this SIGNED_OUT is from THIS tab
+      isSigningOutRef.current = true;
+
+      // scope:'local' clears only this tab's session — other tabs are unaffected
+      const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+      setRememberMe(false);
 
       if (signOutError) throw signOutError;
 
+      isSigningOutRef.current = false;
       clearAuthCache();
       clearAuthState();
       setLoading(false);

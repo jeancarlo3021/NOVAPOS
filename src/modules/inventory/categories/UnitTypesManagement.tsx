@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, Edit2, Plus } from 'lucide-react';
 import { unitTypesService, UnitType } from '@/services/Inventory/unitTypesService';
-import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
+import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { Card, CardContent, Button, Spinner } from '@/components/ui/uiComponents';
 
 export const UnitTypesManagement: React.FC = () => {
-  const { user } = useAuth();
+  const { tenantId } = useTenantId();
   const [unitTypes, setUnitTypes] = useState<UnitType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -17,21 +18,30 @@ export const UnitTypesManagement: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (user?.tenant_id) {
+    if (tenantId) {
       loadUnitTypes();
     }
-  }, [user?.tenant_id]);
+  }, [tenantId]);
 
   const loadUnitTypes = async () => {
+    const ck = cacheKey(tenantId, 'unit_types');
     try {
       setLoading(true);
       setError('');
-      const data = await unitTypesService.getAllUnitTypes(user!.tenant_id);
+      if (!navigator.onLine) {
+        const cached = cacheGet<UnitType[]>(ck);
+        setUnitTypes(cached ?? []);
+        if (!cached) setError('Sin conexión y sin datos en caché');
+        return;
+      }
+      const data = await unitTypesService.getAllUnitTypes(tenantId ?? '');
       setUnitTypes(data);
+      cacheSet(ck, data);
     } catch (err) {
+      const cached = cacheGet<UnitType[]>(ck);
+      if (cached) { setUnitTypes(cached); return; }
       const errorMsg = err instanceof Error ? err.message : 'Error al cargar tipos de unidad';
       setError(errorMsg);
-      console.error('Error loading unit types:', err);
     } finally {
       setLoading(false);
     }
@@ -58,7 +68,7 @@ export const UnitTypesManagement: React.FC = () => {
         const updated = await unitTypesService.updateUnitType(editingId, form);
         setUnitTypes(unitTypes.map(u => u.id === editingId ? updated : u));
       } else {
-        const newUnit = await unitTypesService.createUnitType(user!.tenant_id, form);
+        const newUnit = await unitTypesService.createUnitType(tenantId ?? '', form);
         setUnitTypes([...unitTypes, newUnit]);
       }
       resetForm();

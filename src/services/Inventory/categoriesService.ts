@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export interface ProductCategory {
   id: string;
@@ -14,51 +14,28 @@ export const categoriesService = {
   /**
    * Obtener todas las categorías del tenant
    */
-  async getAllCategories(tenantId: string): Promise<ProductCategory[]> {
-    const { data, error } = await supabase
-      .from('product_categories')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+  async getAllCategories(_tenantId: string): Promise<ProductCategory[]> {
+    return apiFetch<ProductCategory[]>('/categories');
   },
 
   /**
    * Obtener una categoría por ID
    */
   async getCategoryById(categoryId: string): Promise<ProductCategory> {
-    const { data, error } = await supabase
-      .from('product_categories')
-      .select('*')
-      .eq('id', categoryId)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<ProductCategory>('/categories/' + categoryId);
   },
 
   /**
    * Crear categoría
    */
   async createCategory(
-    tenantId: string,
+    _tenantId: string,
     category: Omit<ProductCategory, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>
   ): Promise<ProductCategory> {
-    const { data, error } = await supabase
-      .from('product_categories')
-      .insert([
-        {
-          tenant_id: tenantId,
-          ...category,
-        },
-      ])
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<ProductCategory>('/categories', {
+      method: 'POST',
+      body: JSON.stringify(category),
+    });
   },
 
   /**
@@ -68,26 +45,16 @@ export const categoriesService = {
     categoryId: string,
     updates: Partial<ProductCategory>
   ): Promise<ProductCategory> {
-    const { data, error } = await supabase
-      .from('product_categories')
-      .update(updates)
-      .eq('id', categoryId)
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<ProductCategory>('/categories/' + categoryId, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
   },
 
   /**
    * Eliminar categoría
    */
   async deleteCategory(categoryId: string): Promise<void> {
-    const { error } = await supabase
-      .from('product_categories')
-      .delete()
-      .eq('id', categoryId);
-
-    if (error) throw error;
+    await apiFetch('/categories/' + categoryId, { method: 'DELETE' });
   },
 };

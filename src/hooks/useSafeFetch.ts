@@ -4,6 +4,12 @@ interface UseSafeFetchOptions {
   timeout?: number;
   retries?: number;
   retryDelay?: number;
+  /**
+   * When `key` changes, the fetch re-executes automatically.
+   * Use this to pass values like `tenantId` that are resolved asynchronously
+   * so the fetch re-runs once they become available.
+   */
+  key?: unknown;
 }
 
 interface UseSafeFetchState<T> {
@@ -13,98 +19,77 @@ interface UseSafeFetchState<T> {
   retry: () => Promise<void>;
 }
 
-/**
- * Hook para realizar peticiones de forma segura
- * - Maneja timeouts automáticos
- * - Reintentos automáticos
- * - Cleanup al desmontar
- * - Evita memory leaks
- * - SIN PARPADEO (no re-ejecuta innecesariamente)
- */
 export function useSafeFetch<T>(
   fetchFn: () => Promise<T>,
   options: UseSafeFetchOptions = {}
 ): UseSafeFetchState<T> {
-  const { timeout = 10000, retries = 2, retryDelay = 1000 } = options;
+  const { timeout = 10000, retries = 2, retryDelay = 1000, key } = options;
 
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData]       = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
+  const [error, setError]     = useState<string | null>(null);
 
   const isMountedRef = useRef(true);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const hasExecutedRef = useRef(false);
+  const retryCountRef = useRef(0);
+  // Always keep the latest fetchFn — avoids stale-closure issues
+  const fetchFnRef = useRef(fetchFn);
+  fetchFnRef.current = fetchFn;
 
-  const executeRequest = useCallback(async () => {
-    // Evitar actualizar estado si el componente fue desmontado
+  const execute = useCallback(async () => {
     if (!isMountedRef.current) return;
 
     setLoading(true);
     setError(null);
-    abortControllerRef.current = new AbortController();
+    retryCountRef.current = 0;
 
-    try {
-      // Crear timeout
-      const timeoutId = setTimeout(() => {
-        abortControllerRef.current?.abort();
-      }, timeout);
+    const doFetch = async (): Promise<void> => {
+      if (!isMountedRef.current) return;
 
-      const result = await fetchFn();
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), timeout);
 
-      clearTimeout(timeoutId);
+      try {
+        const result = await fetchFnRef.current();
+        clearTimeout(timeoutId);
+        if (isMountedRef.current) {
+          setData(result ?? null);
+          setError(null);
+          setLoading(false);
+        }
+      } catch (err) {
+        clearTimeout(timeoutId);
+        if (!isMountedRef.current) return;
 
-      if (isMountedRef.current) {
-        // Asegurar que data nunca sea undefined
-        setData(result ?? null);
-        setError(null);
-        setRetryCount(0);
-      }
-    } catch (err) {
-      if (isMountedRef.current) {
-        const errorMessage = err instanceof Error 
-          ? err.message 
-          : 'Error desconocido en la petición';
+        const msg = err instanceof Error ? err.message : 'Error desconocido';
 
-        // Si es timeout y hay reintentos disponibles
-        if ((errorMessage.includes('timeout') || errorMessage.includes('abort')) && retryCount < retries) {
-          setRetryCount(prev => prev + 1);
-          setTimeout(() => {
-            executeRequest();
-          }, retryDelay);
+        if (
+          (msg.includes('timeout') || msg.includes('abort')) &&
+          retryCountRef.current < retries
+        ) {
+          retryCountRef.current++;
+          setTimeout(doFetch, retryDelay);
         } else {
-          setError(errorMessage);
+          setError(msg);
           setLoading(false);
         }
       }
-    } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
-    }
-  }, [fetchFn, timeout, retries, retryDelay, retryCount]);
+    };
 
-  // ✅ Ejecutar SOLO una vez al montar, no en cada cambio de executeRequest
+    await doFetch();
+  }, [timeout, retries, retryDelay]); // stable — fetchFn read via ref
+
+  // Re-execute whenever `key` changes (e.g., tenantId resolves from null → real value)
   useEffect(() => {
     isMountedRef.current = true;
-    
-    // Evitar ejecutar dos veces en StrictMode
-    if (!hasExecutedRef.current) {
-      hasExecutedRef.current = true;
-      executeRequest();
-    }
-
+    execute();
     return () => {
       isMountedRef.current = false;
-      abortControllerRef.current?.abort();
     };
-  }, []); // ✅ Array vacío: ejecutar SOLO al montar
+  }, [execute, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const retry = useCallback(async () => {
-    hasExecutedRef.current = false;
-    setRetryCount(0);
-    await executeRequest();
-  }, [executeRequest]);
+    await execute();
+  }, [execute]);
 
   return { data, loading, error, retry };
 }

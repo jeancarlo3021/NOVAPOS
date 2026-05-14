@@ -18,7 +18,6 @@ interface SupplierData {
   city: string;
   country: string;
   payment_terms: string;
-  contact_person?: string;
 }
 
 const PRESET_TERMS = ['', 'Contado', '7 días', '15 días', '30 días', '45 días', '60 días', '90 días', '120 días'];
@@ -35,7 +34,6 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
     city: '',
     country: '',
     payment_terms: '',
-    contact_person: ''
   });
 
   const [loading, setLoading] = useState(false);
@@ -70,7 +68,6 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
           city: supplier.city || '',
           country: supplier.country || '',
           payment_terms: pt,
-          contact_person: supplier.contact_person || ''
         });
         if (pt && !PRESET_TERMS.includes(pt)) setCustomTerm(true);
       }
@@ -106,44 +103,31 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
     return true;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!validateForm()) return;
+
     setLoading(true);
     setError('');
-    setSuccess(false);
 
     try {
-      if (!validateForm()) {
-        setLoading(false);
-        return;
-      }
-
       if (supplierId) {
-        await inventorySuppliersService.updateSupplier(supplierId, formData);
+        await inventorySuppliersService.updateSupplier(supplierId, { ...formData });
       } else {
-        await inventorySuppliersService.createSupplier(user!.tenant_id, {
-            ...formData,
-            is_active: true,
-            contact_person: formData.contact_person ?? null,
-          });
+        await inventorySuppliersService.createSupplier(user!.tenant_id, { ...formData });
       }
-
-      if (isMountedRef.current) {
-        setSuccess(true);
-        setTimeout(() => {
-          onSuccess();
-          onCancel();
-        }, 1500);
-      }
+      setSuccess(true);
+      onSuccess();
+      setTimeout(() => onCancel(), 1200);
     } catch (err) {
-      if (isMountedRef.current) {
-        setError(err instanceof Error ? err.message : 'Error al guardar el proveedor');
-        console.error(err);
-      }
+      const msg = err instanceof Error ? err.message
+        : typeof err === 'object' && err !== null && 'message' in err
+        ? String((err as any).message)
+        : 'Error al guardar el proveedor';
+      setError(msg);
+      console.error('SupplierForm save error:', err);
     } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   };
 
@@ -161,7 +145,7 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
     <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-screen overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center">
+        <div className="sticky top-0 bg-linear-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center">
           <h2 className="text-xl font-bold text-white">
             {supplierId ? '✏️ Editar Proveedor' : '➕ Nuevo Proveedor'}
           </h2>
@@ -206,22 +190,6 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
                   onChange={handleChange}
                   disabled={loading}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
-                />
-              </div>
-
-              {/* Contact Person */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Persona de Contacto
-                </label>
-                <input
-                  type="text"
-                  name="contact_person"
-                  placeholder="Nombre del contacto"
-                  value={formData.contact_person || ''}
-                  onChange={handleChange}
-                  disabled={loading}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:bg-gray-100"
                 />
               </div>
@@ -353,7 +321,7 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
               <button
                 type="submit"
                 disabled={loading}
-                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 font-medium transition flex items-center gap-2"
+                className="px-6 py-2 bg-linear-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 font-medium transition flex items-center gap-2"
               >
                 {loading ? '⏳ Guardando...' : '💾 Guardar'}
               </button>

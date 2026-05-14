@@ -12,6 +12,7 @@ interface POSReceiptInvoiceProps {
   subtotal: number;
   taxAmount: number;
   total: number;
+  taxEnabled?: boolean;
   paymentMethod: 'cash' | 'card' | 'sinpe';
   customerName?: string;
   customerPhone?: string;
@@ -25,6 +26,7 @@ export const POSReceiptInvoice: React.FC<POSReceiptInvoiceProps> = ({
   subtotal,
   taxAmount,
   total,
+  taxEnabled = true,
   paymentMethod,
   customerName,
   customerPhone,
@@ -175,10 +177,12 @@ export const POSReceiptInvoice: React.FC<POSReceiptInvoiceProps> = ({
                 <span>Subtotal:</span>
                 <span>₡{subtotal.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-xs mb-2">
-                <span>Impuesto (13%):</span>
-                <span>₡{taxAmount.toLocaleString()}</span>
-              </div>
+              {taxEnabled && taxAmount > 0 && (
+                <div className="flex justify-between text-xs mb-2">
+                  <span>Impuesto:</span>
+                  <span>₡{taxAmount.toLocaleString()}</span>
+                </div>
+              )}
               <div className="flex justify-between font-bold text-sm border-t pt-2">
                 <span>TOTAL:</span>
                 <span>₡{total.toLocaleString()}</span>

@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export interface SubscriptionPlan {
   id: string;
@@ -17,48 +17,24 @@ export interface SubscriptionPlan {
 
 export const subscriptionPlansService = {
   async getAllPlans() {
-    const { data, error } = await supabase
-      .from('subscription_plans')
-      .select('*')
-      .order('price', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
+    return apiFetch<SubscriptionPlan[]>('/plans');
   },
 
   async getPlanById(planId: string) {
-    const { data, error } = await supabase
-      .from('subscription_plans')
-      .select('*')
-      .eq('id', planId)
-      .maybeSingle(); // ✅ CAMBIO: .single() → .maybeSingle()
-
-    if (error) throw error;
-    return data;
+    return apiFetch<SubscriptionPlan>('/plans/' + planId);
   },
 
   async updatePlan(planId: string, updates: Partial<SubscriptionPlan>) {
-    const { data, error } = await supabase
-      .from('subscription_plans')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', planId)
-      .select();
-
-    if (error) throw error;
-    return data[0];
+    return apiFetch<SubscriptionPlan>('/plans/' + planId, {
+      method: 'PUT',
+      body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
+    });
   },
 
   async togglePlanStatus(planId: string, isActive: boolean) {
-    const { data, error } = await supabase
-      .from('subscription_plans')
-      .update({ is_active: isActive })
-      .eq('id', planId)
-      .select();
-
-    if (error) throw error;
-    return data[0];
+    return apiFetch<SubscriptionPlan>('/plans/' + planId, {
+      method: 'PUT',
+      body: JSON.stringify({ is_active: isActive }),
+    });
   },
 };

@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { Product, CartItem, ShoppingCart } from '../../types/Types_POS';
 
 export const salesService = {
@@ -7,59 +7,29 @@ export const salesService = {
   /**
    * Buscar productos por nombre o SKU
    */
-  async searchProducts(tenantId: string, query: string): Promise<Product[]> {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .or(`name.ilike.%${query}%,sku.ilike.%${query}%`)
-      .limit(20);
-
-    if (error) throw error;
-    return data || [];
+  async searchProducts(_tenantId: string, query: string): Promise<Product[]> {
+    return apiFetch<Product[]>(`/products?search=${encodeURIComponent(query)}&limit=20`);
   },
 
   /**
    * Obtener producto por ID
    */
   async getProductById(productId: string): Promise<Product> {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', productId)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<Product>('/products/' + productId);
   },
 
   /**
    * Obtener todos los productos de un tenant
    */
-  async getAllProducts(tenantId: string): Promise<Product[]> {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('name', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
+  async getAllProducts(_tenantId: string): Promise<Product[]> {
+    return apiFetch<Product[]>('/products');
   },
 
   /**
    * Obtener productos por categoría
    */
-  async getProductsByCategory(tenantId: string, categoryId: string): Promise<Product[]> {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('category_id', categoryId)
-      .order('name', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
+  async getProductsByCategory(_tenantId: string, categoryId: string): Promise<Product[]> {
+    return apiFetch<Product[]>(`/products?category_id=${categoryId}`);
   },
 
   // ============ CART CALCULATIONS ============

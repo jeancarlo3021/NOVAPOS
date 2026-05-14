@@ -1,50 +1,14 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Package, ChevronDown, ChevronRight, Search,
-  Download, RefreshCw, TrendingUp, ShoppingBag, Hash,
+  RefreshCw, TrendingUp, ShoppingBag, Hash,
   Truck, ShoppingCart,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface SaleLine {
-  invoice_number: string;
-  issued_at: string;
-  customer_name: string | null;
-  payment_method: string;
-  quantity: number;
-  unit_price: number;
-  subtotal: number;
-}
-
-interface SaleGroup {
-  product_id: string;
-  product_name: string;
-  total_qty: number;
-  total_revenue: number;
-  sales_count: number;
-  lines: SaleLine[];
-}
-
-interface PurchaseLine {
-  purchase_number: string;
-  purchase_date: string;
-  supplier_name: string;
-  status: string;
-  quantity: number;
-  unit_price: number;
-  subtotal: number;
-}
-
-interface PurchaseGroup {
-  product_id: string;
-  product_name: string;
-  total_qty: number;
-  total_cost: number;
-  purchase_count: number;
-  lines: PurchaseLine[];
-}
+import { KPICard } from '../components/KPICard';
+import { SaleProductRow, SaleGroup, SaleLine } from '../components/SaleProductRow';
+import { PurchaseProductRow, PurchaseGroup, PurchaseLine } from '../components/PurchaseProductRow';
+import { TableHeader } from '../components/TableHeader';
+import { EmptyState } from '../components/EmptyState';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -61,15 +25,8 @@ const PAYMENT_LABELS: Record<string, string> = {
   cash: 'Efectivo', card: 'Tarjeta', sinpe: 'SINPE',
   check: 'Cheque', transfer: 'Transferencia',
 };
-const PAYMENT_COLORS: Record<string, string> = {
-  cash: '#10b981', card: '#3b82f6', sinpe: '#8b5cf6',
-  check: '#f59e0b', transfer: '#6b7280',
-};
 const PURCHASE_STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente', received: 'Recibida', cancelled: 'Cancelada',
-};
-const PURCHASE_STATUS_COLORS: Record<string, string> = {
-  pending: '#f59e0b', received: '#10b981', cancelled: '#ef4444',
 };
 
 // ── Data fetching ─────────────────────────────────────────────────────────────
@@ -211,120 +168,6 @@ function downloadCSV(rows: string[], name: string) {
   URL.revokeObjectURL(url);
 }
 
-// ── KPI card ──────────────────────────────────────────────────────────────────
-
-function KPI({ icon: Icon, label, value, sub, color }: {
-  icon: React.ElementType; label: string; value: string; sub?: string; color: string;
-}) {
-  return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 flex items-center gap-4">
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
-        <Icon size={22} className="text-white" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-gray-500 text-xs font-semibold uppercase tracking-wide">{label}</p>
-        <p className="text-gray-900 font-black text-xl leading-tight truncate">{value}</p>
-        {sub && <p className="text-gray-400 text-xs">{sub}</p>}
-      </div>
-    </div>
-  );
-}
-
-// ── Sales expandable row ──────────────────────────────────────────────────────
-
-function SaleProductRow({ group, rank }: { group: SaleGroup; rank: number }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <tr className="hover:bg-gray-50 cursor-pointer transition border-b border-gray-100" onClick={() => setOpen(o => !o)}>
-        <td className="px-5 py-3">
-          <div className="flex items-center gap-2">
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${rank <= 3 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>{rank}</span>
-            <span className="font-semibold text-gray-900 text-sm">{group.product_name}</span>
-          </div>
-        </td>
-        <td className="px-5 py-3 text-center text-sm font-semibold text-gray-600">{group.total_qty}</td>
-        <td className="px-5 py-3 text-center text-sm text-gray-500">{group.sales_count}</td>
-        <td className="px-5 py-3 text-right font-black text-emerald-600 text-sm">{fmt(group.total_revenue)}</td>
-        <td className="px-5 py-3 text-right text-gray-400">{open ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}</td>
-      </tr>
-      {open && group.lines.map((line, i) => (
-        <tr key={i} className="bg-emerald-50/30 border-b border-emerald-100/50">
-          <td className="pl-14 pr-5 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs text-emerald-700 font-bold">{line.invoice_number}</span>
-              <span className="text-xs text-gray-400">{fmtDateTime(line.issued_at)}</span>
-            </div>
-            <p className="text-xs mt-0.5">
-              {line.customer_name
-                ? <span className="font-medium text-gray-700">{line.customer_name}</span>
-                : <span className="italic text-gray-400">Cliente anónimo</span>}
-            </p>
-          </td>
-          <td className="px-5 py-2.5 text-center text-sm text-gray-700 font-semibold">{line.quantity}</td>
-          <td className="px-5 py-2.5 text-center">
-            <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
-              style={{ backgroundColor: (PAYMENT_COLORS[line.payment_method] ?? '#94a3b8') + '22', color: PAYMENT_COLORS[line.payment_method] ?? '#6b7280' }}>
-              {PAYMENT_LABELS[line.payment_method] ?? line.payment_method}
-            </span>
-          </td>
-          <td className="px-5 py-2.5 text-right">
-            <p className="text-xs text-gray-400">{fmt(line.unit_price)} c/u</p>
-            <p className="font-bold text-gray-800 text-sm">{fmt(line.subtotal)}</p>
-          </td>
-          <td />
-        </tr>
-      ))}
-    </>
-  );
-}
-
-// ── Purchases expandable row ──────────────────────────────────────────────────
-
-function PurchaseProductRow({ group, rank }: { group: PurchaseGroup; rank: number }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <tr className="hover:bg-gray-50 cursor-pointer transition border-b border-gray-100" onClick={() => setOpen(o => !o)}>
-        <td className="px-5 py-3">
-          <div className="flex items-center gap-2">
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${rank <= 3 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{rank}</span>
-            <span className="font-semibold text-gray-900 text-sm">{group.product_name}</span>
-          </div>
-        </td>
-        <td className="px-5 py-3 text-center text-sm font-semibold text-gray-600">{group.total_qty}</td>
-        <td className="px-5 py-3 text-center text-sm text-gray-500">{group.purchase_count}</td>
-        <td className="px-5 py-3 text-right font-black text-blue-600 text-sm">{fmt(group.total_cost)}</td>
-        <td className="px-5 py-3 text-right text-gray-400">{open ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}</td>
-      </tr>
-      {open && group.lines.map((line, i) => (
-        <tr key={i} className="bg-blue-50/30 border-b border-blue-100/50">
-          <td className="pl-14 pr-5 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs text-blue-700 font-bold">{line.purchase_number}</span>
-              <span className="text-xs text-gray-400">{fmtDate(line.purchase_date)}</span>
-            </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              <Truck size={11} className="text-gray-400" />
-              <span className="text-xs font-medium text-gray-700">{line.supplier_name}</span>
-              <span
-                className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
-                style={{ backgroundColor: (PURCHASE_STATUS_COLORS[line.status] ?? '#94a3b8') + '22', color: PURCHASE_STATUS_COLORS[line.status] ?? '#6b7280' }}
-              >
-                {PURCHASE_STATUS_LABELS[line.status] ?? line.status}
-              </span>
-            </div>
-          </td>
-          <td className="px-5 py-2.5 text-center text-sm text-gray-700 font-semibold">{line.quantity}</td>
-          <td className="px-5 py-2.5 text-center text-xs text-gray-400">{fmt(line.unit_price)} c/u</td>
-          <td className="px-5 py-2.5 text-right font-bold text-gray-800 text-sm">{fmt(line.subtotal)}</td>
-          <td />
-        </tr>
-      ))}
-    </>
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 type ViewMode = 'sales' | 'purchases';
@@ -410,9 +253,9 @@ export const ProductDetailReport: React.FC<Props> = ({ tenantId, from, to }) => 
       {mode === 'sales' && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            <KPI icon={TrendingUp}  label="Ingresos totales"  value={fmt(totalSalesRevenue)} color="bg-emerald-500" />
-            <KPI icon={ShoppingBag} label="Unidades vendidas"  value={String(totalSalesQty)} sub={`${sales.length} producto${sales.length !== 1 ? 's' : ''}`} color="bg-blue-500" />
-            <KPI icon={Hash}        label="Líneas de venta"    value={String(sales.reduce((s, g) => s + g.sales_count, 0))} color="bg-violet-500" />
+            <KPICard icon={TrendingUp}  label="Ingresos totales"  value={fmt(totalSalesRevenue)} color="bg-emerald-500" />
+            <KPICard icon={ShoppingBag} label="Unidades vendidas"  value={String(totalSalesQty)} sub={`${sales.length} producto${sales.length !== 1 ? 's' : ''}`} color="bg-blue-500" />
+            <KPICard icon={Hash}        label="Líneas de venta"    value={String(sales.reduce((s, g) => s + g.sales_count, 0))} color="bg-violet-500" />
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -460,9 +303,9 @@ export const ProductDetailReport: React.FC<Props> = ({ tenantId, from, to }) => 
       {mode === 'purchases' && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            <KPI icon={TrendingUp} label="Costo total comprado" value={fmt(totalPurchaseCost)} color="bg-blue-500" />
-            <KPI icon={Package}    label="Unidades compradas"   value={String(totalPurchaseQty)} sub={`${purchases.length} producto${purchases.length !== 1 ? 's' : ''}`} color="bg-violet-500" />
-            <KPI icon={Truck}      label="Órdenes de compra"    value={String(purchases.reduce((s, g) => s + g.purchase_count, 0))} color="bg-amber-500" />
+            <KPICard icon={TrendingUp}  label="Costo total comprado" value={fmt(totalPurchaseCost)} color="bg-blue-500" />
+            <KPICard icon={Truck}       label="Unidades compradas"   value={String(totalPurchaseQty)} sub={`${purchases.length} producto${purchases.length !== 1 ? 's' : ''}`} color="bg-violet-500" />
+            <KPICard icon={ShoppingCart} label="Órdenes de compra"   value={String(purchases.reduce((s, g) => s + g.purchase_count, 0))} color="bg-amber-500" />
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -512,52 +355,3 @@ export const ProductDetailReport: React.FC<Props> = ({ tenantId, from, to }) => 
     </div>
   );
 };
-
-// ── Shared sub-components ─────────────────────────────────────────────────────
-
-function TableHeader({ title, count, search, onSearch, onExport, disabled, accentColor }: {
-  title: string; count: number; search: string;
-  onSearch: (v: string) => void; onExport: () => void;
-  disabled: boolean; accentColor: 'emerald' | 'blue';
-}) {
-  const btnClass = accentColor === 'emerald'
-    ? 'bg-emerald-500 hover:bg-emerald-600'
-    : 'bg-blue-500 hover:bg-blue-600';
-  return (
-    <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
-      <div className="flex items-center gap-3 flex-1 min-w-52">
-        <Package size={18} className={accentColor === 'emerald' ? 'text-emerald-500' : 'text-blue-500'} />
-        <h2 className="font-black text-gray-900">{title}</h2>
-        <span className="text-xs text-gray-400">{count} productos</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => onSearch(e.target.value)}
-            placeholder="Buscar producto..."
-            className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400"
-          />
-        </div>
-        <button
-          onClick={onExport}
-          disabled={disabled}
-          className={`flex items-center gap-1.5 px-3 py-1.5 ${btnClass} disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold rounded-lg transition`}
-        >
-          <Download size={14} /> CSV
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ icon: Icon, text }: { icon: React.ElementType; text: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 gap-2">
-      <Icon size={36} className="text-gray-200" />
-      <p className="text-gray-400 text-sm">{text}</p>
-    </div>
-  );
-}

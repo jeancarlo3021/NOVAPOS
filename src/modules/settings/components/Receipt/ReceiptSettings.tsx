@@ -8,6 +8,8 @@ import { ReceiptFormat } from './ReceiptFormat';
 import { ReceiptContent } from './ReceiptContent';
 import { PrinterSettings } from './PrinterSettings';
 
+import type { PrinterEntry } from './PrinterSettings';
+
 interface ReceiptConfig {
   // Formato
   paperWidth: 32 | 40 | 48 | 56 | 80;
@@ -28,6 +30,8 @@ interface ReceiptConfig {
   printerName?: string;
   printerType: 'thermal' | 'browser' | 'qztray';
   autoprint: boolean;
+  qz_certificate?: string;
+  printers?: PrinterEntry[];
 }
 
 export const ReceiptSettings: React.FC = () => {
@@ -46,6 +50,8 @@ export const ReceiptSettings: React.FC = () => {
     footerMessage: '¡GRACIAS POR SU COMPRA!',
     printerType: 'browser',
     autoprint: false,
+    qz_certificate: '',
+    printers: [],
   });
 
   useEffect(() => {

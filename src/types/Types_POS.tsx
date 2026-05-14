@@ -60,6 +60,13 @@ export interface Product {
   updated_at: string;
 }
 
+export interface CartItemPromo {
+  id:    string;
+  name:  string;
+  type:  'percentage' | 'fixed' | '2x1';
+  value: number;
+}
+
 export interface CartItem {
   product_id: string;
   product: Product;
@@ -67,6 +74,7 @@ export interface CartItem {
   unit_price: number;
   discount_percent?: number;
   subtotal: number;
+  promo?: CartItemPromo;
 }
 
 export interface ShoppingCart {

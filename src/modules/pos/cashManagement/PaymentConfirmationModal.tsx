@@ -9,6 +9,7 @@ interface PaymentConfirmationModalProps {
   subtotal: number;
   taxAmount: number;
   total: number;
+  taxEnabled?: boolean;
   onConfirm: (paymentData: PaymentData) => void;
   onCancel: () => void;
   loading?: boolean;
@@ -59,6 +60,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   subtotal,
   taxAmount,
   total,
+  taxEnabled = true,
   cartItems,
   onConfirm,
   onCancel,
@@ -129,11 +131,15 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
           <div className="bg-blue-500 rounded-2xl px-6 py-3 flex items-center justify-between">
             <div>
               <p className="text-blue-100 text-sm font-semibold">Subtotal</p>
-              <p className="text-blue-100 text-sm font-semibold">IVA (13%)</p>
+              {taxEnabled && taxAmount > 0 && (
+                <p className="text-blue-100 text-sm font-semibold">IVA</p>
+              )}
             </div>
             <div className="text-right">
               <p className="text-blue-100 text-sm">₡{subtotal.toLocaleString()}</p>
-              <p className="text-blue-100 text-sm">₡{taxAmount.toLocaleString()}</p>
+              {taxEnabled && taxAmount > 0 && (
+                <p className="text-blue-100 text-sm">₡{taxAmount.toLocaleString()}</p>
+              )}
             </div>
           </div>
 

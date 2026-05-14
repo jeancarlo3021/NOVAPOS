@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export const ROLES = {
   OWNER: 'owner',
@@ -31,62 +31,30 @@ export const ROLE_LABELS = {
 export const rolesService = {
   // Obtener todos los roles disponibles
   async getAllRoles() {
-    const { data, error } = await supabase
-      .from('role_permissions')
-      .select('*')
-      .order('role', { ascending: true });
-
-    if (error) throw error;
-    return data;
+    return apiFetch<any[]>('/users/roles');
   },
 
   // Obtener permisos de un rol
   async getRolePermissions(role: string) {
-    const { data, error } = await supabase
-      .from('role_permissions')
-      .select('permissions')
-      .eq('role', role)
-      .maybeSingle();
-
-    if (error) throw error;
+    const data = await apiFetch<{ permissions: Record<string, any> }>('/users/roles/' + role);
     return data?.permissions || {};
   },
 
   // Verificar si un usuario tiene permiso
   async hasPermission(userId: string, permission: string) {
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (userError || !userData) return false;
-
-    // Owner tiene todos los permisos
-    if (userData.role === 'owner') return true;
-
-    const { data: roleData, error: roleError } = await supabase
-      .from('role_permissions')
-      .select('permissions')
-      .eq('role', userData.role)
-      .maybeSingle();
-
-    if (roleError) return false;
-
-    const permissions = roleData?.permissions || {};
-    return permissions[permission] === true || permissions.all === true;
+    try {
+      const data = await apiFetch<{ has_permission: boolean }>(
+        `/users/${userId}/permissions/${permission}`
+      );
+      return data?.has_permission ?? false;
+    } catch {
+      return false;
+    }
   },
 
   // Obtener todos los usuarios de un negocio
-  async getUsersByBusiness(ownerId: string) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, email, full_name, role, created_at')
-      .eq('owner_id', ownerId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data;
+  async getUsersByBusiness(_ownerId: string) {
+    return apiFetch<any[]>('/users');
   },
 
   // Crear nuevo usuario (solo owner/admin)
@@ -99,46 +67,29 @@ export const rolesService = {
     tenantId?: string
   ) {
     const email = `${username}@nexoerp.local`;
-
-    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
-    if (authError) throw authError;
-    if (!authData.user) throw new Error('No se pudo crear el usuario');
-
-    const { error: userError } = await supabase
-      .from('users')
-      .insert([
-        {
-          id: authData.user.id,
-          email,
-          role,
-          full_name: fullName || username,
-          owner_id: ownerId,
-          ...(tenantId ? { tenant_id: tenantId } : {}),
-        },
-      ]);
-
-    if (userError) throw userError;
-
-    return authData.user;
+    return apiFetch('/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        password,
+        role,
+        full_name: fullName || username,
+        owner_id: ownerId,
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+      }),
+    });
   },
 
   // Actualizar rol de un usuario
   async updateUserRole(userId: string, newRole: string) {
-    const { error } = await supabase
-      .from('users')
-      .update({ role: newRole })
-      .eq('id', userId);
-
-    if (error) throw error;
+    await apiFetch('/users/' + userId, {
+      method: 'PUT',
+      body: JSON.stringify({ role: newRole }),
+    });
   },
 
   // Eliminar usuario
   async deleteUser(userId: string) {
-    const { error } = await supabase
-      .from('users')
-      .delete()
-      .eq('id', userId);
-
-    if (error) throw error;
+    await apiFetch('/users/' + userId, { method: 'DELETE' });
   },
 };

@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { Plus, Search, Eye, Trash2, RotateCw } from 'lucide-react';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
-import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
 import { Alert, LoadingState, Button, Card, CardContent } from '@/components/ui/uiComponents';
 import { PurchaseForm } from './PurchaseForm';
 
 export const PurchasesList: React.FC = () => {
-  const { user } = useAuth();
+  const { tenantId } = useTenantId();
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -20,8 +20,8 @@ export const PurchasesList: React.FC = () => {
     error,
     retry
   } = useSafeFetch(
-    () => inventoryPurchasesService.getAllPurchases(user!.tenant_id),
-    { timeout: 10000, retries: 2, retryDelay: 1000 }
+    () => inventoryPurchasesService.getAllPurchases(tenantId ?? ''),
+    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
   );
 
   // Asegurar que purchases siempre sea un array

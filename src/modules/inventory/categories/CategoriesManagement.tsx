@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, Edit2, Plus } from 'lucide-react';
 import { categoriesService, ProductCategory } from '@/services/Inventory/categoriesService';
-import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
+import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { Card, CardContent, Button, Spinner } from '@/components/ui/uiComponents';
+import { EmojiPicker } from '../components/EmojiPicker';
 
 export const CategoriesManagement: React.FC = () => {
-  const { user } = useAuth();
+  const { tenantId } = useTenantId();
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -17,21 +19,30 @@ export const CategoriesManagement: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (user?.tenant_id) {
+    if (tenantId) {
       loadCategories();
     }
-  }, [user?.tenant_id]);
+  }, [tenantId]);
 
   const loadCategories = async () => {
+    const ck = cacheKey(tenantId, 'inv_categories');
     try {
       setLoading(true);
       setError('');
-      const data = await categoriesService.getAllCategories(user!.tenant_id);
+      if (!navigator.onLine) {
+        const cached = cacheGet<ProductCategory[]>(ck);
+        setCategories(cached ?? []);
+        if (!cached) setError('Sin conexión y sin datos en caché');
+        return;
+      }
+      const data = await categoriesService.getAllCategories(tenantId ?? '');
       setCategories(data);
+      cacheSet(ck, data);
     } catch (err) {
+      const cached = cacheGet<ProductCategory[]>(ck);
+      if (cached) { setCategories(cached); return; }
       const errorMsg = err instanceof Error ? err.message : 'Error al cargar categorías';
       setError(errorMsg);
-      console.error('Error loading categories:', err);
     } finally {
       setLoading(false);
     }
@@ -58,7 +69,7 @@ export const CategoriesManagement: React.FC = () => {
         const updated = await categoriesService.updateCategory(editingId, form);
         setCategories(categories.map(c => c.id === editingId ? updated : c));
       } else {
-        const newCategory = await categoriesService.createCategory(user!.tenant_id, form);
+        const newCategory = await categoriesService.createCategory(tenantId ?? '', form);
         setCategories([...categories, newCategory]);
       }
       resetForm();
@@ -163,7 +174,7 @@ export const CategoriesManagement: React.FC = () => {
               </div>
 
               {/* Color e Icono */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Color
@@ -187,14 +198,9 @@ export const CategoriesManagement: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Emoji
                   </label>
-                  <input
-                    type="text"
-                    name="icon"
-                    placeholder="📦"
+                  <EmojiPicker
                     value={form.icon}
-                    onChange={handleChange}
-                    maxLength={2}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-2xl text-center"
+                    onChange={emoji => setForm(prev => ({ ...prev, icon: emoji }))}
                   />
                 </div>
               </div>

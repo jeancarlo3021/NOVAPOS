@@ -13,6 +13,11 @@ import {
   Users,
   BookOpen,
   TrendingDown,
+  ClipboardList,
+  UserCog,
+  Wallet,
+  Tag,
+  LayoutGrid,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
@@ -25,15 +30,20 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { name: 'Dashboard',           to: '/',              icon: LayoutDashboard, feature: 'always'      },
-  { name: 'Punto de Venta',      to: '/pos',           icon: ShoppingCart,    feature: 'pos'         },
-  { name: 'Inventario',          to: '/inventory',     icon: Package,         feature: 'always'      },
-  { name: 'Recetas',             to: '/recipes',       icon: BookOpen,        feature: 'inventory'   }, // ✅ Nueva sección de recetas
-  { name: 'Gastos',              to: '/expenses',      icon: TrendingDown,    feature: 'expenses'    },
-  { name: 'Reportes',            to: '/reports',       icon: FileText,        feature: 'reports'     },
-  { name: 'Usuarios',            to: '/users',         icon: Users,           feature: 'users'       },
-  { name: 'Configuración',       to: '/settings',      icon: Settings,        feature: 'settings'    },
-  { name: 'Panel Admin',         to: '/create-owner',  icon: User2,           feature: 'admin_only'  }, // ✅ Solo para el plan Admin
+  { name: 'Dashboard',             to: '/',                 icon: LayoutDashboard, feature: 'always'          },
+  { name: 'Punto de Venta',        to: '/pos',              icon: ShoppingCart,    feature: 'pos'             },
+  { name: 'Inventario',            to: '/inventory',        icon: Package,         feature: 'always'          },
+  { name: 'Recetas',               to: '/recipes',          icon: BookOpen,        feature: 'recipes'         },
+  { name: 'Órdenes de Compra',     to: '/purchases',        icon: ClipboardList,   feature: 'purchases'       },
+  { name: 'Cuentas por Pagar',     to: '/accounts-payable', icon: Wallet,          feature: 'accounts_payable'},
+  { name: 'Gastos',                to: '/expenses',         icon: TrendingDown,    feature: 'expenses'        },
+  { name: 'Promociones',          to: '/promotions',       icon: Tag,             feature: 'promotions'      },
+  { name: 'Mapa de Mesas',        to: '/tables',           icon: LayoutGrid,      feature: 'tables'          },
+  { name: 'Reportes',              to: '/reports',          icon: FileText,        feature: 'reports'         },
+  { name: 'Recursos Humanos',      to: '/hr',               icon: UserCog,         feature: 'hr'             },
+  { name: 'Usuarios',              to: '/users',            icon: Users,           feature: 'users'           },
+  { name: 'Configuración',         to: '/settings',         icon: Settings,        feature: 'settings'        },
+  { name: 'Panel Admin',           to: '/create-owner',     icon: User2,           feature: 'admin_only'      },
 ];
 
 interface SidebarProps {
@@ -63,8 +73,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
 
     if (feature === 'owner_only') return user?.role === 'owner';
     
-    // Verificación por características del plan
-    return planFeatures[feature as keyof PlanFeatures] ?? false;
+    // Verificación por características del plan (incluye campos opcionales)
+    return (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
   };
 
   const visibleNavigation = navigation.filter((item) => isAllowed(item.feature));
@@ -110,6 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
               )}
             </NavLink>
           ))}
+
         </nav>
       </div>
 

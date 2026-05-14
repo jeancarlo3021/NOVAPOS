@@ -1,215 +1,154 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, CheckCircle, Calendar, Settings, Mail, Lock, Building2 } from 'lucide-react';
+import {
+  Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
+  Building2, Calendar, RefreshCw, Power,
+  Clock, TrendingUp, Users, AlertTriangle, X,
+} from 'lucide-react';
+import { DaysTag } from './components/DaysTag';
+import { RenewModal } from './components/RenewModal';
+import type { OwnerData } from './components/RenewModal';
 
-interface OwnerData {
-  id: string;
-  name: string;
-  owner_id: string;
-  is_demo: boolean;
-  status: string;
-  created_at: string;
-  plan_id?: string;
-  plan_name?: string;
-  plan_price?: number;
-  subscription_status?: string;
-  ends_at?: string;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const fmt = (n: number) =>
+  `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
+
+const fmtDate = (s: string | undefined) =>
+  s ? new Date(s + (s.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('es-CR', { dateStyle: 'medium' }) : '—';
+
+function daysUntil(dateStr: string | undefined): number | null {
+  if (!dateStr) return null;
+  const d = dateStr.includes('T') ? new Date(dateStr) : new Date(dateStr + 'T00:00:00');
+  return Math.ceil((d.getTime() - Date.now()) / 86400000);
 }
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
-  const [owners, setOwners] = useState<OwnerData[]>([]);
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [showForm, setShowForm] = useState(false);
+  const [owners,    setOwners]    = useState<OwnerData[]>([]);
+  const [plans,     setPlans]     = useState<Plan[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState('');
+  const [success,   setSuccess]   = useState('');
+  const [showForm,  setShowForm]  = useState(false);
+  const [renewing,  setRenewing]  = useState<OwnerData | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    businessName: '',
-    planId: '',
-    withDemo: false,
+    email: '', password: '', businessName: '', planId: '', withDemo: false,
   });
+  const [formErrors, setFormErrors] = useState({ email: '', password: '', businessName: '' });
 
-  const [formErrors, setFormErrors] = useState({
-    email: '',
-    password: '',
-    businessName: '',
-  });
+  const fetchOwners = useCallback(async () => {
+    /*
+      ── SQL migration — ejecutar UNA VEZ en Supabase SQL Editor ─────────────────
 
-  useEffect(() => {
-    fetchOwners();
-  }, []);
+      -- Bypass RLS to let the admin read all tenants + their latest subscription.
+      CREATE OR REPLACE FUNCTION admin_get_owners()
+      RETURNS TABLE(
+        id uuid, name text, owner_id uuid, is_demo boolean, status text,
+        created_at timestamptz, plan_id uuid, subscription_id uuid,
+        sub_id uuid, sub_plan_id uuid, sub_status text,
+        started_at timestamptz, ends_at timestamptz
+      )
+      LANGUAGE sql
+      SECURITY DEFINER
+      SET search_path = public
+      AS $$
+        SELECT
+          t.id, t.name, t.owner_id, t.is_demo, t.status,
+          t.created_at, t.plan_id, t.subscription_id,
+          s.id         AS sub_id,
+          s.plan_id    AS sub_plan_id,
+          s.status     AS sub_status,
+          s.started_at,
+          s.ends_at
+        FROM tenants t
+        LEFT JOIN LATERAL (
+          SELECT * FROM subscriptions
+          WHERE tenant_id = t.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) s ON true
+        ORDER BY t.created_at DESC;
+      $$;
 
-  const fetchOwners = async () => {
+      GRANT EXECUTE ON FUNCTION admin_get_owners() TO authenticated;
+    */
     try {
       setLoading(true);
 
-      // Fetch tenants and all plans in parallel
-      const [{ data, error }, allPlans] = await Promise.all([
-        supabase
-          .from('tenants')
-          .select(`
-            id, name, owner_id, is_demo, status, created_at, plan_id,
-            subscription:subscriptions!tenants_subscription_id_fkey (
-              id, status, started_at, ends_at, auto_renew,
-              plan:plan_id ( id, name, price, features )
-            )
-          `)
-          .order('created_at', { ascending: false }),
+      const [allPlans, ownersRes] = await Promise.all([
         plansService.getAllPlans(),
+        supabase.rpc('admin_get_owners'),
       ]);
 
       setPlans(allPlans);
 
-      if (error) throw error;
+      if (ownersRes.error) throw ownersRes.error;
 
-      setOwners(
-        (data ?? []).map((tenant: any) => {
-          // FK join returns single object; Supabase types it as array — normalise
-          const sub = Array.isArray(tenant.subscription)
-            ? tenant.subscription[0] ?? null
-            : tenant.subscription ?? null;
-          const subPlan = Array.isArray(sub?.plan) ? sub.plan[0] ?? null : sub?.plan ?? null;
-
-          // Prefer data from the joined plan; fall back to allPlans list
-          const planFromList = allPlans.find((p) => p.id === tenant.plan_id);
-          return {
-            id: tenant.id,
-            name: tenant.name,
-            owner_id: tenant.owner_id,
-            is_demo: tenant.is_demo,
-            status: tenant.status,
-            created_at: tenant.created_at,
-            plan_id: tenant.plan_id,
-            plan_name: subPlan?.name ?? planFromList?.name ?? 'Sin plan',
-            plan_price: subPlan?.price ?? planFromList?.price ?? 0,
-            subscription_status: sub?.status ?? 'inactiva',
-            ends_at: sub?.ends_at,
-          };
-        })
-      );
+      setOwners((ownersRes.data ?? []).map((row: any) => {
+        const planId = row.sub_plan_id ?? row.plan_id;
+        const plan   = allPlans.find(p => p.id === planId);
+        return {
+          id:                  row.id,
+          name:                row.name,
+          owner_id:            row.owner_id,
+          is_demo:             row.is_demo,
+          status:              row.status ?? 'active',
+          created_at:          row.created_at,
+          plan_id:             planId ?? null,
+          plan_name:           plan?.name ?? 'Sin plan',
+          plan_price:          plan?.price ?? 0,
+          subscription_id:     row.sub_id ?? null,
+          subscription_status: row.sub_status ?? '—',
+          started_at:          row.started_at ?? null,
+          ends_at:             row.ends_at ?? null,
+        };
+      }));
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => { fetchOwners(); }, [fetchOwners]);
+
+  // ── Toggle active/suspended ────────────────────────────────────────────────
+
+  const handleToggleStatus = async (owner: OwnerData) => {
+    const newStatus = owner.status === 'active' ? 'suspended' : 'active';
+    const label = newStatus === 'suspended' ? 'desactivar' : 'activar';
+    if (!confirm(`¿${label} el negocio "${owner.name}"?`)) return;
+    setTogglingId(owner.id);
+    try {
+      const { error: te } = await supabase
+        .from('tenants')
+        .update({ status: newStatus })
+        .eq('id', owner.id);
+      if (te) throw te;
+      if (owner.subscription_id) {
+        await supabase.from('subscriptions')
+          .update({ status: newStatus === 'suspended' ? 'inactive' : 'active', updated_at: new Date().toISOString() })
+          .eq('id', owner.subscription_id);
+      }
+      setOwners(prev => prev.map(o => o.id === owner.id ? { ...o, status: newStatus } : o));
+      setSuccess(`✅ Negocio "${owner.name}" ${newStatus === 'active' ? 'activado' : 'desactivado'}`);
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setTogglingId(null);
+    }
   };
 
-  // Validar email simple
- const isValidEmail = (email: string): boolean => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-};
-
-  // Validar formulario
-  const validateForm = (): boolean => {
-    const errors = { email: '', password: '', businessName: '' };
-    let isValid = true;
-
-    if (!formData.email.trim()) {
-      errors.email = 'El email es requerido';
-      isValid = false;
-    } else if (!isValidEmail(formData.email)) {
-      errors.email = 'Por favor ingresa un email válido (ej: usuario@gmail.com)';
-      isValid = false;
-    }
-
-    if (!formData.password.trim()) {
-      errors.password = 'La contraseña es requerida';
-      isValid = false;
-    } else if (formData.password.length < 6) {
-      errors.password = 'La contraseña debe tener al menos 6 caracteres';
-      isValid = false;
-    }
-
-    if (!formData.businessName.trim()) {
-      errors.businessName = 'El nombre del negocio es requerido';
-      isValid = false;
-    }
-
-    setFormErrors(errors);
-    return isValid;
-  };
-
-const handleCreateOwner = async (e: React.FormEvent<HTMLFormElement>) => {
-  e.preventDefault();
-  setLoading(true);
-  setError('');
-  setSuccess('');
-
-  if (!validateForm()) {
-    setLoading(false);
-    return;
-  }
-
-  try {
-    console.log('📧 Creando usuario con email:', formData.email);
-
-    const { data, error: fnError } = await supabase.functions.invoke('admin-create-owner', {
-      body: {
-        email: formData.email,
-        password: formData.password,
-        businessName: formData.businessName,
-        planId: formData.planId,
-        withDemo: formData.withDemo,
-      },
-    });
-
-    if (fnError) throw new Error(fnError.message);
-    if (data?.error) throw new Error(data.error);
-
-    console.log('✅ Owner creado:', data);
-    setSuccess(`✅ Owner creado exitosamente!\n📧 Email: ${formData.email}\n✅ Email confirmado automáticamente`);
-    setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false });
-    setShowForm(false);
-    
-    // Recargar lista
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    fetchOwners();
-
-  } catch (err: any) {
-    console.error('❌ Error detallado:', err);
-    setError(err.message || 'Error al crear owner');
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleDeleteOwner = async (tenantId: string, ownerId: string) => {
-  if (!window.confirm('¿Eliminar este owner y todos sus datos? Esta acción no se puede deshacer.')) return;
-  
-  setLoading(true);
-  setError('');
-  
-  try {
-    console.log('🗑️ Iniciando eliminación del owner:', ownerId);
-
-    const { data, error: fnError } = await supabase.functions.invoke('admin-delete-owner', {
-      body: { tenantId, ownerId },
-    });
-
-    if (fnError) throw new Error(fnError.message);
-    if (data?.error) throw new Error(data.error);
-
-    setSuccess('✅ Owner y todos sus datos eliminados exitosamente');
-    
-    // Recargar lista
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    fetchOwners();
-
-  } catch (err: any) {
-    console.error('❌ Error detallado:', err);
-    setError(err.message || 'Error al eliminar owner');
-  } finally {
-    setLoading(false);
-  }
-};
+  // ── Change plan ────────────────────────────────────────────────────────────
 
   const handleChangePlan = async (tenantId: string, newPlanId: string) => {
     if (!newPlanId) return;
@@ -217,274 +156,385 @@ const handleDeleteOwner = async (tenantId: string, ownerId: string) => {
       const { data, error: fnError } = await supabase.functions.invoke('admin-change-plan', {
         body: { tenantId, newPlanId },
       });
-
       if (fnError) throw new Error(fnError.message);
       if (data?.error) throw new Error(data.error);
-
       await refreshPlan(tenantId);
-      setSuccess('Plan actualizado exitosamente');
+      setSuccess('Plan actualizado');
       fetchOwners();
     } catch (err: any) {
-      console.error('❌ Error:', err);
       setError(err.message);
     }
   };
 
+  // ── Delete ─────────────────────────────────────────────────────────────────
+
+  const handleDeleteOwner = async (tenantId: string, ownerId: string) => {
+    if (!confirm('¿Eliminar este negocio y todos sus datos? Esta acción no se puede deshacer.')) return;
+    setLoading(true);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('admin-delete-owner', {
+        body: { tenantId, ownerId },
+      });
+      if (fnError) throw new Error(fnError.message);
+      if (data?.error) throw new Error(data.error);
+      setSuccess('✅ Negocio eliminado');
+      fetchOwners();
+    } catch (err: any) {
+      setError(err.message || 'Error al eliminar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Create owner ───────────────────────────────────────────────────────────
+
+  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  const validateForm = () => {
+    const e = { email: '', password: '', businessName: '' };
+    let ok = true;
+    if (!formData.email.trim())               { e.email        = 'El email es requerido'; ok = false; }
+    else if (!isValidEmail(formData.email))   { e.email        = 'Email inválido'; ok = false; }
+    if (!formData.password.trim())            { e.password     = 'La contraseña es requerida'; ok = false; }
+    else if (formData.password.length < 6)   { e.password     = 'Mínimo 6 caracteres'; ok = false; }
+    if (!formData.businessName.trim())        { e.businessName = 'El nombre del negocio es requerido'; ok = false; }
+    setFormErrors(e);
+    return ok;
+  };
+
+  const handleCreateOwner = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    setLoading(true);
+    setError(''); setSuccess('');
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('admin-create-owner', {
+        body: { email: formData.email, password: formData.password, businessName: formData.businessName, planId: formData.planId, withDemo: formData.withDemo },
+      });
+      if (fnError) throw new Error(fnError.message);
+      if (data?.error) throw new Error(data.error);
+      setSuccess(`✅ Negocio creado — Email: ${formData.email}`);
+      setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false });
+      setShowForm(false);
+      await new Promise(r => setTimeout(r, 800));
+      fetchOwners();
+    } catch (err: any) {
+      setError(err.message || 'Error al crear');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── KPIs ───────────────────────────────────────────────────────────────────
+
+  const activeOwners   = owners.filter(o => o.status === 'active');
+  const overdueOwners  = owners.filter(o => {
+    const d = daysUntil(o.ends_at);
+    return d !== null && d < 0 && o.status === 'active';
+  });
+  const dueSoonOwners  = owners.filter(o => {
+    const d = daysUntil(o.ends_at);
+    return d !== null && d >= 0 && d <= 7 && o.status === 'active';
+  });
+  const monthlyRevenue = activeOwners.reduce((s, o) => s + (o.plan_price ?? 0), 0);
+
   return (
-    <div className="p-6">
+    <div className="min-h-screen bg-gray-50">
+
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-3xl font-bold text-gray-900">Gestión de Owners</h1>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/plans"
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-semibold transition"
-          >
-            <Settings size={18} /> Gestionar Planes
-          </Link>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg transition text-sm font-semibold"
-          >
-            <Plus className="w-4 h-4" />
-            Nuevo Owner
-          </button>
+      <div className="bg-white border-b border-gray-100 px-6 py-5 sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-4 max-w-7xl mx-auto">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center">
+              <Building2 size={20} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black text-gray-900">Panel Admin</h1>
+              <p className="text-gray-400 text-sm">Control de negocios y cobros</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link to="/plans"
+              className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition">
+              <Settings size={15} /> Planes
+            </Link>
+            <button onClick={() => setShowForm(!showForm)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition">
+              <Plus size={15} /> Nuevo negocio
+            </button>
+          </div>
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
-      )}
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
 
-      {success && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
-          <CheckCircle className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
-          <p className="text-sm text-green-700 whitespace-pre-line">{success}</p>
-        </div>
-      )}
+        {/* Alerts */}
+        {error   && <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm"><AlertCircle size={16} className="shrink-0 mt-0.5" /><span>{error}</span><button onClick={() => setError('')} className="ml-auto text-red-400 hover:text-red-600"><X size={14} /></button></div>}
+        {success && <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-emerald-700 text-sm"><CheckCircle size={16} /><span>{success}</span></div>}
 
-      {/* Form */}
-      {showForm && (
-        <div className="mb-6 bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Crear Nuevo Owner</h2>
-          <form onSubmit={handleCreateOwner} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={e => {
-                    setFormData({ ...formData, email: e.target.value });
-                    if (formErrors.email) setFormErrors({ ...formErrors, email: '' });
-                  }}
-                  placeholder="owner@gmail.com"
-                  className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 ${
-                    formErrors.email
-                      ? 'border-red-500 focus:ring-red-500'
-                      : 'border-gray-300 focus:ring-emerald-500'
-                  }`}
-                  required
-                />
-              </div>
-              {formErrors.email && (
-                <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
-              )}
-            </div>
-
-            {/* Contraseña */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={e => {
-                    setFormData({ ...formData, password: e.target.value });
-                    if (formErrors.password) setFormErrors({ ...formErrors, password: '' });
-                  }}
-                  placeholder="Mínimo 6 caracteres"
-                  minLength={6}
-                  className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 ${
-                    formErrors.password
-                      ? 'border-red-500 focus:ring-red-500'
-                      : 'border-gray-300 focus:ring-emerald-500'
-                  }`}
-                  required
-                />
-              </div>
-              {formErrors.password && (
-                <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>
-              )}
-            </div>
-
-            {/* Nombre del Negocio */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Negocio</label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  value={formData.businessName}
-                  onChange={e => {
-                    setFormData({ ...formData, businessName: e.target.value });
-                    if (formErrors.businessName) setFormErrors({ ...formErrors, businessName: '' });
-                  }}
-                  placeholder="Mi Restaurante"
-                  className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 ${
-                    formErrors.businessName
-                      ? 'border-red-500 focus:ring-red-500'
-                      : 'border-gray-300 focus:ring-emerald-500'
-                  }`}
-                  required
-                />
-              </div>
-              {formErrors.businessName && (
-                <p className="text-red-500 text-xs mt-1">{formErrors.businessName}</p>
-              )}
-            </div>
-
-            {/* Plan */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Plan</label>
-              <select
-                value={formData.planId}
-                onChange={e => setFormData({ ...formData, planId: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
-              >
-                <option value="">Seleccionar plan (opcional)</option>
-                {plans.map(plan => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.name} — ${plan.price}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Demo Checkbox */}
-            <div className="md:col-span-2 flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-              <input
-                type="checkbox"
-                id="withDemo"
-                checked={formData.withDemo}
-                onChange={e => setFormData({ ...formData, withDemo: e.target.checked })}
-                className="w-4 h-4 text-emerald-500 rounded"
-              />
-              <label htmlFor="withDemo" className="text-sm text-gray-700">
-                Crear como tenant de DEMO (30 días de prueba)
-              </label>
-            </div>
-
-            {/* Botones */}
-            <div className="md:col-span-2 flex gap-3">
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
-              >
-                {loading ? 'Creando...' : 'Crear Owner'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 rounded-lg transition"
-              >
-                Cancelar
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Table */}
-      {loading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto" />
-        </div>
-      ) : owners.length === 0 ? (
-        <div className="bg-gray-50 rounded-lg p-8 text-center">
-          <p className="text-gray-500">No hay owners registrados</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Negocio</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Plan</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Precio</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Estado</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Tipo</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Vence</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Creado</th>
-                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {owners.map(owner => (
-                <tr key={owner.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{owner.name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{owner.plan_name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">${owner.plan_price}</td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                      owner.subscription_status === 'active'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {owner.subscription_status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                      owner.is_demo ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
-                    }`}>
-                      {owner.is_demo ? 'DEMO' : 'PAGO'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {owner.ends_at ? (
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-4 h-4" />
-                        {new Date(owner.ends_at).toLocaleDateString('es-ES')}
-                      </span>
-                    ) : '—'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {new Date(owner.created_at).toLocaleDateString('es-ES')}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <select
-                        onChange={e => handleChangePlan(owner.id, e.target.value)}
-                        defaultValue=""
-                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white"
-                      >
-                        <option value="">Cambiar plan</option>
-                        {plans.map(plan => (
-                          <option key={plan.id} value={plan.id}>{plan.name}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => handleDeleteOwner(owner.id, owner.owner_id)}
-                        className="text-red-500 hover:text-red-700 transition p-1"
-                        title="Eliminar owner"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+        {/* Due/overdue alert strip */}
+        {(overdueOwners.length > 0 || dueSoonOwners.length > 0) && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <p className="text-sm font-bold text-amber-800 mb-3 flex items-center gap-2">
+              <AlertTriangle size={15} /> Requieren atención
+            </p>
+            <div className="space-y-2">
+              {overdueOwners.map(o => (
+                <div key={o.id} className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+                  <div className="flex items-center gap-3">
+                    <span className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
+                    <div>
+                      <p className="font-bold text-gray-800 text-sm">{o.name}</p>
+                      <p className="text-xs text-gray-500">{o.plan_name} · {o.plan_price ? fmt(o.plan_price) : '—'}/mes</p>
                     </div>
-                  </td>
-                </tr>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <DaysTag days={daysUntil(o.ends_at)} />
+                    <button onClick={() => setRenewing(o)}
+                      className="flex items-center gap-1 px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
+                      <RefreshCw size={11} /> Renovar
+                    </button>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
+              {dueSoonOwners.map(o => (
+                <div key={o.id} className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+                  <div className="flex items-center gap-3">
+                    <span className="w-2 h-2 bg-amber-500 rounded-full shrink-0" />
+                    <div>
+                      <p className="font-bold text-gray-800 text-sm">{o.name}</p>
+                      <p className="text-xs text-gray-500">{o.plan_name} · {o.plan_price ? fmt(o.plan_price) : '—'}/mes</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <DaysTag days={daysUntil(o.ends_at)} />
+                    <button onClick={() => setRenewing(o)}
+                      className="flex items-center gap-1 px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
+                      <RefreshCw size={11} /> Renovar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* KPIs */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { icon: Users,        label: 'Negocios activos', value: String(activeOwners.length),        color: 'bg-blue-500'    },
+            { icon: AlertTriangle,label: 'Vencidos',          value: String(overdueOwners.length),       color: overdueOwners.length > 0 ? 'bg-red-500' : 'bg-gray-400' },
+            { icon: Clock,        label: 'Vencen esta semana',value: String(dueSoonOwners.length),       color: dueSoonOwners.length > 0 ? 'bg-amber-500' : 'bg-gray-400' },
+            { icon: TrendingUp,   label: 'Ingreso mensual',   value: fmt(monthlyRevenue),                color: 'bg-emerald-500' },
+          ].map(({ icon: Icon, label, value, color }) => (
+            <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center shrink-0`}>
+                <Icon size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">{label}</p>
+                <p className="text-2xl font-black text-gray-900">{value}</p>
+              </div>
+            </div>
+          ))}
         </div>
+
+        {/* Create form */}
+        {showForm && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <h2 className="text-lg font-black text-gray-900 mb-5 flex items-center gap-2">
+              <Plus size={18} className="text-emerald-500" /> Crear nuevo negocio
+            </h2>
+            <form onSubmit={handleCreateOwner} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Email */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Email *</label>
+                <div className="relative">
+                  <Mail size={15} className="absolute left-3 top-2.5 text-gray-400" />
+                  <input type="email" value={formData.email}
+                    onChange={e => { setFormData({ ...formData, email: e.target.value }); if (formErrors.email) setFormErrors({ ...formErrors, email: '' }); }}
+                    placeholder="owner@gmail.com"
+                    className={`w-full pl-9 pr-4 py-2 border rounded-xl text-sm focus:outline-none focus:ring-2 ${formErrors.email ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-emerald-400'}`} />
+                </div>
+                {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
+              </div>
+              {/* Password */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Contraseña *</label>
+                <div className="relative">
+                  <Lock size={15} className="absolute left-3 top-2.5 text-gray-400" />
+                  <input type="password" value={formData.password}
+                    onChange={e => { setFormData({ ...formData, password: e.target.value }); if (formErrors.password) setFormErrors({ ...formErrors, password: '' }); }}
+                    placeholder="Mínimo 6 caracteres"
+                    className={`w-full pl-9 pr-4 py-2 border rounded-xl text-sm focus:outline-none focus:ring-2 ${formErrors.password ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-emerald-400'}`} />
+                </div>
+                {formErrors.password && <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>}
+              </div>
+              {/* Business name */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Nombre del negocio *</label>
+                <div className="relative">
+                  <Building2 size={15} className="absolute left-3 top-2.5 text-gray-400" />
+                  <input type="text" value={formData.businessName}
+                    onChange={e => { setFormData({ ...formData, businessName: e.target.value }); if (formErrors.businessName) setFormErrors({ ...formErrors, businessName: '' }); }}
+                    placeholder="Mi Restaurante"
+                    className={`w-full pl-9 pr-4 py-2 border rounded-xl text-sm focus:outline-none focus:ring-2 ${formErrors.businessName ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-emerald-400'}`} />
+                </div>
+                {formErrors.businessName && <p className="text-red-500 text-xs mt-1">{formErrors.businessName}</p>}
+              </div>
+              {/* Plan */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Plan</label>
+                <select value={formData.planId} onChange={e => setFormData({ ...formData, planId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                  <option value="">Sin plan (opcional)</option>
+                  {plans.map(p => <option key={p.id} value={p.id}>{p.name} — {fmt(p.price)}/mes</option>)}
+                </select>
+              </div>
+              <div className="md:col-span-2 flex items-center gap-2 bg-blue-50 rounded-xl p-3">
+                <input type="checkbox" id="withDemo" checked={formData.withDemo}
+                  onChange={e => setFormData({ ...formData, withDemo: e.target.checked })}
+                  className="w-4 h-4 text-emerald-500 rounded" />
+                <label htmlFor="withDemo" className="text-sm text-gray-700 font-medium">
+                  Crear como DEMO (30 días de prueba)
+                </label>
+              </div>
+              <div className="md:col-span-2 flex gap-3">
+                <button type="submit" disabled={loading}
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 text-white font-bold py-2.5 rounded-xl transition text-sm">
+                  {loading ? 'Creando...' : 'Crear negocio'}
+                </button>
+                <button type="button" onClick={() => setShowForm(false)}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl transition text-sm">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Table */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+            <p className="font-black text-gray-800">{owners.length} negocio{owners.length !== 1 ? 's' : ''} registrado{owners.length !== 1 ? 's' : ''}</p>
+            <button onClick={fetchOwners} disabled={loading}
+              className="p-2 border border-gray-200 rounded-xl hover:border-gray-300 text-gray-500 transition">
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-gray-400 gap-2">
+              <RefreshCw size={18} className="animate-spin" /> Cargando...
+            </div>
+          ) : owners.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2">
+              <Building2 size={36} className="text-gray-200" />
+              <p className="text-gray-400 text-sm">No hay negocios registrados</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Negocio</th>
+                    <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Plan · Precio</th>
+                    <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Calendar size={11} /> Activación</th>
+                    <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Próximo cobro</th>
+                    <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Días restantes</th>
+                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Estado</th>
+                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {owners.map(o => {
+                    const days      = daysUntil(o.ends_at);
+                    const isActive  = o.status === 'active';
+                    const isBusy    = togglingId === o.id;
+                    return (
+                      <tr key={o.id} className={`hover:bg-gray-50/50 transition ${!isActive ? 'opacity-60' : ''} ${days !== null && days < 0 && isActive ? 'bg-red-50/20' : ''}`}>
+                        {/* Negocio */}
+                        <td className="px-5 py-4">
+                          <p className="font-bold text-gray-900">{o.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${o.is_demo ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'}`}>
+                              {o.is_demo ? 'DEMO' : 'PAGO'}
+                            </span>
+                          </div>
+                        </td>
+                        {/* Plan */}
+                        <td className="px-5 py-4">
+                          <p className="font-semibold text-gray-800">{o.plan_name}</p>
+                          <p className="text-xs text-gray-400">{o.plan_price ? fmt(o.plan_price) + '/mes' : '—'}</p>
+                        </td>
+                        {/* Activación */}
+                        <td className="px-5 py-4 text-gray-600 text-xs">{fmtDate(o.started_at ?? o.created_at)}</td>
+                        {/* Próximo cobro */}
+                        <td className="px-5 py-4">
+                          <p className={`text-sm font-semibold ${days !== null && days < 0 ? 'text-red-600' : days !== null && days <= 7 ? 'text-amber-600' : 'text-gray-700'}`}>
+                            {fmtDate(o.ends_at)}
+                          </p>
+                        </td>
+                        {/* Días */}
+                        <td className="px-5 py-4"><DaysTag days={days} /></td>
+                        {/* Estado */}
+                        <td className="px-5 py-4 text-center">
+                          <span className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full ${
+                            isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {isActive ? '● Activo' : '● Suspendido'}
+                          </span>
+                        </td>
+                        {/* Acciones */}
+                        <td className="px-5 py-4">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            {/* Renovar */}
+                            <button onClick={() => setRenewing(o)}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-100 transition"
+                              title="Renovar suscripción">
+                              <RefreshCw size={11} /> Renovar
+                            </button>
+                            {/* Activar/Desactivar */}
+                            <button onClick={() => handleToggleStatus(o)} disabled={isBusy}
+                              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg border transition disabled:opacity-40 ${
+                                isActive
+                                  ? 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100'
+                                  : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                              }`}
+                              title={isActive ? 'Desactivar' : 'Activar'}>
+                              {isBusy ? <RefreshCw size={11} className="animate-spin" /> : <Power size={11} />}
+                              {isActive ? 'Desactivar' : 'Activar'}
+                            </button>
+                            {/* Cambiar plan */}
+                            <select onChange={e => handleChangePlan(o.id, e.target.value)} defaultValue=""
+                              className="text-xs px-2 py-1 border border-gray-200 rounded-lg bg-white text-gray-600 hover:border-gray-300 transition">
+                              <option value="">Cambiar plan</option>
+                              {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                            {/* Eliminar */}
+                            <button onClick={() => handleDeleteOwner(o.id, o.owner_id)}
+                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Eliminar">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Renew modal */}
+      {renewing && (
+        <RenewModal
+          owner={renewing}
+          onClose={() => setRenewing(null)}
+          onDone={fetchOwners}
+        />
       )}
     </div>
   );

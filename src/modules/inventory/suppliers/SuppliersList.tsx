@@ -3,13 +3,14 @@ import { Plus, Search, RotateCw, WifiOff } from 'lucide-react';
 import { SupplierCard } from './SupplierCard';
 import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
-import { useAuth } from '@/context/AuthContext';
+import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
+import { useTenantId } from '@/hooks/useTenant';
 import { Card, CardContent, Spinner, Button, Alert } from '@/components/ui/uiComponents';
 import { SupplierForm } from './SupplierForm';
 import { AlertCircle } from 'lucide-react'; 
 
 export const SuppliersList: React.FC = () => {
-  const { user } = useAuth();
+  const { tenantId } = useTenantId();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -30,15 +31,21 @@ export const SuppliersList: React.FC = () => {
     };
   }, []);
 
-  // Usar hook seguro para obtener proveedores
+  const ck = cacheKey(tenantId, 'suppliers_list');
+
   const {
     data: suppliersData,
     loading,
     error,
     retry
   } = useSafeFetch(
-    () => inventorySuppliersService.getAllSuppliers(user!.tenant_id),
-    { timeout: 10000, retries: 2, retryDelay: 1000 }
+    async () => {
+      if (!navigator.onLine) return cacheGet(ck) ?? [];
+      const data = await inventorySuppliersService.getAllSuppliers(tenantId);
+      cacheSet(ck, data);
+      return data;
+    },
+    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
   );
 
   // Asegurar que suppliers siempre sea un array

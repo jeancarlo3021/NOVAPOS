@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { RotateCw } from 'lucide-react';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
-import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
 import { 
   Card, 
   CardHeader, 
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/uiComponents';
 
 export const StockMovements: React.FC = () => {
-  const { user } = useAuth();
+  const { tenantId } = useTenantId();
   const isMountedRef = useRef(true);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState('');
@@ -37,8 +37,8 @@ export const StockMovements: React.FC = () => {
     error,
     retry
   } = useSafeFetch(
-    () => inventoryProductsService.getAllProducts(user!.tenant_id),
-    { timeout: 10000, retries: 2, retryDelay: 1000 }
+    () => inventoryProductsService.getAllProducts(tenantId),
+    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
   );
 
   // Asegurar que products siempre sea un array

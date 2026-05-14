@@ -6,7 +6,7 @@ export interface OfflineOperation {
   table: string;
   data: any;
   timestamp: number;
-  synced: boolean;
+  synced: 0 | 1; // boolean is NOT a valid IndexedDB key type — use 0/1
   retries: number;
   lastError?: string;
 }
@@ -19,7 +19,8 @@ class OfflineSyncService {
 
   async init() {
     return new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(this.DB_NAME, 2);
+      // Version 3: recreate store to fix boolean→numeric key type migration
+      const request = indexedDB.open(this.DB_NAME, 3);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -29,11 +30,13 @@ class OfflineSyncService {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(this.STORE_NAME)) {
-          const store = db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
-          store.createIndex('synced', 'synced', { unique: false });
-          store.createIndex('timestamp', 'timestamp', { unique: false });
+        // Drop old store (may have boolean keys that crash Firefox) and recreate
+        if (db.objectStoreNames.contains(this.STORE_NAME)) {
+          db.deleteObjectStore(this.STORE_NAME);
         }
+        const store = db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
+        store.createIndex('synced',    'synced',    { unique: false });
+        store.createIndex('timestamp', 'timestamp', { unique: false });
       };
     });
   }
@@ -46,7 +49,7 @@ class OfflineSyncService {
       ...operation,
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now(),
-      synced: false,
+      synced: 0,
       retries: 0,
     };
 
@@ -68,7 +71,7 @@ class OfflineSyncService {
       const transaction = this.db!.transaction([this.STORE_NAME], 'readonly');
       const store = transaction.objectStore(this.STORE_NAME);
       const index = store.index('synced');
-      const request = index.getAll(IDBKeyRange.only(false));
+      const request = index.getAll(IDBKeyRange.only(0));
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -143,7 +146,7 @@ class OfflineSyncService {
 
       getRequest.onsuccess = () => {
         const op = getRequest.result;
-        op.synced = true;
+        op.synced = 1;
         op.retries = 0;
         const updateRequest = store.put(op);
         updateRequest.onerror = () => reject(updateRequest.error);
@@ -191,7 +194,7 @@ class OfflineSyncService {
       const transaction = this.db!.transaction([this.STORE_NAME], 'readwrite');
       const store = transaction.objectStore(this.STORE_NAME);
       const index = store.index('synced');
-      const request = index.openCursor(IDBKeyRange.only(true));
+      const request = index.openCursor(IDBKeyRange.only(1));
 
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest).result;

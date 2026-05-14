@@ -17,6 +17,11 @@ import { SettingsPage } from './modules/settings/pages/Settingspage';
 import ReportsDashboard from './modules/reports/ReportsDashboard';
 import { Recipes } from './modules/recipes/Recipes';
 import { ExpensesDashboard } from './modules/expenses/ExpensesDashboard';
+import { PurchasesDashboard } from './modules/purchases/PurchasesDashboard';
+import { HRDashboard } from './modules/hr/HRDashboard';
+import { AccountsPayableDashboard } from './modules/accountsPayable/AccountsPayableDashboard';
+import { PromotionsDashboard } from './modules/promotions/PromotionsDashboard';
+import { TablesDashboard } from './modules/tables/TablesDashboard';
 
 function App() {
   return (
@@ -66,6 +71,27 @@ function App() {
             <Route path="/expenses" element={
               <PlanGuard feature="expenses">
                 <ExpensesDashboard />
+              </PlanGuard>
+            } />
+            <Route path="/purchases" element={
+              <PlanGuard feature="purchases">
+                <PurchasesDashboard />
+              </PlanGuard>
+            } />
+            <Route path="/hr" element={<HRDashboard />} />
+            <Route path="/promotions" element={
+              <PlanGuard feature="promotions">
+                <PromotionsDashboard />
+              </PlanGuard>
+            } />
+            <Route path="/tables" element={
+              <PlanGuard feature="tables">
+                <TablesDashboard />
+              </PlanGuard>
+            } />
+            <Route path="/accounts-payable" element={
+              <PlanGuard feature="accounts_payable">
+                <AccountsPayableDashboard />
               </PlanGuard>
             } />
 

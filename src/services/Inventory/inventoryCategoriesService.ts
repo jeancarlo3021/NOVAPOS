@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export interface InventoryCategory {
   id: string;
@@ -11,50 +11,29 @@ export interface InventoryCategory {
 
 export const inventoryCategoriesService = {
   // Obtener todas las categorías
-  async getAllCategories(tenantId: string) {
-    const { data, error } = await supabase
-      .from('categories')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('name', { ascending: true });
-    
-    if (error) throw error;
-    return data || [];
+  async getAllCategories(_tenantId: string) {
+    return apiFetch<InventoryCategory[]>('/categories');
   },
 
   // Crear categoría
-  async createCategory(tenantId: string, category: Omit<InventoryCategory, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>) {
-    const { data, error } = await supabase
-      .from('categories')
-      .insert([{ ...category, tenant_id: tenantId }])
-      .select()
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data;
+  async createCategory(_tenantId: string, category: Omit<InventoryCategory, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>) {
+    return apiFetch<InventoryCategory>('/categories', {
+      method: 'POST',
+      body: JSON.stringify(category),
+    });
   },
 
   // Actualizar categoría
   async updateCategory(id: string, updates: Partial<InventoryCategory>) {
-    const { data, error } = await supabase
-      .from('categories')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data;
+    return apiFetch<InventoryCategory>('/categories/' + id, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
   },
 
   // Eliminar categoría
   async deleteCategory(id: string) {
-    const { error } = await supabase
-      .from('categories')
-      .delete()
-      .eq('id', id);
-    
-    if (error) throw error;
+    await apiFetch('/categories/' + id, { method: 'DELETE' });
     return true;
   },
 };

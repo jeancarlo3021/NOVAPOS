@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 // ============================================
 // CONSTANTES
@@ -61,76 +61,35 @@ export interface CashMovement {
 
 export const cashSessionsService = {
   // Obtener todas las sesiones de caja
-  async getAllSessions(tenantId: string) {
-    const { data, error } = await supabase
-      .from('cash_sessions')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('opened_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+  async getAllSessions(_tenantId: string) {
+    return apiFetch<CashSession[]>('/cash-sessions');
   },
 
   // Obtener sesión de caja abierta
-  async getActiveCashSession(tenantId: string) {
-    const { data, error } = await supabase
-      .from('cash_sessions')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'open')
-      .order('opened_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
-    return data || null;
+  async getActiveCashSession(_tenantId: string) {
+    return apiFetch<CashSession | null>('/cash-sessions/active');
   },
 
   // Obtener sesión por ID
   async getSessionById(id: string) {
-    const { data, error } = await supabase
-      .from('cash_sessions')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<CashSession>('/cash-sessions/' + id);
   },
 
   // Abrir caja
   async openCashSession(
-    tenantId: string,
+    _tenantId: string,
     userId: string,
     openingAmount: number,
     notes?: string
   ) {
-    const { data, error } = await supabase
-      .from('cash_sessions')
-      .insert([
-        {
-          tenant_id: tenantId,
-          user_id: userId,
-          opening_amount: openingAmount,
-          status: 'open',
-          notes,
-          opened_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-
-    // Registrar movimiento de apertura
-    await cashMovementsService.createMovement(
-      data.id,
-      tenantId,
-      'opening',
-      openingAmount,
-      'Apertura de caja'
-    );
+    const data = await apiFetch<CashSession>('/cash-sessions/open', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        opening_amount: openingAmount,
+        notes,
+      }),
+    });
 
     return data;
   },
@@ -141,50 +100,24 @@ export const cashSessionsService = {
     closingAmount: number,
     notes?: string
   ) {
-    const { data, error } = await supabase
-      .from('cash_sessions')
-      .update({
-        closing_amount: closingAmount,
-        status: 'closed',
-        closed_at: new Date().toISOString(),
-        notes,
-      })
-      .eq('id', sessionId)
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-
-    // Registrar movimiento de cierre
-    await cashMovementsService.createMovement(
-      sessionId,
-      data.tenant_id,
-      'closing',
-      closingAmount,
-      'Cierre de caja'
-    );
-
-    return data;
+    return apiFetch<CashSession>('/cash-sessions/' + sessionId + '/close', {
+      method: 'POST',
+      body: JSON.stringify({ closing_amount: closingAmount, notes }),
+    });
   },
 
   // Obtener resumen de sesión
   async getSessionSummary(sessionId: string) {
     const session = await this.getSessionById(sessionId);
-
-    const { data: movements, error } = await supabase
-      .from('cash_movements')
-      .select('*')
-      .eq('cash_session_id', sessionId);
-
-    if (error) throw error;
+    const movements = await cashMovementsService.getSessionMovements(sessionId);
 
     const totalSales = movements
-      ?.filter((m) => m.type === 'sale')
-      .reduce((sum, m) => sum + m.amount, 0) || 0;
+      .filter((m) => m.type === 'sale')
+      .reduce((sum, m) => sum + m.amount, 0);
 
     const totalAdjustments = movements
-      ?.filter((m) => m.type === 'adjustment')
-      .reduce((sum, m) => sum + m.amount, 0) || 0;
+      .filter((m) => m.type === 'adjustment')
+      .reduce((sum, m) => sum + m.amount, 0);
 
     const expectedAmount = session.opening_amount + totalSales + totalAdjustments;
     const difference = (session.closing_amount || 0) - expectedAmount;
@@ -203,48 +136,25 @@ export const cashSessionsService = {
 
   // Obtener sesiones por rango de fechas
   async getSessionsByDateRange(
-    tenantId: string,
+    _tenantId: string,
     startDate: string,
     endDate: string
   ) {
-    const { data, error } = await supabase
-      .from('cash_sessions')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .gte('opened_at', startDate)
-      .lte('opened_at', endDate)
-      .order('opened_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    return apiFetch<CashSession[]>(`/cash-sessions?from=${startDate}&to=${endDate}`);
   },
 
   // Obtener sesiones de un usuario
-  async getSessionsByUser(tenantId: string, userId: string) {
-    const { data, error } = await supabase
-      .from('cash_sessions')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('user_id', userId)
-      .order('opened_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+  async getSessionsByUser(_tenantId: string, userId: string) {
+    return apiFetch<CashSession[]>(`/cash-sessions?user_id=${userId}`);
   },
 
   // Obtener estadísticas de caja
-  async getCashStats(tenantId: string) {
-    const { data, error } = await supabase
-      .from('cash_sessions')
-      .select('opening_amount, closing_amount, status')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'closed');
+  async getCashStats(_tenantId: string) {
+    const data = await apiFetch<CashSession[]>('/cash-sessions?status=closed');
 
-    if (error) throw error;
-
-    const totalOpened = data?.reduce((sum, s) => sum + s.opening_amount, 0) || 0;
-    const totalClosed = data?.reduce((sum, s) => sum + (s.closing_amount || 0), 0) || 0;
-    const totalSessions = data?.length || 0;
+    const totalOpened = data.reduce((sum, s) => sum + s.opening_amount, 0);
+    const totalClosed = data.reduce((sum, s) => sum + (s.closing_amount || 0), 0);
+    const totalSessions = data.length;
 
     return {
       totalSessions,
@@ -261,103 +171,56 @@ export const cashSessionsService = {
 
 export const cashMovementsService = {
   // Obtener todos los movimientos
-  async getAllMovements(tenantId: string) {
-    const { data, error } = await supabase
-      .from('cash_movements')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+  async getAllMovements(_tenantId: string) {
+    return apiFetch<CashMovement[]>('/cash-sessions/movements');
   },
 
   // Obtener movimientos de una sesión
   async getSessionMovements(sessionId: string) {
-    const { data, error } = await supabase
-      .from('cash_movements')
-      .select('*')
-      .eq('cash_session_id', sessionId)
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
+    return apiFetch<CashMovement[]>(`/cash-sessions/${sessionId}/movements`);
   },
 
   // Crear movimiento
   async createMovement(
     sessionId: string,
-    tenantId: string,
+    _tenantId: string,
     type: 'opening' | 'sale' | 'adjustment' | 'closing',
     amount: number,
     description: string,
     referenceId?: string
   ) {
-    const { data, error } = await supabase
-      .from('cash_movements')
-      .insert([
-        {
-          cash_session_id: sessionId,
-          tenant_id: tenantId,
-          type,
-          amount,
-          description,
-          reference_id: referenceId,
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
+    return apiFetch<CashMovement>(`/cash-sessions/${sessionId}/movements`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type,
+        amount,
+        description,
+        reference_id: referenceId,
+      }),
+    });
   },
 
   // Obtener movimientos por tipo
   async getMovementsByType(
-    tenantId: string,
+    _tenantId: string,
     type: 'opening' | 'sale' | 'adjustment' | 'closing'
   ) {
-    const { data, error } = await supabase
-      .from('cash_movements')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('type', type)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    return apiFetch<CashMovement[]>(`/cash-sessions/movements?type=${type}`);
   },
 
   // Obtener movimientos por rango de fechas
   async getMovementsByDateRange(
-    tenantId: string,
+    _tenantId: string,
     startDate: string,
     endDate: string
   ) {
-    const { data, error } = await supabase
-      .from('cash_movements')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .gte('created_at', startDate)
-      .lte('created_at', endDate)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    return apiFetch<CashMovement[]>(`/cash-sessions/movements?from=${startDate}&to=${endDate}`);
   },
 
   // Obtener total de movimientos por tipo
-  async getTotalByType(tenantId: string, type: string) {
-    const { data, error } = await supabase
-      .from('cash_movements')
-      .select('amount')
-      .eq('tenant_id', tenantId)
-      .eq('type', type);
-
-    if (error) throw error;
-
-    return data?.reduce((sum, m) => sum + m.amount, 0) || 0;
+  async getTotalByType(_tenantId: string, type: string) {
+    const data = await apiFetch<CashMovement[]>(`/cash-sessions/movements?type=${type}`);
+    return data.reduce((sum, m) => sum + m.amount, 0);
   },
 };
 
@@ -370,10 +233,10 @@ export const cashService = {
   movements: cashMovementsService,
 
   // Métodos rápidos
-  getActiveCashSession: cashSessionsService.getActiveCashSession,
-  openCashSession: cashSessionsService.openCashSession,
-  closeCashSession: cashSessionsService.closeCashSession,
-  getSessionSummary: cashSessionsService.getSessionSummary,
+  getActiveCashSession: cashSessionsService.getActiveCashSession.bind(cashSessionsService),
+  openCashSession: cashSessionsService.openCashSession.bind(cashSessionsService),
+  closeCashSession: cashSessionsService.closeCashSession.bind(cashSessionsService),
+  getSessionSummary: cashSessionsService.getSessionSummary.bind(cashSessionsService),
 };
 
 export default cashService;

@@ -35,7 +35,6 @@ export const StockReport: React.FC<Props> = ({ tenantId }) => {
         .from('products')
         .select('id, name, sku, stock_quantity, min_stock_level, unit_price, cost_price, categories(name)')
         .eq('tenant_id', tenantId)
-        .eq('is_active', true)
         .order('name');
 
       if (error) throw error;
