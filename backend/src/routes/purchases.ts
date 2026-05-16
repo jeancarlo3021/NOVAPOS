@@ -8,7 +8,7 @@ const purchases = new Hono<{ Variables: { userId: string; tenantId: string; role
 const ItemSchema = z.object({
   product_id: z.string().uuid(),
   quantity:   z.number().positive(),
-  unit_price: z.number().nonnegative().optional().nullable(),
+  unit_price: z.number().nonnegative(),
   subtotal:   z.number().nonnegative().optional().nullable(),
 });
 
