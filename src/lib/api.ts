@@ -21,7 +21,9 @@ export async function apiFetch<T = unknown>(
     },
   });
 
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+  const text = await res.text();
+  let body: any;
+  try { body = JSON.parse(text); } catch { throw new Error(`HTTP ${res.status}: ${text.slice(0, 120)}`); }
+  if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
   return body.data as T;
 }
