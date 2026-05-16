@@ -101,7 +101,10 @@ export const PurchasesList: React.FC = () => {
       <PurchaseForm
         isOpen={showForm}
         onClose={() => setShowForm(false)}
-        onSuccess={() => retry()}
+        onSuccess={() => {
+          setShowForm(false);
+          setTimeout(() => retry(), 300);
+        }}
       />
 
       {/* Alertas */}
@@ -206,7 +209,7 @@ export const PurchasesList: React.FC = () => {
                       {purchase.purchase_number}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
-                      {purchase.supplier_id}
+                      {(purchase.suppliers as any)?.name || 'Proveedor desconocido'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
                       {new Date(purchase.purchase_date).toLocaleDateString('es-ES')}

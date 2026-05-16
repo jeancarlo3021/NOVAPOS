@@ -27,7 +27,9 @@ purchases.get('/', async (c) => {
     const tenantId = c.get('tenantId');
     const status   = c.req.query('status');
 
-    let query = db.from('purchases').select('*').eq('tenant_id', tenantId)
+    let query = db.from('purchases')
+      .select('*, suppliers(name)')
+      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
 
@@ -41,7 +43,7 @@ purchases.get('/:id', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     const { id }   = c.req.param();
-    const { data, error } = await db.from('purchases').select('*, purchase_items(*)')
+    const { data, error } = await db.from('purchases').select('*, purchase_items(*), suppliers(name)')
       .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) return fail(c, 'Compra no encontrada', 404);
