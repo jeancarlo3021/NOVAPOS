@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export interface OfflineOperation {
   id: string;
@@ -120,19 +120,48 @@ class OfflineSyncService {
   }
 
   private async executeOperation(op: OfflineOperation) {
-    switch (op.type) {
-      case 'create':
-        return await supabase.from(op.table).insert([op.data]);
-      case 'update':
-        return await supabase
-          .from(op.table)
-          .update(op.data)
-          .eq('id', op.data.id);
-      case 'delete':
-        return await supabase.from(op.table).delete().eq('id', op.data.id);
-      default:
-        throw new Error(`Tipo de operación desconocido: ${op.type}`);
+    const endpoint = this.tableToEndpoint(op.table);
+    try {
+      switch (op.type) {
+        case 'create':
+          await apiFetch(endpoint, {
+            method: 'POST',
+            body: JSON.stringify(op.data),
+          });
+          return { data: null, error: null };
+        case 'update':
+          await apiFetch(`${endpoint}/${op.data.id}`, {
+            method: 'PUT',
+            body: JSON.stringify(op.data),
+          });
+          return { data: null, error: null };
+        case 'delete':
+          await apiFetch(`${endpoint}/${op.data.id}`, {
+            method: 'DELETE',
+          });
+          return { data: null, error: null };
+        default:
+          throw new Error(`Tipo de operación desconocido: ${op.type}`);
+      }
+    } catch (err: any) {
+      return { data: null, error: err };
     }
+  }
+
+  private tableToEndpoint(table: string): string {
+    const tableToApiMap: Record<string, string> = {
+      products: '/products',
+      invoices: '/invoices',
+      expenses: '/expenses',
+      purchases: '/purchases',
+      cash_sessions: '/cash-sessions',
+      cash_movements: '/cash-sessions/movements',
+      suppliers: '/suppliers',
+      product_categories: '/categories',
+      promotions: '/promotions',
+      users: '/users',
+    };
+    return tableToApiMap[table] || `/${table}`;
   }
 
   private async markAsSynced(operationId: string) {

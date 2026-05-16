@@ -3,7 +3,7 @@ import {
   RefreshCw, TrendingUp, ShoppingBag, Hash,
   Truck, ShoppingCart,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { KPICard } from '../components/KPICard';
 import { SaleProductRow, SaleGroup, SaleLine } from '../components/SaleProductRow';
 import { PurchaseProductRow, PurchaseGroup, PurchaseLine } from '../components/PurchaseProductRow';
@@ -32,108 +32,11 @@ const PURCHASE_STATUS_LABELS: Record<string, string> = {
 // ── Data fetching ─────────────────────────────────────────────────────────────
 
 async function fetchSalesData(tenantId: string, from: string, to: string): Promise<SaleGroup[]> {
-  const { data, error } = await supabase
-    .from('invoice_items')
-    .select(`
-      product_id,
-      quantity,
-      unit_price,
-      subtotal,
-      products(name),
-      invoices!inner(
-        invoice_number,
-        issued_at,
-        customer_name,
-        payment_method,
-        tenant_id,
-        status
-      )
-    `)
-    .eq('invoices.tenant_id', tenantId)
-    .eq('invoices.status', 'completed')
-    .gte('invoices.issued_at', `${from}T00:00:00`)
-    .lte('invoices.issued_at', `${to}T23:59:59`);
-
-  if (error) throw error;
-
-  const map = new Map<string, SaleGroup>();
-  (data ?? []).forEach((row: any) => {
-    const inv = Array.isArray(row.invoices) ? row.invoices[0] : row.invoices;
-    if (!inv) return;
-    const pid   = row.product_id as string;
-    const pname = row.products?.name ?? pid;
-    if (!map.has(pid)) {
-      map.set(pid, { product_id: pid, product_name: pname, total_qty: 0, total_revenue: 0, sales_count: 0, lines: [] });
-    }
-    const g = map.get(pid)!;
-    g.total_qty     += Number(row.quantity);
-    g.total_revenue += Number(row.subtotal);
-    g.sales_count   += 1;
-    g.lines.push({
-      invoice_number: inv.invoice_number,
-      issued_at:      inv.issued_at,
-      customer_name:  inv.customer_name ?? null,
-      payment_method: inv.payment_method,
-      quantity:       Number(row.quantity),
-      unit_price:     Number(row.unit_price),
-      subtotal:       Number(row.subtotal),
-    });
-  });
-  map.forEach((g) => g.lines.sort((a, b) => b.issued_at.localeCompare(a.issued_at)));
-  return Array.from(map.values()).sort((a, b) => b.total_revenue - a.total_revenue);
+  return apiFetch<SaleGroup[]>(`/reports/products/sales?from=${from}&to=${to}`);
 }
 
 async function fetchPurchasesData(tenantId: string, from: string, to: string): Promise<PurchaseGroup[]> {
-  const { data, error } = await supabase
-    .from('purchase_items')
-    .select(`
-      product_id,
-      quantity,
-      unit_price,
-      subtotal,
-      products(name),
-      purchases!inner(
-        purchase_number,
-        purchase_date,
-        status,
-        tenant_id,
-        suppliers(name)
-      )
-    `)
-    .eq('purchases.tenant_id', tenantId)
-    .gte('purchases.purchase_date', from)
-    .lte('purchases.purchase_date', to);
-
-  if (error) throw error;
-
-  const map = new Map<string, PurchaseGroup>();
-  (data ?? []).forEach((row: any) => {
-    const pur = Array.isArray(row.purchases) ? row.purchases[0] : row.purchases;
-    if (!pur) return;
-    const pid          = row.product_id as string;
-    const pname        = row.products?.name ?? pid;
-    const supplierRaw  = Array.isArray(pur.suppliers) ? pur.suppliers[0] : pur.suppliers;
-    const supplierName = supplierRaw?.name ?? 'Sin proveedor';
-
-    if (!map.has(pid)) {
-      map.set(pid, { product_id: pid, product_name: pname, total_qty: 0, total_cost: 0, purchase_count: 0, lines: [] });
-    }
-    const g = map.get(pid)!;
-    g.total_qty      += Number(row.quantity);
-    g.total_cost     += Number(row.subtotal ?? (row.quantity * row.unit_price));
-    g.purchase_count += 1;
-    g.lines.push({
-      purchase_number: pur.purchase_number,
-      purchase_date:   pur.purchase_date,
-      supplier_name:   supplierName,
-      status:          pur.status,
-      quantity:        Number(row.quantity),
-      unit_price:      Number(row.unit_price ?? 0),
-      subtotal:        Number(row.subtotal ?? 0),
-    });
-  });
-  map.forEach((g) => g.lines.sort((a, b) => b.purchase_date.localeCompare(a.purchase_date)));
-  return Array.from(map.values()).sort((a, b) => b.total_cost - a.total_cost);
+  return apiFetch<PurchaseGroup[]>(`/reports/products/purchases?from=${from}&to=${to}`);
 }
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────

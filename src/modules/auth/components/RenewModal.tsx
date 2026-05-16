@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { X, RefreshCw, CheckCircle } from 'lucide-react';
 
 export interface OwnerData {
@@ -47,19 +47,21 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
     setSaving(true);
     setError('');
     try {
-      const { data, error: rpcErr } = await supabase.rpc('admin_renew_subscription', {
-        p_tenant_id: owner.id,
-        p_plan_id:   owner.plan_id ?? null,
-        p_ends_at:   newDate,
+      const data = await apiFetch<{ subscription_id?: string } | null>('/admin/renew', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_tenant_id: owner.id,
+          p_plan_id:   owner.plan_id ?? null,
+          p_ends_at:   newDate,
+        }),
       });
-
-      if (rpcErr) throw new Error(rpcErr.message);
 
       if (data?.subscription_id) {
         try {
-          await supabase.from('tenants')
-            .update({ subscription_id: data.subscription_id })
-            .eq('id', owner.id);
+          await apiFetch(`/admin/tenants/${owner.id}/status`, {
+            method: 'PATCH',
+            body: JSON.stringify({ subscription_id: data.subscription_id }),
+          });
         } catch { /* column may not exist — ignore */ }
       }
 

@@ -13,7 +13,7 @@ import {
 import { invoicesService } from '@/services/invoice/invoiceService';
 import { posOfflineService, OfflineInvoicePayload } from '@/services/pos/posOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
 import { POSProductsPanel } from './POSProducts';
 import { POSCartPanel } from './POSCart';
@@ -73,18 +73,14 @@ export const POSMain = () => {
 
     if (!navigator.onLine) return;
 
-    supabase
-      .from('settings')
-      .select('config')
-      .eq('tenant_id', tenantId)
-      .eq('type', 'general')
-      .maybeSingle()
-      .then(({ data }) => {
+    apiFetch<{ config: any }>('/settings/general')
+      .then((data) => {
         if (!data?.config) return;
         const cfg = data.config as any;
         applyConfig(cfg);
         cacheSet(ck, cfg);
-      });
+      })
+      .catch(() => {/* ignore — cached config is already applied */});
   }, [tenantId]);
 
   // Keep pending invoice count up to date
@@ -241,13 +237,7 @@ export const POSMain = () => {
   ) => {
     if (!tenantId) return;
     try {
-      const { data: generalData } = await supabase
-        .from('settings')
-        .select('config')
-        .eq('tenant_id', tenantId)
-        .eq('type', 'general')
-        .maybeSingle();
-
+      const generalData = await apiFetch<{ config: any }>('/settings/general').catch(() => null);
       const general = generalData?.config as any;
       const now = new Date();
 

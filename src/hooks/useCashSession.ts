@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CashSession } from '@/types/Types_POS';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { useTenant } from './useTenant';
 import { posOfflineService } from '@/services/pos/posOfflineService';
 
@@ -19,20 +19,11 @@ export function useCashSession() {
 
     setLoading(true);
 
-    // 1. Try Supabase when online
+    // 1. Try API when online
     if (navigator.onLine) {
       try {
-        const { data: rows, error: sbError } = await supabase
-          .from('cash_sessions')
-          .select('*')
-          .eq('tenant_id', tenantId)
-          .eq('status', 'open')
-          .order('created_at', { ascending: false })
-          .limit(1);
+        const session = await apiFetch<CashSession | null>('/cash-sessions/active');
 
-        if (sbError) throw sbError;
-
-        const session = rows?.[0] ?? null;
         setCurrentSession(session);
         setFromCache(false);
         setError(null);
@@ -42,7 +33,7 @@ export function useCashSession() {
         setLoading(false);
         return;
       } catch (err) {
-        console.warn('⚠️ Could not load session from Supabase, trying cache:', err);
+        console.warn('Could not load session from API, trying cache:', err);
       }
     }
 

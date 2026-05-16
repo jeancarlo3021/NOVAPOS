@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
@@ -83,16 +84,14 @@ export const CreateOwner: React.FC = () => {
     try {
       setLoading(true);
 
-      const [allPlans, ownersRes] = await Promise.all([
+      const [allPlans, ownersData] = await Promise.all([
         plansService.getAllPlans(),
-        supabase.rpc('admin_get_owners'),
+        apiFetch<any[]>('/admin/owners'),
       ]);
 
       setPlans(allPlans);
 
-      if (ownersRes.error) throw ownersRes.error;
-
-      setOwners((ownersRes.data ?? []).map((row: any) => {
+      setOwners((ownersData ?? []).map((row: any) => {
         const planId = row.sub_plan_id ?? row.plan_id;
         const plan   = allPlans.find(p => p.id === planId);
         return {
@@ -128,16 +127,13 @@ export const CreateOwner: React.FC = () => {
     if (!confirm(`¿${label} el negocio "${owner.name}"?`)) return;
     setTogglingId(owner.id);
     try {
-      const { error: te } = await supabase
-        .from('tenants')
-        .update({ status: newStatus })
-        .eq('id', owner.id);
-      if (te) throw te;
-      if (owner.subscription_id) {
-        await supabase.from('subscriptions')
-          .update({ status: newStatus === 'suspended' ? 'inactive' : 'active', updated_at: new Date().toISOString() })
-          .eq('id', owner.subscription_id);
-      }
+      await apiFetch(`/admin/tenants/${owner.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: newStatus,
+          subscription_id: owner.subscription_id ?? undefined,
+        }),
+      });
       setOwners(prev => prev.map(o => o.id === owner.id ? { ...o, status: newStatus } : o));
       setSuccess(`✅ Negocio "${owner.name}" ${newStatus === 'active' ? 'activado' : 'desactivado'}`);
       setTimeout(() => setSuccess(''), 4000);
@@ -153,11 +149,10 @@ export const CreateOwner: React.FC = () => {
   const handleChangePlan = async (tenantId: string, newPlanId: string) => {
     if (!newPlanId) return;
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('admin-change-plan', {
-        body: { tenantId, newPlanId },
+      await apiFetch('/admin/change-plan', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId, newPlanId }),
       });
-      if (fnError) throw new Error(fnError.message);
-      if (data?.error) throw new Error(data.error);
       await refreshPlan(tenantId);
       setSuccess('Plan actualizado');
       fetchOwners();
@@ -172,11 +167,10 @@ export const CreateOwner: React.FC = () => {
     if (!confirm('¿Eliminar este negocio y todos sus datos? Esta acción no se puede deshacer.')) return;
     setLoading(true);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('admin-delete-owner', {
-        body: { tenantId, ownerId },
+      await apiFetch('/admin/delete-owner', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId, ownerId }),
       });
-      if (fnError) throw new Error(fnError.message);
-      if (data?.error) throw new Error(data.error);
       setSuccess('✅ Negocio eliminado');
       fetchOwners();
     } catch (err: any) {

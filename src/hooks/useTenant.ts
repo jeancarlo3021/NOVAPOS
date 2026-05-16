@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 const TENANT_CACHE_KEY = (userId: string) => `novapos_tenant_${userId}`;
 
@@ -27,14 +27,14 @@ export const useTenantId = () => {
           return;
         }
 
-        // 0️⃣ If we already have it from localStorage, set it fast
+        // 0. If we already have it from localStorage, set it fast
         const cached = localStorage.getItem(TENANT_CACHE_KEY(user.id));
         if (cached) setTenantId(cached);
 
-        // 1️⃣ Try from user_metadata (JWT — available offline)
+        // 1. Try from user_metadata (JWT — available offline)
         let id = (user as any)?.user_metadata?.tenant_id;
 
-        // 2️⃣ Try from user.tenant_id (JWT — available offline)
+        // 2. Try from user.tenant_id (JWT — available offline)
         if (!id) id = (user as any)?.tenant_id;
 
         if (id) {
@@ -43,7 +43,7 @@ export const useTenantId = () => {
           return;
         }
 
-        // 3️⃣+ DB lookups — only when online; use cache if offline
+        // 3+ DB lookups — only when online; use cache if offline
         if (!navigator.onLine) {
           if (cached) {
             setTenantId(cached);
@@ -53,16 +53,12 @@ export const useTenantId = () => {
           return;
         }
 
-        // 3️⃣ Look in users table
-        const { data: userData } = await supabase
-          .from('users').select('tenant_id').eq('id', user.id).maybeSingle();
-        if (userData?.tenant_id) id = userData.tenant_id;
-
-        // 4️⃣ Look in tenants table (owner)
-        if (!id) {
-          const { data: tenantData } = await supabase
-            .from('tenants').select('id').eq('owner_id', user.id).maybeSingle();
-          if (tenantData?.id) id = tenantData.id;
+        // 3. Fetch tenant from API (falls back to DB server-side)
+        try {
+          const data = await apiFetch<{ tenant_id: string }>('/tenants/me');
+          if (data?.tenant_id) id = data.tenant_id;
+        } catch {
+          // API unreachable — handled below
         }
 
         if (id) {

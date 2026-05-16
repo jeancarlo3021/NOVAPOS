@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { Package, AlertTriangle, TrendingUp, Search, Download } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -31,19 +31,8 @@ export const StockReport: React.FC<Props> = ({ tenantId }) => {
     if (!tenantId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, name, sku, stock_quantity, min_stock_level, unit_price, cost_price, categories(name)')
-        .eq('tenant_id', tenantId)
-        .order('name');
-
-      if (error) throw error;
-      setProducts(
-        (data ?? []).map((p: any) => ({
-          ...p,
-          category: Array.isArray(p.categories) ? p.categories[0] ?? null : p.categories,
-        }))
-      );
+      const data = await apiFetch<StockProduct[]>('/reports/stock');
+      setProducts(data ?? []);
     } catch (e) {
       console.error('StockReport error:', e);
     } finally {

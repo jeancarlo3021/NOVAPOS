@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { Users, TrendingUp, CreditCard, Receipt, Download } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -30,41 +30,9 @@ export const SellerReport: React.FC<Props> = ({ tenantId, from, to }) => {
     if (!tenantId) return;
     setLoading(true);
     try {
-      // Join: invoices → cash_sessions → users
-      const { data, error } = await supabase
-        .from('invoices')
-        .select(`
-          id, total,
-          cash_sessions!inner(
-            user_id,
-            users!inner(id, full_name, email)
-          )
-        `)
-        .eq('tenant_id', tenantId)
-        .eq('status', 'completed')
-        .gte('issued_at', `${from}T00:00:00`)
-        .lte('issued_at', `${to}T23:59:59`);
-
-      if (error) throw error;
-      setRawCount((data ?? []).length);
-
-      // Aggregate by user
-      const map: Record<string, SellerStat> = {};
-      (data ?? []).forEach((inv: any) => {
-        const session = Array.isArray(inv.cash_sessions) ? inv.cash_sessions[0] : inv.cash_sessions;
-        const user = session
-          ? (Array.isArray(session.users) ? session.users[0] : session.users)
-          : null;
-        const uid = user?.id ?? 'unknown';
-        const name = user?.full_name ?? user?.email ?? 'Sin asignar';
-        const email = user?.email ?? '';
-        if (!map[uid]) map[uid] = { userId: uid, name, email, totalRevenue: 0, totalInvoices: 0, avgTicket: 0 };
-        map[uid].totalRevenue += Number(inv.total);
-        map[uid].totalInvoices += 1;
-      });
-      const stats = Object.values(map).map(s => ({ ...s, avgTicket: s.totalRevenue / s.totalInvoices }));
-      stats.sort((a, b) => b.totalRevenue - a.totalRevenue);
-      setSellers(stats);
+      const data = await apiFetch<SellerStat[]>(`/reports/sellers?from=${from}&to=${to}`);
+      setRawCount(data.reduce((s, x) => s + x.totalInvoices, 0));
+      setSellers(data);
     } catch (e) {
       console.error('SellerReport error:', e);
     } finally {

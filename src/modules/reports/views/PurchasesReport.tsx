@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { ShoppingCart, Truck, DollarSign, Clock, Download, CheckCircle, XCircle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -38,26 +38,8 @@ export const PurchasesReport: React.FC<Props> = ({ tenantId, from, to }) => {
     if (!tenantId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('purchases')
-        .select(`
-          id, purchase_number, purchase_date, status, total_amount, notes,
-          supplier:suppliers(name),
-          items:purchase_items(id)
-        `)
-        .eq('tenant_id', tenantId)
-        .gte('purchase_date', from)
-        .lte('purchase_date', to)
-        .order('purchase_date', { ascending: false });
-
-      if (error) throw error;
-      setPurchases(
-        (data ?? []).map((p: any) => ({
-          ...p,
-          supplier: Array.isArray(p.supplier) ? p.supplier[0] ?? null : p.supplier,
-          items_count: Array.isArray(p.items) ? p.items.length : 0,
-        }))
-      );
+      const data = await apiFetch<Purchase[]>(`/purchases?from=${from}&to=${to}`);
+      setPurchases(data ?? []);
     } catch (e) {
       console.error('PurchasesReport error:', e);
     } finally {

@@ -6,7 +6,7 @@ import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineSe
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import type { Product } from '@/types/Types_POS';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -86,14 +86,10 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     setError('');
     try {
       if (navigator.onLine) {
-        const [suppRes, prodRes] = await Promise.all([
-          supabase.from('suppliers').select('id, name, payment_terms').eq('tenant_id', tid).order('name'),
-          supabase.from('products').select('id, name, sku, unit_price, cost_price').eq('tenant_id', tid).order('name'),
+        const [supps, prods] = await Promise.all([
+          apiFetch<InventorySupplier[]>('/suppliers'),
+          apiFetch<Product[]>('/products'),
         ]);
-        if (suppRes.error) throw suppRes.error;
-        if (prodRes.error) throw prodRes.error;
-        const supps = (suppRes.data ?? []) as unknown as InventorySupplier[];
-        const prods = (prodRes.data ?? []) as unknown as Product[];
         setSuppliers(supps);
         setProducts(prods);
         // Cache for offline use — both IndexedDB and localStorage

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { useTenantId } from './useTenant';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 
@@ -25,15 +25,7 @@ export const useSettings = (type: SettingType) => {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: err } = await supabase
-        .from('settings')
-        .select('config')
-        .eq('tenant_id', tenantId)
-        .eq('type', type)
-        .maybeSingle();
-
-      if (err) throw err;
-      const config = data?.config ?? null;
+      const config = await apiFetch<any>(`/settings/${type}`);
       setSettings(config);
       if (config !== null) cacheSet(ck, config);
     } catch (err) {
@@ -55,22 +47,10 @@ export const useSettings = (type: SettingType) => {
     setLoading(true);
     setError(null);
     try {
-      const { data: existing } = await supabase
-        .from('settings').select('id')
-        .eq('tenant_id', tenantId).eq('type', type).maybeSingle();
-
-      if (existing?.id) {
-        const { error: err } = await supabase
-          .from('settings')
-          .update({ config: newSettings, updated_at: new Date().toISOString() })
-          .eq('id', existing.id);
-        if (err) throw err;
-      } else {
-        const { error: err } = await supabase
-          .from('settings')
-          .insert({ tenant_id: tenantId, type, config: newSettings });
-        if (err) throw err;
-      }
+      await apiFetch(`/settings/${type}`, {
+        method: 'PUT',
+        body: JSON.stringify(newSettings),
+      });
 
       setSettings(newSettings);
       // Update cache so offline POS picks up new settings immediately

@@ -6,7 +6,7 @@ import {
   Lock, Clock, AlertTriangle, CheckCircle2,
   TrendingUp, RefreshCw, Timer, Download,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { KPICard } from '../components/KPICard';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -59,79 +59,9 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
     setLoading(true);
     setError('');
     try {
-      // 1. Sessions opened in the date range
-      const { data: rawSessions, error: sErr } = await supabase
-        .from('cash_sessions')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .gte('opening_date', `${from}T00:00:00`)
-        .lte('opening_date', `${to}T23:59:59`)
-        .order('opening_date', { ascending: false });
-
-      if (sErr) throw sErr;
-
-      // 2. All invoices for sessions in range (group by cash_session_id)
-      const sessionIds = (rawSessions ?? []).map((s: any) => s.id);
-
-      let invoicesBySession: Record<string, { total: number; cash: number; card: number; sinpe: number; count: number }> = {};
-
-      if (sessionIds.length > 0) {
-        const { data: rawInvoices, error: iErr } = await supabase
-          .from('invoices')
-          .select('cash_session_id, total, payment_method')
-          .in('cash_session_id', sessionIds);
-
-        if (iErr) throw iErr;
-
-        for (const inv of rawInvoices ?? []) {
-          const sid = inv.cash_session_id;
-          if (!invoicesBySession[sid]) {
-            invoicesBySession[sid] = { total: 0, cash: 0, card: 0, sinpe: 0, count: 0 };
-          }
-          const row  = invoicesBySession[sid];
-          const amt  = Number(inv.total ?? 0);
-          row.total += amt;
-          row.count += 1;
-          if (inv.payment_method === 'cash')  row.cash  += amt;
-          if (inv.payment_method === 'card')  row.card  += amt;
-          if (inv.payment_method === 'sinpe') row.sinpe += amt;
-        }
-      }
-
-      // 3. Enrich sessions
-      const enriched: SessionRow[] = (rawSessions ?? []).map((s: any) => {
-        const inv            = invoicesBySession[s.id] ?? { total: 0, cash: 0, card: 0, sinpe: 0, count: 0 };
-        const opening        = Number(s.opening_amount ?? 0);
-        const closing        = s.closing_amount != null ? Number(s.closing_amount) : null;
-        const expectedClose  = opening + inv.cash;       // only cash sales go into register
-        const discrepancy    = closing !== null ? closing - expectedClose : null;
-
-        let duration_min: number | null = null;
-        if (s.opening_date && s.closing_date) {
-          duration_min = Math.round(
-            (new Date(s.closing_date).getTime() - new Date(s.opening_date).getTime()) / 60000
-          );
-        }
-
-        return {
-          id:              s.id,
-          opening_date:    s.opening_date,
-          closing_date:    s.closing_date ?? null,
-          opening_amount:  opening,
-          closing_amount:  closing,
-          status:          s.status,
-          notes:           s.notes ?? null,
-          sales_total:     inv.total,
-          cash_sales:      inv.cash,
-          card_sales:      inv.card,
-          sinpe_sales:     inv.sinpe,
-          invoice_count:   inv.count,
-          expected_closing: expectedClose,
-          discrepancy,
-          duration_min,
-        };
-      });
-
+      const enriched = await apiFetch<SessionRow[]>(
+        `/reports/cash-sessions?from=${from}&to=${to}`
+      );
       setSessions(enriched);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar sesiones');

@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, Target, ShoppingCart,
   RefreshCw, ArrowUp, ArrowDown, Download, Tag, Calendar,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { KPICard } from '../components/KPICard';
 import { WaterfallRow } from '../components/WaterfallRow';
 
@@ -81,130 +81,8 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
     setLoading(true);
     setError('');
     try {
-      // 1. Invoices (revenue)
-      const { data: invoices, error: iErr } = await supabase
-        .from('invoices')
-        .select('total, payment_method, created_at')
-        .eq('tenant_id', tenantId)
-        .gte('created_at', `${from}T00:00:00`)
-        .lte('created_at', `${to}T23:59:59`);
-      if (iErr) throw iErr;
-
-      // 2. Received purchases (COGS)
-      const { data: purchases, error: pErr } = await supabase
-        .from('purchases')
-        .select('total_amount, actual_delivery_date')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'received')
-        .gte('actual_delivery_date', from)
-        .lte('actual_delivery_date', to);
-      if (pErr) throw pErr;
-
-      // 3. Expenses
-      const { data: expenses, error: eErr } = await supabase
-        .from('expenses')
-        .select('amount, date')
-        .eq('tenant_id', tenantId)
-        .gte('date', from)
-        .lte('date', to);
-      if (eErr) throw eErr;
-
-      // 4. Promotions active during the range (non-blocking)
-      let rawPromos: any[] = [];
-      try {
-        const { data: promoData } = await supabase
-          .from('promotions')
-          .select('id, name, type, value, applies_to, starts_at, ends_at, category:category_id(name, icon)')
-          .eq('tenant_id', tenantId)
-          .eq('is_active', true)
-          .lte('starts_at', to)
-          .gte('ends_at', from);
-        rawPromos = promoData ?? [];
-      } catch { /* table may not exist yet */ }
-
-      // ── Aggregate by day ──────────────────────────────────────────────────
-
-      const dayMap = new Map<string, DayRow>();
-
-      const getDay = (d: string): DayRow => {
-        if (!dayMap.has(d)) {
-          dayMap.set(d, { date: d, revenue: 0, cogs: 0, expenses: 0, gross: 0, net: 0, activePromos: [] });
-        }
-        return dayMap.get(d)!;
-      };
-
-      for (const inv of invoices ?? []) {
-        const d = (inv.created_at as string).slice(0, 10);
-        getDay(d).revenue += Number(inv.total ?? 0);
-      }
-      for (const p of purchases ?? []) {
-        if (p.actual_delivery_date) {
-          getDay(p.actual_delivery_date).cogs += Number(p.total_amount ?? 0);
-        }
-      }
-      for (const e of expenses ?? []) {
-        getDay(e.date).expenses += Number(e.amount ?? 0);
-      }
-
-      // Mark active promotions per day
-      for (const [date, row] of dayMap) {
-        row.activePromos = rawPromos
-          .filter(p => p.starts_at <= date && p.ends_at >= date)
-          .map(p => p.name);
-      }
-
-      // Calculate derived fields
-      const byDay: DayRow[] = Array.from(dayMap.values())
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .map(d => ({
-          ...d,
-          gross: d.revenue - d.cogs,
-          net:   d.revenue - d.cogs - d.expenses,
-        }));
-
-      // Build period promos summary
-      const periodPromos: PeriodPromo[] = rawPromos.map(p => {
-        // Count days this promo was active within the report range
-        let activeDays = 0;
-        const start = p.starts_at > from ? p.starts_at : from;
-        const end   = p.ends_at   < to   ? p.ends_at   : to;
-        const s = new Date(start + 'T12:00:00');
-        const e = new Date(end   + 'T12:00:00');
-        activeDays = Math.max(0, Math.round((e.getTime() - s.getTime()) / 86400000) + 1);
-        return {
-          id: p.id, name: p.name, type: p.type, value: p.value,
-          applies_to: p.applies_to, starts_at: p.starts_at, ends_at: p.ends_at,
-          activeDays, category: p.category ?? null,
-        };
-      }).sort((a, b) => b.activeDays - a.activeDays);
-
-      // ── Totals ────────────────────────────────────────────────────────────
-
-      const revenue      = (invoices ?? []).reduce((s, r) => s + Number(r.total ?? 0), 0);
-      const invoiceCount = (invoices ?? []).length;
-      const cogs         = (purchases ?? []).reduce((s, r) => s + Number(r.total_amount ?? 0), 0);
-      const expensesTotal = (expenses ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0);
-      const gross        = revenue - cogs;
-      const net          = gross - expensesTotal;
-      const margin       = revenue > 0 ? (net / revenue) * 100 : 0;
-
-      // ── Revenue by payment method ─────────────────────────────────────────
-
-      const methodMap = new Map<string, number>();
-      for (const inv of invoices ?? []) {
-        const m = inv.payment_method ?? 'cash';
-        methodMap.set(m, (methodMap.get(m) ?? 0) + Number(inv.total ?? 0));
-      }
-      const revenueByMethod = Array.from(methodMap.entries())
-        .map(([method, total]) => ({
-          method,
-          total,
-          label: METHOD_CONFIG[method]?.label ?? method,
-          color: METHOD_CONFIG[method]?.color ?? '#6b7280',
-        }))
-        .sort((a, b) => b.total - a.total);
-
-      setSummary({ revenue, invoiceCount, cogs, expenses: expensesTotal, gross, net, margin, byDay, revenueByMethod, periodPromos });
+      const summary = await apiFetch<Summary>(`/reports/profit?from=${from}&to=${to}`);
+      setSummary(summary);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al generar reporte');
     } finally {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Search, Ban, Lock, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { invoicesService } from '@/services/invoice/invoiceService';
 import { useTenantId } from '@/hooks/useTenant';
 
@@ -52,23 +53,14 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
         .maybeSingle();
       setStoredPin(settingsRow?.config?.void_pin ?? '');
 
-      let query = supabase
-        .from('invoices')
-        .select('id, invoice_number, issued_at, total, payment_method')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'completed')
-        .order('issued_at', { ascending: false })
-        .limit(60);
-
+      const params = new URLSearchParams({ status: 'completed', limit: '60' });
       if (sessionId) {
-        query = query.eq('cash_session_id', sessionId);
+        params.set('session_id', sessionId);
       } else {
         const today = new Date().toISOString().slice(0, 10);
-        query = query.gte('issued_at', `${today}T00:00:00`);
+        params.set('from', `${today}T00:00:00`);
       }
-
-      const { data, error } = await query;
-      if (error) throw error;
+      const data = await apiFetch<InvoiceRow[]>(`/invoices?${params.toString()}`);
       setInvoices(data ?? []);
     } catch (e) {
       console.error('VoidInvoiceModal load error:', e);

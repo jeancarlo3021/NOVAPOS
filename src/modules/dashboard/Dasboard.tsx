@@ -9,7 +9,7 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
 import type { PlanFeatures } from '@/context/AuthContext';
@@ -85,15 +85,10 @@ export const Dashboard = () => {
       const sinceStr = since.toISOString().slice(0, 10);
 
       // ── Invoices (always needed for POS) ───────────────────────────────────
-      const { data: invoices } = await supabase
-        .from('invoices')
-        .select('id, invoice_number, issued_at, total, payment_method, status')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'completed')
-        .gte('issued_at', `${sinceStr}T00:00:00`)
-        .order('issued_at', { ascending: false });
+      const all = await apiFetch<RecentInvoice[]>(
+        `/reports/sales?from=${sinceStr}&to=${todayStr}`
+      );
 
-      const all         = invoices ?? [];
       const todayItems  = all.filter(r => r.issued_at.startsWith(todayStr));
       const todayTotal  = todayItems.reduce((s, r) => s + Number(r.total), 0);
       const todayCount  = todayItems.length;
@@ -114,9 +109,8 @@ export const Dashboard = () => {
       // ── Low stock (full inventory only) ────────────────────────────────────
       let lowStockCount = 0;
       if (hasFullInventory) {
-        const { data: stockRows } = await supabase
-          .from('products').select('stock_quantity, min_stock_level').eq('tenant_id', tenantId);
-        lowStockCount = (stockRows ?? []).filter(
+        const stockRows = await apiFetch<Array<{ stock_quantity: number; min_stock_level: number }>>('/reports/stock');
+        lowStockCount = stockRows.filter(
           p => (p.stock_quantity ?? 0) <= (p.min_stock_level ?? 0)
         ).length;
       }
@@ -125,49 +119,39 @@ export const Dashboard = () => {
       let expensesMonth = 0;
       if (pf.expenses) {
         const firstOfMonth = todayStr.slice(0, 7) + '-01';
-        const { data: expRows } = await supabase
-          .from('expenses').select('amount').eq('tenant_id', tenantId)
-          .gte('date', firstOfMonth).lte('date', todayStr);
-        expensesMonth = (expRows ?? []).reduce((s, r) => s + Number(r.amount), 0);
+        const expRows = await apiFetch<Array<{ amount: number }>>(`/reports/expenses?from=${firstOfMonth}&to=${todayStr}`);
+        expensesMonth = expRows.reduce((s, r) => s + Number(r.amount), 0);
       }
 
       // ── Accounts payable ───────────────────────────────────────────────────
       let pendingAP = 0, overdueAP = 0;
       if (pf.accounts_payable) {
         try {
-          const { data: apRows } = await supabase
-            .from('accounts_payable').select('status').eq('tenant_id', tenantId)
-            .in('status', ['pending', 'partial', 'overdue']);
-          pendingAP = (apRows ?? []).length;
-          overdueAP = (apRows ?? []).filter(r => r.status === 'overdue').length;
+          const apRows = await apiFetch<Array<{ status: string }>>('/accounts-payable?status=pending');
+          pendingAP = apRows.length;
+          overdueAP = apRows.filter(r => r.status === 'overdue').length;
         } catch {}
       }
 
       // ── Pending purchases ──────────────────────────────────────────────────
       let pendingPurchases = 0;
       if (pf.purchases) {
-        const { data: pRows } = await supabase
-          .from('purchases').select('id').eq('tenant_id', tenantId).eq('status', 'pending');
-        pendingPurchases = (pRows ?? []).length;
+        const pRows = await apiFetch<Array<{ id: string }>>('/purchases?status=pending');
+        pendingPurchases = pRows.length;
       }
 
       // ── Active promotions ──────────────────────────────────────────────────
       let activePromos = 0;
       if (pf.promotions) {
         try {
-          const { data: promoRows } = await supabase
-            .from('promotions').select('id').eq('tenant_id', tenantId)
-            .eq('is_active', true).lte('starts_at', todayStr).gte('ends_at', todayStr);
-          activePromos = (promoRows ?? []).length;
+          const promoRows = await apiFetch<Array<{ id: string }>>('/promotions/active');
+          activePromos = promoRows.length;
         } catch {}
       }
 
       // ── Subscription expiry ────────────────────────────────────────────────
       try {
-        const { data: subRow } = await supabase
-          .from('subscriptions').select('ends_at')
-          .eq('tenant_id', tenantId).eq('status', 'active')
-          .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        const subRow = await apiFetch<{ ends_at: string } | null>('/plans/current');
         setSubEndsAt(subRow?.ends_at ?? null);
       } catch {}
 

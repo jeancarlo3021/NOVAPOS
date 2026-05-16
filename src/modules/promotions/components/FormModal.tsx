@@ -11,7 +11,7 @@ import {
   promotionsService,
   type Promotion, type PromotionPayload, type PromoType, type PromoScope,
 } from '@/services/promotions/promotionsService';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { TYPE_CFG, today, type FormModalProps } from './types';
 
 // ── Offline queue helpers (local to FormModal) ────────────────────────────────
@@ -70,14 +70,16 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
 
     if (!navigator.onLine) return;
 
-    supabase.from('product_categories').select('id, name, icon, color').eq('tenant_id', tenantId).order('name')
-      .then(({ data }) => {
+    apiFetch<any[]>('/categories')
+      .then(data => {
         if (data) { setCategories(data); cacheSet(catKey, data); }
-      });
-    supabase.from('products').select('id, name, sku').eq('tenant_id', tenantId).order('name')
-      .then(({ data }) => {
+      })
+      .catch(() => {});
+    apiFetch<any[]>('/products')
+      .then(data => {
         if (data) { setProducts(data); cacheSet(prodKey, data); }
-      });
+      })
+      .catch(() => {});
   }, [tenantId]);
 
   const set = <K extends keyof PromotionPayload>(k: K, v: PromotionPayload[K]) =>

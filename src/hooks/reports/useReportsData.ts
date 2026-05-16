@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 
 export interface DailyStat {
   date: string;       // 'YYYY-MM-DD'
@@ -69,16 +69,13 @@ export function useReportsData(tenantId: string | null) {
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
 
-      const { data: rows, error: err } = await supabase
-        .from('invoices')
-        .select('id, issued_at, total, payment_method, status')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'completed')
-        .gte('issued_at', `${from}T00:00:00`)
-        .lte('issued_at', `${to}T23:59:59`);
-
-      if (err) throw err;
-      const all = rows ?? [];
+      const all = await apiFetch<Array<{
+        id: string;
+        issued_at: string;
+        total: number;
+        payment_method: string;
+        status: string;
+      }>>(`/reports/sales?from=${from}&to=${to}`);
 
       // Today subset
       const today = all.filter(r => {
@@ -147,27 +144,8 @@ export function useReportsData(tenantId: string | null) {
   const fetchTopProducts = useCallback(async (from: string, to: string) => {
     if (!tenantId) return;
     try {
-      const { data, error: err } = await supabase
-        .from('invoice_items')
-        .select('product_id, quantity, subtotal, products(name), invoices!inner(tenant_id, status, issued_at)')
-        .eq('invoices.tenant_id', tenantId)
-        .eq('invoices.status', 'completed')
-        .gte('invoices.issued_at', `${from}T00:00:00`)
-        .lte('invoices.issued_at', `${to}T23:59:59`);
-
-      if (err) throw err;
-
-      const map: Record<string, TopProduct> = {};
-      (data ?? []).forEach((item: any) => {
-        const pid = item.product_id;
-        if (!map[pid]) map[pid] = { product_id: pid, name: item.products?.name ?? pid, qty: 0, revenue: 0 };
-        map[pid].qty += item.quantity;
-        map[pid].revenue += Number(item.subtotal);
-      });
-
-      setTopProducts(
-        Object.values(map).sort((a, b) => b.revenue - a.revenue).slice(0, 10)
-      );
+      const data = await apiFetch<TopProduct[]>(`/reports/stock?from=${from}&to=${to}`);
+      setTopProducts(data.slice(0, 10));
     } catch (e) {
       console.error('Error top products:', e);
     }
@@ -176,18 +154,8 @@ export function useReportsData(tenantId: string | null) {
   const fetchInvoices = useCallback(async (from: string, to: string) => {
     if (!tenantId) return;
     try {
-      const { data, error: err } = await supabase
-        .from('invoices')
-        .select('id, invoice_number, issued_at, total, payment_method, customer_name, status')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'completed')
-        .gte('issued_at', `${from}T00:00:00`)
-        .lte('issued_at', `${to}T23:59:59`)
-        .order('issued_at', { ascending: false })
-        .limit(200);
-
-      if (err) throw err;
-      setInvoices(data ?? []);
+      const data = await apiFetch<InvoiceRow[]>(`/reports/sales?from=${from}&to=${to}&detail=true`);
+      setInvoices(data);
     } catch (e) {
       console.error('Error invoices:', e);
     }

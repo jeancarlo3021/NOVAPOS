@@ -21,7 +21,7 @@ import { PurchasesDashboard } from './modules/purchases/PurchasesDashboard';
 import { HRDashboard } from './modules/hr/HRDashboard';
 import { AccountsPayableDashboard } from './modules/accountsPayable/AccountsPayableDashboard';
 import { PromotionsDashboard } from './modules/promotions/PromotionsDashboard';
-import { TablesDashboard } from './modules/tables/TablesDashboard';
+//import { TablesDashboard } from './restrurant/modules/tables/TablesDashboard';
 
 function App() {
   return (
@@ -84,7 +84,7 @@ function App() {
                 <PromotionsDashboard />
               </PlanGuard>
             } />
-            <Route path="/tables" element={
+            {/* <Route path="/tables" element={
               <PlanGuard feature="tables">
                 <TablesDashboard />
               </PlanGuard>

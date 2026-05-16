@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Product } from '@/types/Types_POS';
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { useTenant } from '../useTenant';
 import { posOfflineService } from '@/services/pos/posOfflineService';
 
@@ -12,17 +12,10 @@ export function usePOSProducts() {
   const [fromCache, setFromCache]   = useState(false);
   const [cachedAt, setCachedAt]     = useState<Date | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  // ── Fetch from Supabase and persist to IndexedDB ───────────────────────────
+  // ── Fetch from API and persist to IndexedDB ────────────────────────────────
 
-  const fetchFromNetwork = async (tid: string): Promise<Product[]> => {
-    const { data, error: sbError } = await supabase
-      .from('products')
-      .select('*, category:product_categories(id,name), unit_type:unit_types(id,name,abbreviation,requires_weight)')
-      .eq('tenant_id', tid)
-      .order('name', { ascending: true });
-
-    if (sbError) throw sbError;
-    return (data || []) as unknown as Product[];
+  const fetchFromNetwork = async (_tid: string): Promise<Product[]> => {
+    return apiFetch<Product[]>('/products?include=category,unit_type&order=name');
   };
 
   // ── Load from IndexedDB cache ──────────────────────────────────────────────
@@ -121,7 +114,7 @@ export function usePOSProducts() {
 
   // ── React to online/offline events ────────────────────────────────────────
   // When the browser goes offline: keep current products in memory, mark as cached.
-  // When back online: silently refresh from Supabase and update cache.
+  // When back online: silently refresh from API and update cache.
 
   useEffect(() => {
     if (!tenantId) return;
