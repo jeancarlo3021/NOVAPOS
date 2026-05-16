@@ -18,6 +18,7 @@ interface LineItem {
   quantity: number;
   unit_price: number;
   total: number;
+  isEditingPrice?: boolean;
 }
 
 interface PurchaseFormProps {
@@ -175,6 +176,27 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
   };
 
   const handleRemoveItem = (rowId: string) => setItems(prev => prev.filter(i => i.rowId !== rowId));
+
+  const handleEditPrice = (rowId: string) => {
+    setItems(prev => prev.map(i => i.rowId === rowId ? { ...i, isEditingPrice: true } : i));
+  };
+
+  const handleSavePrice = (rowId: string, newPrice: number) => {
+    if (newPrice <= 0) {
+      setError('El precio debe ser mayor a 0');
+      return;
+    }
+    setItems(prev => prev.map(i =>
+      i.rowId === rowId
+        ? { ...i, unit_price: newPrice, total: i.quantity * newPrice, isEditingPrice: false }
+        : i
+    ));
+    setError('');
+  };
+
+  const handleCancelEditPrice = (rowId: string) => {
+    setItems(prev => prev.map(i => i.rowId === rowId ? { ...i, isEditingPrice: false } : i));
+  };
 
   const totalAmount = items.reduce((s, i) => s + i.total, 0);
 
@@ -428,7 +450,39 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
                       <tr key={item.rowId} className="hover:bg-gray-50">
                         <td className="px-4 py-2.5 font-medium text-gray-900">{item.product_name}</td>
                         <td className="px-4 py-2.5 text-right text-gray-700">{item.quantity}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-700">₡{item.unit_price.toLocaleString('es-CR')}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-700">
+                          {item.isEditingPrice ? (
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={item.unit_price}
+                              onChange={(e) => {
+                                const newPrice = parseFloat(e.target.value) || item.unit_price;
+                                setItems(prev => prev.map(i =>
+                                  i.rowId === item.rowId
+                                    ? { ...i, unit_price: newPrice, total: i.quantity * newPrice }
+                                    : i
+                                ));
+                              }}
+                              onBlur={() => handleSavePrice(item.rowId, item.unit_price)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSavePrice(item.rowId, item.unit_price);
+                                if (e.key === 'Escape') handleCancelEditPrice(item.rowId);
+                              }}
+                              autoFocus
+                              className="w-full px-2 py-1 border border-blue-400 rounded text-right font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => handleEditPrice(item.rowId)}
+                              disabled={submitting}
+                              className="cursor-pointer hover:text-blue-600 disabled:opacity-40 transition"
+                            >
+                              ₡{item.unit_price.toLocaleString('es-CR')}
+                            </button>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-right font-bold text-gray-900">₡{item.total.toLocaleString('es-CR')}</td>
                         <td className="px-4 py-2.5 text-center">
                           <button onClick={() => handleRemoveItem(item.rowId)} disabled={submitting} className="text-red-400 hover:text-red-600 disabled:opacity-40">
