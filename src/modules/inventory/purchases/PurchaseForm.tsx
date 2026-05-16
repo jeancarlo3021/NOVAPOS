@@ -216,27 +216,23 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
           })),
         });
       } else {
-        const purchase = await inventoryPurchasesService.createPurchase(tenantId, {
-          supplier_id:            supplierId,
-          purchase_number:        num,
-          purchase_date:          purchaseDate,
-          expected_delivery_date: expectedDelivery || null,
-          actual_delivery_date:   null,
-          status:                 'pending',
-          total_amount:           totalAmount,
-          notes:                  notes || null,
-        });
-        if (purchase?.id) {
-          await inventoryPurchasesService.addPurchaseItems(
-            purchase.id,
-            items.map(i => ({
+        await apiFetch('/purchases', {
+          method: 'POST',
+          body: JSON.stringify({
+            supplier_id:            supplierId,
+            purchase_number:        num,
+            purchase_date:          purchaseDate,
+            expected_delivery_date: expectedDelivery || null,
+            total_amount:           totalAmount,
+            notes:                  notes || null,
+            items: items.map(i => ({
               product_id: i.product_id,
               quantity:   i.quantity,
               unit_price: i.unit_price,
               subtotal:   i.total,
-            }))
-          );
-        }
+            })),
+          }),
+        });
       }
 
       onSuccess();
