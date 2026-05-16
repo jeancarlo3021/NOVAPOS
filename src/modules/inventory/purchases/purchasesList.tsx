@@ -5,11 +5,13 @@ import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useTenantId } from '@/hooks/useTenant';
 import { Alert, LoadingState, Button, Card, CardContent } from '@/components/ui/uiComponents';
 import { PurchaseForm } from './PurchaseForm';
+import { PurchaseDetailModal } from './PurchaseDetailModal';
 
 export const PurchasesList: React.FC = () => {
   const { tenantId } = useTenantId();
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -106,6 +108,14 @@ export const PurchasesList: React.FC = () => {
           setTimeout(() => retry(), 300);
         }}
       />
+
+      {/* Modal de Detalles */}
+      {selectedPurchaseId && (
+        <PurchaseDetailModal
+          purchaseId={selectedPurchaseId}
+          onClose={() => setSelectedPurchaseId(null)}
+        />
+      )}
 
       {/* Alertas */}
       {deleteError && (
@@ -228,6 +238,7 @@ export const PurchasesList: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm flex gap-2 justify-center">
                       <button
+                        onClick={() => setSelectedPurchaseId(purchase.id)}
                         className="text-blue-600 hover:text-blue-900 hover:bg-blue-50 p-2 rounded transition"
                         title="Ver detalles"
                       >
