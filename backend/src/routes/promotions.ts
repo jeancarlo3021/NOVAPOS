@@ -71,13 +71,23 @@ promotions.post('/', async (c) => {
     if (!parsed.success) return fail(c, parsed.error.message, 422);
 
     const today = new Date().toISOString().slice(0, 10);
+    const payload = {
+      tenant_id: tenantId,
+      name: parsed.data.name,
+      description: parsed.data.description || null,
+      type: parsed.data.type || 'percentage',
+      value: parsed.data.value,
+      min_purchase: parsed.data.min_purchase || null,
+      product_ids: parsed.data.product_ids || null,
+      category_ids: parsed.data.category_ids || null,
+      starts_at: parsed.data.starts_at || today,
+      ends_at: parsed.data.ends_at || null,
+      is_active: parsed.data.is_active !== undefined ? parsed.data.is_active : true,
+    };
+
     const { data, error } = await db
       .from('promotions')
-      .insert({
-        ...parsed.data,
-        tenant_id: tenantId,
-        starts_at: parsed.data.starts_at || today,
-      })
+      .insert(payload)
       .select()
       .single();
 
