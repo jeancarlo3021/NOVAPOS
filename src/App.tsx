@@ -88,7 +88,7 @@ function App() {
               <PlanGuard feature="tables">
                 <TablesDashboard />
               </PlanGuard>
-            } />
+            } /> */}
             <Route path="/accounts-payable" element={
               <PlanGuard feature="accounts_payable">
                 <AccountsPayableDashboard />

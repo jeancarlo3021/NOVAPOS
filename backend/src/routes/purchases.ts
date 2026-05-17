@@ -112,17 +112,31 @@ purchases.put('/:id', async (c) => {
   } catch (err: any) { return fail(c, err.message, 500); }
 });
 
-// POST /:id/receive — mark as received, increment stock
+// POST /:id/receive — mark as received, increment stock, create accounts payable if needed
 purchases.post('/:id/receive', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     const { id }   = c.req.param();
     const { items } = await c.req.json() as { items: { product_id: string; quantity: number }[] };
 
-    const { data, error } = await db.from('purchases')
+    // Get purchase
+    const { data: purchase, error: pErr } = await db.from('purchases')
+      .select('*')
+      .eq('id', id).eq('tenant_id', tenantId).single();
+    if (pErr) throw new Error(pErr.message);
+    if (!purchase) return fail(c, 'Compra no encontrada', 404);
+
+    // Get supplier details
+    const { data: supplier } = await db.from('suppliers')
+      .select('name, payment_terms')
+      .eq('id', purchase.supplier_id)
+      .maybeSingle();
+
+    // Mark as received
+    const { data: updated, error: uErr } = await db.from('purchases')
       .update({ status: 'received', actual_delivery_date: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() })
       .eq('id', id).eq('tenant_id', tenantId).select().single();
-    if (error) throw new Error(error.message);
+    if (uErr) throw new Error(uErr.message);
 
     // Increment stock for each received item
     for (const item of (items ?? [])) {
@@ -133,9 +147,40 @@ purchases.post('/:id/receive', async (c) => {
       }).eq('id', item.product_id);
     }
 
-    return ok(c, data);
+    // Create accounts payable if supplier has payment terms (credit)
+    const paymentTerms = supplier?.payment_terms;
+    if (paymentTerms && paymentTerms.trim().toLowerCase() !== 'contado') {
+      const dueDate = calculateDueDate(purchase.purchase_date, paymentTerms);
+      await db.from('accounts_payable').insert({
+        tenant_id: tenantId,
+        purchase_id: id,
+        supplier_id: purchase.supplier_id,
+        purchase_number: purchase.purchase_number,
+        supplier_name: supplier?.name ?? 'Proveedor desconocido',
+        total_amount: purchase.total_amount ?? 0,
+        paid_amount: 0,
+        due_date: dueDate,
+        status: 'pending',
+        payment_terms: paymentTerms,
+        notes: purchase.notes,
+      }).then(({ error }) => {
+        if (error) console.error('Error creating accounts payable:', error.message);
+      });
+    }
+
+    return ok(c, updated);
   } catch (err: any) { return fail(c, err.message, 500); }
 });
+
+// Helper to calculate due date from payment terms
+function calculateDueDate(baseDate: string, terms: string): string {
+  const match = terms.match(/(\d+)/);
+  if (!match) return baseDate;
+  const days = parseInt(match[1]);
+  const date = new Date(baseDate);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
 purchases.delete('/:id', async (c) => {
   try {
