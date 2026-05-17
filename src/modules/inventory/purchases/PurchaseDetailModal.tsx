@@ -23,10 +23,12 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
     setError(null);
     try {
       const purchaseData = await inventoryPurchasesService.getPurchaseById(purchaseId);
+      console.log('PurchaseDetailModal received:', purchaseData);
       setPurchase(purchaseData);
 
-      if (purchaseData && Array.isArray(purchaseData)) {
-        setItems(purchaseData);
+      if (purchaseData?.purchase_items && Array.isArray(purchaseData.purchase_items)) {
+        console.log('Setting items:', purchaseData.purchase_items);
+        setItems(purchaseData.purchase_items);
       }
     } catch (err: any) {
       setError(err.message || 'Error al cargar los detalles');
@@ -67,8 +69,8 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
     return null;
   }
 
-  const supplierName = purchase.suppliers?.name || 'Proveedor desconocido';
-  const purchaseItems = Array.isArray(purchase) ? purchase : (purchase.purchase_items || []);
+  const supplierName = (purchase as any).suppliers?.name || 'Proveedor desconocido';
+  const purchaseItems = (purchase as any).purchase_items || [];
 
   const getStatusLabel = (status: string) => {
     const labels: { [key: string]: string } = {
