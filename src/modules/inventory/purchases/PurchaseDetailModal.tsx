@@ -14,7 +14,10 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
   const [purchase, setPurchase] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
 
+  console.log('PurchaseDetailModal mounted with purchaseId:', purchaseId);
+
   useEffect(() => {
+    console.log('useEffect triggered, calling loadPurchaseDetails for:', purchaseId);
     loadPurchaseDetails();
   }, [purchaseId]);
 
