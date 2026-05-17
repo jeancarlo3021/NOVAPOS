@@ -109,4 +109,67 @@ reports.get('/cash-sessions', async (c) => {
   } catch (err: any) { return fail(c, err.message, 500); }
 });
 
+// GET /sellers — sales by seller (simple version - return invoices with seller info)
+reports.get('/sellers', async (c) => {
+  try {
+    const tenantId = c.get('tenantId');
+    const from = c.req.query('from');
+    const to   = c.req.query('to');
+
+    let query = db.from('invoices')
+      .select('created_by, users(name), total, issued_at')
+      .eq('tenant_id', tenantId)
+      .neq('status', 'cancelled')
+      .order('issued_at', { ascending: false });
+    if (from) query = query.gte('issued_at', from);
+    if (to)   query = query.lte('issued_at', to);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return ok(c, data ?? []);
+  } catch (err: any) { return fail(c, err.message, 500); }
+});
+
+// GET /products/sales — products sold (simple version - return invoice items)
+reports.get('/products/sales', async (c) => {
+  try {
+    const tenantId = c.get('tenantId');
+    const from = c.req.query('from');
+    const to   = c.req.query('to');
+
+    let query = db.from('invoice_items')
+      .select('product_id, products(name, sku), quantity, subtotal, invoices(issued_at)')
+      .eq('invoices.tenant_id', tenantId)
+      .neq('invoices.status', 'cancelled')
+      .order('invoices.issued_at', { ascending: false });
+    if (from) query = query.gte('invoices.issued_at', from);
+    if (to)   query = query.lte('invoices.issued_at', to);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return ok(c, data ?? []);
+  } catch (err: any) { return fail(c, err.message, 500); }
+});
+
+// GET /products/purchases — products purchased (simple version - return purchase items)
+reports.get('/products/purchases', async (c) => {
+  try {
+    const tenantId = c.get('tenantId');
+    const from = c.req.query('from');
+    const to   = c.req.query('to');
+
+    let query = db.from('purchase_items')
+      .select('product_id, products(name, sku), quantity, subtotal, purchases(purchase_date)')
+      .eq('purchases.tenant_id', tenantId)
+      .neq('purchases.status', 'cancelled')
+      .order('purchases.purchase_date', { ascending: false });
+    if (from) query = query.gte('purchases.purchase_date', from);
+    if (to)   query = query.lte('purchases.purchase_date', to);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return ok(c, data ?? []);
+  } catch (err: any) { return fail(c, err.message, 500); }
+});
+
 export default reports;
