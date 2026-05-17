@@ -39,7 +39,7 @@ promotions.get('/', async (c) => {
 promotions.get('/active', async (c) => {
   try {
     const tenantId = c.get('tenantId');
-    const today = new Date().toISOString();
+    const today = new Date().toISOString().slice(0, 10);
 
     let query = db
       .from('promotions')
