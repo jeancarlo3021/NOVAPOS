@@ -13,6 +13,8 @@ export interface InventoryPurchase {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  suppliers?: { name: string };
+  purchase_items?: PurchaseItem[];
 }
 
 // Matches the actual purchase_items table schema
@@ -34,7 +36,17 @@ export const inventoryPurchasesService = {
 
   // Obtener compra por ID
   async getPurchaseById(id: string) {
-    return apiFetch<InventoryPurchase>('/purchases/' + id);
+    console.log('Fetching purchase details for ID:', id);
+    try {
+      const result = await apiFetch<InventoryPurchase>('/purchases/' + id);
+      console.log('apiFetch returned:', result);
+      console.log('suppliers:', (result as any)?.suppliers);
+      console.log('purchase_items:', (result as any)?.purchase_items);
+      return result;
+    } catch (err) {
+      console.error('apiFetch error:', err);
+      throw err;
+    }
   },
 
   // Crear compra

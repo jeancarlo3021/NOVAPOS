@@ -55,10 +55,12 @@ purchases.get('/:id', async (c) => {
     if (!purchase) return fail(c, 'Compra no encontrada', 404);
 
     // Get supplier name
-    const { data: supplier } = await db.from('suppliers')
+    const { data: supplier, error: sErr } = await db.from('suppliers')
       .select('name')
       .eq('id', purchase.supplier_id)
-      .single();
+      .maybeSingle();
+
+    if (sErr) console.error('Error fetching supplier:', sErr);
 
     // Get items for this purchase
     const { data: purchaseItems, error: iErr } = await db.from('purchase_items')

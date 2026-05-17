@@ -13,12 +13,12 @@ import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchas
 import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
 import { PurchaseForm } from '@/modules/inventory/purchases/PurchaseForm';
+import { PurchaseDetailModal } from '@/modules/inventory/purchases/PurchaseDetailModal';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { OfflineBanner } from './components/OfflineBanner';
 import { KPICard } from './components/KPICard';
 import { StatusBadge } from './components/StatusBadge';
 import { ReceiveReviewModal } from './components/ReceiveReviewModal';
-import { PurchaseDetailModal } from './components/PurchaseDetailModal';
 import { Status, fmt, fmtDate } from './components/types';
 
 // ── Main dashboard ────────────────────────────────────────────────────────────
@@ -415,8 +415,7 @@ export const PurchasesDashboard: React.FC = () => {
       {/* Detail Modal */}
       {detailPurchase && (
         <PurchaseDetailModal
-          purchase={detailPurchase}
-          tenantId={tenantId ?? user?.tenant_id ?? ''}
+          purchaseId={detailPurchase.id}
           onClose={() => setDetailPurchase(null)}
         />
       )}

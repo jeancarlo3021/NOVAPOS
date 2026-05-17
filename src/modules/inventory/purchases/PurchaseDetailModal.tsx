@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, Package, Loader } from 'lucide-react';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
-import { apiFetch } from '@/lib/api';
 
 interface PurchaseDetailModalProps {
   purchaseId: string;

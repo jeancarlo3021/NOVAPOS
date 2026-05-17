@@ -41,7 +41,7 @@ export function ReceiveReviewModal({ purchase, tenantId, canUpdateStock, onClose
             // use cached list data
           }
         }
-        const raw: ReviewItem[] = (detail?.items ?? []).map((it: any) => ({
+        const raw: ReviewItem[] = (detail?.purchase_items ?? []).map((it: any) => ({
           id:             it.id,
           product_id:     it.product_id,
           product_name:   it.product?.name ?? it.product?.sku ?? 'Producto',
