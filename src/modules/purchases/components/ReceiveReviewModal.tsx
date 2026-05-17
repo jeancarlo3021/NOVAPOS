@@ -80,29 +80,34 @@ export function ReceiveReviewModal({ purchase, tenantId, canUpdateStock, onClose
     setSaving(true);
     setError('');
     try {
-      const receiveData = {
-        purchaseId:    purchase.id,
-        tenantId,
-        items: items.map(it => ({
-          id:             it.id,
-          product_id:     it.product_id,
-          qty_received:   it.qty_received,
-          price_received: it.price_received,
-        })),
-        notes,
-        canUpdateStock,
-        totalReceived,
-        supplierTerms: (purchase.supplier as any)?.payment_terms ?? '',
-        supplierId:    purchase.supplier_id,
-        purchaseNumber: purchase.purchase_number,
-        supplierName,
-      };
+      const itemsData = items.map(it => ({
+        product_id: it.product_id,
+        quantity: it.qty_received,
+      }));
 
       if (!navigator.onLine) {
+        // Queue for sync when online
+        const receiveData = {
+          purchaseId:    purchase.id,
+          tenantId,
+          items: items.map(it => ({
+            id:             it.id,
+            product_id:     it.product_id,
+            qty_received:   it.qty_received,
+            price_received: it.price_received,
+          })),
+          notes,
+          canUpdateStock,
+          totalReceived,
+          supplierTerms: (purchase.supplier as any)?.payment_terms ?? '',
+          supplierId:    purchase.supplier_id,
+          purchaseNumber: purchase.purchase_number,
+          supplierName,
+        };
         await purchasesOfflineService.queueReceive(receiveData);
       } else {
-        // Execute online immediately via the offline service's sync method
-        await purchasesOfflineService._syncReceive({ ...receiveData, createdAt: new Date().toISOString() });
+        // Call backend API to handle receive (creates AP automatically)
+        await inventoryPurchasesService.receivePurchase(purchase.id, itemsData);
       }
       onConfirmed();
     } catch (err) {

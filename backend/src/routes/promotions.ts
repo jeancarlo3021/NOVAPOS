@@ -13,8 +13,8 @@ const PromotionSchema = z.object({
   min_purchase: z.number().nonnegative().optional().nullable(),
   product_ids: z.array(z.string().uuid()).optional().nullable(),
   category_ids: z.array(z.string().uuid()).optional().nullable(),
-  start_date: z.string().optional().nullable(),
-  end_date: z.string().optional().nullable(),
+  starts_at: z.string().default(() => new Date().toISOString().slice(0, 10)),
+  ends_at: z.string().optional().nullable(),
   is_active: z.boolean().optional().default(true),
 });
 
@@ -41,17 +41,22 @@ promotions.get('/active', async (c) => {
     const tenantId = c.get('tenantId');
     const today = new Date().toISOString();
 
-    const { data, error } = await db
+    let query = db
       .from('promotions')
       .select('*')
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
-      .or(`start_date.is.null,start_date.lte.${today}`)
-      .or(`end_date.is.null,end_date.gte.${today}`)
       .order('name');
 
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
-    return ok(c, data);
+
+    const active = (data ?? []).filter(p =>
+      (!p.starts_at || p.starts_at <= today) &&
+      (!p.ends_at || p.ends_at >= today)
+    );
+
+    return ok(c, active);
   } catch (err: any) {
     return fail(c, err.message, 500);
   }

@@ -117,26 +117,35 @@ purchases.post('/:id/receive', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     const { id }   = c.req.param();
-    const { items } = await c.req.json() as { items: { product_id: string; quantity: number }[] };
+    const body = await c.req.json() as { items: { product_id: string; quantity: number }[] };
+    const { items } = body;
+
+    console.log(`[RECEIVE] Starting receive for purchase ${id}, tenant ${tenantId}`);
 
     // Get purchase
     const { data: purchase, error: pErr } = await db.from('purchases')
       .select('*')
       .eq('id', id).eq('tenant_id', tenantId).single();
-    if (pErr) throw new Error(pErr.message);
+    if (pErr) throw new Error(`Error fetching purchase: ${pErr.message}`);
     if (!purchase) return fail(c, 'Compra no encontrada', 404);
 
+    console.log(`[RECEIVE] Purchase found:`, { id: purchase.id, supplier_id: purchase.supplier_id, total: purchase.total_amount });
+
     // Get supplier details
-    const { data: supplier } = await db.from('suppliers')
+    const { data: supplier, error: sErr } = await db.from('suppliers')
       .select('name, payment_terms')
       .eq('id', purchase.supplier_id)
       .maybeSingle();
+
+    console.log(`[RECEIVE] Supplier found:`, { name: supplier?.name, payment_terms: supplier?.payment_terms, error: sErr });
 
     // Mark as received
     const { data: updated, error: uErr } = await db.from('purchases')
       .update({ status: 'received', actual_delivery_date: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() })
       .eq('id', id).eq('tenant_id', tenantId).select().single();
-    if (uErr) throw new Error(uErr.message);
+    if (uErr) throw new Error(`Error updating purchase: ${uErr.message}`);
+
+    console.log(`[RECEIVE] Purchase marked as received`);
 
     // Increment stock for each received item
     for (const item of (items ?? [])) {
@@ -147,11 +156,17 @@ purchases.post('/:id/receive', async (c) => {
       }).eq('id', item.product_id);
     }
 
+    console.log(`[RECEIVE] Stock incremented for ${items?.length ?? 0} items`);
+
     // Create accounts payable if supplier has payment terms (credit)
     const paymentTerms = supplier?.payment_terms;
+    console.log(`[RECEIVE] Payment terms: "${paymentTerms}", checking if credit...`);
+
     if (paymentTerms && paymentTerms.trim().toLowerCase() !== 'contado') {
       const dueDate = calculateDueDate(purchase.purchase_date, paymentTerms);
-      await db.from('accounts_payable').insert({
+      console.log(`[RECEIVE] Creating AP: due_date=${dueDate}, amount=${purchase.total_amount}`);
+
+      const { data: apData, error: apErr } = await db.from('accounts_payable').insert({
         tenant_id: tenantId,
         purchase_id: id,
         supplier_id: purchase.supplier_id,
@@ -163,13 +178,23 @@ purchases.post('/:id/receive', async (c) => {
         status: 'pending',
         payment_terms: paymentTerms,
         notes: purchase.notes,
-      }).then(({ error }) => {
-        if (error) console.error('Error creating accounts payable:', error.message);
-      });
+      }).select().single();
+
+      if (apErr) {
+        console.error(`[RECEIVE] ERROR creating AP:`, apErr);
+      } else {
+        console.log(`[RECEIVE] AP created successfully:`, apData?.id);
+      }
+    } else {
+      console.log(`[RECEIVE] Skipping AP creation - no credit terms`);
     }
 
+    console.log(`[RECEIVE] Receive completed successfully`);
     return ok(c, updated);
-  } catch (err: any) { return fail(c, err.message, 500); }
+  } catch (err: any) {
+    console.error(`[RECEIVE] ERROR:`, err.message);
+    return fail(c, err.message, 500);
+  }
 });
 
 // Helper to calculate due date from payment terms

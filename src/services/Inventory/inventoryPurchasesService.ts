@@ -79,10 +79,10 @@ export const inventoryPurchasesService = {
   },
 
   // Recibir compra
-  async receivePurchase(id: string, _actualDeliveryDate: string) {
+  async receivePurchase(id: string, items: Array<{ product_id: string; quantity: number }>) {
     return apiFetch<InventoryPurchase>('/purchases/' + id + '/receive', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ items }),
     });
   },
 
