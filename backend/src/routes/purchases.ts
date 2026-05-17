@@ -43,11 +43,19 @@ purchases.get('/:id', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     const { id }   = c.req.param();
-    const { data, error } = await db.from('purchases').select('*, purchase_items(*), suppliers(name)')
+    const { data: purchase, error: pErr } = await db.from('purchases')
+      .select('*, suppliers(name)')
       .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data) return fail(c, 'Compra no encontrada', 404);
-    return ok(c, data);
+    if (pErr) throw new Error(pErr.message);
+    if (!purchase) return fail(c, 'Compra no encontrada', 404);
+
+    // Get items separately
+    const { data: items, error: iErr } = await db.from('purchase_items')
+      .select('*')
+      .eq('purchase_id', id);
+    if (iErr) throw new Error(iErr.message);
+
+    return ok(c, { ...purchase, purchase_items: items ?? [] });
   } catch (err: any) { return fail(c, err.message, 500); }
 });
 
