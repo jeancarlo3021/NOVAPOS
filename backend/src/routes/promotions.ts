@@ -13,7 +13,7 @@ const PromotionSchema = z.object({
   min_purchase: z.number().nonnegative().optional().nullable(),
   product_ids: z.array(z.string().uuid()).optional().nullable(),
   category_ids: z.array(z.string().uuid()).optional().nullable(),
-  starts_at: z.string().default(() => new Date().toISOString().slice(0, 10)),
+  starts_at: z.string().optional(),
   ends_at: z.string().optional().nullable(),
   is_active: z.boolean().optional().default(true),
 });
@@ -70,9 +70,14 @@ promotions.post('/', async (c) => {
     const parsed = PromotionSchema.safeParse(body);
     if (!parsed.success) return fail(c, parsed.error.message, 422);
 
+    const today = new Date().toISOString().slice(0, 10);
     const { data, error } = await db
       .from('promotions')
-      .insert({ ...parsed.data, tenant_id: tenantId })
+      .insert({
+        ...parsed.data,
+        tenant_id: tenantId,
+        starts_at: parsed.data.starts_at || today,
+      })
       .select()
       .single();
 
