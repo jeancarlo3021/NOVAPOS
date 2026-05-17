@@ -144,8 +144,8 @@ export function useReportsData(tenantId: string | null) {
   const fetchTopProducts = useCallback(async (from: string, to: string) => {
     if (!tenantId) return;
     try {
-      const data = await apiFetch<TopProduct[]>(`/reports/stock?from=${from}&to=${to}`);
-      setTopProducts(data.slice(0, 10));
+      const response = await apiFetch<{ products: TopProduct[] }>(`/reports/stock?from=${from}&to=${to}`);
+      setTopProducts((response?.products ?? []).slice(0, 10));
     } catch (e) {
       console.error('Error top products:', e);
     }
