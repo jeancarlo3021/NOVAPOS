@@ -44,17 +44,37 @@ purchases.get('/:id', async (c) => {
     const tenantId = c.get('tenantId');
     const { id }   = c.req.param();
 
-    // Use relationship to get items through purchase
-    const { data, error } = await db.from('purchases')
-      .select('*, suppliers(name), purchase_items(*)')
+    // Get purchase
+    const { data: purchase, error: pErr } = await db.from('purchases')
+      .select('*')
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .maybeSingle();
+      .single();
 
-    if (error) throw new Error(error.message);
-    if (!data) return fail(c, 'Compra no encontrada', 404);
+    if (pErr) throw new Error(pErr.message);
+    if (!purchase) return fail(c, 'Compra no encontrada', 404);
 
-    return ok(c, data);
+    // Get supplier name
+    const { data: supplier } = await db.from('suppliers')
+      .select('name')
+      .eq('id', purchase.supplier_id)
+      .single();
+
+    // Get items for this purchase
+    const { data: purchaseItems, error: iErr } = await db.from('purchase_items')
+      .select('*')
+      .eq('purchase_id', id);
+
+    if (iErr) {
+      console.error('Error fetching items:', iErr);
+      return fail(c, 'Error al obtener items: ' + iErr.message, 500);
+    }
+
+    return ok(c, {
+      ...purchase,
+      suppliers: supplier ? { name: supplier.name } : null,
+      purchase_items: purchaseItems || []
+    });
   } catch (err: any) { return fail(c, err.message, 500); }
 });
 
