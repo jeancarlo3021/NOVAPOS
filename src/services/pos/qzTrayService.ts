@@ -5,6 +5,24 @@
 declare const qz: any;
 
 const PRIVATE_KEY_LS = 'qz_private_key';
+const QZ_SCRIPT_URL = 'https://localhost:8383/qz/qz-tray.js';
+
+// Load QZ Tray script dynamically
+function loadQZTrayScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if ((window as any).qz) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = QZ_SCRIPT_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('No se pudo cargar QZ Tray script'));
+    document.head.appendChild(script);
+  });
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -61,6 +79,11 @@ function getQZ(): any {
 }
 
 export async function qzConnect(): Promise<void> {
+  // Try to load script if not already loaded
+  if (!(window as any).qz) {
+    await loadQZTrayScript();
+  }
+
   const q = getQZ();
   if (q.websocket.isActive()) return;
 
@@ -90,8 +113,12 @@ export function qzIsConnected(): boolean {
   }
 }
 
-export function qzIsAvailable(): boolean {
+export async function qzIsAvailable(): Promise<boolean> {
   try {
+    // Try to load script if not already loaded
+    if (!(window as any).qz) {
+      await loadQZTrayScript();
+    }
     getQZ();
     return true;
   } catch {

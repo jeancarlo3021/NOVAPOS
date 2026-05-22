@@ -148,7 +148,7 @@ export class POSPrinterService {
 
   async printQZTray(receiptData: ReceiptData, cfg?: ReceiptConfig): Promise<void> {
     const config = cfg ?? this.getDefaultConfig();
-    if (!qzIsAvailable()) throw new Error('QZ Tray no está instalado o no está corriendo');
+    if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
 
     await qzConnect();
 
@@ -185,7 +185,7 @@ export class POSPrinterService {
 
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       try {
-        if (!qzIsAvailable()) throw new Error('QZ Tray no disponible');
+        if (!(await qzIsAvailable())) throw new Error('QZ Tray no disponible');
         await qzConnect();
         const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
         if (receiptPrinters.length > 0) {
@@ -320,7 +320,7 @@ export class POSPrinterService {
     tenantId: string,
     customerName?: string,
   ): Promise<void> {
-    if (!qzIsAvailable()) return;
+    if (!(await qzIsAvailable())) return;
 
     const cfg = await this.loadReceiptConfig(tenantId);
     const comandaPrinters = (cfg.printers ?? []).filter(
