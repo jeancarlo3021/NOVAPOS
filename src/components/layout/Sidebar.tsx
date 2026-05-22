@@ -18,6 +18,8 @@ import {
   Wallet,
   Tag,
   LayoutGrid,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
@@ -49,9 +51,11 @@ const navigation: NavItem[] = [
 interface SidebarProps {
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
+  isCompact: boolean;
+  setIsCompact: (isCompact: boolean) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, setIsCompact }) => {
   const { user, logout, getRoleLabel, planFeatures } = useAuth();
   const location = useLocation();
   const isPOS = location.pathname === '/pos';
@@ -82,19 +86,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
   const SidebarContent = () => (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
-        <div className="flex items-center gap-2 text-xl font-bold text-emerald-400">
-          <Utensils className="w-6 h-6" />
-          <span>NovaPOS</span>
+      <div className={`flex items-center justify-between h-16 px-4 border-b border-slate-800 transition-all ${isCompact ? 'px-2' : ''}`}>
+        {!isCompact && (
+          <div className="flex items-center gap-2 text-xl font-bold text-emerald-400">
+            <Utensils className="w-6 h-6" />
+            <span>NovaPOS</span>
+          </div>
+        )}
+        {isCompact && <Utensils className="w-6 h-6 text-emerald-400" />}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setIsCompact(!isCompact)}
+            className="hidden md:block p-2 text-gray-400 hover:text-white hover:bg-slate-800 rounded transition"
+            title={isCompact ? 'Expandir' : 'Compactar'}
+          >
+            {isCompact ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+          </button>
+          <button onClick={() => setIsOpen(false)} className="md:hidden text-gray-400 hover:text-white">
+            <X className="w-6 h-6" />
+          </button>
         </div>
-        <button onClick={() => setIsOpen(false)} className="md:hidden text-gray-400 hover:text-white">
-          <X className="w-6 h-6" />
-        </button>
       </div>
 
       {/* Navigation */}
       <div className="flex-1 overflow-y-auto py-4">
-        <nav className="px-3 space-y-1">
+        <nav className={`space-y-1 ${isCompact ? 'px-2' : 'px-3'}`}>
           {visibleNavigation.map((item) => (
             <NavLink
               key={item.name}
@@ -107,38 +123,40 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
                     : 'text-gray-300 hover:bg-slate-800 hover:text-white'
                 }`
               }
+              title={isCompact ? item.name : undefined}
             >
               {({ isActive }) => (
                 <>
                   <item.icon
-                    className={`w-5 h-5 mr-3 ${
+                    className={`w-5 h-5 shrink-0 ${
                       isActive ? 'text-emerald-400' : 'text-gray-400'
-                    }`}
+                    } ${!isCompact && 'mr-3'}`}
                   />
-                  <span className="flex-1">{item.name}</span>
+                  {!isCompact && <span className="flex-1">{item.name}</span>}
                 </>
               )}
             </NavLink>
           ))}
-
         </nav>
       </div>
 
       {/* User Info */}
-      <div className="p-4 border-t border-slate-800">
+      <div className={`border-t border-slate-800 transition-all ${isCompact ? 'p-2' : 'p-4'}`}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-sm font-bold text-white">
+          <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-sm font-bold text-white shrink-0">
             {user?.full_name?.charAt(0).toUpperCase() || 'U'}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">{user?.full_name || 'Usuario'}</p>
-            <p className="text-xs text-gray-400 truncate">
-              {user?.role ? getRoleLabel(user.role) : 'Sin rol'}
-            </p>
-          </div>
+          {!isCompact && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{user?.full_name || 'Usuario'}</p>
+              <p className="text-xs text-gray-400 truncate">
+                {user?.role ? getRoleLabel(user.role) : 'Sin rol'}
+              </p>
+            </div>
+          )}
           <button
             onClick={logout}
-            className="p-2 text-gray-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+            className="p-2 text-gray-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors shrink-0"
             title="Cerrar sesión"
           >
             <LogOut className="w-5 h-5" />
@@ -162,7 +180,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
 
       {/* Desktop sidebar */}
       {!isPOS && (
-        <aside className="hidden md:flex flex-col w-64 bg-slate-900 border-r border-slate-800">
+        <aside className={`hidden md:flex flex-col transition-all duration-300 bg-slate-900 border-r border-slate-800 ${
+          isCompact ? 'w-20' : 'w-64'
+        }`}>
           <SidebarContent />
         </aside>
       )}

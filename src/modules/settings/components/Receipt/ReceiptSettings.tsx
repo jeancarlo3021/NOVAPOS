@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Save } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Check } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { ReceiptPreview } from './ReceiptPreview';
 import { ReceiptFormat } from './ReceiptFormat';
@@ -54,15 +54,39 @@ export const ReceiptSettings: React.FC = () => {
     printers: [],
   });
 
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (settings) {
       setConfig(settings);
     }
   }, [settings]);
 
-  const handleSave = async () => {
-    await updateSettings(config);
-  };
+  // Auto-save con debounce
+  useEffect(() => {
+    if (!config || settings === null) return;
+
+    setSaveStatus('saving');
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        await updateSettings(config);
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } catch {
+        setSaveStatus('idle');
+      }
+    }, 1500);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [config, settings, updateSettings]);
 
   const tabs = [
     { id: 'format' as const, label: 'Formato', icon: '📏' },
@@ -110,16 +134,31 @@ export const ReceiptSettings: React.FC = () => {
         {activeTab === 'preview' && <ReceiptPreview config={config} />}
       </div>
 
-      {/* Save Button */}
+      {/* Save Status */}
       <div className="flex justify-end gap-2">
-        <button
-          onClick={handleSave}
-          disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-2 px-6 rounded-lg flex items-center gap-2 transition"
-        >
-          <Save size={20} />
-          {loading ? 'Guardando...' : 'Guardar Cambios'}
-        </button>
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition ${
+          saveStatus === 'saved'
+            ? 'bg-green-50 text-green-700'
+            : saveStatus === 'saving'
+            ? 'bg-blue-50 text-blue-700'
+            : 'bg-gray-50 text-gray-500'
+        }`}>
+          {saveStatus === 'saving' && (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+              Guardando...
+            </>
+          )}
+          {saveStatus === 'saved' && (
+            <>
+              <Check size={18} />
+              Guardado ✓
+            </>
+          )}
+          {saveStatus === 'idle' && (
+            <span className="text-xs">Auto-guardado habilitado</span>
+          )}
+        </div>
       </div>
     </div>
   );
