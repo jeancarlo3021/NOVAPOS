@@ -37,11 +37,9 @@ async function withRetry<T>(
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      console.log(`🔄 Intento ${i + 1}/${maxRetries}...`);
       return await withTimeout(fn(), QUERY_TIMEOUT);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      console.warn(`⚠️ Intento ${i + 1} falló:`, lastError.message);
 
       if (i < maxRetries - 1) {
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
@@ -59,24 +57,18 @@ async function withRetry<T>(
 export async function getOpenCashSession(
   _tenantId: string
 ): Promise<CashSession | null> {
-  console.log('📋 Buscando caja abierta...');
 
   return withRetry(async () => {
     try {
-      console.log('🔍 Ejecutando query...');
       const data = await apiFetch<CashSession | null>('/cash-sessions/active');
 
       if (data) {
-        console.log('✅ Caja encontrada:', data.id);
-        console.log('Datos:', data);
       } else {
-        console.log('ℹ️ No hay caja abierta');
       }
 
       return data;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.error('❌ Error:', msg);
       throw error;
     }
   });
@@ -90,15 +82,12 @@ export async function getCashSessionsByTenant(
   _tenantId: string,
   limit: number = 10
 ): Promise<CashSession[]> {
-  console.log('📋 Buscando cajas...');
 
   return withRetry(async () => {
     try {
       const data = await apiFetch<CashSession[]>(`/cash-sessions?limit=${limit}`);
-      console.log(`✅ ${data.length} cajas encontradas`);
       return data;
     } catch (error) {
-      console.error('❌ Error:', error);
       throw error;
     }
   });
@@ -111,8 +100,6 @@ export async function getCashSessionsByTenant(
 export async function createCashSession(
   input: CreateCashSessionInput
 ): Promise<CashSession> {
-  console.log('💾 Creando caja...');
-  console.log('Input:', input);
 
   return withRetry(async () => {
     try {
@@ -124,10 +111,8 @@ export async function createCashSession(
         }),
       });
 
-      console.log('✅ Caja creada:', data.id);
       return data;
     } catch (error) {
-      console.error('❌ Error:', error);
       throw error;
     }
   });
@@ -140,8 +125,6 @@ export async function createCashSession(
 export async function closeCashSession(
   input: CloseCashSessionInput
 ): Promise<CashSession> {
-  console.log('🔒 Cerrando caja...');
-  console.log('Input:', input);
 
   return withRetry(async () => {
     try {
@@ -153,10 +136,8 @@ export async function closeCashSession(
         }),
       });
 
-      console.log('✅ Caja cerrada:', data.id);
       return data;
     } catch (error) {
-      console.error('❌ Error:', error);
       throw error;
     }
   });

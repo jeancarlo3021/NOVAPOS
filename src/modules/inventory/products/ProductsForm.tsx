@@ -109,7 +109,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       .catch((err) => {
         if (!active) return;
         setFormError('Error al cargar el producto');
-        console.error(err);
       })
       .finally(() => {
         if (active) setLoadingProduct(false);
@@ -142,7 +141,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       setTimeout(() => setFormSuccess(''), 3000);
     } catch (err) {
       setFormError('Error al crear categoría');
-      console.error(err);
     } finally {
       setCategoryLoading(false);
     }
@@ -164,7 +162,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       setTimeout(() => setFormSuccess(''), 3000);
     } catch (err) {
       setFormError('Error al crear tipo de unidad');
-      console.error(err);
     } finally {
       setUnitLoading(false);
     }
@@ -212,7 +209,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       setTimeout(() => onSuccess(), 1500);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Error al guardar el producto');
-      console.error(err);
     } finally {
       setSubmitting(false);
     }

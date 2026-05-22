@@ -27,7 +27,6 @@ export function usePlansOffline() {
         await updateSyncStatus();
         return operation;
       } catch (error) {
-        console.error('Error creando plan offline:', error);
         throw error;
       }
     },
@@ -46,7 +45,6 @@ export function usePlansOffline() {
         await updateSyncStatus();
         return operation;
       } catch (error) {
-        console.error('Error actualizando plan offline:', error);
         throw error;
       }
     },
@@ -65,7 +63,6 @@ export function usePlansOffline() {
         await updateSyncStatus();
         return operation;
       } catch (error) {
-        console.error('Error eliminando plan offline:', error);
         throw error;
       }
     },

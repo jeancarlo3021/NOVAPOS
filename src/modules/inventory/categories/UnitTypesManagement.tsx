@@ -75,7 +75,6 @@ export const UnitTypesManagement: React.FC = () => {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al guardar';
       setError(errorMsg);
-      console.error('Error saving unit type:', err);
     } finally {
       setSaving(false);
     }
@@ -90,7 +89,6 @@ export const UnitTypesManagement: React.FC = () => {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al eliminar';
       setError(errorMsg);
-      console.error('Error deleting unit type:', err);
     }
   };
 

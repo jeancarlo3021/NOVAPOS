@@ -165,7 +165,6 @@ export const Dashboard = () => {
         weekTotal, lowStockCount, expensesMonth, pendingAP, overdueAP, pendingPurchases, activePromos });
 
     } catch (e) {
-      console.error('Dashboard load error:', e);
     } finally {
       setLoading(false);
     }

@@ -63,7 +63,6 @@ export const PurchaseDetail: React.FC<PurchaseDetailProps> = ({ purchaseId, onCl
       const data = await response.json();
       setPurchase(data);
     } catch (error) {
-      console.error('Error fetching purchase detail:', error);
     } finally {
       setLoading(false);
     }

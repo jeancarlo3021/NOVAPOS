@@ -47,7 +47,6 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
     setLoadingList(true);
     try {
       const settings = await apiFetch<any>('/settings/general');
-      console.log('[VoidInvoiceModal] Settings recibidos:', settings);
 
       // Try various possible PIN field names
       const pin = settings?.void_pin
@@ -57,14 +56,12 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
         ?? settings?.PIN
         ?? '';
 
-      console.log('[VoidInvoiceModal] PIN encontrado:', pin ? '✓ Sí' : '✗ No');
       setStoredPin(pin);
 
       let invoiceData: InvoiceRow[] = [];
 
       if (isOnline) {
         // Online: fetch from API and cache
-        console.log('[VoidInvoiceModal] Online - cargando facturas del API');
         const params = new URLSearchParams({ status: 'completed', limit: '60' });
         if (sessionId) {
           params.set('session_id', sessionId);
@@ -84,31 +81,24 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
 
         // Cache the invoices for offline use
         posOfflineService.cacheInvoices(combined as any);
-        console.log('[VoidInvoiceModal] Facturas desde API:', invoiceData.length, 'Combinadas con cache:', combined.length);
         invoiceData = combined;
       } else {
         // Offline: use cached invoices
-        console.log('[VoidInvoiceModal] Offline - cargando facturas del cache');
         invoiceData = posOfflineService.getCachedInvoices() as any;
-        console.log('[VoidInvoiceModal] Facturas desde cache:', invoiceData.length);
 
         // Also log what's in the cache
         invoiceData.forEach(inv => {
-          console.log(`  - ${inv.invoice_number}: ₡${inv.total}`);
         });
       }
 
       if (invoiceData.length === 0) {
-        console.warn('[VoidInvoiceModal] ⚠️ No se encontraron facturas');
       }
 
       setInvoices(invoiceData);
     } catch (e) {
-      console.error('VoidInvoiceModal load error:', e);
 
       // Fallback to cached invoices on error
       const cached = posOfflineService.getCachedInvoices();
-      console.log('[VoidInvoiceModal] Usando caché como fallback:', cached.length, 'facturas');
       setInvoices(cached as any);
     } finally {
       setLoadingList(false);
@@ -143,12 +133,10 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
     try {
       if (isOnline) {
         // Online: cancel immediately
-        console.log('[VoidInvoiceModal] Online - anulando inmediatamente');
         await invoicesService.cancelInvoice(selected.id);
         onVoided(selected.invoice_number);
       } else {
         // Offline: queue the void operation
-        console.log('[VoidInvoiceModal] Offline - encolando anulación');
         await posOfflineService.queueVoid(selected.id, selected.invoice_number);
         setPinError('');
         onVoided(selected.invoice_number);

@@ -166,7 +166,6 @@ export const POSMain = () => {
   // Force re-render when session closes in offline mode
   useEffect(() => {
     if (forceRefresh > 0) {
-      console.log('🔄 [POSMain] forceRefresh triggered, currentSession:', currentSession);
     }
   }, [forceRefresh, currentSession]);
 
@@ -300,7 +299,6 @@ export const POSMain = () => {
       ).catch(err => console.warn('Error al imprimir comanda:', err));
 
     } catch (err) {
-      console.error('Error al imprimir recibo:', err);
     }
   }, [tenantId, user]);
 
@@ -312,18 +310,15 @@ export const POSMain = () => {
     });
 
     if (!tenantId || !currentSession) {
-      console.error('[handlePaymentConfirm] ❌ BLOQUEADO: Sesión no disponible');
       setError('Sesión de caja no disponible');
       return;
     }
 
     if (currentSession.status !== 'open') {
-      console.error('[handlePaymentConfirm] ❌ BLOQUEADO: Sesión no está abierta. Status:', currentSession.status);
       setError('La caja está cerrada. Debes abrir una nueva sesión para continuar.');
       return;
     }
 
-    console.log('[handlePaymentConfirm] ✅ Sesión validada, procesando pago');
     setPaymentLoading(true);
     const notes = data.voucherNumber ? `Comprobante: ${data.voucherNumber}` : undefined;
 
@@ -508,20 +503,14 @@ export const POSMain = () => {
         <CashCloseModal
           session={currentSession}
           onSuccess={async (closedSession) => {
-            console.log('💾 Sesión cerrada recibida en POSMain:', closedSession);
-            console.log('   Status:', closedSession.status);
             setShowCloseModal(false);
             posOfflineService.cacheSession(closedSession);
-            console.log('📦 Sesión cacheada');
 
             // Refresh session to update currentSession state and force re-render
-            console.log('🔄 Llamando refetchSession...');
             await refetchSession();
-            console.log('🔄 refetchSession completado');
 
             // Force a visual re-render by toggling forceRefresh
             setForceRefresh(prev => prev + 1);
-            console.log('🔄 forceRefresh incrementado');
 
             setSuccess('Caja cerrada correctamente');
           }}

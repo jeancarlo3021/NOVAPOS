@@ -76,7 +76,6 @@ export const CategoriesManagement: React.FC = () => {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al guardar';
       setError(errorMsg);
-      console.error('Error saving category:', err);
     } finally {
       setSaving(false);
     }
@@ -91,7 +90,6 @@ export const CategoriesManagement: React.FC = () => {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al eliminar';
       setError(errorMsg);
-      console.error('Error deleting category:', err);
     }
   };
 

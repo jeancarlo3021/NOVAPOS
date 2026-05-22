@@ -46,7 +46,6 @@ export function usePOSProducts() {
         }
       }
     } catch (e) {
-      console.warn('[usePOSProducts] Error loading from global cache:', e);
     }
 
     // Fallback to IndexedDB cache
@@ -57,15 +56,12 @@ export function usePOSProducts() {
       req.onsuccess = () => {
         const record = req.result;
         if (record?.products?.length) {
-          console.log('[usePOSProducts] Loaded from IndexedDB cache:', record.products.length, 'products');
           resolve({ products: record.products, cachedAt: new Date(record.cachedAt) });
         } else {
-          console.log('[usePOSProducts] No cache found in IndexedDB');
           resolve({ products: [], cachedAt: null });
         }
       };
       req.onerror = () => {
-        console.warn('[usePOSProducts] IndexedDB error');
         resolve({ products: [], cachedAt: null });
       };
     });
@@ -117,7 +113,6 @@ export function usePOSProducts() {
         return;
       } catch (err) {
         // Network failed even though online — fall through to cache
-        console.warn('usePOSProducts: network error, falling back to cache', err);
       }
     }
 

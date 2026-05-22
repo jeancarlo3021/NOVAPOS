@@ -41,7 +41,6 @@ export const PurchasesReport: React.FC<Props> = ({ tenantId, from, to }) => {
       const data = await apiFetch<Purchase[]>(`/purchases?from=${from}&to=${to}`);
       setPurchases(data ?? []);
     } catch (e) {
-      console.error('PurchasesReport error:', e);
     } finally {
       setLoading(false);
     }

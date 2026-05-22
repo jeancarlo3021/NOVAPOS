@@ -59,7 +59,6 @@ export const offlineQueue = {
     };
 
     await idb.put('pending_operations', operation);
-    console.log(`[QUEUE] Operación encolada: ${method} ${path}`);
     return id;
   },
 
@@ -121,17 +120,14 @@ export const offlineQueue = {
 
     for (const op of pending) {
       try {
-        console.log(`[SYNC] Sincronizando: ${op.method} ${op.path}`);
         await apiFetch(op.path, {
           method: op.method,
           ...(op.body && { body: JSON.stringify(op.body) }),
         });
         await this.markSynced(op.id);
         synced++;
-        console.log(`[SYNC] ✅ ${op.method} ${op.path}`);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`[SYNC] Error: ${op.method} ${op.path}`, errorMsg);
 
         // Errors that don't need retry
         const noRetryErrors = [
@@ -157,7 +153,6 @@ export const offlineQueue = {
             console.log(`[SYNC] 🔄 Reintentando (${op.retries}/3): ${op.id}`);
             await idb.put('pending_operations', op);
           } else {
-            console.warn(`[SYNC] ❌ Máximo de reintentos alcanzado: ${op.id}`);
             await this.markSynced(op.id);
           }
           failed++;
@@ -172,7 +167,6 @@ export const offlineQueue = {
     }
 
     await this.clearSynced();
-    console.log(`[SYNC] Resultado: ${synced} exitosas, ${failed} fallidas`);
     return { synced, failed, errors };
   },
 };

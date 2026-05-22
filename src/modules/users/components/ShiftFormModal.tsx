@@ -112,7 +112,6 @@ export const ShiftFormModal: React.FC<ShiftFormModalProps> = ({
       };
 
       // This will be integrated with shiftsService once backend is ready
-      console.log('Shift form payload:', payload, 'isEditing:', isEditing);
 
       // Simulating API delay
       await new Promise((resolve) => setTimeout(resolve, 300));

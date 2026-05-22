@@ -17,15 +17,12 @@ export function useCashSession() {
       return;
     }
 
-    console.log('[useCashSession] Cargando sesión...');
     setLoading(true);
 
     // 1. Try API when online
     if (navigator.onLine) {
       try {
-        console.log('[useCashSession] Online - intentando API...');
         const session = await apiFetch<CashSession | null>('/cash-sessions/active');
-        console.log('[useCashSession] Sesión desde API:', session);
 
         setCurrentSession(session);
         setFromCache(false);
@@ -38,15 +35,12 @@ export function useCashSession() {
         setLoading(false);
         return;
       } catch (err) {
-        console.warn('[useCashSession] API falló, intentando cache:', err);
       }
     }
 
     // 2. Fallback: cached session
     console.log('[useCashSession] Cargando desde cache (offline o API falló)...');
     const cached = posOfflineService.getCachedSession();
-    console.log('[useCashSession] Sesión desde cache:', cached);
-    console.log('[useCashSession] Status de sesión en cache:', cached?.status);
     setCurrentSession(cached);
     setFromCache(true);
     setError(null);

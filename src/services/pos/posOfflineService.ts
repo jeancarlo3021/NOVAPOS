@@ -128,7 +128,6 @@ function cacheInvoices(invoices: CachedInvoice[]): void {
       cachedAt: Date.now(),
     }));
   } catch (e) {
-    console.warn('[posOfflineService] Error cacheando facturas:', e);
   }
 }
 
@@ -216,7 +215,6 @@ async function queueInvoice(payload: Omit<OfflineInvoicePayload, 'id' | 'invoice
     retries: 0,
   };
   await idbPut(db, INVOICES_STORE, invoice);
-  console.log('[posOfflineService] Factura encolada:', { id: invoice.id, invoiceNumber, total: payload.total });
   return invoiceNumber; // Return invoice number instead of ID
 }
 
@@ -345,7 +343,6 @@ function remapSessionId(offlineId: string, serverId: string): void {
   const map = getSessionIdMap();
   map[offlineId] = serverId;
   saveSessionIdMap(map);
-  console.log(`[SESSION-REMAP] ${offlineId} → ${serverId}`);
 }
 
 async function updateInvoiceSessionIds(offlineId: string, serverId: string): Promise<void> {
@@ -380,7 +377,6 @@ async function queueVoid(invoiceId: string, invoiceNumber: string): Promise<stri
     retries: 0,
   };
   await idbPut(db, VOIDS_STORE, payload);
-  console.log('[posOfflineService] Void encolado:', { invoiceNumber, id });
   return id;
 }
 
@@ -428,7 +424,6 @@ async function syncPendingVoids(
       await cancelInvoice(void_op.invoiceId);
       await markVoidSynced(void_op.id);
       synced++;
-      console.log('[posOfflineService] Void sincronizado:', void_op.invoiceNumber);
     } catch (err) {
       const msg = extractErrorMessage(err);
       await markVoidError(void_op.id, msg);

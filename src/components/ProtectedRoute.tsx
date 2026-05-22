@@ -19,7 +19,6 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     // ✅ Timeout de seguridad: si pasa 3 segundos, continuar de todas formas
     timeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
-        console.warn('⚠️ AuthContext tardó más de 3 segundos, continuando...');
         setHasTimedOut(true);
         setIsReady(true);
       }

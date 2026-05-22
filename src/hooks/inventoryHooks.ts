@@ -30,7 +30,6 @@ export const useInventoryStats = (tenantId: string | undefined) => {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar estadísticas');
-      console.error('Error fetching stats:', err);
     } finally {
       setLoading(false);
     }
@@ -57,7 +56,6 @@ export const useLowStockProducts = (tenantId: string | undefined) => {
       setProducts(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar alertas');
-      console.error('Error fetching low stock products:', err);
     } finally {
       setLoading(false);
     }
@@ -84,7 +82,6 @@ export const useStockMovements = (tenantId: string | undefined) => {
       setProducts(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar productos');
-      console.error('Error fetching products:', err);
     } finally {
       setLoading(false);
     }

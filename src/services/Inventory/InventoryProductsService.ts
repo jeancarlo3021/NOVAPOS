@@ -37,11 +37,9 @@ async function withRetry<T>(
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      console.log(`🔄 Intento ${i + 1}/${maxRetries}...`);
       return await withTimeout(fn(), QUERY_TIMEOUT);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      console.warn(`⚠️ Intento ${i + 1} falló:`, lastError.message);
 
       if (i < maxRetries - 1) {
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
@@ -61,13 +59,10 @@ export async function getAllProducts(_tenantId: string | null | undefined): Prom
 
   return withRetry(async () => {
     try {
-      console.log('🔍 Ejecutando query de productos...');
       const data = await apiFetch<Product[]>('/products');
-      console.log(`✅ ${data.length} productos encontrados`);
       return data;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.error('❌ Error:', msg);
       throw error;
     }
   });
@@ -81,17 +76,14 @@ export async function getProductById(
   productId: string,
   _tenantId: string
 ): Promise<Product | null> {
-  console.log('📦 Cargando producto:', productId);
 
   return withRetry(async () => {
     try {
       const data = await apiFetch<Product>('/products/' + productId);
       if (data) {
-        console.log('✅ Producto encontrado:', data.id);
       }
       return data ?? null;
     } catch (error) {
-      console.error('❌ Error:', error);
       throw error;
     }
   });
@@ -105,16 +97,13 @@ export async function searchProducts(
   _tenantId: string,
   searchTerm: string
 ): Promise<Product[]> {
-  console.log('🔍 Buscando productos:', searchTerm);
 
   return withRetry(async () => {
     try {
       const params = new URLSearchParams({ search: searchTerm });
       const data = await apiFetch<Product[]>(`/products?${params}`);
-      console.log(`✅ ${data.length} productos encontrados`);
       return data;
     } catch (error) {
-      console.error('❌ Error:', error);
       throw error;
     }
   });

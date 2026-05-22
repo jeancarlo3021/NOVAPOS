@@ -60,13 +60,11 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
 
       if (!navigator.onLine) {
         // Offline: Queue the operation
-        console.log('📱 Abriendo caja en modo offline...');
         session = await cashSessionOfflineService.queueOpenSession({
           tenant_id: tenantId,
           user_id: userId,
           opening_amount: totalAmount,
         });
-        console.log('✅ Caja encolada para sincronizar cuando vuelvas online');
       } else {
         // Online: Create session immediately
         session = await cashSessionService.createCashSession({
@@ -76,10 +74,8 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
         });
 
         // Pre-cache essential POS data for offline functionality
-        console.log('🔄 Pre-cacheando datos esenciales...');
         cashSessionCacheService.preCacheSessionData(tenantId)
           .then(result => {
-            console.log('✅ Pre-cacheo completado:', result);
           })
           .catch(err => console.warn('⚠️ Error en pre-cacheo:', err));
       }

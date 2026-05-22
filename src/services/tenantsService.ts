@@ -6,7 +6,6 @@ export const tenantsService = {
     try {
       return await apiFetch('/tenants/me');
     } catch (error) {
-      console.error('Error al obtener tenant:', error);
       return null;
     }
   },
@@ -16,7 +15,6 @@ export const tenantsService = {
     try {
       return await apiFetch<any[]>('/tenants/me');
     } catch (error) {
-      console.error('Error al obtener tenants:', error);
       return [];
     }
   },

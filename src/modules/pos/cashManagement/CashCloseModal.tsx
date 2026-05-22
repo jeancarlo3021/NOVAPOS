@@ -86,7 +86,6 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     }
     setLoading(true);
     setError('');
-    console.log('🔐 Iniciando cierre de caja...');
     try {
       const breakdown = JSON.stringify({ cash: cashTotal, card: cardTotal, sinpe: sinpeTotal, sinpeEntries });
       const closeData = {
@@ -95,18 +94,14 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         notes: `Desglose: ${breakdown}`,
       };
 
-      console.log('🔄 Cerrando caja con datos:', closeData);
 
       let updatedSession: CashSession;
 
       if (!navigator.onLine) {
         // Offline: Queue the operation
-        console.log('📱 Cerrando caja en modo offline...');
-        console.log('   Datos del cierre:', closeData);
         try {
           // Store the close operation for syncing
           await cashSessionOfflineService.queueCloseSession(closeData);
-          console.log('✅ Operación guardada en IndexedDB');
 
           // Return optimistic response with correct property names
           updatedSession = {
@@ -115,26 +110,17 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             closed_at: new Date().toISOString(),
             status: 'closed' as const,
           };
-          console.log('✅ Respuesta optimista creada:', updatedSession);
-          console.log('✅ Caja encolada para sincronizar cuando vuelvas online');
         } catch (queueErr) {
-          console.error('❌ Error encolando cierre:', queueErr);
           throw new Error(`Error al encolar: ${queueErr instanceof Error ? queueErr.message : 'desconocido'}`);
         }
       } else {
         // Online: Close immediately
-        console.log('🌐 Enviando cierre a servidor...');
-        console.log('   Datos del cierre:', closeData);
         updatedSession = await cashSessionService.closeCashSession(closeData);
-        console.log('✅ Caja cerrada en servidor:', updatedSession);
       }
 
-      console.log('📤 Llamando onSuccess con sesión:', updatedSession);
       onSuccess(updatedSession);
-      console.log('✨ Cierre completado exitosamente');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al cerrar caja';
-      console.error('❌ Error cerrando caja:', err);
       setError(errorMsg);
     } finally {
       setLoading(false);

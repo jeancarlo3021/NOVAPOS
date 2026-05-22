@@ -8,12 +8,10 @@ async function getToken(): Promise<string | null> {
     const { data, error } = await supabase.auth.getSession();
 
     if (error) {
-      console.warn('[getToken] Error getting session:', error);
       return null;
     }
 
     if (!data.session?.access_token) {
-      console.warn('[getToken] No access token available');
       return null;
     }
 
@@ -23,24 +21,20 @@ async function getToken(): Promise<string | null> {
     const secondsUntilExpiry = (expiresAt ?? 0) - now;
 
     if (secondsUntilExpiry < 300 && data.session.refresh_token) {
-      console.log('[getToken] Token expiring soon, attempting refresh...');
 
       const { data: refreshedData, error: refreshError } = await supabase.auth.refreshSession();
 
       if (refreshError) {
-        console.warn('[getToken] Refresh failed:', refreshError);
         return data.session.access_token;
       }
 
       if (refreshedData.session?.access_token) {
-        console.log('[getToken] Token refreshed successfully');
         return refreshedData.session.access_token;
       }
     }
 
     return data.session.access_token;
   } catch (err) {
-    console.error('[getToken] Unexpected error:', err);
     return null;
   }
 }
@@ -53,7 +47,6 @@ export async function apiFetch<T = unknown>(
   // Validate path doesn't contain undefined
   if (path.includes('undefined')) {
     const error = `Invalid API path with undefined: ${path}`;
-    console.error('[API] ❌', error);
     throw new Error(error);
   }
 
@@ -62,13 +55,11 @@ export async function apiFetch<T = unknown>(
   const isGetRequest = method === 'GET';
   const isOffline = !navigator.onLine;
 
-  console.log(`[API] ${isOffline ? '📱 OFFLINE' : '🌐 ONLINE'} - ${method} ${path}`);
 
   // Handle offline requests
   if (isOffline) {
     // GET requests: try cache
     if (isGetRequest) {
-      console.log('[API] Intentando usar datos cacheados para:', path);
 
       const cacheKeyMap: Record<string, string> = {
         '/products': 'global_products',
@@ -93,10 +84,8 @@ export async function apiFetch<T = unknown>(
           try {
             const data = JSON.parse(cached);
             const items = data.data || data;
-            console.log('[API] ✅ Usando datos cacheados:', path);
             return items as T;
           } catch (e) {
-            console.warn('[API] Error parseando caché:', e);
           }
         }
       }
@@ -105,7 +94,6 @@ export async function apiFetch<T = unknown>(
     }
 
     // POST/PUT/DELETE: enqueue operation
-    console.log(`[API] Encolando operación offline: ${method} ${path}`);
     const body = options.body ? JSON.parse(options.body as string) : undefined;
     await offlineQueue.enqueue(path, method, body);
 
@@ -142,15 +130,12 @@ export async function apiFetch<T = unknown>(
 
     if (!res.ok) {
       const errorMsg = body?.error || body?.message || `HTTP ${res.status}`;
-      console.error(`[API] ${method} ${path} → Error: ${errorMsg}`);
       throw new Error(errorMsg);
     }
 
-    console.log(`[API] ✅ ${method} ${path}`);
     return body.data as T;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[API] ❌ ${method} ${path}: ${errorMsg}`);
     throw error;
   } finally {
     clearTimeout(timeoutId);

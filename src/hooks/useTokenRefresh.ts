@@ -18,7 +18,6 @@ export function useTokenRefresh() {
       const { data: sessionData } = await supabase.auth.getSession();
 
       if (!sessionData.session) {
-        console.warn('⚠️ No hay sesión activa');
         return;
       }
 
@@ -28,14 +27,11 @@ export function useTokenRefresh() {
 
       // If token expires in less than 5 minutes, refresh it
       if (secondsUntilExpiry < 300) {
-        console.log(`⚠️ Token expira en ${secondsUntilExpiry}s, refrescando...`);
 
         const { data, error } = await supabase.auth.refreshSession();
 
         if (error) {
-          console.warn('⚠️ Error refrescando token:', error.message);
         } else if (data.session) {
-          console.log('✅ Token refrescado exitosamente');
         }
       } else {
         console.log(`✅ Token válido por ${Math.round(secondsUntilExpiry / 60)} minutos`);

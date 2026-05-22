@@ -54,7 +54,6 @@ export async function login(
       session: data.session,
     };
   } catch (error) {
-    console.error('Login error:', error);
     throw error;
   }
 }
@@ -68,7 +67,6 @@ export async function logout() {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   } catch (error) {
-    console.error('Logout error:', error);
     throw error;
   }
 }
@@ -91,13 +89,11 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       .maybeSingle();
 
     if (userError) {
-      console.error('Error getting user data:', userError);
       return null;
     }
 
     return userData as AuthUser;
   } catch (error) {
-    console.error('Get current user error:', error);
     return null;
   }
 }
@@ -112,7 +108,6 @@ export async function getSession() {
     if (error) throw error;
     return session;
   } catch (error) {
-    console.error('Get session error:', error);
     return null;
   }
 }
@@ -192,7 +187,6 @@ export async function createOwnerUser(
       tenant: { id: tenantId, name: businessName },
     };
   } catch (error) {
-    console.error('Create owner user error:', error);
     throw error;
   }
 }
@@ -212,7 +206,6 @@ export async function isOwner(userId: string): Promise<boolean> {
     if (error) throw error;
     return data?.role === 'owner';
   } catch (error) {
-    console.error('Is owner error:', error);
     return false;
   }
 }
@@ -229,7 +222,6 @@ export async function changePassword(newPassword: string) {
 
     if (error) throw error;
   } catch (error) {
-    console.error('Change password error:', error);
     throw error;
   }
 }
@@ -246,7 +238,6 @@ export async function resetPassword(email: string) {
 
     if (error) throw error;
   } catch (error) {
-    console.error('Reset password error:', error);
     throw error;
   }
 }
@@ -270,7 +261,6 @@ export async function updateProfile(
     if (error) throw error;
     return data as AuthUser;
   } catch (error) {
-    console.error('Update profile error:', error);
     throw error;
   }
 }
@@ -290,7 +280,6 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
     if (error) throw error;
     return data as AuthUser;
   } catch (error) {
-    console.error('Get user by ID error:', error);
     return null;
   }
 }
@@ -310,7 +299,6 @@ export async function getTenantUsers(tenantId: string): Promise<AuthUser[]> {
     if (error) throw error;
     return (data || []) as AuthUser[];
   } catch (error) {
-    console.error('Get tenant users error:', error);
     return [];
   }
 }
@@ -330,7 +318,6 @@ export async function emailExists(email: string): Promise<boolean> {
     if (error && error.code !== 'PGRST116') throw error;
     return !!data;
   } catch (error) {
-    console.error('Email exists error:', error);
     return false;
   }
 }
@@ -344,7 +331,6 @@ export async function usernameExists(username: string): Promise<boolean> {
     const email = `${username}@nexoerp.local`;
     return emailExists(email);
   } catch (error) {
-    console.error('Username exists error:', error);
     return false;
   }
 }

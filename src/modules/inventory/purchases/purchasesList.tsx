@@ -242,7 +242,6 @@ export const PurchasesList: React.FC = () => {
                     <td className="px-6 py-4 text-sm flex gap-2 justify-center">
                       <button
                         onClick={() => {
-                          console.log('Clicked view details for purchase:', purchase.id);
                           setSelectedPurchaseId(purchase.id);
                         }}
                         className="text-blue-600 hover:text-blue-900 hover:bg-blue-50 p-2 rounded transition"

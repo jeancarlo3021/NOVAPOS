@@ -54,16 +54,13 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
 
     // Double-check session status before allowing payment
     if (!currentSession || currentSession.status !== 'open') {
-      console.warn('[POSCart] ❌ BLOQUEADO: Sesión no está abierta', currentSession?.status);
       return;
     }
 
     if (cartItems.length === 0) {
-      console.warn('[POSCart] ❌ BLOQUEADO: Carrito vacío');
       return;
     }
 
-    console.log('[POSCart] ✅ Permitiendo pago');
     onPayment();
   };
 

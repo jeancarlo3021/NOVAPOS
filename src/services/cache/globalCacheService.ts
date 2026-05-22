@@ -110,7 +110,6 @@ export const globalCacheService = {
     const total = cacheTasks.length;
     let completed = 0;
 
-    console.log(`🔄 Iniciando pre-cacheo global para tenant ${tenantId}...`);
 
     // Cache all tasks in parallel for speed
     const promises = cacheTasks.map(async (task) => {
@@ -142,7 +141,6 @@ export const globalCacheService = {
 
         return { success: true, task: task.name };
       } catch (error) {
-        console.warn(`⚠️ Error cacheando ${task.name}:`, error);
         completed++;
         const percentage = Math.round((completed / total) * 100);
 
@@ -162,7 +160,6 @@ export const globalCacheService = {
     // Wait for all cache tasks to complete
     await Promise.all(promises);
 
-    console.log('✅ Pre-cacheo global completado:', stats);
     return stats;
   },
 
@@ -236,6 +233,5 @@ export const globalCacheService = {
       localStorage.removeItem(`novapos_cache_${cacheKeyFull}`);
     }
 
-    console.log('🗑️ Cache global limpiado');
   },
 };

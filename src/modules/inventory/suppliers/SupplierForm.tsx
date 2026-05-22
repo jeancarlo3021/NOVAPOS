@@ -74,7 +74,6 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
     } catch (err) {
       if (isMountedRef.current) {
         setError('Error al cargar el proveedor');
-        console.error(err);
       }
     } finally {
       if (isMountedRef.current) {
@@ -125,7 +124,6 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
         ? String((err as any).message)
         : 'Error al guardar el proveedor';
       setError(msg);
-      console.error('SupplierForm save error:', err);
     } finally {
       setLoading(false);
     }

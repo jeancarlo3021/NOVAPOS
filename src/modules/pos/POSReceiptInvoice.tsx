@@ -82,16 +82,13 @@ export const POSReceiptInvoice: React.FC<POSReceiptInvoiceProps> = ({
       // Intentar con QZ Tray primero (mejor para POS)
       try {
         await posPrinterService.printQZTray(receiptData);
-        console.log('Impreso con QZ Tray');
       } catch (qzError) {
         // Si QZ Tray no está disponible, usar impresión del navegador
-        console.log('QZ Tray no disponible, usando impresión del navegador');
         await posPrinterService.printBrowser(receiptData);
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
       setPrintError(errorMsg);
-      console.error('Error de impresión:', error);
     } finally {
       setPrinting(false);
     }
@@ -107,7 +104,6 @@ export const POSReceiptInvoice: React.FC<POSReceiptInvoiceProps> = ({
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
       setPrintError(errorMsg);
-      console.error('Error de impresión:', error);
     } finally {
       setPrinting(false);
     }

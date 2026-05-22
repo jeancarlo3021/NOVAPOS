@@ -17,7 +17,6 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
   const [purchase, setPurchase] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
 
-  console.log('PurchaseDetailModal mounted with purchaseId:', purchaseId);
 
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
@@ -31,7 +30,6 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
   }, []);
 
   useEffect(() => {
-    console.log('useEffect triggered, calling loadPurchaseDetails for:', purchaseId);
     loadPurchaseDetails();
   }, [purchaseId, tenantId]);
 
@@ -45,9 +43,7 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
       if (navigator.onLine) {
         try {
           purchaseData = await inventoryPurchasesService.getPurchaseById(purchaseId);
-          console.log('PurchaseDetailModal received:', purchaseData);
         } catch (err) {
-          console.warn('Failed to fetch from API, trying cache:', err);
           // Fall through to cache
         }
       }
@@ -57,7 +53,6 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
         const cachedPurchases = await purchasesOfflineService.getMergedPurchases(tenantId);
         purchaseData = cachedPurchases.find((p: any) => p.id === purchaseId);
         if (purchaseData) {
-          console.log('Found purchase in cache:', purchaseData);
         }
       }
 
@@ -73,12 +68,10 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
           ...item,
           product_name: item.product_name || item.product?.name || item.product_id,
         }));
-        console.log('Setting items:', normalizedItems);
         setItems(normalizedItems);
       }
     } catch (err: any) {
       setError(err.message || 'Error al cargar los detalles');
-      console.error('Error loading purchase:', err);
     } finally {
       setLoading(false);
     }

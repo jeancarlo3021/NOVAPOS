@@ -56,18 +56,13 @@ export const plansService = {
 
   // Cambiar plan de un tenant
   async changePlan(tenantId: string, newPlanId: string) {
-    console.log('🔄 [changePlan] Iniciando...');
-    console.log('  tenantId:', tenantId);
-    console.log('  newPlanId:', newPlanId);
 
     try {
       await apiFetch('/plans/change', {
         method: 'POST',
         body: JSON.stringify({ tenant_id: tenantId, plan_id: newPlanId }),
       });
-      console.log('✅ [changePlan] Completado exitosamente');
     } catch (error) {
-      console.error('❌ [changePlan] Error:', error);
       throw error;
     }
   },

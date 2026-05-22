@@ -64,7 +64,6 @@ export function useOfflineSync() {
             sessionIdMappings[op.id] = newSession.id;
             await posOfflineService.remapSessionId(op.id, newSession.id);
             await posOfflineService.updateInvoiceSessionIds(op.id, newSession.id);
-            console.log(`[SYNC] Remapped session ${op.id} → ${newSession.id}`);
           }
           return newSession;
         } else if (op.type === 'close') {
@@ -99,7 +98,6 @@ export function useOfflineSync() {
       // Refresh pending count to ensure it's accurate
       await updateSyncStatus();
 
-      console.log(`[SYNC] Sincronización completada: ${totalSynced} exitosas, ${totalErrors.length} errores`);
       return { synced: totalSynced, errors: totalErrors };
     } catch (error) {
       setSyncStatus((prev) => ({

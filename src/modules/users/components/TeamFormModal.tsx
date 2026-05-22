@@ -93,7 +93,6 @@ export const TeamFormModal: React.FC<TeamFormModalProps> = ({
       };
 
       // Mock API call - replace with actual teamsService when available
-      console.log('Team form payload:', payload, 'isEditing:', isEditing);
 
       // Simulating API delay
       await new Promise((resolve) => setTimeout(resolve, 300));

@@ -271,7 +271,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadPlanFeatures = async (tenantId: string): Promise<PlanData> => {
     try {
-      console.log('🔄 Cargando plan para tenant:', tenantId);
       
       const { data: rows, error: err } = await supabase
         .from('subscriptions')
@@ -281,12 +280,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .limit(1);
 
       if (err) {
-        console.warn('⚠️ Error cargando suscripción:', err);
       }
 
       const data = rows?.[0] ?? null;
       if (!data) {
-        console.log('📋 No hay suscripción, usando plan por defecto: demo');
         return {
           features: DEFAULT_FEATURES,
           name: 'demo',
@@ -294,7 +291,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (data.status !== 'active') {
-        console.log('⏰ Suscripción inactiva, usando plan por defecto');
         return {
           features: DEFAULT_FEATURES,
           name: 'demo',
@@ -303,21 +299,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const plan = (data as any).subscription_plans;
       const planName: string = plan?.name ?? 'demo';
-      console.log('✅ Plan cargado:', planName);
 
       // ✅ Merge DB features with defaults
       const dbFeatures: Partial<PlanFeatures> = plan?.features ?? {};
       const mergedFeatures = { ...DEFAULT_FEATURES, ...dbFeatures };
 
       // ✅ DEBUG: Mostrar las features cargadas
-      console.log('DEBUG - Features cargadas:', mergedFeatures);
 
       return {
         features: mergedFeatures,
         name: planName,
       };
     } catch (err) {
-      console.error('❌ Error cargando plan:', err);
       return {
         features: DEFAULT_FEATURES,
         name: 'demo',
@@ -346,7 +339,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     planData: PlanData;
   }> => {
     try {
-      console.log('📦 Cargando tenants para usuario:', userId);
 
       const { data: ownedTenants } = await supabase
         .from('tenants')
@@ -374,13 +366,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (resolvedTenant) {
-        console.log('🏢 Tenant encontrado:', resolvedTenant.name);
       } else {
-        console.warn('⚠️ No se encontró tenant para el usuario');
       }
 
       const planData = extractPlanData(resolvedTenant, DEFAULT_FEATURES);
-      console.log('✅ Plan cargado desde tenant:', planData.name);
 
       return {
         tenants: (ownedTenants ?? []).map(toTenant),
@@ -388,7 +377,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         planData,
       };
     } catch (err) {
-      console.error('❌ Error loading tenants:', err);
       return { tenants: [], selectedTenant: null, planData: { features: DEFAULT_FEATURES, name: 'demo' } };
     }
   };
@@ -398,7 +386,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const clearAuthState = () => {
-    console.log('🧹 Limpiando estado de autenticación');
     sessionGenRef.current++;   // Invalidate any in-progress handleSession
     loadingSessionRef.current = false; // Allow next login to proceed
     currentUserIdRef.current  = null;
@@ -420,7 +407,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isActive = () => gen === sessionGenRef.current;
 
     if (!session?.user) {
-      console.log('👤 Sin sesión detectada');
       clearAuthCache();
       setUser(null);
       setTenant(null);
@@ -437,7 +423,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Skip if already loading this exact user (de-duplicate rapid-fire events)
     if (loadingSessionRef.current && currentUserIdRef.current === session.user.id) {
-      console.log('⏳ Ya hay una carga en progreso para este usuario, ignorando...');
       return;
     }
 
@@ -445,7 +430,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loadingSessionRef.current = true;
 
     try {
-      console.log('🔐 Cargando datos del usuario:', session.user.id);
 
       const { data: userData, error: userError } = await supabase
         .from('users')
@@ -459,7 +443,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(userData);
       setError(null);
-      console.log('✅ Usuario cargado:', userData.email);
 
       const { tenants: loadedTenants, selectedTenant, planData: joinedPlanData } = await loadTenants(userData.id, userData.tenant_id);
 
@@ -489,14 +472,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         planName: planData.name,
       });
 
-      console.log('🎉 Autenticación completada - Plan:', planData.name);
 
       // ✅ Pre-cache all essential data globally for offline functionality
       if (selectedTenant && navigator.onLine) {
-        console.log('🔄 Iniciando pre-cacheo global de datos...');
         globalCacheService.preCacheAllData(selectedTenant.id)
           .then((stats) => {
-            console.log('✅ Pre-cacheo completado:', stats);
           })
           .catch((err) => {
             console.warn('⚠️ Error en pre-cacheo (no crítico):', err);
@@ -505,12 +485,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       if (!isActive()) return; // Stale error — don't corrupt fresh state
       const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
-      console.error('❌ Error:', errorMsg);
 
       // If it's a network error, fall back to cached data for this user
       const cache = readAuthCache();
       if (isNetworkError(err) && cache && cache.userId === userId) {
-        console.log('📦 Sin conexión — usando datos en caché');
         setUser(cache.user);
         setTenant(cache.tenant);
         setTenants(cache.tenants);
@@ -541,7 +519,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // while the network call is in-flight
       const cache = readAuthCache();
       if (cache && mounted) {
-        console.log('📦 Sesión cargada desde caché');
         setUser(cache.user);
         setTenant(cache.tenant);
         setTenants(cache.tenants);
@@ -550,7 +527,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
       }
 
-      console.log('📍 Verificando sesión con servidor...');
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!mounted) return;
@@ -579,12 +555,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        console.log('🔔 Auth event:', event);
 
         if (!mounted) return;
 
         if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
-          console.log('⏭️ Ignorando', event);
           return;
         }
 
@@ -597,7 +571,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (event === 'SIGNED_IN' && session?.user) {
           if (currentUserIdRef.current && session.user.id !== currentUserIdRef.current) {
             // A different user signed in from another tab — ignore completely.
-            console.log('⏭️ Ignorando SIGNED_IN de otra pestaña:', session.user.id);
             return;
           }
           // Lock this tab's user ID synchronously, before the async handler
@@ -612,7 +585,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // If this tab still has a user and WE didn't trigger the logout,
           // it's from another tab — leave this tab's session intact.
           if (currentUserIdRef.current && !isSigningOutRef.current) {
-            console.log('⏭️ Ignorando SIGNED_OUT de otra pestaña');
             return;
           }
         }
@@ -636,7 +608,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const login = async (emailOrUsername: string, password: string, rememberMe = false) => {
-    console.log('🔑 Intentando login:', emailOrUsername);
     setError(null);
     setLoading(true);
 
@@ -653,7 +624,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
       if (signInError) {
-        console.error('❌ Error de login:', signInError.message);
         setError(signInError.message);
         setLoading(false);
         throw signInError;
@@ -671,7 +641,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const logout = async () => {
-    console.log('🚪 Cerrando sesión');
     try {
       setError(null);
       setLoading(true);
@@ -689,10 +658,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearAuthCache();
       clearAuthState();
       setLoading(false);
-      console.log('✅ Sesión cerrada');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al cerrar sesión';
-      console.error('❌ Error al logout:', errorMsg);
       setError(errorMsg);
       setLoading(false);
       throw err;
@@ -704,7 +671,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const switchTenant = async (tenantId: string) => {
-    console.log('🏢 Cambiando a tenant:', tenantId);
     try {
       setError(null);
 
@@ -727,11 +693,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPlanFeatures(planData.features);
         setPlanName(planData.name);
         
-        console.log('✅ Tenant cambiado exitosamente - Plan:', planData.name);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al cambiar tenant';
-      console.error('❌ Error:', errorMsg);
       setError(errorMsg);
       throw err;
     }
@@ -742,11 +706,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const refreshPlan = async (tenantId: string) => {
-    console.log('🔄 Refrescando plan del tenant:', tenantId);
     const planData = await loadPlanFeatures(tenantId);
     setPlanFeatures(planData.features);
     setPlanName(planData.name);
-    console.log('✅ Plan refrescado:', planData.name);
   };
 
   // ============================================

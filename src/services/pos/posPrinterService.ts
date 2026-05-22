@@ -106,7 +106,6 @@ export class POSPrinterService {
         await this.printQZTray(receiptData, cfg);
         return;
       } catch (err) {
-        console.warn('QZ Tray no disponible, usando impresora del navegador:', err);
       }
     }
 

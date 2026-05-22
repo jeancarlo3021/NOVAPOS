@@ -90,10 +90,8 @@ export const cashSessionCacheService = {
         })
         .catch(err => console.warn('⚠️ Error cacheando órdenes de compra:', err.message));
 
-      console.log('🔄 Pre-cacheando datos de sesión de caja...');
       return result;
     } catch (error) {
-      console.error('❌ Error en pre-cacheo:', error);
       return result;
     }
   },

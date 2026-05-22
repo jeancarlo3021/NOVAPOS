@@ -165,7 +165,6 @@ export function useReportsData(tenantId: string | null) {
         }));
       setTopProducts(topByRevenue);
     } catch (e) {
-      console.error('Error top products:', e);
     }
   }, [tenantId]);
 
@@ -175,7 +174,6 @@ export function useReportsData(tenantId: string | null) {
       const data = await apiFetch<InvoiceRow[]>(`/reports/sales?from=${from}&to=${to}&detail=true`);
       setInvoices(data);
     } catch (e) {
-      console.error('Error invoices:', e);
     }
   }, [tenantId]);
 

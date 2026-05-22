@@ -56,7 +56,6 @@ export const cashSessionOfflineService = {
     };
 
     await idb.put('pending_cash_sessions', pending);
-    console.log('[CASH-OFFLINE] Operación de apertura encolada:', id);
 
     // Return optimistic response
     return {
@@ -89,9 +88,7 @@ export const cashSessionOfflineService = {
       };
 
       await idb.put('pending_cash_sessions', pending);
-      console.log('[CASH-OFFLINE] Operación de cierre encolada:', data.id);
     } catch (error) {
-      console.error('[CASH-OFFLINE] Error al encolar cierre:', error);
       throw new Error(`No se pudo guardar la operación offline: ${error instanceof Error ? error.message : 'error desconocido'}`);
     }
   },
@@ -151,7 +148,6 @@ export const cashSessionOfflineService = {
 
     for (const op of unsynced) {
       try {
-        console.log('[CASH-SYNC] Sincronizando operación:', op.type, op.id);
 
         if (op.type === 'close') {
           // For close operations, extract the data and call the sync function
@@ -163,9 +159,7 @@ export const cashSessionOfflineService = {
 
         await this.markSynced(op.id);
         synced++;
-        console.log('[CASH-SYNC] ✅ Operación sincronizada:', op.id);
       } catch (error) {
-        console.error('[CASH-SYNC] Error sincronizando:', op.id, error);
         failed++;
       }
     }

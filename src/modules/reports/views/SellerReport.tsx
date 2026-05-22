@@ -34,7 +34,6 @@ export const SellerReport: React.FC<Props> = ({ tenantId, from, to }) => {
       setRawCount(data.reduce((s, x) => s + x.totalInvoices, 0));
       setSellers(data);
     } catch (e) {
-      console.error('SellerReport error:', e);
     } finally {
       setLoading(false);
     }
