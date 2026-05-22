@@ -88,16 +88,20 @@ export const Dashboard = () => {
       const salesResponse = await apiFetch<{ invoices: RecentInvoice[] } | RecentInvoice[]>(
         `/reports/sales?from=${sinceStr}&to=${todayStr}`
       );
+      console.log('[Dashboard] salesResponse type:', typeof salesResponse, 'isArray:', Array.isArray(salesResponse));
       const all = Array.isArray(salesResponse) ? salesResponse : (salesResponse?.invoices ?? []);
+      console.log('[Dashboard] all:', all, 'isArray:', Array.isArray(all));
 
-      const todayItems  = all.filter(r => r.issued_at.startsWith(todayStr));
+      const todayItems  = Array.isArray(all) ? all.filter(r => r.issued_at.startsWith(todayStr)) : [];
       const todayTotal  = todayItems.reduce((s, r) => s + Number(r.total), 0);
       const todayCount  = todayItems.length;
-      const weekTotal   = all.reduce((s, r) => s + Number(r.total), 0);
+      const weekTotal   = Array.isArray(all) ? all.reduce((s, r) => s + Number(r.total), 0) : 0;
 
       // 7-day bars
       const dayMap: Record<string, number> = {};
-      all.forEach(r => { const k = r.issued_at.slice(0, 10); dayMap[k] = (dayMap[k] ?? 0) + Number(r.total); });
+      if (Array.isArray(all)) {
+        all.forEach(r => { const k = r.issued_at.slice(0, 10); dayMap[k] = (dayMap[k] ?? 0) + Number(r.total); });
+      }
       const barData: DayBar[] = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date(); d.setDate(d.getDate() - i);
@@ -105,7 +109,7 @@ export const Dashboard = () => {
         barData.push({ label: DAY_LABELS[d.getDay()], total: dayMap[k] ?? 0 });
       }
       setBars(barData);
-      setRecent(all.slice(0, 5));
+      setRecent(Array.isArray(all) ? all.slice(0, 5) : []);
 
       // ── Low stock (full inventory only) ────────────────────────────────────
       let lowStockCount = 0;
