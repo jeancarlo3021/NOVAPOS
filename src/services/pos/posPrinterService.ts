@@ -611,11 +611,8 @@ export class POSPrinterService {
     centerText(cfg.footerMessage);
     centerText('Vuelva pronto');
 
-    // Feed & auto-cut
+    // Feed (sin comando de corte por ahora)
     nl(); nl(); nl(); nl();
-    // Xprinter cut command (GS V)
-    push(0x1d, 0x56, 0x00); // GS V 0 — full cut
-    nl(); nl();
 
     return new Uint8Array(cmds);
   }
