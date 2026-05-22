@@ -1,0 +1,1 @@
+# NovaPOS Frontend
