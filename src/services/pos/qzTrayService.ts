@@ -87,11 +87,15 @@ export async function qzConnect(): Promise<void> {
   const q = getQZ();
   if (q.websocket.isActive()) return;
 
-  // Use private key only for authentication
-  q.security.setSignatureAlgorithm('SHA512');
-  q.security.setSignaturePromise((toSign: string) => (resolve: any, reject: any) => {
-    signMessage(toSign).then(resolve).catch(reject);
-  });
+  // Only configure signing if a private key is available.
+  // Without a key, QZ Tray prompts the user to trust the site (community mode).
+  const privPem = localStorage.getItem(PRIVATE_KEY_LS);
+  if (privPem) {
+    q.security.setSignatureAlgorithm('SHA512');
+    q.security.setSignaturePromise((toSign: string) => (resolve: any, reject: any) => {
+      signMessage(toSign).then(resolve).catch(reject);
+    });
+  }
 
   await q.websocket.connect();
 }
