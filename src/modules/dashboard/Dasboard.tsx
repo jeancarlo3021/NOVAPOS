@@ -4,7 +4,7 @@ import {
   ShoppingCart, TrendingUp, AlertTriangle,
   ArrowUpRight, Package, BarChart2, Settings, Users,
   Clock, CheckCircle, XCircle, TrendingDown, Wallet,
-  ClipboardList, Tag, CalendarClock, Zap,
+  ClipboardList, Tag, CalendarClock, Zap, Wifi, WifiOff,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -13,6 +13,7 @@ import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
 import type { PlanFeatures } from '@/context/AuthContext';
+import { qzConnect, qzIsConnected } from '@/services/pos/qzTrayService';
 import { KpiCard } from './components/KpiCard';
 import { AlertItem } from './components/AlertItem';
 import { QuickTile } from './components/QuickTile';
@@ -69,6 +70,7 @@ export const Dashboard = () => {
   const [recent,    setRecent]    = useState<RecentInvoice[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [subEndsAt, setSubEndsAt] = useState<string | null>(null);
+  const [qzConnected, setQzConnected] = useState(false);
 
   const pf = planFeatures as PlanFeatures & Record<string, boolean>;
 
@@ -172,6 +174,23 @@ export const Dashboard = () => {
 
   useEffect(() => { load(); }, [load]);
 
+  // Auto-connect to QZ Tray
+  useEffect(() => {
+    const connectQZ = async () => {
+      try {
+        if (qzIsConnected()) {
+          setQzConnected(true);
+          return;
+        }
+        await qzConnect();
+        setQzConnected(true);
+      } catch {
+        setQzConnected(false);
+      }
+    };
+    connectQZ();
+  }, []);
+
   // Subscription warning
   const subDaysLeft = (() => {
     if (!subEndsAt) return null;
@@ -236,6 +255,20 @@ export const Dashboard = () => {
               Contactá al administrador para renovarla a tiempo y no perder acceso.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* ── QZ Tray connection warning ────────────────────────────────────── */}
+      {!qzConnected && (
+        <div className="flex items-center gap-3 rounded-2xl px-5 py-4 border bg-amber-50 border-amber-200 text-amber-800">
+          <WifiOff size={20} className="shrink-0" />
+          <div className="flex-1">
+            <p className="font-black text-sm">QZ Tray no disponible</p>
+            <p className="text-xs mt-0.5 opacity-80">
+              La conexión con la impresora térmica no se pudo establecer. Ve a <button onClick={() => navigate('/settings')} className="underline font-semibold hover:opacity-60">Configuración</button> para conectar.
+            </p>
+          </div>
+          <Wifi size={20} className="shrink-0 opacity-30" />
         </div>
       )}
 

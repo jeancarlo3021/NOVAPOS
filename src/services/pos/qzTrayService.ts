@@ -52,22 +52,26 @@ function pemToDer(pem: string): ArrayBuffer {
 
 async function signMessage(message: string): Promise<string> {
   const privPem = localStorage.getItem(PRIVATE_KEY_LS);
-  if (!privPem) throw new Error('Llave privada no configurada en este equipo');
+  if (!privPem) throw new Error('No private key');
 
-  const der = pemToDer(privPem);
-  const key = await window.crypto.subtle.importKey(
-    'pkcs8',
-    der,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' },
-    false,
-    ['sign'],
-  );
-  const sig = await window.crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    new TextEncoder().encode(message),
-  );
-  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+  try {
+    const der = pemToDer(privPem);
+    const key = await window.crypto.subtle.importKey(
+      'pkcs8',
+      der,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' },
+      false,
+      ['sign'],
+    );
+    const sig = await window.crypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      new TextEncoder().encode(message),
+    );
+    return btoa(String.fromCharCode(...new Uint8Array(sig)));
+  } catch (err) {
+    throw new Error('Invalid private key format');
+  }
 }
 
 // ── QZ connection ─────────────────────────────────────────────────────────────
@@ -87,14 +91,20 @@ export async function qzConnect(): Promise<void> {
   const q = getQZ();
   if (q.websocket.isActive()) return;
 
-  // Only configure signing if a private key is available.
-  // Without a key, QZ Tray prompts the user to trust the site (community mode).
+  // Only configure signing if a private key is available and valid.
+  // Without signing, QZ Tray uses community mode (user approves once, then remembers).
   const privPem = localStorage.getItem(PRIVATE_KEY_LS);
   if (privPem) {
-    q.security.setSignatureAlgorithm('SHA512');
-    q.security.setSignaturePromise((toSign: string) => (resolve: any, reject: any) => {
-      signMessage(toSign).then(resolve).catch(reject);
-    });
+    try {
+      q.security.setSignatureAlgorithm('SHA512');
+      q.security.setSignaturePromise((toSign: string) => (resolve: any, reject: any) => {
+        signMessage(toSign)
+          .then(resolve)
+          .catch(() => reject(new Error('Signing failed, using community mode')));
+      });
+    } catch {
+      // Silently fall back to community mode if signing setup fails
+    }
   }
 
   await q.websocket.connect();

@@ -551,13 +551,18 @@ export class POSPrinterService {
     const nl = () => push(0x0a);
     const sep = () => { text('-'.repeat(charWidth)); nl(); };
     const bold = (on: boolean) => push(0x1b, 0x45, on ? 1 : 0);
-    const align = (a: 'left' | 'center' | 'right') =>
-      push(0x1b, 0x61, a === 'left' ? 0 : a === 'center' ? 1 : 2);
-    const doubleHeight = (on: boolean) => push(0x1b, 0x21, on ? 0x10 : 0x00);
+    const align = (a: 'left' | 'center' | 'right') => {
+      // Xprinter: 0=left, 1=center, 2=right
+      push(0x1b, 0x61);
+      if (a === 'left') push(0);
+      else if (a === 'center') push(1);
+      else push(2);
+    };
+    const doubleHeight = (on: boolean) => push(0x1b, 0x21, on ? 0x30 : 0x00);
 
-    // Init
+    // Init (Xprinter compatible)
     push(0x1b, 0x40); // ESC @ — initialize
-    push(0x1b, 0x74, 0x00); // ESC t 0 — CP437 (safest for special chars)
+    push(0x1b, 0x61, 1); // ESC a 1 — center align (simpler)
 
     // Header
     align('center');
@@ -631,9 +636,11 @@ export class POSPrinterService {
     text('Vuelva pronto'); nl();
     align('left');
 
-    // Feed & cut
-    push(0x0a, 0x0a, 0x0a);
-    push(0x1d, 0x56, 0x42, 0x00); // GS V B 0 — partial cut
+    // Feed & cut (Xprinter)
+    push(0x0a, 0x0a, 0x0a, 0x0a);
+    // Full cut: GS V A 0 (más compatible que B)
+    push(0x1d, 0x56, 0x00); // GS V 0 — full cut
+    push(0x0a, 0x0a);       // Extra feed
 
     return new Uint8Array(cmds);
   }
