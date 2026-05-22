@@ -85,10 +85,10 @@ export const Dashboard = () => {
       const sinceStr = since.toISOString().slice(0, 10);
 
       // ── Invoices (always needed for POS) ───────────────────────────────────
-      const salesResponse = await apiFetch<{ invoices: RecentInvoice[] }>(
+      const salesResponse = await apiFetch<{ invoices: RecentInvoice[] } | RecentInvoice[]>(
         `/reports/sales?from=${sinceStr}&to=${todayStr}`
       );
-      const all = salesResponse?.invoices ?? [];
+      const all = Array.isArray(salesResponse) ? salesResponse : (salesResponse?.invoices ?? []);
 
       const todayItems  = all.filter(r => r.issued_at.startsWith(todayStr));
       const todayTotal  = todayItems.reduce((s, r) => s + Number(r.total), 0);
