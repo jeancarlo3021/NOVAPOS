@@ -60,20 +60,15 @@ function getQZ(): any {
   throw new Error('QZ Tray no está disponible — asegúrese de que esté instalado y corriendo');
 }
 
-export async function qzConnect(publicCert?: string): Promise<void> {
+export async function qzConnect(): Promise<void> {
   const q = getQZ();
   if (q.websocket.isActive()) return;
 
-  // Certificate (optional — required if site is not in QZ allow-list)
-  if (publicCert?.trim()) {
-    q.security.setCertificatePromise((_resolve: any, _reject: any) => {
-      _resolve(publicCert);
-    });
-    q.security.setSignatureAlgorithm('SHA512');
-    q.security.setSignaturePromise((toSign: string) => (resolve: any, reject: any) => {
-      signMessage(toSign).then(resolve).catch(reject);
-    });
-  }
+  // Use private key only for authentication
+  q.security.setSignatureAlgorithm('SHA512');
+  q.security.setSignaturePromise((toSign: string) => (resolve: any, reject: any) => {
+    signMessage(toSign).then(resolve).catch(reject);
+  });
 
   await q.websocket.connect();
 }

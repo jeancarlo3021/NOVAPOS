@@ -50,7 +50,6 @@ export interface ReceiptConfig {
   printerName?: string;
   printerType: 'thermal' | 'browser' | 'qztray';
   autoprint: boolean;
-  qz_certificate?: string;
   printers?: PrinterEntry[];
 }
 
@@ -151,7 +150,7 @@ export class POSPrinterService {
     const config = cfg ?? this.getDefaultConfig();
     if (!qzIsAvailable()) throw new Error('QZ Tray no está instalado o no está corriendo');
 
-    await qzConnect(config.qz_certificate);
+    await qzConnect();
 
     const escpos = this.generateESCPOS(receiptData, config);
     const receiptPrinters = (config.printers ?? []).filter(
@@ -187,7 +186,7 @@ export class POSPrinterService {
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       try {
         if (!qzIsAvailable()) throw new Error('QZ Tray no disponible');
-        await qzConnect(cfg.qz_certificate);
+        await qzConnect();
         const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
         if (receiptPrinters.length > 0) {
           const qz = (window as any).qz;
@@ -329,7 +328,7 @@ export class POSPrinterService {
     );
     if (comandaPrinters.length === 0) return;
 
-    await qzConnect(cfg.qz_certificate);
+    await qzConnect();
 
     const now = new Date();
     const time = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' });
