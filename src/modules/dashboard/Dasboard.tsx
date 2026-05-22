@@ -127,16 +127,19 @@ export const Dashboard = () => {
       if (pf.accounts_payable) {
         try {
           const apRows = await apiFetch<Array<{ status: string }>>('/accounts-payable?status=pending');
-          pendingAP = apRows.length;
-          overdueAP = apRows.filter(r => r.status === 'overdue').length;
+          const apArray = Array.isArray(apRows) ? apRows : [];
+          pendingAP = apArray.length;
+          overdueAP = apArray.filter(r => r.status === 'overdue').length;
         } catch {}
       }
 
       // ── Pending purchases ──────────────────────────────────────────────────
       let pendingPurchases = 0;
       if (pf.purchases) {
-        const pRows = await apiFetch<Array<{ id: string }>>('/purchases?status=pending');
-        pendingPurchases = pRows.length;
+        try {
+          const pRows = await apiFetch<Array<{ id: string }>>('/purchases?status=pending');
+          pendingPurchases = Array.isArray(pRows) ? pRows.length : 0;
+        } catch {}
       }
 
       // ── Active promotions ──────────────────────────────────────────────────
@@ -144,7 +147,7 @@ export const Dashboard = () => {
       if (pf.promotions) {
         try {
           const promoRows = await apiFetch<Array<{ id: string }>>('/promotions/active');
-          activePromos = promoRows.length;
+          activePromos = Array.isArray(promoRows) ? promoRows.length : 0;
         } catch {}
       }
 
