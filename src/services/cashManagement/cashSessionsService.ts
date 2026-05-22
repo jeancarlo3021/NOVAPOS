@@ -5,8 +5,8 @@ import { CashSession, CreateCashSessionInput, CloseCashSessionInput } from '@/ty
 // CONFIGURACIÓN
 // ============================================
 
-const QUERY_TIMEOUT = 8000; // 8 segundos
-const MAX_RETRIES = 2;
+const QUERY_TIMEOUT = 5000; // 5 segundos
+const MAX_RETRIES = 1;
 const RETRY_DELAY = 1000;
 
 // ============================================

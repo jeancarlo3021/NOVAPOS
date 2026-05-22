@@ -31,8 +31,8 @@ export const StockReport: React.FC<Props> = ({ tenantId }) => {
     if (!tenantId) return;
     setLoading(true);
     try {
-      const data = await apiFetch<StockProduct[]>('/reports/stock');
-      setProducts(data ?? []);
+      const response = await apiFetch<{ products: StockProduct[] }>('/reports/stock');
+      setProducts(response?.products ?? []);
     } catch (e) {
       console.error('StockReport error:', e);
     } finally {

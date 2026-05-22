@@ -9,12 +9,17 @@
     "build:frontend": "vite build",
     "build:backend": "cd backend && npm run build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "clean": "./cleanup.sh",
+    "clean:all": "node cleanup-db.js",
+    "clean:db": "node cleanup-db.js --db",
+    "clean:reset": "node cleanup-db.js --reset"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
     "axios": "^1.15.0",
     "date-fns": "^4.1.0",
+    "idb": "^8.0.3",
     "konva": "^10.3.0",
     "lucide-react": "^1.8.0",
     "react": "^19.2.4",

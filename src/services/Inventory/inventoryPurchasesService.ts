@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api';
+import { purchasesOfflineService } from './purchasesOfflineService';
 
 export interface InventoryPurchase {
   id: string;
@@ -97,13 +98,32 @@ export const inventoryPurchasesService = {
   },
 
   // Generar número de compra único
-  async generatePurchaseNumber(_tenantId: string): Promise<string> {
-    const purchases = await apiFetch<Array<{ purchase_number: string }>>('/purchases');
-    const max = (purchases ?? []).reduce((m, row) => {
-      const suffix = row.purchase_number?.split('-').pop();
-      const n = suffix ? parseInt(suffix, 10) : NaN;
-      return isNaN(n) ? m : Math.max(m, n);
-    }, 0);
-    return `PO-${String(max + 1).padStart(4, '0')}`;
+  async generatePurchaseNumber(tenantId: string): Promise<string> {
+    try {
+      const purchases = await apiFetch<Array<{ purchase_number: string }>>('/purchases');
+      const pending = await purchasesOfflineService.getPendingCreates(tenantId);
+
+      // Extract numbers from both online and offline purchases
+      const allNumbers = [
+        ...(purchases ?? []).map(row => {
+          const suffix = row.purchase_number?.split('-').pop();
+          const n = suffix ? parseInt(suffix, 10) : NaN;
+          return isNaN(n) ? 0 : n;
+        }),
+        ...pending.map(p => {
+          const suffix = p.purchaseData.purchase_number?.split('-').pop();
+          const n = suffix ? parseInt(suffix, 10) : NaN;
+          return isNaN(n) ? 0 : n;
+        }),
+      ];
+
+      const max = allNumbers.length > 0 ? Math.max(...allNumbers) : 0;
+      return `PO-${String(max + 1).padStart(4, '0')}`;
+    } catch {
+      // Fallback: just get pending offline purchases
+      const pending = await purchasesOfflineService.getPendingCreates(tenantId).catch(() => []);
+      const counter = String(pending.length + 1).padStart(4, '0');
+      return `PO-${counter}`;
+    }
   },
 };

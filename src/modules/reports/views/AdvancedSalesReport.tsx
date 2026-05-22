@@ -91,18 +91,18 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
               <ResponsiveContainer width={160} height={160}>
                 <PieChart>
                   <Pie data={summary.paymentStats} dataKey="total" nameKey="label" cx="50%" cy="50%" outerRadius={72} innerRadius={44}>
-                    {summary.paymentStats.map(e => (
-                      <Cell key={e.method} fill={PAYMENT_COLORS[e.method] ?? '#94a3b8'} />
+                    {summary.paymentStats.map((e, idx) => (
+                      <Cell key={`payment-${idx}`} fill={PAYMENT_COLORS[e.method] ?? '#94a3b8'} />
                     ))}
                   </Pie>
                   <Tooltip formatter={(v: any) => fmt(Number(v))} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-2 w-full">
-                {summary.paymentStats.map(s => {
+                {summary.paymentStats.map((s, idx) => {
                   const pct = summary.periodTotal > 0 ? (s.total / summary.periodTotal) * 100 : 0;
                   return (
-                    <div key={s.method}>
+                    <div key={`payment-detail-${idx}`}>
                       <div className="flex justify-between text-xs mb-1">
                         <span className="flex items-center gap-1.5 font-medium text-gray-700">
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PAYMENT_COLORS[s.method] ?? '#94a3b8', display: 'inline-block' }} />

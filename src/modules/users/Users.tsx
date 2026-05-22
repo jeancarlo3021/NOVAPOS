@@ -1,20 +1,111 @@
-import React from 'react';
-import { Users as UsersIcon } from 'lucide-react';
-import { ComingSoon } from '@/components/ComingSoon';
+import React, { useState } from 'react';
+import { Users as UsersIcon, Lock, Eye, BarChart3, Users2, Calendar } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { UsersList } from './views/UsersList';
+import { UserPermissions } from './views/UserPermissions';
+import { ActivityLog } from './views/ActivityLog';
+import { TeamsView } from './views/TeamsView';
+import { ShiftsCalendar } from './views/ShiftsCalendar';
+
+type TabType = 'users' | 'permissions' | 'activity' | 'teams' | 'shifts';
+
+interface Tab {
+  id: TabType;
+  label: string;
+  icon: React.ReactNode;
+  component: React.ReactNode;
+}
 
 export const Users: React.FC = () => {
+  const { planFeatures } = useAuth();
+  const [activeTab, setActiveTab] = useState<TabType>('users');
+
+  // Check if users module is enabled in plan
+  if (!planFeatures?.users) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
+        <UsersIcon size={64} className="text-gray-400 mb-4" />
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Módulo No Disponible</h1>
+        <p className="text-gray-600 max-w-md text-center">
+          La gestión de usuarios no está habilitada en tu plan actual. Contacta al administrador para activar esta funcionalidad.
+        </p>
+      </div>
+    );
+  }
+
+  const tabs: Tab[] = [
+    {
+      id: 'users',
+      label: 'Usuarios',
+      icon: <UsersIcon size={18} />,
+      component: <UsersList />,
+    },
+    {
+      id: 'permissions',
+      label: 'Permisos',
+      icon: <Lock size={18} />,
+      component: <UserPermissions />,
+    },
+    {
+      id: 'activity',
+      label: 'Actividad',
+      icon: <BarChart3 size={18} />,
+      component: <ActivityLog />,
+    },
+    {
+      id: 'teams',
+      label: 'Equipos',
+      icon: <Users2 size={18} />,
+      component: <TeamsView />,
+    },
+    {
+      id: 'shifts',
+      label: 'Turnos',
+      icon: <Calendar size={18} />,
+      component: <ShiftsCalendar />,
+    },
+  ];
+
   return (
-    <ComingSoon
-      title="Gestión de Usuarios"
-      description="Pronto podrás crear y administrar los usuarios de tu equipo, asignar roles y controlar el acceso a cada módulo del sistema."
-      icon={UsersIcon}
-      features={[
-        { icon: '👤', text: 'Crear usuarios con roles personalizados' },
-        { icon: '🔐', text: 'Control de permisos por módulo' },
-        { icon: '📋', text: 'Historial de actividad por usuario' },
-        { icon: '🔑', text: 'Restablecimiento de contraseñas' },
-        { icon: '👥', text: 'Gestión de equipos y turnos' },
-      ]}
-    />
+    <div className="h-screen flex flex-col bg-white">
+      {/* Header */}
+      <div className="sticky top-0 z-40 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-6 shadow-md">
+        <div className="flex items-center gap-3 mb-2">
+          <UsersIcon size={32} />
+          <h1 className="text-3xl font-bold">Gestión de Usuarios</h1>
+        </div>
+        <p className="text-blue-100 text-sm">Administra usuarios, permisos, actividad, equipos y turnos</p>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200 bg-white">
+        <div className="px-8 flex overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`
+                flex items-center gap-2 px-4 py-4 font-medium text-sm transition-colors relative
+                ${
+                  activeTab === tab.id
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-600 hover:text-gray-900'
+                }
+              `}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-8 py-6">
+          {tabs.find((t) => t.id === activeTab)?.component}
+        </div>
+      </div>
+    </div>
   );
 };

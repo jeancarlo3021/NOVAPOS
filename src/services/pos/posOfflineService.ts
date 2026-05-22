@@ -6,9 +6,11 @@ const DB_NAME = 'novapos_offline';
 const DB_VERSION = 1;
 const PRODUCTS_STORE  = 'pos_products';
 const INVOICES_STORE  = 'pos_pending_invoices';
+const VOIDS_STORE     = 'pos_pending_voids';
 
 export interface OfflineInvoicePayload {
   id: string;
+  invoiceNumber: string;
   tenantId: string;
   sessionId: string;
   cartItems: CartItem[];
@@ -20,6 +22,16 @@ export interface OfflineInvoicePayload {
   changeAmount?: number;
   voucherNumber?: string;
   notes?: string;
+  timestamp: number;
+  synced: 0 | 1;
+  retries: number;
+  syncError?: string;
+}
+
+export interface OfflineVoidPayload {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
   timestamp: number;
   synced: 0 | 1;
   retries: number;
@@ -38,6 +50,10 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(INVOICES_STORE)) {
         const store = db.createObjectStore(INVOICES_STORE, { keyPath: 'id' });
+        store.createIndex('synced', 'synced', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(VOIDS_STORE)) {
+        const store = db.createObjectStore(VOIDS_STORE, { keyPath: 'id' });
         store.createIndex('synced', 'synced', { unique: false });
       }
     };
@@ -92,6 +108,58 @@ function getCachedSession(): CashSession | null {
   }
 }
 
+// ─── Invoices cache for void operations ────────────────────────────────────────
+
+const INVOICES_CACHE_KEY = 'novapos_invoices_cache';
+
+interface CachedInvoice {
+  id: string;
+  invoice_number: string;
+  issued_at: string;
+  total: number;
+  payment_method: string;
+  voided?: boolean;
+}
+
+function cacheInvoices(invoices: CachedInvoice[]): void {
+  try {
+    localStorage.setItem(INVOICES_CACHE_KEY, JSON.stringify({
+      invoices,
+      cachedAt: Date.now(),
+    }));
+  } catch (e) {
+    console.warn('[posOfflineService] Error cacheando facturas:', e);
+  }
+}
+
+function getCachedInvoices(): CachedInvoice[] {
+  try {
+    const raw = localStorage.getItem(INVOICES_CACHE_KEY);
+    return raw ? JSON.parse(raw).invoices : [];
+  } catch {
+    return [];
+  }
+}
+
+function addCachedInvoice(invoice: CachedInvoice): void {
+  const cached = getCachedInvoices();
+  // Evitar duplicados
+  const exists = cached.some(inv => inv.id === invoice.id);
+  if (!exists) {
+    cached.unshift(invoice); // Agregar al inicio (más recientes primero)
+    cacheInvoices(cached.slice(0, 100)); // Guardar máximo 100
+  }
+}
+
+function markVoidedInCache(invoiceId: string): void {
+  const cached = getCachedInvoices();
+  const invoice = cached.find(inv => inv.id === invoiceId);
+  if (invoice) {
+    invoice.voided = true;
+    cacheInvoices(cached);
+  }
+}
+
 // ─── Products cache ───────────────────────────────────────────────────────────
 
 async function cacheProducts(tenantId: string, products: Product[]): Promise<void> {
@@ -107,19 +175,49 @@ async function getCachedProducts(tenantId: string): Promise<Product[] | null> {
   return record?.products ?? null;
 }
 
+// ─── Generate offline invoice numbers ─────────────────────────────────────────
+
+const OFFLINE_INVOICE_COUNTER_KEY = 'novapos_offline_invoice_counter';
+
+function getOfflineInvoiceCounter(): number {
+  try {
+    const raw = localStorage.getItem(OFFLINE_INVOICE_COUNTER_KEY);
+    return raw ? parseInt(raw, 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function incrementOfflineInvoiceCounter(): number {
+  const current = getOfflineInvoiceCounter();
+  const next = current + 1;
+  localStorage.setItem(OFFLINE_INVOICE_COUNTER_KEY, String(next));
+  return next;
+}
+
+function generateOfflineInvoiceNumber(): string {
+  const counter = incrementOfflineInvoiceCounter();
+  const date = new Date();
+  const datePart = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+  return `${datePart}-${String(counter).padStart(5, '0')}`;
+}
+
 // ─── Pending invoices queue ───────────────────────────────────────────────────
 
-async function queueInvoice(payload: Omit<OfflineInvoicePayload, 'id' | 'timestamp' | 'synced' | 'retries'>): Promise<string> {
+async function queueInvoice(payload: Omit<OfflineInvoicePayload, 'id' | 'invoiceNumber' | 'timestamp' | 'synced' | 'retries'>): Promise<string> {
   const db = await openDB();
+  const invoiceNumber = generateOfflineInvoiceNumber();
   const invoice: OfflineInvoicePayload = {
     ...payload,
-    id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: generateUUID(),
+    invoiceNumber,
     timestamp: Date.now(),
     synced: 0,
     retries: 0,
   };
   await idbPut(db, INVOICES_STORE, invoice);
-  return invoice.id;
+  console.log('[posOfflineService] Factura encolada:', { id: invoice.id, invoiceNumber, total: payload.total });
+  return invoiceNumber; // Return invoice number instead of ID
 }
 
 async function getPendingInvoices(): Promise<OfflineInvoicePayload[]> {
@@ -221,6 +319,131 @@ async function clearFailedInvoice(id: string): Promise<void> {
   });
 }
 
+// ─── Session ID remapping (offline UUID → server UUID) ───────────────────────
+
+const SESSION_ID_MAP_KEY = 'novapos_session_id_map';
+
+function getSessionIdMap(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(SESSION_ID_MAP_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSessionIdMap(map: Record<string, string>): void {
+  localStorage.setItem(SESSION_ID_MAP_KEY, JSON.stringify(map));
+}
+
+function mapOfflineSessionId(offlineId: string): string {
+  const map = getSessionIdMap();
+  return map[offlineId] ?? offlineId;
+}
+
+function remapSessionId(offlineId: string, serverId: string): void {
+  const map = getSessionIdMap();
+  map[offlineId] = serverId;
+  saveSessionIdMap(map);
+  console.log(`[SESSION-REMAP] ${offlineId} → ${serverId}`);
+}
+
+async function updateInvoiceSessionIds(offlineId: string, serverId: string): Promise<void> {
+  const db = await openDB();
+  const pending = await getPendingInvoices();
+  for (const inv of pending) {
+    if (inv.sessionId === offlineId) {
+      await idbPut(db, INVOICES_STORE, { ...inv, sessionId: serverId });
+    }
+  }
+}
+
+// ─── Void invoices (offline) ──────────────────────────────────────────────────
+
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+async function queueVoid(invoiceId: string, invoiceNumber: string): Promise<string> {
+  const db = await openDB();
+  const id = generateUUID();
+  const payload: OfflineVoidPayload = {
+    id,
+    invoiceId,
+    invoiceNumber,
+    timestamp: Date.now(),
+    synced: 0,
+    retries: 0,
+  };
+  await idbPut(db, VOIDS_STORE, payload);
+  console.log('[posOfflineService] Void encolado:', { invoiceNumber, id });
+  return id;
+}
+
+async function getPendingVoids(): Promise<OfflineVoidPayload[]> {
+  const db = await openDB();
+  return idbGetAllByIndex<OfflineVoidPayload>(db, VOIDS_STORE, 'synced', 0);
+}
+
+async function getPendingVoidCount(): Promise<number> {
+  const voids = await getPendingVoids();
+  return voids.length;
+}
+
+async function markVoidSynced(id: string): Promise<void> {
+  const db = await openDB();
+  const void_op = await idbGet<OfflineVoidPayload>(db, VOIDS_STORE, id);
+  if (void_op) {
+    await idbPut(db, VOIDS_STORE, { ...void_op, synced: 1 });
+  }
+}
+
+async function markVoidError(id: string, error: string): Promise<void> {
+  const db = await openDB();
+  const void_op = await idbGet<OfflineVoidPayload>(db, VOIDS_STORE, id);
+  if (void_op) {
+    await idbPut(db, VOIDS_STORE, {
+      ...void_op,
+      synced: 1,
+      retries: (void_op.retries ?? 0) + 1,
+      syncError: error,
+    });
+  }
+}
+
+async function syncPendingVoids(
+  cancelInvoice: (id: string) => Promise<void>
+): Promise<{ synced: number; errors: number; details: SyncError[] }> {
+  const pending = await getPendingVoids();
+  let synced = 0;
+  let errors = 0;
+  const details: SyncError[] = [];
+
+  for (const void_op of pending) {
+    try {
+      await cancelInvoice(void_op.invoiceId);
+      await markVoidSynced(void_op.id);
+      synced++;
+      console.log('[posOfflineService] Void sincronizado:', void_op.invoiceNumber);
+    } catch (err) {
+      const msg = extractErrorMessage(err);
+      await markVoidError(void_op.id, msg);
+      details.push({
+        invoiceId: void_op.invoiceId,
+        timestamp: void_op.timestamp,
+        message: msg,
+      });
+      errors++;
+    }
+  }
+
+  return { synced, errors, details };
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export const posOfflineService = {
@@ -230,6 +453,11 @@ export const posOfflineService = {
   // Session
   cacheSession,
   getCachedSession,
+  // Invoices cache
+  cacheInvoices,
+  getCachedInvoices,
+  addCachedInvoice,
+  markVoidedInCache,
   // Invoices
   queueInvoice,
   getPendingInvoices,
@@ -238,4 +466,15 @@ export const posOfflineService = {
   syncPendingInvoices,
   getFailedInvoices,
   clearFailedInvoice,
+  // Void invoices
+  queueVoid,
+  getPendingVoids,
+  getPendingVoidCount,
+  markVoidSynced,
+  markVoidError,
+  syncPendingVoids,
+  // Session ID remapping
+  mapOfflineSessionId,
+  remapSessionId,
+  updateInvoiceSessionIds,
 };

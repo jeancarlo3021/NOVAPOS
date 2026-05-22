@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import {
   qzConnect, qzIsAvailable, qzPrintToPrinter,
   type PrinterEntry,
@@ -70,17 +70,9 @@ export class POSPrinterService {
 
   async loadReceiptConfig(tenantId: string): Promise<ReceiptConfig> {
     try {
-      const { data: rows, error } = await supabase
-        .from('settings')
-        .select('config')
-        .eq('tenant_id', tenantId)
-        .eq('type', 'receipt')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      const data = rows?.[0] ?? null;
-      if (error || !data) return this.getDefaultConfig();
-      return { ...this.getDefaultConfig(), ...(data.config as Partial<ReceiptConfig>) };
+      const config = await apiFetch<ReceiptConfig>('/settings/receipt');
+      if (!config) return this.getDefaultConfig();
+      return { ...this.getDefaultConfig(), ...config };
     } catch {
       return this.getDefaultConfig();
     }

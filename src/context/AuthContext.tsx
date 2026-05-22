@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { setRememberMe } from '@/lib/authStorage';
+import { globalCacheService } from '@/services/cache/globalCacheService';
 
 // ============================================
 // AUTH CACHE (localStorage) — offline support
@@ -489,6 +490,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       console.log('🎉 Autenticación completada - Plan:', planData.name);
+
+      // ✅ Pre-cache all essential data globally for offline functionality
+      if (selectedTenant && navigator.onLine) {
+        console.log('🔄 Iniciando pre-cacheo global de datos...');
+        globalCacheService.preCacheAllData(selectedTenant.id)
+          .then((stats) => {
+            console.log('✅ Pre-cacheo completado:', stats);
+          })
+          .catch((err) => {
+            console.warn('⚠️ Error en pre-cacheo (no crítico):', err);
+          });
+      }
     } catch (err) {
       if (!isActive()) return; // Stale error — don't corrupt fresh state
       const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';

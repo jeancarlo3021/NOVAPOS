@@ -173,10 +173,19 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
 
   if (!summary) return null;
 
-  const { revenue, invoiceCount, cogs, expenses, gross, net, margin, byDay, revenueByMethod, periodPromos } = summary;
+  const revenue = (summary as any).total_revenue ?? 0;
+  const expenses = (summary as any).total_expenses ?? 0;
+  const net = (summary as any).profit ?? 0;
+  const margin = revenue > 0 ? (net / revenue) * 100 : 0;
+  const byDay = (summary as any).byDay ?? [];
+  const revenueByMethod = (summary as any).revenueByMethod ?? [];
+  const periodPromos = (summary as any).periodPromos ?? [];
+  const invoiceCount = 0;
+  const cogs = 0;
+  const gross = net;
 
   // Days that had at least one promo active
-  const promoDays = new Set(byDay.filter(d => d.activePromos.length > 0).map(d => d.date));
+  const promoDays = new Set(byDay.filter((d: any) => d.activePromos.length > 0).map((d: any) => d.date));
 
   const promoTypeLabel: Record<string, string> = {
     percentage: 'Porcentaje', fixed: 'Monto fijo', '2x1': '2×1',
@@ -260,8 +269,8 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
               />
               <YAxis tickFormatter={fmtK} tick={{ fontSize: 10 }} />
               <Tooltip
-                formatter={(v: unknown) => fmt(Number(v))}
-                labelFormatter={(d: unknown) => new Date(String(d) + 'T12:00:00').toLocaleDateString('es-CR', { dateStyle: 'medium' })}
+                formatter={(v: any) => fmt(Number(v))}
+                labelFormatter={(d: any) => new Date(String(d) + 'T12:00:00').toLocaleDateString('es-CR', { dateStyle: 'medium' })}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="revenue"  name="Ingresos"       fill="#3b82f6"  radius={[3,3,0,0]} />
@@ -338,7 +347,7 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
             <div className="flex items-center justify-center py-10 text-gray-300 text-sm">Sin datos</div>
           ) : (
             <div className="space-y-3">
-              {revenueByMethod.map(m => (
+              {revenueByMethod.map((m: any) => (
                 <div key={m.method} className="flex items-center gap-3">
                   <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: m.color }} />
                   <span className="flex-1 text-sm text-gray-700">{m.label}</span>
@@ -386,7 +395,7 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
             Los ingresos ya reflejan los descuentos aplicados — el total guardado en cada factura es el precio con promoción.
           </p>
           <div className="space-y-2">
-            {periodPromos.map(p => {
+            {periodPromos.map((p: any) => {
               const discountLabel = p.type === 'percentage'
                 ? `${p.value}% de descuento`
                 : p.type === 'fixed'
@@ -432,8 +441,8 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
                 <Tag size={11} /> Días con promoción activa ({promoDays.size})
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {Array.from(promoDays).sort().map(date => (
-                  <span key={date} className="text-xs bg-violet-100 text-violet-700 font-semibold px-2 py-0.5 rounded-full">
+                {Array.from(promoDays).sort().map((date: unknown) => (
+                  <span key={String(date)} className="text-xs bg-violet-100 text-violet-700 font-semibold px-2 py-0.5 rounded-full">
                     {new Date(date + 'T12:00:00').toLocaleDateString('es-CR', { weekday: 'short', day: 'numeric', month: 'short' })}
                   </span>
                 ))}

@@ -62,7 +62,7 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
       const enriched = await apiFetch<SessionRow[]>(
         `/reports/cash-sessions?from=${from}&to=${to}`
       );
-      setSessions(enriched);
+      setSessions(enriched ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar sesiones');
     } finally {

@@ -77,7 +77,8 @@ export const invoicesService = {
     customerPhone?: string,
     amountReceived?: number,
     changeAmount?: number,
-    voucherNumber?: string
+    voucherNumber?: string,
+    invoiceNumber?: string
   ) {
     // Validaciones según método de pago
     if (paymentMethod === 'cash') {
@@ -107,6 +108,7 @@ export const invoicesService = {
         change_amount: paymentMethod === 'cash' ? changeAmount : null,
         voucher_number: (paymentMethod === 'card' || paymentMethod === 'sinpe') ? voucherNumber : null,
         notes,
+        invoice_number: invoiceNumber, // Preserve offline invoice number if provided
       }),
     });
 

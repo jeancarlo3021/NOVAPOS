@@ -70,6 +70,9 @@ export const expensesService = {
   },
 
   async create(_tenantId: string, form: ExpenseFormData): Promise<Expense> {
+    if (!form.category_id?.trim()) {
+      throw new Error('Categoría de gasto es requerida');
+    }
     return apiFetch<Expense>('/expenses', {
       method: 'POST',
       body: JSON.stringify({
@@ -278,12 +281,15 @@ export const recurringExpensesService = {
   },
 
   async create(_tenantId: string, form: RecurringExpenseFormData): Promise<RecurringExpense> {
+    if (!form.category_id?.trim()) {
+      throw new Error('Categoría de gasto es requerida');
+    }
     return apiFetch<RecurringExpense>('/expenses/recurring', {
       method: 'POST',
       body: JSON.stringify({
         description:    form.description,
         default_amount: parseFloat(form.default_amount),
-        category_id:    form.category_id || null,
+        category_id:    form.category_id,
         frequency:      form.frequency,
         day_of_month:   form.frequency === 'monthly' ? (parseInt(form.day_of_month) || 1) : null,
         payment_method: form.payment_method,
@@ -297,7 +303,12 @@ export const recurringExpensesService = {
     const patch: Record<string, unknown> = {};
     if (form.description    !== undefined) patch.description    = form.description;
     if (form.default_amount !== undefined) patch.default_amount = parseFloat(form.default_amount);
-    if (form.category_id    !== undefined) patch.category_id    = form.category_id || null;
+    if (form.category_id    !== undefined) {
+      if (!form.category_id?.trim()) {
+        throw new Error('Categoría de gasto es requerida');
+      }
+      patch.category_id = form.category_id;
+    }
     if (form.frequency      !== undefined) {
       patch.frequency    = form.frequency;
       patch.day_of_month = form.frequency === 'monthly' ? (parseInt(form.day_of_month ?? '1') || 1) : null;

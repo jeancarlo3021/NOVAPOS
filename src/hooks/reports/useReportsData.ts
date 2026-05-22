@@ -69,13 +69,17 @@ export function useReportsData(tenantId: string | null) {
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
 
-      const all = await apiFetch<Array<{
-        id: string;
-        issued_at: string;
-        total: number;
-        payment_method: string;
-        status: string;
-      }>>(`/reports/sales?from=${from}&to=${to}`);
+      const response = await apiFetch<{
+        invoices: Array<{
+          id: string;
+          issued_at: string;
+          total: number;
+          payment_method: string;
+          status: string;
+        }>;
+      }>(`/reports/sales?from=${from}&to=${to}`);
+
+      const all = response?.invoices ?? [];
 
       // Today subset
       const today = all.filter(r => {
@@ -144,8 +148,22 @@ export function useReportsData(tenantId: string | null) {
   const fetchTopProducts = useCallback(async (from: string, to: string) => {
     if (!tenantId) return;
     try {
-      const response = await apiFetch<{ products: TopProduct[] }>(`/reports/stock?from=${from}&to=${to}`);
-      setTopProducts((response?.products ?? []).slice(0, 10));
+      const response = await apiFetch<Array<{
+        product_id: string;
+        product_name: string;
+        total_qty: number;
+        total_revenue: number;
+      }>>(`/reports/products/sales?from=${from}&to=${to}`);
+      const topByRevenue = (response ?? [])
+        .sort((a, b) => b.total_revenue - a.total_revenue)
+        .slice(0, 10)
+        .map(p => ({
+          product_id: p.product_id,
+          name: p.product_name,
+          qty: p.total_qty,
+          revenue: p.total_revenue,
+        }));
+      setTopProducts(topByRevenue);
     } catch (e) {
       console.error('Error top products:', e);
     }

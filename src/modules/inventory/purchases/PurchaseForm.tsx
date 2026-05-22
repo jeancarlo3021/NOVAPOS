@@ -99,13 +99,22 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
         cacheSet(cacheKey(tid, 'suppliers_list'), supps);
         cacheSet(cacheKey(tid, 'products_list'), prods);
       } else {
-        // Try IndexedDB first, then localStorage as fallback
+        // Try IndexedDB first, then localStorage as fallback (try both global and local cache keys)
         let [supps, prods] = await Promise.all([
           purchasesOfflineService.getCachedSuppliers(tid),
           purchasesOfflineService.getCachedProducts(tid),
         ]);
         if (supps.length === 0) supps = cacheGet<InventorySupplier[]>(cacheKey(tid, 'suppliers_list')) ?? [];
         if (prods.length === 0) prods = cacheGet<Product[]>(cacheKey(tid, 'products_list')) ?? [];
+        // Also try global cache keys if still empty
+        if (prods.length === 0) {
+          const globalProds = cacheGet<Product[]>(`${tid}_global_products`);
+          prods = globalProds ?? [];
+        }
+        if (supps.length === 0) {
+          const globalSupps = cacheGet<InventorySupplier[]>(`${tid}_global_suppliers`);
+          supps = globalSupps ?? [];
+        }
         setSuppliers(supps as InventorySupplier[]);
         setProducts(prods as Product[]);
         if (supps.length === 0 && prods.length === 0) {
@@ -137,12 +146,16 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
         const num = await inventoryPurchasesService.generatePurchaseNumber(tid);
         if (isMountedRef.current) setPurchaseNumber(num);
       } else {
+        // Generate same format as online: PO-0001
         const pending = await purchasesOfflineService.getPendingCreates(tid);
-        if (isMountedRef.current) setPurchaseNumber(`PO-BORRADOR-${pending.length + 1}`);
+        const counter = String(pending.length + 1).padStart(4, '0');
+        if (isMountedRef.current) setPurchaseNumber(`PO-${counter}`);
       }
     } catch {
+      // Fallback with same format
       const pending = await purchasesOfflineService.getPendingCreates(tid).catch(() => []);
-      if (isMountedRef.current) setPurchaseNumber(`PO-BORRADOR-${pending.length + 1}`);
+      const counter = String(pending.length + 1).padStart(4, '0');
+      if (isMountedRef.current) setPurchaseNumber(`PO-${counter}`);
     }
   };
 

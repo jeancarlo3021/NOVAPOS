@@ -42,6 +42,7 @@ export const POSMain = () => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
+  const [forceRefresh, setForceRefresh] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [lastInvoice, setLastInvoice] = useState<any>(null);
   const [paymentData, setPaymentData] = useState<any>(null);
@@ -99,6 +100,9 @@ export const POSMain = () => {
     setSyncing(true);
     try {
       const result = await posOfflineService.syncPendingInvoices(async (inv: OfflineInvoicePayload) => {
+        // Use the mapped session ID if it was created offline, otherwise use the stored ID
+        const sessionIdToUse = posOfflineService.mapOfflineSessionId(inv.sessionId);
+
         // Provide safe defaults for invoices queued before the payment fields were added.
         // - Cash: if amountReceived is missing, assume exact payment (total paid).
         // - Card/SINPE: if voucherNumber is missing, use 'OFFLINE' as placeholder.
@@ -114,7 +118,7 @@ export const POSMain = () => {
 
         await invoicesService.createInvoice(
           inv.tenantId,
-          inv.sessionId,
+          sessionIdToUse,
           inv.cartItems,
           inv.subtotal,
           0,
@@ -128,6 +132,7 @@ export const POSMain = () => {
           amountReceived,
           inv.changeAmount ?? 0,
           voucherNumber,
+          inv.invoiceNumber, // Pass offline invoice number to preserve it
         );
       });
 
@@ -151,8 +156,28 @@ export const POSMain = () => {
   }, [refreshPendingCount]);
 
   useEffect(() => {
-    if (isOnline) syncOfflineInvoices();
+    if (isOnline) {
+      // Delay slightly to allow cash sessions to sync first
+      const timer = setTimeout(syncOfflineInvoices, 500);
+      return () => clearTimeout(timer);
+    }
   }, [isOnline, syncOfflineInvoices]);
+
+  // Force re-render when session closes in offline mode
+  useEffect(() => {
+    if (forceRefresh > 0) {
+      console.log('🔄 [POSMain] forceRefresh triggered, currentSession:', currentSession);
+    }
+  }, [forceRefresh, currentSession]);
+
+  // Monitor currentSession changes for debugging
+  useEffect(() => {
+    console.log('[POSMain] currentSession cambió:', {
+      id: currentSession?.id,
+      status: currentSession?.status,
+      opening_amount: currentSession?.opening_amount,
+    });
+  }, [currentSession]);
 
   const subtotal = Math.round(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
   const effectiveTaxRate = taxEnabled ? taxRate : 0;
@@ -280,11 +305,25 @@ export const POSMain = () => {
   }, [tenantId, user]);
 
   const handlePaymentConfirm = async (data: PaymentData) => {
+    console.log('[handlePaymentConfirm] Iniciando pago:', {
+      tenantId,
+      currentSession: currentSession?.status,
+      cartItemsCount: cartItems.length,
+    });
+
     if (!tenantId || !currentSession) {
+      console.error('[handlePaymentConfirm] ❌ BLOQUEADO: Sesión no disponible');
       setError('Sesión de caja no disponible');
       return;
     }
 
+    if (currentSession.status !== 'open') {
+      console.error('[handlePaymentConfirm] ❌ BLOQUEADO: Sesión no está abierta. Status:', currentSession.status);
+      setError('La caja está cerrada. Debes abrir una nueva sesión para continuar.');
+      return;
+    }
+
+    console.log('[handlePaymentConfirm] ✅ Sesión validada, procesando pago');
     setPaymentLoading(true);
     const notes = data.voucherNumber ? `Comprobante: ${data.voucherNumber}` : undefined;
 
@@ -308,13 +347,23 @@ export const POSMain = () => {
           data.change,
           data.voucherNumber
         );
+
+        // Cache invoice for offline void operations
+        posOfflineService.addCachedInvoice({
+          id: invoice.id,
+          invoice_number: invoice.invoice_number,
+          issued_at: (invoice as any).issued_at ?? invoice.created_at ?? new Date().toISOString(),
+          total: invoice.total,
+          payment_method: invoice.payment_method,
+        });
+
         setLastInvoice(invoice);
         setPaymentData(data);
         setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
         printReceipt(invoice.invoice_number, cartItems, subtotal, taxAmount, total, data.paymentMethod, invoice.customer_name ?? undefined);
       } else {
         // ── Offline: queue for later sync ────────────────────────────────────
-        const offlineId = await posOfflineService.queueInvoice({
+        const invoiceNumber = await posOfflineService.queueInvoice({
           tenantId,
           sessionId: currentSession.id,
           cartItems,
@@ -327,9 +376,19 @@ export const POSMain = () => {
           voucherNumber: data.voucherNumber,
           notes,
         });
+
+        // Cache the offline invoice for void operations
+        posOfflineService.addCachedInvoice({
+          id: invoiceNumber, // Use invoice number as ID for offline invoices
+          invoice_number: invoiceNumber,
+          issued_at: new Date().toISOString(),
+          total,
+          payment_method: data.paymentMethod,
+        });
+
         await refreshPendingCount();
-        setSuccess('Venta guardada sin conexión — se sincronizará al reconectar');
-        printReceipt(offlineId, cartItems, subtotal, taxAmount, total, data.paymentMethod);
+        setSuccess(`Venta guardada sin conexión (${invoiceNumber}) — se sincronizará al reconectar`);
+        printReceipt(invoiceNumber, cartItems, subtotal, taxAmount, total, data.paymentMethod);
       }
 
       setCartItems([]);
@@ -448,10 +507,22 @@ export const POSMain = () => {
       {showCloseModal && currentSession && (
         <CashCloseModal
           session={currentSession}
-          onSuccess={(session) => {
+          onSuccess={async (closedSession) => {
+            console.log('💾 Sesión cerrada recibida en POSMain:', closedSession);
+            console.log('   Status:', closedSession.status);
             setShowCloseModal(false);
-            posOfflineService.cacheSession(session);
-            refetchSession();
+            posOfflineService.cacheSession(closedSession);
+            console.log('📦 Sesión cacheada');
+
+            // Refresh session to update currentSession state and force re-render
+            console.log('🔄 Llamando refetchSession...');
+            await refetchSession();
+            console.log('🔄 refetchSession completado');
+
+            // Force a visual re-render by toggling forceRefresh
+            setForceRefresh(prev => prev + 1);
+            console.log('🔄 forceRefresh incrementado');
+
             setSuccess('Caja cerrada correctamente');
           }}
           onCancel={() => setShowCloseModal(false)}

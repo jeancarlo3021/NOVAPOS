@@ -97,16 +97,16 @@ export const BasicSalesReport: React.FC<Props> = ({ tenantId }) => {
             <ResponsiveContainer width={160} height={160}>
               <PieChart>
                 <Pie data={summary.paymentStats} dataKey="total" nameKey="label" cx="50%" cy="50%" outerRadius={72} innerRadius={44}>
-                  {summary.paymentStats.map(e => (
-                    <Cell key={e.method} fill={PAYMENT_COLORS[e.method] ?? '#94a3b8'} />
+                  {summary.paymentStats.map((e, idx) => (
+                    <Cell key={`payment-${idx}`} fill={PAYMENT_COLORS[e.method] ?? '#94a3b8'} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(v: any) => fmt(Number(v))} />
               </PieChart>
             </ResponsiveContainer>
             <div className="flex-1 space-y-2 w-full">
-              {summary.paymentStats.map(s => (
-                <div key={s.method} className="flex items-center justify-between py-1 border-b border-gray-50 last:border-0">
+              {summary.paymentStats.map((s, idx) => (
+                <div key={`payment-detail-${idx}`} className="flex items-center justify-between py-1 border-b border-gray-50 last:border-0">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full shrink-0" style={{ background: PAYMENT_COLORS[s.method] ?? '#94a3b8' }} />
                     <span className="text-sm text-gray-700 font-medium">{PAYMENT_LABELS[s.method] ?? s.method}</span>

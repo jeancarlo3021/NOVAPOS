@@ -15,12 +15,41 @@ export function usePOSProducts() {
   // ── Fetch from API and persist to IndexedDB ────────────────────────────────
 
   const fetchFromNetwork = async (_tid: string): Promise<Product[]> => {
-    return apiFetch<Product[]>('/products?include=category,unit_type&order=name');
+    // Fetch products and unit types separately, then join in frontend
+    const [products, unitTypes] = await Promise.all([
+      apiFetch<any[]>('/products'),
+      apiFetch<any[]>('/unit-types')
+    ]);
+
+    // Create a map of unit types for quick lookup
+    const unitTypeMap = Object.fromEntries(unitTypes.map(ut => [ut.id, ut]));
+
+    // Attach unit_type relationship to each product
+    return products.map(p => ({
+      ...p,
+      unit_type: p.unit_type_id ? unitTypeMap[p.unit_type_id] : null,
+    }));
   };
 
-  // ── Load from IndexedDB cache ──────────────────────────────────────────────
+  // ── Load from IndexedDB cache or global localStorage cache ──────────────────────────────────────────────
 
   const loadFromCache = async (tid: string): Promise<{ products: Product[]; cachedAt: Date | null }> => {
+    // First try global localStorage cache (from globalCacheService)
+    try {
+      const globalCached = localStorage.getItem(`novapos_cache_${tid}_global_products`);
+      if (globalCached) {
+        const data = JSON.parse(globalCached);
+        const items = data.data || data;
+        if (Array.isArray(items) && items.length > 0) {
+          console.log('[usePOSProducts] Loaded from global cache (localStorage):', items.length, 'products');
+          return { products: items, cachedAt: new Date() };
+        }
+      }
+    } catch (e) {
+      console.warn('[usePOSProducts] Error loading from global cache:', e);
+    }
+
+    // Fallback to IndexedDB cache
     const db = await openCacheDB();
     return new Promise((resolve) => {
       const tx  = db.transaction('products_cache', 'readonly');
@@ -28,12 +57,17 @@ export function usePOSProducts() {
       req.onsuccess = () => {
         const record = req.result;
         if (record?.products?.length) {
+          console.log('[usePOSProducts] Loaded from IndexedDB cache:', record.products.length, 'products');
           resolve({ products: record.products, cachedAt: new Date(record.cachedAt) });
         } else {
+          console.log('[usePOSProducts] No cache found in IndexedDB');
           resolve({ products: [], cachedAt: null });
         }
       };
-      req.onerror = () => resolve({ products: [], cachedAt: null });
+      req.onerror = () => {
+        console.warn('[usePOSProducts] IndexedDB error');
+        resolve({ products: [], cachedAt: null });
+      };
     });
   };
 
@@ -63,6 +97,16 @@ export function usePOSProducts() {
     if (navigator.onLine) {
       try {
         const fetched = await fetchFromNetwork(tid);
+        console.log('[usePOSProducts] Fetched products from API:', {
+          count: fetched.length,
+          firstProduct: fetched[0] ? JSON.stringify(fetched[0], null, 2) : 'none',
+          sample: fetched.slice(0, 2).map(p => ({
+            id: p.id,
+            name: p.name,
+            unit_type_id: (p as any).unit_type_id,
+            unit_type: (p as any).unit_type,
+          }))
+        });
         setProducts(fetched);
         setFromCache(false);
         setCachedAt(new Date());

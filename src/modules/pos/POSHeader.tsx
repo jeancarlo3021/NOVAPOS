@@ -64,7 +64,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
 
         {/* Cash session */}
         <div className="flex-1 flex justify-center">
-          {currentSession ? (
+          {currentSession && currentSession.status === 'open' ? (
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
@@ -90,6 +90,20 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
                   <span className="hidden sm:inline">Anular</span>
                 </button>
               )}
+            </div>
+          ) : currentSession && currentSession.status === 'closed' ? (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-gray-100 border border-gray-300 rounded-lg px-3 py-2">
+                <span className="w-2 h-2 bg-gray-500 rounded-full" />
+                <span className="text-gray-700 text-sm font-semibold">Caja cerrada</span>
+              </div>
+              <button
+                onClick={onOpenCash}
+                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg transition text-sm min-h-10"
+              >
+                <DollarSign size={16} />
+                Abrir nueva caja
+              </button>
             </div>
           ) : (
             <button

@@ -66,7 +66,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     error: categoriesError
   } = useSafeFetch(
     () => categoriesService.getAllCategories(tid),
-    { timeout: 8000, retries: 2, key: tid }
+    { timeout: 15000, retries: 3, key: tid }
   );
   const categories = categoriesData ?? [];
 
@@ -76,7 +76,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     error: unitTypesError
   } = useSafeFetch(
     () => unitTypesService.getAllUnitTypes(tid),
-    { timeout: 8000, retries: 2, key: tid }
+    { timeout: 15000, retries: 3, key: tid }
   );
   const unitTypes = unitTypesData ?? [];
 

@@ -38,19 +38,19 @@ interface Tab {
   id: TabId;
   label: string;
   icon: React.ElementType;
-  requiresAdvanced: boolean;
+  featureKey: keyof typeof planFeatures;
 }
 
 const TABS: Tab[] = [
-  { id: 'basic',     label: 'Ventas Básicas',   icon: TrendingUp,    requiresAdvanced: false },
-  { id: 'advanced',  label: 'Ventas Avanzadas',  icon: BarChart2,     requiresAdvanced: true  },
-  { id: 'purchases', label: 'Compras',           icon: ShoppingCart,  requiresAdvanced: true  },
-  { id: 'stock',     label: 'Stock',             icon: Package,       requiresAdvanced: true  },
-  { id: 'sellers',   label: 'Por Vendedor',      icon: Users,         requiresAdvanced: true  },
-  { id: 'expenses',  label: 'Gastos',            icon: TrendingDown,  requiresAdvanced: false },
-  { id: 'products',  label: 'Detalle Productos', icon: Package,       requiresAdvanced: true  },
-  { id: 'cash',      label: 'Cierres de Caja',   icon: Vault,         requiresAdvanced: true  },
-  { id: 'profit',    label: 'Ganancias',         icon: Target,        requiresAdvanced: true  },
+  { id: 'basic',     label: 'Ventas Básicas',   icon: TrendingUp,    featureKey: 'reports_basic' },
+  { id: 'advanced',  label: 'Ventas Avanzadas',  icon: BarChart2,     featureKey: 'reports'  },
+  { id: 'purchases', label: 'Compras',           icon: ShoppingCart,  featureKey: 'purchases'  },
+  { id: 'stock',     label: 'Stock',             icon: Package,       featureKey: 'reports'  },
+  { id: 'sellers',   label: 'Por Vendedor',      icon: Users,         featureKey: 'reports'  },
+  { id: 'expenses',  label: 'Gastos',            icon: TrendingDown,  featureKey: 'expenses' },
+  { id: 'products',  label: 'Detalle Productos', icon: Package,       featureKey: 'reports'  },
+  { id: 'cash',      label: 'Cierres de Caja',   icon: Vault,         featureKey: 'reports'  },
+  { id: 'profit',    label: 'Ganancias',         icon: Target,        featureKey: 'reports'  },
 ];
 
 // ── Locked overlay ────────────────────────────────────────────────────────────
@@ -155,6 +155,7 @@ const ReportsDashboard: React.FC = () => {
   }, []);
 
   const hasAdvanced = planFeatures.reports;
+  const hasBasic = planFeatures.reports_basic;
 
   // Advanced plan starts on 'advanced'; basic plan starts on 'basic'
   const [activeTab, setActiveTab] = useState<TabId>(() => hasAdvanced ? 'advanced' : 'basic');
@@ -181,17 +182,20 @@ const ReportsDashboard: React.FC = () => {
     }
   };
 
-  // Advanced plan: hide 'basic' tab (advanced report replaces it)
-  // Basic plan: only show non-advanced tabs
-  const visibleTabs = TABS.filter(t => {
-    if (t.id === 'basic' && hasAdvanced) return false;
-    return !t.requiresAdvanced || hasAdvanced;
+  // If basic plan is enabled, show ONLY basic and hide all advanced reports
+  // Otherwise, show all non-basic tabs
+  const visibleTabs = TABS.filter(tab => {
+    if (planFeatures.reports_basic) {
+      return tab.id === 'basic';
+    }
+    return tab.id !== 'basic';
   });
 
   // Ensure activeTab is always valid
   const validTab = visibleTabs.find(t => t.id === activeTab) ?? visibleTabs[0];
   const currentTab = validTab ?? TABS[0];
-  const isAdvancedTab = currentTab.requiresAdvanced;
+  const isCurrentTabEnabled = visibleTabs.some(t => t.id === currentTab.id);
+  const hasDateRange = currentTab.id !== 'basic' && currentTab.id !== 'stock';
 
   return (
     <div className="space-y-0 max-w-7xl mx-auto">
@@ -203,7 +207,7 @@ const ReportsDashboard: React.FC = () => {
               {hasAdvanced ? 'Plan avanzado' : 'Plan básico'} · {range.from} → {range.to}
             </p>
           </div>
-          {(isAdvancedTab || currentTab.id === 'expenses') && (
+          {isCurrentTabEnabled && hasDateRange && (
             <DateRangeBar
               customFrom={customFrom}
               customTo={customTo}
@@ -236,9 +240,9 @@ const ReportsDashboard: React.FC = () => {
               </button>
             );
           })}
-          {/* Show locked placeholder tabs only on basic plan */}
-          {!hasAdvanced &&
-            TABS.filter(t => t.requiresAdvanced).map((tab) => {
+          {/* Show locked placeholder tabs for disabled features */}
+          {visibleTabs.length < TABS.length &&
+            TABS.filter(t => !visibleTabs.some(v => v.id === t.id)).map((tab) => {
               const Icon = tab.icon;
               return (
                 <button

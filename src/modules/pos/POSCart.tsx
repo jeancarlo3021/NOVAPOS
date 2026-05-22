@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 
@@ -34,7 +34,38 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   onPayment,
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
-  const canPay = cartItems.length > 0 && !!currentSession && !loading;
+  const canPay = cartItems.length > 0 && currentSession?.status === 'open' && !loading;
+
+  useEffect(() => {
+    console.log('[POSCart] currentSession actualizado:', {
+      exists: !!currentSession,
+      status: currentSession?.status,
+      canPay,
+      cartItems: cartItems.length,
+      loading,
+    });
+  }, [currentSession, canPay, cartItems.length, loading]);
+
+  const handlePaymentClick = () => {
+    console.log('[POSCart] Click en cobrar - validando sesión:', {
+      currentSession: currentSession?.status,
+      canPay,
+    });
+
+    // Double-check session status before allowing payment
+    if (!currentSession || currentSession.status !== 'open') {
+      console.warn('[POSCart] ❌ BLOQUEADO: Sesión no está abierta', currentSession?.status);
+      return;
+    }
+
+    if (cartItems.length === 0) {
+      console.warn('[POSCart] ❌ BLOQUEADO: Carrito vacío');
+      return;
+    }
+
+    console.log('[POSCart] ✅ Permitiendo pago');
+    onPayment();
+  };
 
   const handleDiscountChange = (productId: string, value: string) => {
     setDiscountInputs(prev => ({ ...prev, [productId]: value }));
@@ -203,15 +234,21 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
 
       {/* ── Pay button ── */}
       <div className="px-4 py-4 bg-white border-t border-gray-200 shrink-0">
-        {!currentSession && (
+        {!currentSession ? (
           <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl px-4 py-3 mb-3 text-center">
             <p className="text-amber-700 text-base font-bold">
               Abre la caja para cobrar
             </p>
           </div>
-        )}
+        ) : currentSession.status !== 'open' ? (
+          <div className="bg-red-50 border-2 border-red-200 rounded-2xl px-4 py-3 mb-3 text-center">
+            <p className="text-red-700 text-base font-bold">
+              La caja está cerrada
+            </p>
+          </div>
+        ) : null}
         <button
-          onPointerDown={onPayment}
+          onClick={handlePaymentClick}
           disabled={!canPay}
           className={`
             w-full h-20 flex items-center justify-center gap-3 font-black text-2xl rounded-2xl transition

@@ -87,15 +87,21 @@ promotions.post('/', async (c) => {
       is_active: parsed.data.is_active !== undefined ? parsed.data.is_active : true,
     };
 
+    console.log('[PROMOTION] Creating:', payload);
     const { data, error } = await db
       .from('promotions')
       .insert(payload)
       .select()
       .single();
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error('[PROMOTION] Insert error:', error);
+      throw new Error(error.message);
+    }
+    console.log('[PROMOTION] Created successfully:', data?.id);
     return ok(c, data, 201);
   } catch (err: any) {
+    console.error('[PROMOTION] Catch error:', err.message);
     return fail(c, err.message, 500);
   }
 });

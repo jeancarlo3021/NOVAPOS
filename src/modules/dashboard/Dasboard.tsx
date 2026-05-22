@@ -110,18 +110,16 @@ export const Dashboard = () => {
       // ── Low stock (full inventory only) ────────────────────────────────────
       let lowStockCount = 0;
       if (hasFullInventory) {
-        const stockRows = await apiFetch<Array<{ stock_quantity: number; min_stock_level: number }>>('/reports/stock');
-        lowStockCount = stockRows.filter(
-          p => (p.stock_quantity ?? 0) <= (p.min_stock_level ?? 0)
-        ).length;
+        const stockResp = await apiFetch<{ low_stock_count: number; products?: Array<{ stock_quantity: number; min_stock_level: number }> }>('/reports/stock');
+        lowStockCount = stockResp?.low_stock_count ?? 0;
       }
 
       // ── Expenses this month ────────────────────────────────────────────────
       let expensesMonth = 0;
       if (pf.expenses) {
         const firstOfMonth = todayStr.slice(0, 7) + '-01';
-        const expRows = await apiFetch<Array<{ amount: number }>>(`/reports/expenses?from=${firstOfMonth}&to=${todayStr}`);
-        expensesMonth = expRows.reduce((s, r) => s + Number(r.amount), 0);
+        const expResp = await apiFetch<{ expenses: Array<{ amount: number }> }>(`/reports/expenses?from=${firstOfMonth}&to=${todayStr}`);
+        expensesMonth = (expResp?.expenses ?? []).reduce((s, r) => s + Number(r.amount), 0);
       }
 
       // ── Accounts payable ───────────────────────────────────────────────────

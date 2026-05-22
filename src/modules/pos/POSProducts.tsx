@@ -16,9 +16,16 @@ const WEIGHT_ABBREVS = new Set(['kg', 'g', 'lb', 'lbs', 'oz', 'gr', 'kilo', 'kil
 
 function needsWeightInput(product: Product): boolean {
   const ut = product.unit_type;
+  console.log('[needsWeightInput]', product.name, {
+    unit_type_id: (product as any).unit_type_id,
+    unit_type: ut,
+    hasUnitType: !!ut,
+    abbreviation: ut?.abbreviation,
+    requires_weight: ut?.requires_weight,
+  });
   if (!ut) return false;
   if (ut.requires_weight != null) return ut.requires_weight;
-  return WEIGHT_ABBREVS.has(ut.abbreviation.toLowerCase());
+  return WEIGHT_ABBREVS.has(ut.abbreviation?.toLowerCase() || '');
 }
 
 interface ScanFeedback {

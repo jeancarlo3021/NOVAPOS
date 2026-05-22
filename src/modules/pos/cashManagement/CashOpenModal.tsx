@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DollarSign, X } from 'lucide-react';
+import { DollarSign, X, Wifi, WifiOff } from 'lucide-react';
 import { cashSessionService } from '@/services/cashManagement/cashSessionsService';
+import { cashSessionCacheService } from '@/services/cache/cashSessionCacheService';
+import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { CashSession } from '@/types/Types_POS';
 
 interface CashOpenModalProps {
@@ -50,17 +52,49 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
 
   const handleConfirm = async () => {
     if (totalAmount <= 0) { setError('Ingresa al menos una denominación'); return; }
+
     setLoading(true);
     setError('');
     try {
-      const session = await cashSessionService.createCashSession({
-        tenant_id: tenantId,
-        user_id: userId,
-        opening_amount: totalAmount,
-      });
+      let session: CashSession;
+
+      if (!navigator.onLine) {
+        // Offline: Queue the operation
+        console.log('📱 Abriendo caja en modo offline...');
+        session = await cashSessionOfflineService.queueOpenSession({
+          tenant_id: tenantId,
+          user_id: userId,
+          opening_amount: totalAmount,
+        });
+        console.log('✅ Caja encolada para sincronizar cuando vuelvas online');
+      } else {
+        // Online: Create session immediately
+        session = await cashSessionService.createCashSession({
+          tenant_id: tenantId,
+          user_id: userId,
+          opening_amount: totalAmount,
+        });
+
+        // Pre-cache essential POS data for offline functionality
+        console.log('🔄 Pre-cacheando datos esenciales...');
+        cashSessionCacheService.preCacheSessionData(tenantId)
+          .then(result => {
+            console.log('✅ Pre-cacheo completado:', result);
+          })
+          .catch(err => console.warn('⚠️ Error en pre-cacheo:', err));
+      }
+
       onSuccess(session);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al abrir caja');
+      const errorMsg = err instanceof Error ? err.message : 'Error al abrir caja';
+
+      if (errorMsg.includes('Timeout') || errorMsg.includes('timeout')) {
+        setError('Timeout: El servidor tardó demasiado. Intenta de nuevo.');
+      } else if (errorMsg.includes('Failed to fetch')) {
+        setError('Error de conexión: Verifica tu internet');
+      } else {
+        setError(errorMsg);
+      }
     } finally {
       setLoading(false);
     }

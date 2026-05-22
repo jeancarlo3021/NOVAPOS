@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { X, Package, Loader } from 'lucide-react';
+import { X, Package, Loader, Printer, WifiOff } from 'lucide-react';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
+import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
+import { useTenantId } from '@/hooks/useTenant';
 
 interface PurchaseDetailModalProps {
   purchaseId: string;
@@ -8,29 +10,71 @@ interface PurchaseDetailModalProps {
 }
 
 export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purchaseId, onClose }) => {
+  const { tenantId } = useTenantId();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [purchase, setPurchase] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
 
   console.log('PurchaseDetailModal mounted with purchaseId:', purchaseId);
 
   useEffect(() => {
+    const onOnline = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
+  useEffect(() => {
     console.log('useEffect triggered, calling loadPurchaseDetails for:', purchaseId);
     loadPurchaseDetails();
-  }, [purchaseId]);
+  }, [purchaseId, tenantId]);
 
   const loadPurchaseDetails = async () => {
     setLoading(true);
     setError(null);
     try {
-      const purchaseData = await inventoryPurchasesService.getPurchaseById(purchaseId);
-      console.log('PurchaseDetailModal received:', purchaseData);
+      let purchaseData: any = null;
+
+      // Try online first
+      if (navigator.onLine) {
+        try {
+          purchaseData = await inventoryPurchasesService.getPurchaseById(purchaseId);
+          console.log('PurchaseDetailModal received:', purchaseData);
+        } catch (err) {
+          console.warn('Failed to fetch from API, trying cache:', err);
+          // Fall through to cache
+        }
+      }
+
+      // If not found online or offline, try cache
+      if (!purchaseData && tenantId) {
+        const cachedPurchases = await purchasesOfflineService.getMergedPurchases(tenantId);
+        purchaseData = cachedPurchases.find((p: any) => p.id === purchaseId);
+        if (purchaseData) {
+          console.log('Found purchase in cache:', purchaseData);
+        }
+      }
+
+      if (!purchaseData) {
+        throw new Error('No se encontró la orden de compra');
+      }
+
       setPurchase(purchaseData);
 
-      if (purchaseData?.purchase_items && Array.isArray(purchaseData.purchase_items)) {
-        console.log('Setting items:', purchaseData.purchase_items);
-        setItems(purchaseData.purchase_items);
+      const itemsArray = purchaseData?.purchase_items || purchaseData?.items || [];
+      if (Array.isArray(itemsArray)) {
+        const normalizedItems = itemsArray.map((item: any) => ({
+          ...item,
+          product_name: item.product_name || item.product?.name || item.product_id,
+        }));
+        console.log('Setting items:', normalizedItems);
+        setItems(normalizedItems);
       }
     } catch (err: any) {
       setError(err.message || 'Error al cargar los detalles');
@@ -71,8 +115,8 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
     return null;
   }
 
-  const supplierName = (purchase as any).suppliers?.name || 'Proveedor desconocido';
-  const purchaseItems = (purchase as any).purchase_items || [];
+  const supplierName = (purchase as any).suppliers?.name || (purchase as any).supplier?.name || 'Proveedor desconocido';
+  const purchaseItems = items;
 
   const getStatusLabel = (status: string) => {
     const labels: { [key: string]: string } = {
@@ -94,6 +138,103 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
       default:
         return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const supplierName = (purchase as any).suppliers?.name || 'Proveedor desconocido';
+    const itemsHtml = purchaseItems
+      .map(
+        (item: any) =>
+          `<tr>
+            <td style="padding: 8px; text-align: left;">${item.product_name || item.product_id}</td>
+            <td style="padding: 8px; text-align: right;">${typeof item.quantity === 'string' ? parseFloat(item.quantity).toFixed(0) : item.quantity}</td>
+            <td style="padding: 8px; text-align: right;">₡${typeof item.unit_price === 'string' ? parseFloat(item.unit_price).toFixed(2) : item.unit_price.toFixed(2)}</td>
+            <td style="padding: 8px; text-align: right;">₡${typeof item.subtotal === 'string' ? parseFloat(item.subtotal).toFixed(2) : item.subtotal.toFixed(2)}</td>
+          </tr>`
+      )
+      .join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Orden de Compra #${purchase.purchase_number}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          h1 { color: #1f2937; text-align: center; }
+          .header { margin-bottom: 30px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+          .info-item { border: 1px solid #ddd; padding: 10px; }
+          .info-item p { margin: 5px 0; }
+          .label { font-weight: bold; color: #666; font-size: 12px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          th { background: #f3f4f6; padding: 10px; text-align: left; border-bottom: 2px solid #ddd; font-weight: bold; }
+          td { padding: 8px; border-bottom: 1px solid #ddd; }
+          .total-section { text-align: right; font-size: 18px; font-weight: bold; margin-top: 20px; }
+          .notes { margin-top: 20px; padding: 10px; background: #f9fafb; border: 1px solid #ddd; }
+          @media print { body { margin: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>ORDEN DE COMPRA</h1>
+          <p style="text-align: center; margin: 5px 0; color: #666;">Nº ${purchase.purchase_number}</p>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-item">
+            <p class="label">PROVEEDOR</p>
+            <p>${supplierName}</p>
+          </div>
+          <div class="info-item">
+            <p class="label">FECHA DE COMPRA</p>
+            <p>${new Date(purchase.purchase_date).toLocaleDateString('es-ES')}</p>
+          </div>
+          <div class="info-item">
+            <p class="label">ENTREGA ESPERADA</p>
+            <p>${purchase.expected_delivery_date ? new Date(purchase.expected_delivery_date).toLocaleDateString('es-ES') : '—'}</p>
+          </div>
+          <div class="info-item">
+            <p class="label">ESTADO</p>
+            <p>${getStatusLabel(purchase.status)}</p>
+          </div>
+        </div>
+
+        <h3 style="margin-bottom: 10px;">PRODUCTOS</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th style="text-align: right;">Cantidad</th>
+              <th style="text-align: right;">Precio Unit.</th>
+              <th style="text-align: right;">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml}
+          </tbody>
+        </table>
+
+        <div class="total-section">
+          Total de Compra: ₡${typeof purchase.total_amount === 'string' ? parseFloat(purchase.total_amount).toFixed(2) : purchase.total_amount.toFixed(2)}
+        </div>
+
+        ${purchase.notes ? `<div class="notes"><strong>Notas:</strong><p>${purchase.notes}</p></div>` : ''}
+
+        <script>
+          window.print();
+          window.onafterprint = function() { window.close(); };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
   };
 
   return (
@@ -206,6 +347,13 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
 
           {/* Botones */}
           <div className="flex gap-3 justify-end">
+            <button
+              onClick={handlePrint}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition flex items-center gap-2"
+            >
+              <Printer size={18} />
+              Imprimir
+            </button>
             <button
               onClick={onClose}
               className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-semibold transition"

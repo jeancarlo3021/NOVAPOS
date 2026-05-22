@@ -165,7 +165,9 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar');
+      const errorMsg = err instanceof Error ? err.message : 'Error al guardar';
+      console.error('[PROMO SAVE ERROR]', errorMsg, err);
+      setError(errorMsg);
     } finally {
       setSaving(false);
     }

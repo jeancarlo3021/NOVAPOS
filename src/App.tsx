@@ -9,6 +9,7 @@ import { CreateOwner }  from '@/modules/auth/CreateOwner';
 import { Users } from '@/modules/users/Users';
 import Plans from '@/modules/users/Plans';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { useTokenRefresh } from '@/hooks/useTokenRefresh';
 import { InventoryDashboard } from './modules/inventory';
 import { CategoriesManagement } from './modules/inventory/categories/CategoriesManagement';
 import { UnitTypesManagement } from './modules/inventory/categories/UnitTypesManagement';
@@ -23,14 +24,16 @@ import { AccountsPayableDashboard } from './modules/accountsPayable/AccountsPaya
 import { PromotionsDashboard } from './modules/promotions/PromotionsDashboard';
 //import { TablesDashboard } from './restrurant/modules/tables/TablesDashboard';
 
-function App() {
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
+function AppContent() {
+  // Token refresh hook
+  useTokenRefresh();
 
-          <Route
+  return (
+    <>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+
+        <Route
             path="/"
             element={
               <ProtectedRoute>
@@ -103,6 +106,15 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <SyncIndicator />
+    </>
+    );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppContent />
       </AuthProvider>
     </BrowserRouter>
   );

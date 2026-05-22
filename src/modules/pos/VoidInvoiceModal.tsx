@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Ban, Lock, AlertCircle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { X, Search, Ban, Lock, AlertCircle, Wifi, WifiOff } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService } from '@/services/invoice/invoiceService';
+import { posOfflineService } from '@/services/pos/posOfflineService';
 import { useTenantId } from '@/hooks/useTenant';
 
 interface InvoiceRow {
@@ -35,6 +35,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
   const [loadingList, setLoadingList] = useState(true);
   const [search, setSearch] = useState('');
   const [storedPin, setStoredPin] = useState<string>('');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const [selected, setSelected] = useState<InvoiceRow | null>(null);
   const [pin, setPin] = useState('');
@@ -45,31 +46,87 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
     if (!tenantId) return;
     setLoadingList(true);
     try {
-      const { data: settingsRow } = await supabase
-        .from('settings')
-        .select('config')
-        .eq('tenant_id', tenantId)
-        .eq('type', 'general')
-        .maybeSingle();
-      setStoredPin(settingsRow?.config?.void_pin ?? '');
+      const settings = await apiFetch<any>('/settings/general');
+      console.log('[VoidInvoiceModal] Settings recibidos:', settings);
 
-      const params = new URLSearchParams({ status: 'completed', limit: '60' });
-      if (sessionId) {
-        params.set('session_id', sessionId);
+      // Try various possible PIN field names
+      const pin = settings?.void_pin
+        ?? settings?.voidPin
+        ?? settings?.void_code
+        ?? settings?.voidCode
+        ?? settings?.PIN
+        ?? '';
+
+      console.log('[VoidInvoiceModal] PIN encontrado:', pin ? '✓ Sí' : '✗ No');
+      setStoredPin(pin);
+
+      let invoiceData: InvoiceRow[] = [];
+
+      if (isOnline) {
+        // Online: fetch from API and cache
+        console.log('[VoidInvoiceModal] Online - cargando facturas del API');
+        const params = new URLSearchParams({ status: 'completed', limit: '60' });
+        if (sessionId) {
+          params.set('session_id', sessionId);
+        } else {
+          const today = new Date().toISOString().slice(0, 10);
+          params.set('from', `${today}T00:00:00`);
+        }
+        const data = await apiFetch<InvoiceRow[]>(`/invoices?${params.toString()}`);
+        invoiceData = data ?? [];
+
+        // Combine API invoices with cached ones (to show both)
+        const cached = posOfflineService.getCachedInvoices();
+        const combined = [
+          ...invoiceData,
+          ...cached.filter(c => !invoiceData.some(a => a.id === c.id)) // Avoid duplicates
+        ];
+
+        // Cache the invoices for offline use
+        posOfflineService.cacheInvoices(combined as any);
+        console.log('[VoidInvoiceModal] Facturas desde API:', invoiceData.length, 'Combinadas con cache:', combined.length);
+        invoiceData = combined;
       } else {
-        const today = new Date().toISOString().slice(0, 10);
-        params.set('from', `${today}T00:00:00`);
+        // Offline: use cached invoices
+        console.log('[VoidInvoiceModal] Offline - cargando facturas del cache');
+        invoiceData = posOfflineService.getCachedInvoices() as any;
+        console.log('[VoidInvoiceModal] Facturas desde cache:', invoiceData.length);
+
+        // Also log what's in the cache
+        invoiceData.forEach(inv => {
+          console.log(`  - ${inv.invoice_number}: ₡${inv.total}`);
+        });
       }
-      const data = await apiFetch<InvoiceRow[]>(`/invoices?${params.toString()}`);
-      setInvoices(data ?? []);
+
+      if (invoiceData.length === 0) {
+        console.warn('[VoidInvoiceModal] ⚠️ No se encontraron facturas');
+      }
+
+      setInvoices(invoiceData);
     } catch (e) {
       console.error('VoidInvoiceModal load error:', e);
+
+      // Fallback to cached invoices on error
+      const cached = posOfflineService.getCachedInvoices();
+      console.log('[VoidInvoiceModal] Usando caché como fallback:', cached.length, 'facturas');
+      setInvoices(cached as any);
     } finally {
       setLoadingList(false);
     }
-  }, [tenantId, sessionId]);
+  }, [tenantId, sessionId, isOnline]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const filtered = invoices.filter(inv =>
     inv.invoice_number.toLowerCase().includes(search.toLowerCase())
@@ -84,8 +141,18 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
     }
     setVoiding(true);
     try {
-      await invoicesService.cancelInvoice(selected.id);
-      onVoided(selected.invoice_number);
+      if (isOnline) {
+        // Online: cancel immediately
+        console.log('[VoidInvoiceModal] Online - anulando inmediatamente');
+        await invoicesService.cancelInvoice(selected.id);
+        onVoided(selected.invoice_number);
+      } else {
+        // Offline: queue the void operation
+        console.log('[VoidInvoiceModal] Offline - encolando anulación');
+        await posOfflineService.queueVoid(selected.id, selected.invoice_number);
+        setPinError('');
+        onVoided(selected.invoice_number);
+      }
     } catch (e) {
       setPinError(e instanceof Error ? e.message : 'Error al anular la factura');
       setVoiding(false);
@@ -109,6 +176,12 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
           <div className="flex items-center gap-2">
             <Ban size={20} className="text-red-500" />
             <h2 className="text-lg font-black text-gray-900">Anular Factura</h2>
+            {!isOnline && (
+              <span className="inline-flex items-center gap-1 ml-2 px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-semibold rounded-lg">
+                <WifiOff size={12} />
+                Offline
+              </span>
+            )}
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition">
             <X size={20} className="text-gray-500" />

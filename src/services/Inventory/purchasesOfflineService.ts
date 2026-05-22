@@ -1,10 +1,16 @@
-import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { inventoryPurchasesService } from './inventoryPurchasesService';
 import {
   accountsPayableService,
   termsToDays,
   calcDueDate,
 } from '@/services/accountsPayable/accountsPayableService';
+import {
+  PendingPurchaseCreateSchema,
+  PendingReceiveSchema,
+  PendingCancelSchema,
+  validateData,
+} from '@/services/validation/purchaseSchemas';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -159,17 +165,35 @@ export const purchasesOfflineService = {
   // ── Queue operations ───────────────────────────────────────────────────────
 
   async queueCreate(data: Omit<PendingPurchaseCreate, 'localId' | 'createdAt'>): Promise<number> {
+    // Validate data before storing
+    const validation = validateData(PendingPurchaseCreateSchema, data);
+    if (!validation.success) {
+      throw new Error(`Validación fallida: ${validation.error}`);
+    }
+
     const db      = await openDB();
     const localId = await idbPut(db, 'pending_creates', { ...data, createdAt: new Date().toISOString() });
     return localId as number;
   },
 
   async queueReceive(data: Omit<PendingReceive, 'createdAt'>): Promise<void> {
+    // Validate data before storing
+    const validation = validateData(PendingReceiveSchema, data);
+    if (!validation.success) {
+      throw new Error(`Validación fallida: ${validation.error}`);
+    }
+
     const db = await openDB();
     await idbPut(db, 'pending_receives', { ...data, createdAt: new Date().toISOString() });
   },
 
   async queueCancel(purchaseId: string, tenantId: string): Promise<void> {
+    // Validate data before storing
+    const validation = validateData(PendingCancelSchema, { purchaseId, tenantId });
+    if (!validation.success) {
+      throw new Error(`Validación fallida: ${validation.error}`);
+    }
+
     const db = await openDB();
     await idbPut(db, 'pending_cancels', { purchaseId, tenantId, createdAt: new Date().toISOString() });
   },
@@ -231,11 +255,9 @@ export const purchasesOfflineService = {
       this.getPendingCancels(tenantId),
     ]);
 
-    const receiveIds = new Set(receives.map(r => r.purchaseId));
     const cancelIds  = new Set(cancels.map(c => c.purchaseId));
 
     const updated = cached.map(p => {
-      if (receiveIds.has(p.id)) return { ...p, status: 'received', __pendingSync: true };
       if (cancelIds.has(p.id))  return { ...p, status: 'cancelled', __pendingSync: true };
       return p;
     });
@@ -272,83 +294,40 @@ export const purchasesOfflineService = {
   // ── Sync ──────────────────────────────────────────────────────────────────
 
   async _syncReceive(r: PendingReceive): Promise<void> {
-    const { purchaseId, items, notes, canUpdateStock, totalReceived, tenantId } = r;
+    const { purchaseId, items, notes, canUpdateStock, totalReceived, supplierTerms, supplierId, purchaseNumber, supplierName, tenantId } = r;
 
-    for (const item of items) {
-      await supabase
-        .from('purchase_items')
-        .update({
-          received_quantity: Math.floor(item.qty_received),
-          unit_price:        item.price_received,
-          subtotal:          item.qty_received * item.price_received,
-        })
-        .eq('id', item.id);
-    }
+    // Use backend endpoint to receive the purchase
+    // This handles all updates: purchase status, items, stock, accounts payable, etc.
+    await apiFetch(`/purchases/${purchaseId}/receive`, {
+      method: 'POST',
+      body: JSON.stringify({
+        items: items.map(item => ({
+          product_id: item.product_id,
+          quantity: Math.floor(item.qty_received),
+        })),
+        canUpdateStock,
+        notes,
+      }),
+    });
 
-    await supabase
-      .from('purchases')
-      .update({
-        total_amount:         totalReceived,
-        notes:                notes || null,
-        actual_delivery_date: new Date().toISOString().slice(0, 10),
-      })
-      .eq('id', purchaseId);
-
-    for (const item of items) {
-      if (item.price_received > 0) {
-        await supabase
-          .from('products')
-          .update({ cost_price: item.price_received, updated_at: new Date().toISOString() })
-          .eq('id', item.product_id);
-      }
-    }
-
-    if (canUpdateStock) {
-      for (const item of items) {
-        if (item.qty_received <= 0) continue;
-        const { data: prod } = await supabase
-          .from('products')
-          .select('stock_quantity')
-          .eq('id', item.product_id)
-          .maybeSingle();
-        if (prod) {
-          await supabase
-            .from('products')
-            .update({ stock_quantity: Math.floor((prod.stock_quantity ?? 0) + item.qty_received) })
-            .eq('id', item.product_id);
-          await supabase
-            .from('stock_movements')
-            .insert([{
-              tenant_id:      tenantId,
-              product_id:     item.product_id,
-              movement_type:  'in',
-              quantity:       Math.round(item.qty_received),
-              reference_id:   purchaseId,
-              reference_type: 'purchase',
-            }]);
-        }
-      }
-    }
-
-    await inventoryPurchasesService.updatePurchaseStatus(purchaseId, 'received');
-
-    const creditDays = termsToDays(r.supplierTerms);
+    // Create accounts payable if supplier has credit terms
+    const creditDays = termsToDays(supplierTerms);
     if (creditDays !== null) {
       const alreadyExists = await accountsPayableService.existsForPurchase(purchaseId);
       if (!alreadyExists) {
         const today = new Date().toISOString().slice(0, 10);
         await accountsPayableService.create({
-          tenant_id:       tenantId,
-          purchase_id:     purchaseId,
-          supplier_id:     r.supplierId,
-          purchase_number: r.purchaseNumber,
-          supplier_name:   r.supplierName,
-          total_amount:    totalReceived,
-          paid_amount:     0,
-          due_date:        calcDueDate(today, r.supplierTerms),
-          status:          'pending',
-          payment_terms:   r.supplierTerms || null,
-          notes:           notes || null,
+          tenant_id: tenantId,
+          purchase_id: purchaseId,
+          supplier_id: supplierId,
+          purchase_number: purchaseNumber,
+          supplier_name: supplierName,
+          total_amount: totalReceived,
+          paid_amount: 0,
+          due_date: calcDueDate(today, supplierTerms),
+          status: 'pending',
+          payment_terms: supplierTerms || null,
+          notes: notes || null,
         });
       }
     }
@@ -360,6 +339,7 @@ export const purchasesOfflineService = {
 
     for (const c of await this.getPendingCreates(tenantId)) {
       try {
+        // Include items in the purchase creation (can be empty array for draft)
         const purchase = await inventoryPurchasesService.createPurchase(tenantId, {
           supplier_id:            c.purchaseData.supplier_id,
           purchase_number:        c.purchaseData.purchase_number,
@@ -369,18 +349,14 @@ export const purchasesOfflineService = {
           status:                 'pending',
           total_amount:           c.purchaseData.total_amount,
           notes:                  c.purchaseData.notes,
-        });
-        if (purchase?.id) {
-          await inventoryPurchasesService.addPurchaseItems(
-            purchase.id,
-            c.items.map(i => ({
-              product_id: i.product_id,
-              quantity:   i.quantity,
-              unit_price: i.unit_price,
-              subtotal:   i.subtotal,
-            }))
-          );
-        }
+          purchase_items:         c.items.map(i => ({
+            product_id: i.product_id,
+            quantity:   i.quantity,
+            unit_price: i.unit_price,
+            subtotal:   i.subtotal,
+          })),
+        } as any);
+
         await this.removePendingCreate(c.localId!);
         synced++;
       } catch (err) {

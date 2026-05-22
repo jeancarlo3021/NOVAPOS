@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { LockKeyhole, X, TrendingUp, TrendingDown, Plus, Trash2, CreditCard, Smartphone, Banknote } from 'lucide-react';
 import { cashSessionService } from '@/services/cashManagement/cashSessionsService';
+import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { CashSession } from '@/types/Types_POS';
 
 const DENOMINATIONS = [
@@ -53,11 +54,12 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   ]);
 
   // ── Totals ──
+  const openingAmount = session.opening_amount ?? 0;
   const cashTotal = DENOMINATIONS.reduce((s, d) => s + d.value * (quantities[d.value] ?? 0), 0);
   const cardTotal = parseFloat(cardAmount) || 0;
   const sinpeTotal = sinpeEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
   const grandTotal = cashTotal + cardTotal + sinpeTotal;
-  const difference = grandTotal - session.opening_amount;
+  const difference = grandTotal - openingAmount;
 
   // ── Denomination helpers ──
   const setQty = (value: number, qty: number) =>
@@ -78,19 +80,62 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
   // ── Submit ──
   const handleConfirm = async () => {
-    if (grandTotal <= 0) { setError('El total debe ser mayor a ₡0'); return; }
+    if (grandTotal <= 0) {
+      setError('Debes ingresar el monto total (efectivo + tarjeta + SINPE) antes de cerrar');
+      return;
+    }
     setLoading(true);
     setError('');
+    console.log('🔐 Iniciando cierre de caja...');
     try {
       const breakdown = JSON.stringify({ cash: cashTotal, card: cardTotal, sinpe: sinpeTotal, sinpeEntries });
-      const updatedSession = await cashSessionService.closeCashSession({
+      const closeData = {
         id: session.id,
         closing_amount: grandTotal,
         notes: `Desglose: ${breakdown}`,
-      });
+      };
+
+      console.log('🔄 Cerrando caja con datos:', closeData);
+
+      let updatedSession: CashSession;
+
+      if (!navigator.onLine) {
+        // Offline: Queue the operation
+        console.log('📱 Cerrando caja en modo offline...');
+        console.log('   Datos del cierre:', closeData);
+        try {
+          // Store the close operation for syncing
+          await cashSessionOfflineService.queueCloseSession(closeData);
+          console.log('✅ Operación guardada en IndexedDB');
+
+          // Return optimistic response with correct property names
+          updatedSession = {
+            ...session,
+            closing_amount: grandTotal,
+            closed_at: new Date().toISOString(),
+            status: 'closed' as const,
+          };
+          console.log('✅ Respuesta optimista creada:', updatedSession);
+          console.log('✅ Caja encolada para sincronizar cuando vuelvas online');
+        } catch (queueErr) {
+          console.error('❌ Error encolando cierre:', queueErr);
+          throw new Error(`Error al encolar: ${queueErr instanceof Error ? queueErr.message : 'desconocido'}`);
+        }
+      } else {
+        // Online: Close immediately
+        console.log('🌐 Enviando cierre a servidor...');
+        console.log('   Datos del cierre:', closeData);
+        updatedSession = await cashSessionService.closeCashSession(closeData);
+        console.log('✅ Caja cerrada en servidor:', updatedSession);
+      }
+
+      console.log('📤 Llamando onSuccess con sesión:', updatedSession);
       onSuccess(updatedSession);
+      console.log('✨ Cierre completado exitosamente');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cerrar caja');
+      const errorMsg = err instanceof Error ? err.message : 'Error al cerrar caja';
+      console.error('❌ Error cerrando caja:', err);
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -147,7 +192,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
         {/* ── Session summary ── */}
         <div className="bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-4 shrink-0 flex-wrap">
-          <div className="text-sm text-gray-500">Monto de apertura: <span className="font-black text-gray-800">₡{session.opening_amount.toLocaleString()}</span></div>
+          <div className="text-sm text-gray-500">Monto de apertura: <span className="font-black text-gray-800">₡{(session.opening_amount ?? 0).toLocaleString()}</span></div>
           <div className="flex-1" />
           {TABS.map(t => (
             <div key={t.id} className="text-sm text-gray-500">

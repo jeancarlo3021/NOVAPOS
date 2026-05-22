@@ -19,23 +19,38 @@ const PurchaseSchema = z.object({
   expected_delivery_date: z.string().optional().nullable(),
   notes:                  z.string().optional().nullable(),
   total_amount:           z.number().nonnegative().optional().nullable(),
-  items:                  z.array(ItemSchema).min(1),
+  items:                  z.array(ItemSchema).optional().default([]),
 });
 
 purchases.get('/', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     const status   = c.req.query('status');
+    const from     = c.req.query('from');
+    const to       = c.req.query('to');
 
     let query = db.from('purchases')
-      .select('*, suppliers(name)')
+      .select('id, supplier_id, purchase_number, purchase_date, status, total_amount, notes')
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+      .order('purchase_date', { ascending: false });
     if (status) query = query.eq('status', status);
+    if (from) query = query.gte('purchase_date', from);
+    if (to) query = query.lte('purchase_date', to);
 
-    const { data, error } = await query;
+    const { data: purchases, error } = await query;
     if (error) throw new Error(error.message);
-    return ok(c, data);
+
+    // Get supplier names
+    const supplierIds = [...new Set((purchases ?? []).map((p: any) => p.supplier_id))];
+    const { data: suppliers } = await db.from('suppliers')
+      .select('id, name').in('id', supplierIds);
+
+    const result = (purchases ?? []).map((p: any) => ({
+      ...p,
+      supplier: (suppliers ?? []).find((s: any) => s.id === p.supplier_id) || null,
+    }));
+
+    return ok(c, result);
   } catch (err: any) { return fail(c, err.message, 500); }
 });
 
@@ -117,8 +132,8 @@ purchases.post('/:id/receive', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     const { id }   = c.req.param();
-    const body = await c.req.json() as { items: { product_id: string; quantity: number }[] };
-    const { items } = body;
+    const body = await c.req.json() as { items: { product_id: string; quantity: number }[]; canUpdateStock?: boolean; notes?: string };
+    const { items, canUpdateStock = true, notes } = body;
 
     console.log(`[RECEIVE] Starting receive for purchase ${id}, tenant ${tenantId}`);
 
@@ -141,22 +156,25 @@ purchases.post('/:id/receive', async (c) => {
 
     // Mark as received
     const { data: updated, error: uErr } = await db.from('purchases')
-      .update({ status: 'received', actual_delivery_date: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() })
+      .update({ status: 'received', actual_delivery_date: new Date().toISOString().slice(0, 10), notes: notes || null, updated_at: new Date().toISOString() })
       .eq('id', id).eq('tenant_id', tenantId).select().single();
     if (uErr) throw new Error(`Error updating purchase: ${uErr.message}`);
 
     console.log(`[RECEIVE] Purchase marked as received`);
 
-    // Increment stock for each received item
-    for (const item of (items ?? [])) {
-      const { data: p } = await db.from('products').select('stock_quantity').eq('id', item.product_id).single();
-      if (p) await db.from('products').update({
-        stock_quantity: (p.stock_quantity ?? 0) + item.quantity,
-        updated_at: new Date().toISOString(),
-      }).eq('id', item.product_id);
+    // Increment stock for each received item if canUpdateStock is true
+    if (canUpdateStock) {
+      for (const item of (items ?? [])) {
+        const { data: p } = await db.from('products').select('stock_quantity').eq('id', item.product_id).single();
+        if (p) await db.from('products').update({
+          stock_quantity: (p.stock_quantity ?? 0) + item.quantity,
+          updated_at: new Date().toISOString(),
+        }).eq('id', item.product_id);
+      }
+      console.log(`[RECEIVE] Stock incremented for ${items?.length ?? 0} items`);
+    } else {
+      console.log(`[RECEIVE] Stock update skipped (canUpdateStock=false)`);
     }
-
-    console.log(`[RECEIVE] Stock incremented for ${items?.length ?? 0} items`);
 
     // Create accounts payable if supplier has payment terms (credit)
     const paymentTerms = supplier?.payment_terms;

@@ -5,8 +5,8 @@ import { Product } from '@/types/Types_POS';
 // CONFIGURACIÓN
 // ============================================
 
-const QUERY_TIMEOUT = 10000; // 10 segundos
-const MAX_RETRIES = 2;
+const QUERY_TIMEOUT = 15000; // 15 segundos
+const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
 // ============================================
