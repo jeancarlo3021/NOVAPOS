@@ -148,23 +148,11 @@ export class POSPrinterService {
 
   async printQZTray(receiptData: ReceiptData, cfg?: ReceiptConfig): Promise<void> {
     const config = cfg ?? this.getDefaultConfig();
-    if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
 
-    await qzConnect();
-
-    const escpos = this.generateESCPOS(receiptData, config);
-    const receiptPrinters = (config.printers ?? []).filter(
-      p => p.type === 'receipt' && p.is_active,
-    );
-
-    if (receiptPrinters.length > 0) {
-      await Promise.all(receiptPrinters.map(p => qzPrintToPrinter(p, escpos)));
-    } else {
-      // Fallback: legacy single-printer config
-      const qz = (window as any).qz;
-      const printerConfig = qz.configs.create(config.printerName ?? null);
-      await qz.print(printerConfig, [{ type: 'raw', format: 'command', data: escpos }]);
-    }
+    // For Xprinter XP-80C and similar models that don't support ESC/POS,
+    // use HTML printing instead
+    const html = this.generateHTML(receiptData, config);
+    await this.printHTMLContent(html);
   }
 
   // ─── Purchase Order print ─────────────────────────────────────────────────────
