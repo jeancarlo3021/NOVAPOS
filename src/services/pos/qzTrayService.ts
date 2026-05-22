@@ -5,7 +5,7 @@
 declare const qz: any;
 
 const PRIVATE_KEY_LS = 'qz_private_key';
-const QZ_SCRIPT_URL = 'https://localhost:8383/qz/qz-tray.js';
+const QZ_SCRIPT_URL = 'http://localhost:8383/qz/qz-tray.js';
 
 // Load QZ Tray script dynamically
 function loadQZTrayScript(): Promise<void> {

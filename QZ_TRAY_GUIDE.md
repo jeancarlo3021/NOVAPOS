@@ -248,7 +248,7 @@ QZ Tray requiere **autenticación digital** si:
 
 ### Generar Certificado
 
-1. Ve a https://qz.io/account
+1. Ve a https://qz.i  o/account
 2. Inicia sesión o crea cuenta
 3. Genera par de claves (público + privado)
 4. Guarda la **llave privada** en localStorage:
