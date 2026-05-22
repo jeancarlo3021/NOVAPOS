@@ -544,55 +544,44 @@ export class POSPrinterService {
   private generateESCPOS(receiptData: ReceiptData, cfg: ReceiptConfig): Uint8Array {
     const charWidth = cfg.paperWidth;
     const cmds: number[] = [];
-    const enc = new TextEncoder();
 
     const push = (...bytes: number[]) => cmds.push(...bytes);
-    const text = (s: string) => cmds.push(...enc.encode(s));
+    const text = (s: string) => {
+      // Xprinter: only ASCII, no UTF-8
+      for (let i = 0; i < s.length; i++) {
+        const code = s.charCodeAt(i);
+        cmds.push(code > 127 ? 63 : code); // Replace non-ASCII with '?'
+      }
+    };
     const nl = () => push(0x0a);
     const sep = () => { text('-'.repeat(charWidth)); nl(); };
-    const bold = (on: boolean) => push(0x1b, 0x45, on ? 1 : 0);
-    const align = (a: 'left' | 'center' | 'right') => {
-      // Xprinter: 0=left, 1=center, 2=right
-      push(0x1b, 0x61);
-      if (a === 'left') push(0);
-      else if (a === 'center') push(1);
-      else push(2);
+    const centerText = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
+    const rightAlign = (label: string, val: string) => {
+      const sp = Math.max(1, charWidth - label.length - val.length);
+      text(label + ' '.repeat(sp) + val); nl();
     };
-    const doubleHeight = (on: boolean) => push(0x1b, 0x21, on ? 0x30 : 0x00);
-
-    // Init (Xprinter compatible)
-    push(0x1b, 0x40); // ESC @ — initialize
-    push(0x1b, 0x61, 1); // ESC a 1 — center align (simpler)
 
     // Header
-    align('center');
-    bold(true);
-    doubleHeight(true);
-    text('TICKET DE VENTA'); nl();
-    doubleHeight(false);
-    bold(false);
-
-    if (cfg.showInvoiceNumber) { text(`#${receiptData.invoiceNumber}`); nl(); }
-    if (cfg.showDateTime) { text(`${receiptData.date} ${receiptData.time}`); nl(); }
-
-    align('left');
+    centerText('=== TICKET DE VENTA ===');
+    if (cfg.showInvoiceNumber) { centerText(`#${receiptData.invoiceNumber}`); }
+    if (cfg.showDateTime) { centerText(`${receiptData.date} ${receiptData.time}`); }
     sep();
 
     // Store
-    if (cfg.showStoreName && receiptData.storeName) { align('center'); text(receiptData.storeName); nl(); align('left'); }
-    if (cfg.showStoreAddress && receiptData.storeAddress) { align('center'); text(receiptData.storeAddress); nl(); align('left'); }
-    if (cfg.showStorePhone && receiptData.storePhone) { align('center'); text(`Tel: ${receiptData.storePhone}`); nl(); align('left'); }
+    if (cfg.showStoreName && receiptData.storeName) { centerText(receiptData.storeName); }
+    if (cfg.showStoreAddress && receiptData.storeAddress) { centerText(receiptData.storeAddress); }
+    if (cfg.showStorePhone && receiptData.storePhone) { centerText(`Tel: ${receiptData.storePhone}`); }
 
     // Customer
     if (cfg.showCustomerInfo && (receiptData.customerName || receiptData.customerPhone)) {
       sep();
-      bold(true); text('CLIENTE:'); bold(false); nl();
-      if (receiptData.customerName) { text(receiptData.customerName); nl(); }
-      if (receiptData.customerPhone) { text(`Tel: ${receiptData.customerPhone}`); nl(); }
+      text('CLIENTE:'); nl();
+      if (receiptData.customerName) { centerText(receiptData.customerName); }
+      if (receiptData.customerPhone) { centerText(`Tel: ${receiptData.customerPhone}`); }
     }
 
     sep();
-    bold(true); text('ARTICULOS:'); bold(false); nl();
+    text('ARTICULOS:'); nl();
 
     for (const item of receiptData.items) {
       const price = `${item.subtotal.toLocaleString('es-CR')}`;
@@ -604,43 +593,29 @@ export class POSPrinterService {
 
     sep();
     const fmt = (n: number) => `${n.toLocaleString('es-CR')}`;
-    const totalLine = (label: string, val: string) => {
-      const sp = charWidth - label.length - val.length;
-      text(label + ' '.repeat(Math.max(1, sp)) + val); nl();
-    };
-    totalLine('Subtotal:', fmt(receiptData.subtotal));
-    if (receiptData.tax > 0) { totalLine('Impuesto:', fmt(receiptData.tax)); }
+    rightAlign('Subtotal:', fmt(receiptData.subtotal));
+    if (receiptData.tax > 0) { rightAlign('Impuesto:', fmt(receiptData.tax)); }
     sep();
 
-    align('center');
-    bold(true);
-    doubleHeight(true);
-    text(`TOTAL: ${fmt(receiptData.total)}`); nl();
-    doubleHeight(false);
-    bold(false);
-    align('left');
+    centerText(`*** TOTAL: ${fmt(receiptData.total)} ***`);
 
     sep();
-    bold(true); text('PAGO:'); bold(false); nl();
-    text(receiptData.paymentMethod); nl();
+    text('PAGO:'); nl();
+    centerText(receiptData.paymentMethod);
 
     if (cfg.showCashierName && receiptData.cashierName) {
-      text(`Cajero: ${receiptData.cashierName}`); nl();
+      centerText(`Cajero: ${receiptData.cashierName}`);
     }
 
     sep();
-    align('center');
-    bold(true);
-    text(cfg.footerMessage); nl();
-    bold(false);
-    text('Vuelva pronto'); nl();
-    align('left');
+    centerText(cfg.footerMessage);
+    centerText('Vuelva pronto');
 
-    // Feed & cut (Xprinter)
-    push(0x0a, 0x0a, 0x0a, 0x0a);
-    // Full cut: GS V A 0 (más compatible que B)
+    // Feed & auto-cut
+    nl(); nl(); nl(); nl();
+    // Xprinter cut command (GS V)
     push(0x1d, 0x56, 0x00); // GS V 0 — full cut
-    push(0x0a, 0x0a);       // Extra feed
+    nl(); nl();
 
     return new Uint8Array(cmds);
   }
