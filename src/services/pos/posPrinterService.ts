@@ -561,6 +561,9 @@ export class POSPrinterService {
       text(label + ' '.repeat(sp) + val); nl();
     };
 
+    // Change codepage to ASCII/CP437 (Xprinter fix for GB18030 issue)
+    push(0x1b, 0x74, 0x00); // ESC t 0 — CP437
+
     // Header
     centerText('=== TICKET DE VENTA ===');
     if (cfg.showInvoiceNumber) { centerText(`#${receiptData.invoiceNumber}`); }
