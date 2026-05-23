@@ -280,19 +280,10 @@ export class POSPrinterService {
     total_amount: number;
     notes?: string | null;
     tenant_name?: string;
-  }, cfg: ReceiptConfig, general?: any): string {
+  }, cfg: ReceiptConfig, _general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
     const fmtDate = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('es-CR', { dateStyle: 'short' });
     const widthMM = PAPER_WIDTH_MM[cfg.paperWidth] ?? '80mm';
-
-    // Datos del local (mismo origen que el ticket)
-    const storeName = general?.businessName || order.tenant_name;
-    const storeRuc = general?.ruc;
-    const storeCedula = general?.cedula;
-    const storeAddress = general?.address;
-    const storeCity = general?.city;
-    const storePhone = general?.phone;
-    const logoUrl = cfg.logoUrl;
 
     const rows = order.items.map(i => `
       <tr>
@@ -314,14 +305,6 @@ export class POSPrinterService {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
       color-adjust: exact !important;
-    }
-    @media print {
-      img {
-        filter: url(#logoThermalThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0) !important;
-        image-rendering: crisp-edges !important;
-        image-rendering: -webkit-optimize-contrast !important;
-        image-rendering: pixelated !important;
-      }
     }
     body {
       font-family: 'Courier New', Courier, monospace;
@@ -346,9 +329,6 @@ export class POSPrinterService {
       border-top: 4px solid #000;
       border-bottom: 4px solid #000;
     }
-    .store-block { text-align: center; margin: 4px 0; }
-    .store-name { font-size: 16px; font-weight: 900; letter-spacing: 1px; margin-bottom: 2px; }
-    .store-line { font-size: 12px; font-weight: 700; margin: 1px 0; }
     .meta { font-size: 13px; font-weight: 800; margin: 2px 0; }
     .section-label {
       font-weight: 900;
@@ -383,63 +363,34 @@ export class POSPrinterService {
       border-bottom: 4px solid #000;
       letter-spacing: 2px;
     }
-    .signature {
-      text-align: center;
-      font-size: 13px;
-      font-weight: 800;
-      margin-top: 10px;
-      padding-top: 4px;
-    }
     .notes-block {
       font-size: 12px;
       font-weight: 700;
       margin: 4px 0;
       padding: 4px 0;
     }
+    .sign-label {
+      font-size: 16px;
+      font-weight: 900;
+      text-align: center;
+      letter-spacing: 1px;
+      margin-top: 20px;
+    }
+    .sign-line {
+      text-align: center;
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: 4px;
+      margin-top: 24px;
+      padding-top: 10px;
+    }
+    .feed { padding-bottom: 25mm; }
   </style>
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute">
-  <filter id="logoThermalThreshold">
-    <feColorMatrix type="matrix" values="
-      0.21 0.72 0.07 0 0
-      0.21 0.72 0.07 0 0
-      0.21 0.72 0.07 0 0
-      0    0    0    1 0"/>
-    <feComponentTransfer>
-      <feFuncR type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
-      <feFuncG type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
-      <feFuncB type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
-    </feComponentTransfer>
-  </filter>
-</svg>
-
 <div class="receipt">
 
-  ${logoUrl ? `
-    <div style="text-align:center;margin-bottom:8px;padding:4px;">
-      <img src="${logoUrl}"
-           alt="Logo"
-           style="max-height:160px;max-width:100%;width:auto;object-fit:contain;display:inline-block;
-                  filter:url(#logoThermalThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0);
-                  image-rendering:crisp-edges;image-rendering:-webkit-optimize-contrast;image-rendering:pixelated;">
-    </div>
-  ` : ''}
-
   <div class="title">ORDEN DE COMPRA</div>
-
-  ${storeName ? `
-    <div class="store-block">
-      <div class="store-name">${storeName}</div>
-      ${storeRuc ? `<div class="store-line"><strong>Céd. Jurídica:</strong> ${storeRuc}</div>` : ''}
-      ${storeCedula ? `<div class="store-line"><strong>Cédula:</strong> ${storeCedula}</div>` : ''}
-      ${storeAddress ? `<div class="store-line">${storeAddress}</div>` : ''}
-      ${storeCity ? `<div class="store-line">${storeCity}</div>` : ''}
-      ${storePhone ? `<div class="store-line"><strong>Tel:</strong> ${storePhone}</div>` : ''}
-    </div>
-  ` : ''}
-
-  <hr class="divider">
 
   <div class="meta"><strong>N°:</strong> ${order.purchase_number}</div>
   <div class="meta"><strong>Fecha:</strong> ${fmtDate(order.purchase_date)}</div>
@@ -471,9 +422,13 @@ export class POSPrinterService {
 
   <hr class="divider">
 
-  <div class="signature">Firma de recepción:</div>
-  <div class="signature">_____________________</div>
-  <div class="signature" style="margin-top:8px;">Fecha: _____________________</div>
+  <div class="sign-label">FIRMA DE RECEPCIÓN</div>
+  <div class="sign-line">_______________________</div>
+
+  <div class="sign-label" style="margin-top:30px;">FECHA</div>
+  <div class="sign-line">_______________________</div>
+
+  <div class="feed">&nbsp;</div>
 
 </div>
 </body>
