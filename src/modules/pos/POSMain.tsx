@@ -311,14 +311,13 @@ export const POSMain = () => {
           tax,
           total: tot,
           paymentMethod: PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod,
-          // Datos del local
+          // Datos del local (sin email)
           storeName: general?.businessName,
           storeRuc: general?.ruc,
           storeCedula: general?.cedula,
           storeAddress: general?.address,
           storeCity: general?.city,
           storePhone: general?.phone,
-          storeEmail: general?.email,
           cashierName: user?.email ?? undefined,
           customerName,
         },

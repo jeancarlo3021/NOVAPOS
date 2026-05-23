@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, lazy, Suspense } from 'react';
-import { useCustomerDisplay } from '@/hooks/POS/useCustomerDisplay';
+import { useCustomerDisplay, type BaudRate } from '@/hooks/POS/useCustomerDisplay';
 
 const DisplayTestPanel = lazy(() =>
   import('@/modules/pos/components/DisplayTestPanel').then(m => ({ default: m.DisplayTestPanel }))
@@ -8,9 +8,12 @@ const DisplayTestPanel = lazy(() =>
 interface CustomerDisplayContextValue {
   isConnected: boolean;
   error: string | null;
-  connect: () => Promise<void>;
+  baudRate: BaudRate;
+  connect: (baud?: BaudRate) => Promise<void>;
   disconnect: () => Promise<void>;
+  updatePrice: (amount: number) => Promise<void>;
   updateDisplay: (line1: string, line2: string) => Promise<void>;
+  setBaudRate: (rate: BaudRate) => void;
   openTestPanel: () => void;
   closeTestPanel: () => void;
 }
@@ -32,7 +35,7 @@ export const CustomerDisplayProvider: React.FC<ProviderProps> = ({ children }) =
   useEffect(() => {
     display.autoReconnect().then(connected => {
       if (connected) {
-        display.updateDisplay('Sistema listo', 'Bienvenido');
+        display.updatePrice(0); // LED numérico — muestra "    0.00"
       }
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

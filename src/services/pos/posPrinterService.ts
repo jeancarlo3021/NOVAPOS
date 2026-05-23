@@ -499,8 +499,7 @@ export class POSPrinterService {
       receiptData.storeCedula ||
       (cfg.showStoreAddress && receiptData.storeAddress) ||
       receiptData.storeCity ||
-      (cfg.showStorePhone && receiptData.storePhone) ||
-      receiptData.storeEmail
+      (cfg.showStorePhone && receiptData.storePhone)
     );
     const storeBlock = hasStoreInfo ? `
       <div class="store-block">
@@ -510,7 +509,6 @@ export class POSPrinterService {
         ${cfg.showStoreAddress && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
         ${receiptData.storeCity ? `<div class="store-line">${receiptData.storeCity}</div>` : ''}
         ${cfg.showStorePhone && receiptData.storePhone ? `<div class="store-line"><strong>Tel:</strong> ${receiptData.storePhone}</div>` : ''}
-        ${receiptData.storeEmail ? `<div class="store-line">${receiptData.storeEmail}</div>` : ''}
       </div>
     ` : '';
 

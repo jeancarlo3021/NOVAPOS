@@ -9,36 +9,25 @@ interface UseDisplaySyncProps {
 }
 
 /**
- * Hook que sincroniza el carrito con el display LCD del cliente
- * Usa Web Serial API a través del CustomerDisplayContext (puerto persistente)
+ * Hook que sincroniza el carrito con el LED numérico del cliente (Eyab/DSP800/CD5220)
+ * Envía SOLO el precio total — ej: "    0.00" o "12345.67"
  */
 export const useDisplaySync = ({ cartItems, total, isOnline }: UseDisplaySyncProps) => {
-  const { isConnected, updateDisplay } = useDisplay();
-  const lastKeyRef = useRef('');
+  const { isConnected, updatePrice } = useDisplay();
+  const lastValueRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isConnected) return;
 
-    let line1 = '';
-    let line2 = '';
+    // LED numérico: solo enviar el total. Si no hay nada → 0.00
+    const valueToShow = cartItems.length === 0 ? 0 : total;
 
-    if (!isOnline) {
-      line1 = 'SIN CONEXION';
-      line2 = 'Modo offline';
-    } else if (cartItems.length === 0) {
-      line1 = 'Bienvenido';
-      line2 = 'Total: C 0.00';
-    } else {
-      const lastProduct = cartItems[cartItems.length - 1];
-      line1 = lastProduct.product.name;
-      line2 = `Total: C ${total.toLocaleString('es-CR')}`;
-    }
+    // Si está offline pero hay items, igual mostramos el total
+    if (!isOnline && cartItems.length === 0) return;
 
-    // Evitar reescritura si nada cambió
-    const key = `${line1}|${line2}`;
-    if (key === lastKeyRef.current) return;
-    lastKeyRef.current = key;
+    if (valueToShow === lastValueRef.current) return;
+    lastValueRef.current = valueToShow;
 
-    updateDisplay(line1, line2).catch(() => {});
-  }, [cartItems, total, isOnline, isConnected, updateDisplay]);
+    updatePrice(valueToShow).catch(() => {});
+  }, [cartItems.length, total, isOnline, isConnected, updatePrice]);
 };

@@ -31,14 +31,13 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
   const [printing, setPrinting] = useState(false);
   const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Datos REALES del local desde la configuración
+  // Datos REALES del local desde la configuración (sin email)
   const storeName = general?.businessName || 'MI NEGOCIO';
   const storeRuc = general?.ruc;
   const storeCedula = general?.cedula;
   const storeAddress = general?.address;
   const storeCity = general?.city;
   const storePhone = general?.phone;
-  const storeEmail = general?.email;
   const taxEnabled = general?.taxEnabled !== false;
   const taxPct = general?.taxPercentage ?? 13;
 
@@ -130,12 +129,9 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
             <div className="text-center text-xs mb-1">{storeCity}</div>
           )}
           {config.showStorePhone && storePhone && (
-            <div className="text-center text-xs mb-1">
+            <div className="text-center text-xs mb-2">
               <strong>Tel:</strong> {storePhone}
             </div>
-          )}
-          {storeEmail && (
-            <div className="text-center text-xs mb-2">{storeEmail}</div>
           )}
 
           <div className="border-b border-gray-300 mb-2" />
