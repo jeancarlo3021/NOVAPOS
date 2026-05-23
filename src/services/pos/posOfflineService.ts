@@ -196,9 +196,16 @@ function incrementOfflineInvoiceCounter(): number {
 
 function generateOfflineInvoiceNumber(): string {
   const counter = incrementOfflineInvoiceCounter();
-  const date = new Date();
-  const datePart = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-  return `${datePart}-${String(counter).padStart(5, '0')}`;
+  // Solo 6 dígitos rellenados con ceros: 000001, 000002, ..., 999999
+  return String(counter).padStart(6, '0');
+}
+
+/**
+ * Genera un consecutivo de factura formato "000000" (6 dígitos)
+ * Usar tanto online como offline para mantener consistencia
+ */
+export function generateInvoiceNumber(): string {
+  return generateOfflineInvoiceNumber();
 }
 
 // ─── Pending invoices queue ───────────────────────────────────────────────────

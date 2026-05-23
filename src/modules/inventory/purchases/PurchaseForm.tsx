@@ -50,7 +50,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
 
   // Add-item row
   const [newProductId, setNewProductId]   = useState('');
-  const [newQuantity, setNewQuantity]     = useState(1);
+  const [newQuantity, setNewQuantity]     = useState<string>('1');
   const [newUnitPrice, setNewUnitPrice]   = useState('');
 
   // Submit
@@ -170,7 +170,8 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
 
   const handleAddItem = () => {
     if (!newProductId) { setError('Selecciona un producto'); return; }
-    if (newQuantity <= 0) { setError('La cantidad debe ser mayor a 0'); return; }
+    const qty = parseInt(newQuantity);
+    if (!Number.isFinite(qty) || qty <= 0) { setError('La cantidad debe ser mayor a 0'); return; }
     const price = parseFloat(newUnitPrice);
     if (!price || price <= 0) { setError('El precio debe ser mayor a 0'); return; }
     const prod = products.find(p => p.id === newProductId)!;
@@ -178,12 +179,12 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
       rowId: `${Date.now()}-${Math.random()}`,
       product_id: prod.id,
       product_name: prod.name,
-      quantity: newQuantity,
+      quantity: qty,
       unit_price: price,
-      total: newQuantity * price,
+      total: qty * price,
     }]);
     setNewProductId('');
-    setNewQuantity(1);
+    setNewQuantity('1');
     setNewUnitPrice('');
     setError('');
   };
@@ -288,7 +289,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     setNotes('');
     setItems([]);
     setNewProductId('');
-    setNewQuantity(1);
+    setNewQuantity('1');
     setNewUnitPrice('');
     setError('');
     onClose();
@@ -417,7 +418,11 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
                 <input
                   type="number" min="1"
                   value={newQuantity}
-                  onChange={e => setNewQuantity(parseInt(e.target.value) || 1)}
+                  onChange={e => setNewQuantity(e.target.value)}
+                  onBlur={() => {
+                    const n = parseInt(newQuantity);
+                    if (!Number.isFinite(n) || n < 1) setNewQuantity('1');
+                  }}
                   disabled={submitting}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                 />

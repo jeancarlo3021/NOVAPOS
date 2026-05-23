@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
-import { CustomerDisplayProvider } from '@/context/CustomerDisplayContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { PlanGuard } from '@/components/PlanGuard';
 import { Login } from '@/modules/auth/Login';
@@ -115,9 +114,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <CustomerDisplayProvider>
-          <AppContent />
-        </CustomerDisplayProvider>
+        <AppContent />
       </AuthProvider>
     </BrowserRouter>
   );

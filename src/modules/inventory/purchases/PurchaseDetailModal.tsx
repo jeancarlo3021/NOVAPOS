@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Package, Loader, Printer, WifiOff } from 'lucide-react';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
+import { getAllProducts } from '@/services/Inventory/InventoryProductsService';
 import { useTenantId } from '@/hooks/useTenant';
 
 interface PurchaseDetailModalProps {
@@ -62,11 +63,24 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
 
       setPurchase(purchaseData);
 
+      // Cargar productos para mapear ID → nombre
+      const productMap = new Map<string, string>();
+      try {
+        const products = await getAllProducts(tenantId ?? null);
+        products.forEach((p: any) => {
+          if (p?.id && p?.name) productMap.set(p.id, p.name);
+        });
+      } catch {}
+
       const itemsArray = purchaseData?.purchase_items || purchaseData?.items || [];
       if (Array.isArray(itemsArray)) {
         const normalizedItems = itemsArray.map((item: any) => ({
           ...item,
-          product_name: item.product_name || item.product?.name || item.product_id,
+          product_name:
+            item.product_name ||
+            item.product?.name ||
+            productMap.get(item.product_id) ||
+            'Producto sin nombre',
         }));
         setItems(normalizedItems);
       }

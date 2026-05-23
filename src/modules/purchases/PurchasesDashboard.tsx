@@ -11,6 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
+import { getAllProducts } from '@/services/Inventory/InventoryProductsService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
 import { PurchaseForm } from '@/modules/inventory/purchases/PurchaseForm';
 import { PurchaseDetailModal } from '@/modules/inventory/purchases/PurchaseDetailModal';
@@ -153,21 +154,53 @@ export const PurchasesDashboard: React.FC = () => {
     setPrintingId(p.id);
     setError('');
     try {
-      const items = Array.isArray(p.items) ? p.items : [];
+      // 1. Si no hay items cargados, recargar el purchase completo
+      let fullPurchase = p;
+      const hasItems = Array.isArray(p.purchase_items) || Array.isArray(p.items);
+      if (!hasItems && p.id && !(p as any).__local) {
+        try {
+          fullPurchase = await inventoryPurchasesService.getPurchaseById(p.id);
+        } catch {}
+      }
+
+      // 2. Obtener items del campo correcto (purchase_items o items)
+      const rawItems = Array.isArray(fullPurchase.purchase_items)
+        ? fullPurchase.purchase_items
+        : Array.isArray(fullPurchase.items)
+        ? fullPurchase.items
+        : [];
+
+      // 3. Cargar productos para mapear ID → nombre
+      const productMap = new Map<string, string>();
+      try {
+        const products = await getAllProducts(tid ?? null);
+        products.forEach((prod: any) => {
+          if (prod?.id && prod?.name) productMap.set(prod.id, prod.name);
+        });
+      } catch {}
+
       await posPrinterService.printPurchaseOrder({
-        purchase_number:        p.purchase_number,
-        purchase_date:          p.purchase_date,
-        expected_delivery_date: p.expected_delivery_date,
-        supplier_name:          (p.supplier as any)?.name ?? '—',
-        supplier_phone:         (p.supplier as any)?.phone ?? null,
-        items: items.map((it: any) => ({
-          product_name: it.product?.name ?? 'Producto',
-          quantity:     Number(it.quantity ?? 0),
+        purchase_number:        fullPurchase.purchase_number,
+        purchase_date:          fullPurchase.purchase_date,
+        expected_delivery_date: fullPurchase.expected_delivery_date,
+        supplier_name:          (fullPurchase.supplier as any)?.name
+                                ?? (fullPurchase.suppliers as any)?.name
+                                ?? '—',
+        supplier_phone:         (fullPurchase.supplier as any)?.phone
+                                ?? (fullPurchase.suppliers as any)?.phone
+                                ?? null,
+        items: rawItems.map((it: any) => ({
+          product_name:
+            it.product_name
+            ?? it.product?.name
+            ?? productMap.get(it.product_id)
+            ?? 'Producto sin nombre',
+          quantity:     Number(it.quantity ?? it.received_quantity ?? 0),
           unit_price:   Number(it.unit_price ?? 0),
-          subtotal:     Number(it.subtotal ?? 0),
+          subtotal:     Number(it.subtotal ?? (Number(it.quantity ?? 0) * Number(it.unit_price ?? 0))),
         })),
-        total_amount: p.total_amount ?? 0,
-        notes: p.notes,
+        total_amount: fullPurchase.total_amount ?? 0,
+        notes: fullPurchase.notes,
       }, tid);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al imprimir');

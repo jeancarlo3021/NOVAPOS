@@ -230,7 +230,22 @@ export class POSPrinterService {
     tenant_name?: string;
   }, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
-    const html = this.generatePurchaseOrderHTML(order, cfg);
+
+    // Cargar datos del local (igual que para ticket de venta)
+    let general: any = null;
+    try {
+      const cached = localStorage.getItem(`novapos_cache_${tenantId}_settings_general`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        general = parsed?.data ?? parsed;
+      }
+      if (!general) {
+        general = await apiFetch<any>('/settings/general').catch(() => null);
+        general = general?.config ?? general;
+      }
+    } catch {}
+
+    const html = this.generatePurchaseOrderHTML(order, cfg, general);
 
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       try {
@@ -265,10 +280,19 @@ export class POSPrinterService {
     total_amount: number;
     notes?: string | null;
     tenant_name?: string;
-  }, cfg: ReceiptConfig): string {
+  }, cfg: ReceiptConfig, general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
     const fmtDate = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('es-CR', { dateStyle: 'short' });
-    const widthMM = cfg.paperWidth >= 80 ? '80mm' : cfg.paperWidth >= 58 ? '58mm' : '80mm';
+    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth] ?? '80mm';
+
+    // Datos del local (mismo origen que el ticket)
+    const storeName = general?.businessName || order.tenant_name;
+    const storeRuc = general?.ruc;
+    const storeCedula = general?.cedula;
+    const storeAddress = general?.address;
+    const storeCity = general?.city;
+    const storePhone = general?.phone;
+    const logoUrl = cfg.logoUrl;
 
     const rows = order.items.map(i => `
       <tr>
@@ -285,60 +309,172 @@ export class POSPrinterService {
   <title>Orden ${order.purchase_number}</title>
   <style>
     @page { size: ${widthMM} auto; margin: 0; }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Courier New', Courier, monospace; font-size: 11px; line-height: 1.4; color: #000; background: #fff; width: ${widthMM}; }
+    *, *::before, *::after {
+      box-sizing: border-box; margin: 0; padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
+    @media print {
+      img {
+        filter: url(#logoThermalThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0) !important;
+        image-rendering: crisp-edges !important;
+        image-rendering: -webkit-optimize-contrast !important;
+        image-rendering: pixelated !important;
+      }
+    }
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      color: #000;
+      background: #fff;
+      width: ${widthMM};
+      font-weight: 700;
+    }
     .receipt { width: 100%; padding: 3mm 3mm 6mm; }
     .center { text-align: center; }
-    .bold { font-weight: bold; }
-    .title { font-size: 13px; font-weight: bold; text-align: center; }
-    .divider { border: none; border-top: 1px dashed #000; margin: 3px 0; }
-    .section { font-weight: bold; font-size: 10px; border-bottom: 1px dashed #000; margin: 4px 0 2px; }
+    .bold { font-weight: 900; }
+    .divider { border: none; border-top: 3px solid #000; margin: 4px 0; }
+    .title {
+      font-size: 18px;
+      font-weight: 900;
+      text-align: center;
+      letter-spacing: 2px;
+      margin-bottom: 6px;
+      padding: 4px 0;
+      border-top: 4px solid #000;
+      border-bottom: 4px solid #000;
+    }
+    .store-block { text-align: center; margin: 4px 0; }
+    .store-name { font-size: 16px; font-weight: 900; letter-spacing: 1px; margin-bottom: 2px; }
+    .store-line { font-size: 12px; font-weight: 700; margin: 1px 0; }
+    .meta { font-size: 13px; font-weight: 800; margin: 2px 0; }
+    .section-label {
+      font-weight: 900;
+      font-size: 13px;
+      border-top: 3px solid #000;
+      border-bottom: 3px solid #000;
+      margin: 5px 0 3px;
+      padding: 2px 0;
+      letter-spacing: 1px;
+      text-align: center;
+    }
     table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; font-size: 10px; border-bottom: 1px solid #000; padding: 1px 0; }
+    th {
+      text-align: left;
+      font-size: 12px;
+      font-weight: 900;
+      border-bottom: 2px solid #000;
+      padding: 3px 0;
+    }
+    td { padding: 2px 0; font-size: 13px; font-weight: 800; }
     th.right, td.right { text-align: right; }
     .item-name { width: 40%; }
-    .item-qty  { width: 10%; text-align: center; }
-    .item-price { width: 25%; text-align: right; }
-    .total-row { font-size: 13px; font-weight: bold; border-top: 1px solid #000; padding-top: 2px; }
-    .footer { text-align: center; font-size: 10px; margin-top: 4px; }
+    .item-qty { width: 12%; text-align: center; font-weight: 900; font-size: 14px; }
+    .item-price { width: 24%; text-align: right; font-weight: 900; }
+    .total-line {
+      font-size: 20px;
+      font-weight: 900;
+      text-align: center;
+      margin: 6px 0;
+      padding: 4px 0;
+      border-top: 4px solid #000;
+      border-bottom: 4px solid #000;
+      letter-spacing: 2px;
+    }
+    .signature {
+      text-align: center;
+      font-size: 13px;
+      font-weight: 800;
+      margin-top: 10px;
+      padding-top: 4px;
+    }
+    .notes-block {
+      font-size: 12px;
+      font-weight: 700;
+      margin: 4px 0;
+      padding: 4px 0;
+    }
   </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute">
+  <filter id="logoThermalThreshold">
+    <feColorMatrix type="matrix" values="
+      0.21 0.72 0.07 0 0
+      0.21 0.72 0.07 0 0
+      0.21 0.72 0.07 0 0
+      0    0    0    1 0"/>
+    <feComponentTransfer>
+      <feFuncR type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
+      <feFuncG type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
+      <feFuncB type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
+    </feComponentTransfer>
+  </filter>
+</svg>
+
 <div class="receipt">
-  <div class="center bold" style="font-size:15px; margin-bottom:2px;">ORDEN DE COMPRA</div>
-  ${order.tenant_name ? `<div class="center" style="font-size:10px;">${order.tenant_name}</div>` : ''}
+
+  ${logoUrl ? `
+    <div style="text-align:center;margin-bottom:8px;padding:4px;">
+      <img src="${logoUrl}"
+           alt="Logo"
+           style="max-height:160px;max-width:100%;width:auto;object-fit:contain;display:inline-block;
+                  filter:url(#logoThermalThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0);
+                  image-rendering:crisp-edges;image-rendering:-webkit-optimize-contrast;image-rendering:pixelated;">
+    </div>
+  ` : ''}
+
+  <div class="title">ORDEN DE COMPRA</div>
+
+  ${storeName ? `
+    <div class="store-block">
+      <div class="store-name">${storeName}</div>
+      ${storeRuc ? `<div class="store-line"><strong>Céd. Jurídica:</strong> ${storeRuc}</div>` : ''}
+      ${storeCedula ? `<div class="store-line"><strong>Cédula:</strong> ${storeCedula}</div>` : ''}
+      ${storeAddress ? `<div class="store-line">${storeAddress}</div>` : ''}
+      ${storeCity ? `<div class="store-line">${storeCity}</div>` : ''}
+      ${storePhone ? `<div class="store-line"><strong>Tel:</strong> ${storePhone}</div>` : ''}
+    </div>
+  ` : ''}
+
   <hr class="divider">
-  <div class="bold">N°: ${order.purchase_number}</div>
-  <div>Fecha: ${fmtDate(order.purchase_date)}</div>
-  ${order.expected_delivery_date ? `<div>Entrega esperada: ${fmtDate(order.expected_delivery_date)}</div>` : ''}
-  <hr class="divider">
-  <div class="section">PROVEEDOR</div>
-  <div class="bold">${order.supplier_name}</div>
-  ${order.supplier_phone ? `<div>Tel: ${order.supplier_phone}</div>` : ''}
-  <hr class="divider">
-  <div class="section">PRODUCTOS</div>
+
+  <div class="meta"><strong>N°:</strong> ${order.purchase_number}</div>
+  <div class="meta"><strong>Fecha:</strong> ${fmtDate(order.purchase_date)}</div>
+  ${order.expected_delivery_date ? `<div class="meta"><strong>Entrega:</strong> ${fmtDate(order.expected_delivery_date)}</div>` : ''}
+
+  <div class="section-label">PROVEEDOR</div>
+  <div class="meta bold">${order.supplier_name}</div>
+  ${order.supplier_phone ? `<div class="meta"><strong>Tel:</strong> ${order.supplier_phone}</div>` : ''}
+
+  <div class="section-label">PRODUCTOS</div>
   <table>
     <thead>
       <tr>
         <th class="item-name">Producto</th>
-        <th class="item-qty" style="text-align:center">Cant</th>
+        <th class="item-qty">Cant</th>
         <th class="item-price right">Precio</th>
         <th class="item-price right">Total</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
+
+  <div class="total-line">TOTAL: ${fmt(order.total_amount)}</div>
+
+  ${order.notes ? `
+    <div class="section-label">NOTAS</div>
+    <div class="notes-block">${order.notes}</div>
+  ` : ''}
+
   <hr class="divider">
-  <table>
-    <tr class="total-row">
-      <td class="bold">TOTAL:</td>
-      <td class="right" style="font-size:13px; font-weight:bold; text-align:right">${fmt(order.total_amount)}</td>
-    </tr>
-  </table>
-  ${order.notes ? `<hr class="divider"><div class="section">NOTAS</div><div style="font-size:10px;">${order.notes}</div>` : ''}
-  <hr class="divider">
-  <div class="footer">Firma de recepción: ___________________</div>
-  <div class="footer" style="margin-top:3px;">Fecha: _______________</div>
+
+  <div class="signature">Firma de recepción:</div>
+  <div class="signature">_____________________</div>
+  <div class="signature" style="margin-top:8px;">Fecha: _____________________</div>
+
 </div>
 </body>
 </html>`;

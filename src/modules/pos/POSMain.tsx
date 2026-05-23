@@ -4,7 +4,6 @@ import { useCashSession } from '@/hooks/useCashSession';
 import { useTenantId } from '@/hooks/useTenant';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
-import { useDisplaySync } from '@/hooks/POS/useDisplaySync';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
 import {
@@ -12,7 +11,7 @@ import {
   calcPromoSubtotal,
 } from '@/services/promotions/promotionsService';
 import { invoicesService } from '@/services/invoice/invoiceService';
-import { posOfflineService, OfflineInvoicePayload } from '@/services/pos/posOfflineService';
+import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from '@/services/pos/posOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
@@ -196,9 +195,6 @@ export const POSMain = () => {
   const taxAmount = Math.round(subtotal * effectiveTaxRate);
   const total = subtotal + taxAmount;
 
-  // Sync cart data with mini display
-  useDisplaySync({ cartItems, total, isOnline });
-
   // Pre-cargar configuración de impresión y conexión QZ Tray
   // para que el primer cobro sea instantáneo
   useEffect(() => {
@@ -359,6 +355,8 @@ export const POSMain = () => {
     try {
       if (isOnline) {
         // ── Online: create invoice directly ──────────────────────────────────
+        // Generar número con formato 000000 (sin fecha, solo consecutivo)
+        const invNum = generateInvoiceNumber();
         const invoice = await invoicesService.createInvoice(
           tenantId,
           currentSession.id,
@@ -374,7 +372,8 @@ export const POSMain = () => {
           undefined,
           data.amountReceived,
           data.change,
-          data.voucherNumber
+          data.voucherNumber,
+          invNum
         );
 
         // Limpiar UI INMEDIATAMENTE para que esté lista para nueva venta
