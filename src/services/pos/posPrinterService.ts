@@ -535,9 +535,9 @@ export class POSPrinterService {
       color-adjust: exact !important;
     }
     @media print {
-      /* Forzar contraste máximo en impresión */
+      /* Forzar threshold térmico en impresión */
       img {
-        filter: url(#logoThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0) !important;
+        filter: url(#logoThermalThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0) !important;
         image-rendering: crisp-edges !important;
         image-rendering: -webkit-optimize-contrast !important;
         image-rendering: pixelated !important;
@@ -611,23 +611,23 @@ export class POSPrinterService {
     ${(() => {
       const logo = receiptData.logoUrl || cfg.logoUrl;
       if (!logo) return '';
-      // Logo a máximo contraste — convierte a blanco/negro puro estilo 1-bit
-      // grayscale(1)     → quita el color
-      // brightness(0.4)  → oscurece para que los grises se vuelvan negros
-      // contrast(5)      → expone fuertemente blancos y negros (efecto threshold)
-      // saturate(0)      → asegura sin saturación de color
+      // Filtro térmico optimizado para impresión 1-bit:
+      // - Matriz luminance (Rec. 709): 0.21R + 0.72G + 0.07B (percepción visual real)
+      // - Threshold agresivo: corte 10/16 (62.5%) en vez de 8/16 (50%)
+      //   → más pixels van a negro, preservando detalles oscuros (líneas, bordes, letras)
+      // - Sin dithering en thermal: la impresora ya no inventa grises raros
       return `
         <svg width="0" height="0" style="position:absolute">
-          <filter id="logoThreshold">
+          <filter id="logoThermalThreshold">
             <feColorMatrix type="matrix" values="
-              0.33 0.33 0.33 0 0
-              0.33 0.33 0.33 0 0
-              0.33 0.33 0.33 0 0
+              0.21 0.72 0.07 0 0
+              0.21 0.72 0.07 0 0
+              0.21 0.72 0.07 0 0
               0    0    0    1 0"/>
             <feComponentTransfer>
-              <feFuncR type="discrete" tableValues="0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1"/>
-              <feFuncG type="discrete" tableValues="0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1"/>
-              <feFuncB type="discrete" tableValues="0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1"/>
+              <feFuncR type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
+              <feFuncG type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
+              <feFuncB type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1"/>
             </feComponentTransfer>
           </filter>
         </svg>
@@ -639,7 +639,7 @@ export class POSPrinterService {
                       width:auto;
                       object-fit:contain;
                       display:inline-block;
-                      filter:url(#logoThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0);
+                      filter:url(#logoThermalThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0);
                       image-rendering:crisp-edges;
                       image-rendering:-webkit-optimize-contrast;
                       image-rendering:pixelated;
