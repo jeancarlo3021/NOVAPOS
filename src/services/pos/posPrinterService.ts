@@ -309,12 +309,33 @@ export class POSPrinterService {
     const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
     if (!doc) throw new Error('No se pudo crear el documento de impresión');
     doc.open(); doc.write(html); doc.close();
+
+    // Esperar a que todas las imágenes carguen (logo, etc.)
+    await this.waitForImages(doc);
+
     await new Promise<void>((resolve) => {
       setTimeout(() => {
         try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); }
         finally { setTimeout(() => { document.body.removeChild(iframe); resolve(); }, 500); }
-      }, 400);
+      }, 200);
     });
+  }
+
+  private async waitForImages(doc: Document, timeoutMs = 3000): Promise<void> {
+    const images = Array.from(doc.querySelectorAll('img'));
+    if (images.length === 0) return;
+
+    const promises = images.map(img => {
+      if (img.complete && img.naturalHeight > 0) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const done = () => resolve();
+        img.addEventListener('load', done, { once: true });
+        img.addEventListener('error', done, { once: true });
+        setTimeout(done, timeoutMs); // Fallback
+      });
+    });
+
+    await Promise.all(promises);
   }
 
   /**
@@ -368,8 +389,10 @@ export class POSPrinterService {
     doc.write(html);
     doc.close();
 
+    // Esperar a que el logo y otras imágenes carguen
+    await this.waitForImages(doc);
+
     await new Promise<void>((resolve) => {
-      // Give the browser time to render fonts and images
       setTimeout(() => {
         try {
           iframe.contentWindow?.focus();
@@ -380,7 +403,7 @@ export class POSPrinterService {
             resolve();
           }, 500);
         }
-      }, 400);
+      }, 200);
     });
   }
 
@@ -514,7 +537,7 @@ export class POSPrinterService {
 <div class="receipt">
 
   <div class="header">
-    ${cfg.showLogo && receiptData.logoUrl ? `<img src="${receiptData.logoUrl}" alt="Logo" style="max-height:40px;margin-bottom:4px;">` : ''}
+    ${receiptData.logoUrl ? `<div style="text-align:center;margin-bottom:6px;"><img src="${receiptData.logoUrl}" alt="Logo" style="max-height:80px;max-width:90%;object-fit:contain;display:inline-block;" crossorigin="anonymous"></div>` : ''}
     <div class="title">TICKET DE VENTA</div>
     ${cfg.showInvoiceNumber ? `<div class="subtitle">Factura #${receiptData.invoiceNumber}</div>` : ''}
     ${cfg.showDateTime ? `<div class="subtitle">${receiptData.date} ${receiptData.time}</div>` : ''}

@@ -276,6 +276,11 @@ export const POSMain = () => {
         const generalData = await apiFetch<{ config: any }>('/settings/general').catch(() => null);
         general = generalData?.config;
       }
+
+      // Obtener logo desde general o desde receipt settings
+      const cachedReceipt = cacheGet<any>(cacheKey(tenantId, 'receipt_settings'));
+      const logoUrl = general?.logoUrl ?? general?.logo_url ?? general?.logo ?? cachedReceipt?.logoUrl;
+
       const now = new Date();
 
       // Receipt
@@ -299,6 +304,7 @@ export const POSMain = () => {
           storePhone: general?.phone,
           cashierName: user?.email ?? undefined,
           customerName,
+          logoUrl,
         },
         tenantId,
       );

@@ -15,6 +15,7 @@ const fmt = (n: number) =>
 
 export const WeightInputModal: React.FC<Props> = ({ product, onConfirm, onClose }) => {
   const [input, setInput] = useState('');
+  const [canClose, setCanClose] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const unitLabel = product.unit_type?.abbreviation ?? 'kg';
@@ -23,6 +24,9 @@ export const WeightInputModal: React.FC<Props> = ({ product, onConfirm, onClose 
 
   useEffect(() => {
     inputRef.current?.focus();
+    // Evita que el pointer event del producto cierre el modal recién abierto
+    const timer = setTimeout(() => setCanClose(true), 400);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleKey = (e: React.KeyboardEvent) => {
@@ -43,7 +47,8 @@ export const WeightInputModal: React.FC<Props> = ({ product, onConfirm, onClose 
   return (
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => canClose && e.target === e.currentTarget && onClose()}
+      onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
 

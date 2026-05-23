@@ -251,7 +251,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
               return (
                 <button
                   key={product.id}
-                  onPointerDown={() => handleAdd(product)}
+                  onClick={() => handleAdd(product)}
                   disabled={!inStock}
                   className={`
                     relative flex flex-col p-2 rounded-lg border text-left transition
