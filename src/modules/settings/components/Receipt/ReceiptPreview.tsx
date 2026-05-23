@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Printer } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { posPrinterService } from '@/services/pos/posPrinterService';
+import { useSettings } from '@/hooks/useSettings';
 
 interface ReceiptConfig {
   paperWidth: number;
@@ -26,8 +27,20 @@ interface Props {
 
 export const ReceiptPreview: React.FC<Props> = ({ config }) => {
   const { user } = useAuth();
+  const { settings: general } = useSettings('general');
   const [printing, setPrinting] = useState(false);
   const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Datos REALES del local desde la configuración
+  const storeName = general?.businessName || 'MI NEGOCIO';
+  const storeRuc = general?.ruc;
+  const storeCedula = general?.cedula;
+  const storeAddress = general?.address;
+  const storeCity = general?.city;
+  const storePhone = general?.phone;
+  const storeEmail = general?.email;
+  const taxEnabled = general?.taxEnabled !== false;
+  const taxPct = general?.taxPercentage ?? 13;
 
   const handleTestPrint = async () => {
     const tenantId = user?.tenant_id;
@@ -54,6 +67,10 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
     };
     return widths[config.paperWidth as keyof typeof widths] || 'w-80';
   };
+
+  const sub = 7000;
+  const tax = taxEnabled ? Math.round(sub * (taxPct / 100)) : 0;
+  const total = sub + tax;
 
   return (
     <div className="space-y-6">
@@ -86,58 +103,51 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
           {/* Logo */}
           {config.showLogo && config.logoUrl && (
             <div className="text-center mb-2">
-              <img
-                src={config.logoUrl}
-                alt="Logo"
-                className="h-12 mx-auto"
-              />
+              <img src={config.logoUrl} alt="Logo" className="h-20 mx-auto" />
             </div>
           )}
 
-          {/* Nombre del Negocio */}
+          {/* Datos del Local */}
           {config.showStoreName && (
-            <div className="text-center font-bold mb-1">
-              MI RESTAURANTE
+            <div className="text-center font-bold mb-1 text-sm">
+              {storeName}
             </div>
           )}
-
-          {/* Dirección */}
-          {config.showStoreAddress && (
+          {storeRuc && (
             <div className="text-center text-xs mb-1">
-              Calle Principal 123
+              <strong>Céd. Jurídica:</strong> {storeRuc}
             </div>
           )}
-
-          {/* Teléfono */}
-          {config.showStorePhone && (
-            <div className="text-center text-xs mb-2">
-              Tel: +506 2234-5678
+          {storeCedula && (
+            <div className="text-center text-xs mb-1">
+              <strong>Cédula:</strong> {storeCedula}
             </div>
+          )}
+          {config.showStoreAddress && storeAddress && (
+            <div className="text-center text-xs mb-1">{storeAddress}</div>
+          )}
+          {storeCity && (
+            <div className="text-center text-xs mb-1">{storeCity}</div>
+          )}
+          {config.showStorePhone && storePhone && (
+            <div className="text-center text-xs mb-1">
+              <strong>Tel:</strong> {storePhone}
+            </div>
+          )}
+          {storeEmail && (
+            <div className="text-center text-xs mb-2">{storeEmail}</div>
           )}
 
           <div className="border-b border-gray-300 mb-2" />
 
           {/* Número de Factura */}
           {config.showInvoiceNumber && (
-            <div className="text-center mb-1">
-              Factura #INV-001
-            </div>
+            <div className="text-center mb-1 font-bold">Factura #INV-001</div>
           )}
 
           {/* Fecha y Hora */}
           {config.showDateTime && (
-            <div className="text-center text-xs mb-2">
-              18/04/2024 20:45:30
-            </div>
-          )}
-
-          {/* Información del Cliente */}
-          {config.showCustomerInfo && (
-            <div className="mb-2">
-              <div className="font-bold">CLIENTE:</div>
-              <div className="text-xs">Juan Pérez</div>
-              <div className="text-xs">Tel: +506 8765-4321</div>
-            </div>
+            <div className="text-center text-xs mb-2">18/04/2024 20:45:30</div>
           )}
 
           <div className="border-b border-gray-300 mb-2" />
@@ -159,22 +169,25 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
 
           <div className="border-b border-gray-300 mb-2" />
 
-          {/* Totales */}
-          <div className="text-xs mb-1">
-            <div className="flex justify-between">
-              <span>Subtotal:</span>
-              <span>₡7,000</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Impuesto (13%):</span>
-              <span>₡910</span>
-            </div>
-          </div>
-
-          <div className="border-b border-gray-300 mb-2" />
+          {/* Totales - solo si hay impuesto */}
+          {tax > 0 && (
+            <>
+              <div className="text-xs mb-1">
+                <div className="flex justify-between">
+                  <span>Subtotal:</span>
+                  <span>₡{sub.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Impuesto ({taxPct}%):</span>
+                  <span>₡{tax.toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="border-b border-gray-300 mb-2" />
+            </>
+          )}
 
           <div className="text-center font-bold text-sm mb-2">
-            TOTAL: ₡7,910
+            TOTAL: ₡{total.toLocaleString()}
           </div>
 
           {/* Método de Pago */}
@@ -186,7 +199,7 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
           {/* Cajero */}
           {config.showCashierName && (
             <div className="text-center text-xs mb-2">
-              Cajero: Carlos López
+              Cajero: {user?.email || 'usuario@local.com'}
             </div>
           )}
 
@@ -197,15 +210,13 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
             {config.footerMessage}
           </div>
 
-          <div className="text-center text-xs text-gray-600">
-            Vuelva pronto
-          </div>
+          <div className="text-center text-xs text-gray-600">Vuelva pronto</div>
         </div>
       </div>
 
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <p className="text-yellow-800 text-sm">
-          <strong>💡 Nota:</strong> Esta es una vista previa aproximada. El resultado final dependerá de tu impresora.
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <p className="text-blue-800 text-sm">
+          <strong>💡 Nota:</strong> Esta vista previa usa los datos reales de tu negocio configurados en <strong>Configuración → General</strong>. Si falta algún dato, actualízalo allí.
         </p>
       </div>
     </div>

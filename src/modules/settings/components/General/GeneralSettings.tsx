@@ -7,6 +7,7 @@ import { useSettings } from '@/hooks/useSettings';
 const DEFAULTS = {
   businessName: '',
   ruc: '',
+  cedula: '',
   email: '',
   phone: '',
   address: '',
@@ -80,11 +81,21 @@ export const GeneralSettings: React.FC = () => {
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
         </div>
 
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula Jurídica / RUC</label>
-          <input type="text" name="ruc" value={formData.ruc} onChange={handleChange}
-            placeholder="3-101-123456"
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula Jurídica / RUC</label>
+            <input type="text" name="ruc" value={formData.ruc} onChange={handleChange}
+              placeholder="3-101-123456"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+            <p className="text-xs text-gray-400 mt-1">Para personas jurídicas / empresas</p>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula (Física)</label>
+            <input type="text" name="cedula" value={formData.cedula} onChange={handleChange}
+              placeholder="1-1234-5678"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+            <p className="text-xs text-gray-400 mt-1">Cédula del propietario (opcional)</p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

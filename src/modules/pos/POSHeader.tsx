@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban } from 'lucide-react';
 import { CashSession } from '@/types/Types_POS';
+import { DisplayConnector } from './components/DisplayConnector';
 
 interface POSHeaderProps {
   error: string;
@@ -59,6 +60,12 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           </div>
           <h1 className="text-gray-900 font-bold text-lg hidden md:block">NovaPOS</h1>
         </div>
+
+        {/* Divider */}
+        <div className="hidden md:block h-6 w-px bg-gray-200" />
+
+        {/* LCD del cliente */}
+        <DisplayConnector />
 
         {/* Divider */}
         <div className="hidden md:block h-6 w-px bg-gray-200" />

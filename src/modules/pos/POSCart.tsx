@@ -197,17 +197,19 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
           }
           return null;
         })()}
-        <div className="flex justify-between items-center">
-          <span className="text-gray-500 text-sm font-semibold">Subtotal</span>
-          <span className="text-gray-800 text-sm font-bold">₡{subtotal.toLocaleString()}</span>
-        </div>
         {taxEnabled && taxAmount > 0 && (
-          <div className="flex justify-between items-center">
-            <span className="text-gray-500 text-sm font-semibold">
-              IVA ({(taxRate * 100).toFixed(0)}%)
-            </span>
-            <span className="text-gray-800 text-sm font-bold">₡{taxAmount.toLocaleString()}</span>
-          </div>
+          <>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500 text-sm font-semibold">Subtotal</span>
+              <span className="text-gray-800 text-sm font-bold">₡{subtotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500 text-sm font-semibold">
+                IVA ({(taxRate * 100).toFixed(0)}%)
+              </span>
+              <span className="text-gray-800 text-sm font-bold">₡{taxAmount.toLocaleString()}</span>
+            </div>
+          </>
         )}
         <div className="flex justify-between items-center pt-2 border-t-2 border-gray-200">
           <span className="text-gray-900 font-black text-lg">Total</span>

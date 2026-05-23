@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
+import { useDisplay } from '@/context/CustomerDisplayContext';
 import type { CartItem } from '@/types/Types_POS';
-
-const DISPLAY_SERVER_URL = 'http://localhost:8888';
 
 interface UseDisplaySyncProps {
   cartItems: CartItem[];
@@ -10,70 +9,36 @@ interface UseDisplaySyncProps {
 }
 
 /**
- * Hook que sincroniza el carrito con el display POS via servidor local
- * El servidor (display-server/) debe estar corriendo en localhost:8888
- * Funciona con: Eyab Jwk, CD5220, ESC/POS y otros displays seriales
+ * Hook que sincroniza el carrito con el display LCD del cliente
+ * Usa Web Serial API a través del CustomerDisplayContext (puerto persistente)
  */
 export const useDisplaySync = ({ cartItems, total, isOnline }: UseDisplaySyncProps) => {
-  const lastDisplayRef = useRef('');
-  const serverAvailableRef = useRef(false);
+  const { isConnected, updateDisplay } = useDisplay();
+  const lastKeyRef = useRef('');
 
-  // Verificar disponibilidad del servidor al iniciar
   useEffect(() => {
-    fetch(`${DISPLAY_SERVER_URL}/status`, { signal: AbortSignal.timeout(2000) })
-      .then(r => r.json())
-      .then(data => {
-        serverAvailableRef.current = data?.running === true;
-      })
-      .catch(() => {
-        serverAvailableRef.current = false;
-      });
-  }, []);
+    if (!isConnected) return;
 
-  // Enviar actualizaciones al display
-  useEffect(() => {
-    if (!serverAvailableRef.current) return;
-
-    let displayText = '';
-    let endpoint = '/total';
-    let body: any = {};
+    let line1 = '';
+    let line2 = '';
 
     if (!isOnline) {
-      displayText = 'OFFLINE';
-      endpoint = '/display';
-      body = { text: 'OFFLINE' };
+      line1 = 'SIN CONEXION';
+      line2 = 'Modo offline';
     } else if (cartItems.length === 0) {
-      displayText = '0.00';
-      endpoint = '/total';
-      body = { amount: 0 };
+      line1 = 'Bienvenido';
+      line2 = 'Total: C 0.00';
     } else {
-      displayText = total.toFixed(2);
-      endpoint = '/total';
-      body = { amount: total };
+      const lastProduct = cartItems[cartItems.length - 1];
+      line1 = lastProduct.product.name;
+      line2 = `Total: C ${total.toLocaleString('es-CR')}`;
     }
 
-    if (displayText === lastDisplayRef.current) return;
-    lastDisplayRef.current = displayText;
+    // Evitar reescritura si nada cambió
+    const key = `${line1}|${line2}`;
+    if (key === lastKeyRef.current) return;
+    lastKeyRef.current = key;
 
-    fetch(`${DISPLAY_SERVER_URL}${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(3000),
-    }).catch(() => {
-      // Si falla, marcar servidor como no disponible
-      serverAvailableRef.current = false;
-    });
-  }, [cartItems.length, total, isOnline]);
-
-  // Limpiar al desmontar
-  useEffect(() => {
-    return () => {
-      if (!serverAvailableRef.current) return;
-      fetch(`${DISPLAY_SERVER_URL}/clear`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(1000),
-      }).catch(() => {});
-    };
-  }, []);
+    updateDisplay(line1, line2).catch(() => {});
+  }, [cartItems, total, isOnline, isConnected, updateDisplay]);
 };

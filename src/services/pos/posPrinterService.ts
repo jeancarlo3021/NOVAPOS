@@ -27,9 +27,14 @@ export interface ReceiptData {
   tax: number;
   total: number;
   paymentMethod: string;
+  // Datos del local (negocio)
   storeName?: string;
+  storeRuc?: string;          // Cédula jurídica / RUC
+  storeCedula?: string;       // Cédula física
   storeAddress?: string;
+  storeCity?: string;
   storePhone?: string;
+  storeEmail?: string;
   cashierName?: string;
   footerMessage?: string;
   logoUrl?: string;
@@ -488,25 +493,28 @@ export class POSPrinterService {
       </tr>
     `).join('');
 
-    const storeBlock = (
+    const hasStoreInfo = (
       (cfg.showStoreName && receiptData.storeName) ||
+      receiptData.storeRuc ||
+      receiptData.storeCedula ||
       (cfg.showStoreAddress && receiptData.storeAddress) ||
-      (cfg.showStorePhone && receiptData.storePhone)
-    ) ? `
+      receiptData.storeCity ||
+      (cfg.showStorePhone && receiptData.storePhone) ||
+      receiptData.storeEmail
+    );
+    const storeBlock = hasStoreInfo ? `
       <div class="store-block">
-        ${cfg.showStoreName && receiptData.storeName ? `<div class="bold">${receiptData.storeName}</div>` : ''}
-        ${cfg.showStoreAddress && receiptData.storeAddress ? `<div>${receiptData.storeAddress}</div>` : ''}
-        ${cfg.showStorePhone && receiptData.storePhone ? `<div>Tel: ${receiptData.storePhone}</div>` : ''}
+        ${cfg.showStoreName && receiptData.storeName ? `<div class="store-name">${receiptData.storeName}</div>` : ''}
+        ${receiptData.storeRuc ? `<div class="store-line"><strong>Céd. Jurídica:</strong> ${receiptData.storeRuc}</div>` : ''}
+        ${receiptData.storeCedula ? `<div class="store-line"><strong>Cédula:</strong> ${receiptData.storeCedula}</div>` : ''}
+        ${cfg.showStoreAddress && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
+        ${receiptData.storeCity ? `<div class="store-line">${receiptData.storeCity}</div>` : ''}
+        ${cfg.showStorePhone && receiptData.storePhone ? `<div class="store-line"><strong>Tel:</strong> ${receiptData.storePhone}</div>` : ''}
+        ${receiptData.storeEmail ? `<div class="store-line">${receiptData.storeEmail}</div>` : ''}
       </div>
     ` : '';
 
-    const customerBlock = cfg.showCustomerInfo && (receiptData.customerName || receiptData.customerPhone) ? `
-      <div class="section-label">CLIENTE</div>
-      <div class="customer-block">
-        ${receiptData.customerName ? `<div>${receiptData.customerName}</div>` : ''}
-        ${receiptData.customerPhone ? `<div>Tel: ${receiptData.customerPhone}</div>` : ''}
-      </div>
-    ` : '';
+    const customerBlock = '';
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -518,7 +526,17 @@ export class POSPrinterService {
       size: ${widthMM} auto;
       margin: 0;
     }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
+    @media print {
+      img { filter: contrast(2) brightness(0.7) grayscale(1) !important; }
+    }
     body {
       font-family: 'Courier New', Courier, monospace;
       font-size: 13px;
@@ -543,7 +561,9 @@ export class POSPrinterService {
     .header { text-align: center; margin-bottom: 5px; }
     .title { font-size: 16px; font-weight: 900; letter-spacing: 1px; }
     .subtitle { font-size: 13px; color: #000; font-weight: 900; margin: 2px 0; }
-    .store-block { text-align: center; font-size: 13px; margin: 4px 0; font-weight: 800; }
+    .store-block { text-align: center; margin: 4px 0; }
+    .store-name { font-size: 16px; font-weight: 900; letter-spacing: 1px; margin-bottom: 2px; }
+    .store-line { font-size: 12px; font-weight: 700; margin: 1px 0; }
     .customer-block { font-size: 12px; margin: 3px 0 5px; font-weight: 800; }
     .section-label {
       font-weight: 900;
@@ -585,7 +605,7 @@ export class POSPrinterService {
     ${(() => {
       const logo = receiptData.logoUrl || cfg.logoUrl;
       if (!logo) return '';
-      return `<div style="text-align:center;margin-bottom:6px;"><img src="${logo}" alt="Logo" style="max-height:80px;max-width:90%;object-fit:contain;display:inline-block;"></div>`;
+      return `<div style="text-align:center;margin-bottom:8px;padding:4px;"><img src="${logo}" alt="Logo" style="max-height:160px;max-width:100%;width:auto;object-fit:contain;display:inline-block;filter:contrast(2) brightness(0.7) grayscale(1);image-rendering:crisp-edges;-webkit-print-color-adjust:exact;print-color-adjust:exact;"></div>`;
     })()}
     <div class="title">TICKET DE VENTA</div>
     ${cfg.showInvoiceNumber ? `<div class="subtitle">Factura #${receiptData.invoiceNumber}</div>` : ''}
@@ -605,12 +625,14 @@ export class POSPrinterService {
 
   <hr class="divider">
 
+  ${receiptData.tax > 0 ? `
   <table class="totals">
     <tr><td>Subtotal:</td><td>₡${fmt(receiptData.subtotal)}</td></tr>
-    ${receiptData.tax > 0 ? `<tr><td>Impuesto:</td><td>₡${fmt(receiptData.tax)}</td></tr>` : ''}
+    <tr><td>Impuesto:</td><td>₡${fmt(receiptData.tax)}</td></tr>
   </table>
 
   <hr class="divider">
+  ` : ''}
 
   <div class="total-line">TOTAL: ₡${fmt(receiptData.total)}</div>
 
