@@ -191,6 +191,18 @@ export const POSMain = () => {
   // Sync cart data with mini display
   useDisplaySync({ cartItems, total, isOnline });
 
+  // Pre-cargar configuración de impresión y conexión QZ Tray
+  // para que el primer cobro sea instantáneo
+  useEffect(() => {
+    if (!tenantId) return;
+    posPrinterService.loadReceiptConfig(tenantId).catch(() => {});
+    import('@/services/pos/qzTrayService').then(({ qzConnect, qzIsAvailable }) => {
+      qzIsAvailable().then(available => {
+        if (available) qzConnect().catch(() => {});
+      });
+    });
+  }, [tenantId]);
+
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     const promo = getProductPromotion(
       product.id,
@@ -269,18 +281,9 @@ export const POSMain = () => {
   ) => {
     if (!tenantId) return;
     try {
-      // Usar cache de settings si está disponible para evitar request lento
+      // Cache de settings — sin esperar API
       const cachedGeneral = cacheGet<any>(cacheKey(tenantId, 'general_settings'));
-      let general = cachedGeneral;
-      if (!general) {
-        const generalData = await apiFetch<{ config: any }>('/settings/general').catch(() => null);
-        general = generalData?.config;
-      }
-
-      // Obtener logo desde general o desde receipt settings
-      const cachedReceipt = cacheGet<any>(cacheKey(tenantId, 'receipt_settings'));
-      const logoUrl = general?.logoUrl ?? general?.logo_url ?? general?.logo ?? cachedReceipt?.logoUrl;
-
+      const general = cachedGeneral;
       const now = new Date();
 
       // Receipt
@@ -304,7 +307,6 @@ export const POSMain = () => {
           storePhone: general?.phone,
           cashierName: user?.email ?? undefined,
           customerName,
-          logoUrl,
         },
         tenantId,
       );

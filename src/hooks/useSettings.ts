@@ -55,6 +55,14 @@ export const useSettings = (type: SettingType) => {
       setSettings(newSettings);
       // Update cache so offline POS picks up new settings immediately
       cacheSet(cacheKey(tenantId, `settings_${type}`), newSettings);
+
+      // Invalidar cache del printer service si es receipt
+      if (type === 'receipt') {
+        try { localStorage.removeItem(`receipt_cfg_${tenantId}`); } catch {}
+        const { posPrinterService } = await import('@/services/pos/posPrinterService');
+        posPrinterService.clearConfigCache();
+      }
+
       setError(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error guardando configuración';

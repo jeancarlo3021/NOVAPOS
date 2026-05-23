@@ -67,14 +67,51 @@ const PAPER_WIDTH_MM: Record<number, string> = {
 export class POSPrinterService {
   constructor(_config: PrinterConfig = {}) {}
 
+  private cachedConfig: ReceiptConfig | null = null;
+  private cachedConfigTenantId: string | null = null;
+
   async loadReceiptConfig(tenantId: string): Promise<ReceiptConfig> {
+    // Cache en memoria — evita API call en cada cobro
+    if (this.cachedConfig && this.cachedConfigTenantId === tenantId) {
+      return this.cachedConfig;
+    }
+
+    // Cache en localStorage como fallback rápido
+    try {
+      const cached = localStorage.getItem(`receipt_cfg_${tenantId}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        this.cachedConfig = parsed;
+        this.cachedConfigTenantId = tenantId;
+        // Refrescar en background (no bloquear)
+        apiFetch<ReceiptConfig>('/settings/receipt')
+          .then(config => {
+            if (config) {
+              const merged = { ...this.getDefaultConfig(), ...config };
+              this.cachedConfig = merged;
+              localStorage.setItem(`receipt_cfg_${tenantId}`, JSON.stringify(merged));
+            }
+          })
+          .catch(() => {});
+        return parsed;
+      }
+    } catch {}
+
     try {
       const config = await apiFetch<ReceiptConfig>('/settings/receipt');
-      if (!config) return this.getDefaultConfig();
-      return { ...this.getDefaultConfig(), ...config };
+      const merged = config ? { ...this.getDefaultConfig(), ...config } : this.getDefaultConfig();
+      this.cachedConfig = merged;
+      this.cachedConfigTenantId = tenantId;
+      try { localStorage.setItem(`receipt_cfg_${tenantId}`, JSON.stringify(merged)); } catch {}
+      return merged;
     } catch {
       return this.getDefaultConfig();
     }
+  }
+
+  clearConfigCache() {
+    this.cachedConfig = null;
+    this.cachedConfigTenantId = null;
   }
 
   getDefaultConfig(): ReceiptConfig {
@@ -321,9 +358,17 @@ export class POSPrinterService {
     });
   }
 
-  private async waitForImages(doc: Document, timeoutMs = 3000): Promise<void> {
+  private async waitForImages(doc: Document, timeoutMs = 800): Promise<void> {
     const images = Array.from(doc.querySelectorAll('img'));
     if (images.length === 0) return;
+
+    // Si todas las imágenes son data URLs, no hace falta esperar (son instantáneas)
+    const allDataUrls = images.every(img => img.src.startsWith('data:'));
+    if (allDataUrls) {
+      // Solo asegurar que estén "complete"
+      const notReady = images.filter(img => !img.complete);
+      if (notReady.length === 0) return;
+    }
 
     const promises = images.map(img => {
       if (img.complete && img.naturalHeight > 0) return Promise.resolve();
@@ -331,7 +376,7 @@ export class POSPrinterService {
         const done = () => resolve();
         img.addEventListener('load', done, { once: true });
         img.addEventListener('error', done, { once: true });
-        setTimeout(done, timeoutMs); // Fallback
+        setTimeout(done, timeoutMs);
       });
     });
 
@@ -537,7 +582,11 @@ export class POSPrinterService {
 <div class="receipt">
 
   <div class="header">
-    ${receiptData.logoUrl ? `<div style="text-align:center;margin-bottom:6px;"><img src="${receiptData.logoUrl}" alt="Logo" style="max-height:80px;max-width:90%;object-fit:contain;display:inline-block;" crossorigin="anonymous"></div>` : ''}
+    ${(() => {
+      const logo = receiptData.logoUrl || cfg.logoUrl;
+      if (!logo) return '';
+      return `<div style="text-align:center;margin-bottom:6px;"><img src="${logo}" alt="Logo" style="max-height:80px;max-width:90%;object-fit:contain;display:inline-block;"></div>`;
+    })()}
     <div class="title">TICKET DE VENTA</div>
     ${cfg.showInvoiceNumber ? `<div class="subtitle">Factura #${receiptData.invoiceNumber}</div>` : ''}
     ${cfg.showDateTime ? `<div class="subtitle">${receiptData.date} ${receiptData.time}</div>` : ''}
