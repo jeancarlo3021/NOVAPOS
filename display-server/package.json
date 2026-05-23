@@ -1,0 +1,16 @@
+{
+  "name": "novapos-display-server",
+  "version": "1.0.0",
+  "description": "Servidor local para controlar el LCD integrado de máquinas POS Eyab",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "detect": "node detect.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "serialport": "^12.0.0"
+  }
+}

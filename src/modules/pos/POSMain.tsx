@@ -269,8 +269,13 @@ export const POSMain = () => {
   ) => {
     if (!tenantId) return;
     try {
-      const generalData = await apiFetch<{ config: any }>('/settings/general').catch(() => null);
-      const general = generalData?.config as any;
+      // Usar cache de settings si está disponible para evitar request lento
+      const cachedGeneral = cacheGet<any>(cacheKey(tenantId, 'general_settings'));
+      let general = cachedGeneral;
+      if (!general) {
+        const generalData = await apiFetch<{ config: any }>('/settings/general').catch(() => null);
+        general = generalData?.config;
+      }
       const now = new Date();
 
       // Receipt
@@ -311,12 +316,6 @@ export const POSMain = () => {
   }, [tenantId, user]);
 
   const handlePaymentConfirm = async (data: PaymentData) => {
-    console.log('[handlePaymentConfirm] Iniciando pago:', {
-      tenantId,
-      currentSession: currentSession?.status,
-      cartItemsCount: cartItems.length,
-    });
-
     if (!tenantId || !currentSession) {
       setError('Sesión de caja no disponible');
       return;
@@ -329,6 +328,12 @@ export const POSMain = () => {
 
     setPaymentLoading(true);
     const notes = data.voucherNumber ? `Comprobante: ${data.voucherNumber}` : undefined;
+
+    // Snapshot del carrito para imprimir después (al limpiar inmediatamente)
+    const cartSnapshot = [...cartItems];
+    const subSnapshot = subtotal;
+    const taxSnapshot = taxAmount;
+    const totSnapshot = total;
 
     try {
       if (isOnline) {
@@ -351,7 +356,15 @@ export const POSMain = () => {
           data.voucherNumber
         );
 
-        // Cache invoice for offline void operations
+        // Limpiar UI INMEDIATAMENTE para que esté lista para nueva venta
+        setCartItems([]);
+        setShowPaymentModal(false);
+        setPaymentLoading(false);
+        setLastInvoice(invoice);
+        setPaymentData(data);
+        setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
+
+        // Operaciones en background (no bloquean UI)
         posOfflineService.addCachedInvoice({
           id: invoice.id,
           invoice_number: invoice.invoice_number,
@@ -359,11 +372,8 @@ export const POSMain = () => {
           total: invoice.total,
           payment_method: invoice.payment_method,
         });
-
-        setLastInvoice(invoice);
-        setPaymentData(data);
-        setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
-        printReceipt(invoice.invoice_number, cartItems, subtotal, taxAmount, total, data.paymentMethod, invoice.customer_name ?? undefined);
+        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined);
+        return;
       } else {
         // ── Offline: queue for later sync ────────────────────────────────────
         const invoiceNumber = await posOfflineService.queueInvoice({
@@ -380,22 +390,24 @@ export const POSMain = () => {
           notes,
         });
 
-        // Cache the offline invoice for void operations
+        // Limpiar UI INMEDIATAMENTE
+        setCartItems([]);
+        setShowPaymentModal(false);
+        setPaymentLoading(false);
+        setSuccess(`Venta guardada sin conexión (${invoiceNumber}) — se sincronizará al reconectar`);
+
+        // Background
         posOfflineService.addCachedInvoice({
-          id: invoiceNumber, // Use invoice number as ID for offline invoices
+          id: invoiceNumber,
           invoice_number: invoiceNumber,
           issued_at: new Date().toISOString(),
-          total,
+          total: totSnapshot,
           payment_method: data.paymentMethod,
         });
-
-        await refreshPendingCount();
-        setSuccess(`Venta guardada sin conexión (${invoiceNumber}) — se sincronizará al reconectar`);
-        printReceipt(invoiceNumber, cartItems, subtotal, taxAmount, total, data.paymentMethod);
+        refreshPendingCount();
+        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod);
+        return;
       }
-
-      setCartItems([]);
-      setShowPaymentModal(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error procesando el pago');
     } finally {

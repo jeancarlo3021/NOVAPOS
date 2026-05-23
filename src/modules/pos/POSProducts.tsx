@@ -103,8 +103,10 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
       : products.filter((p) => (p as any).category?.name === activeCategory);
 
   const handleAdd = (product: Product) => {
-    if (!currentSession) {
-      alert('⚠️ Abre una caja primero');
+    if (!currentSession || currentSession.status !== 'open') {
+      setScanFeedback({ code: '', found: false, productName: 'Abre una caja primero' });
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = setTimeout(() => setScanFeedback(null), 2500);
       return;
     }
     if (needsWeightInput(product)) {
@@ -125,11 +127,11 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
     <div className="flex-1 flex flex-col bg-gray-100 overflow-hidden">
 
       {/* ── Scanner input + search ── */}
-      <div className="bg-white border-b border-gray-200 px-4 pt-4 pb-0 shrink-0">
+      <div className="bg-white border-b border-gray-200 px-3 pt-3 pb-0 shrink-0">
 
         {/* Barcode scanner row */}
-        <div className="mb-4">
-          <div className={`flex items-center gap-2 rounded-2xl border-2 px-5 py-3 transition ${
+        <div className="mb-2">
+          <div className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 transition ${
             scanFeedback
               ? scanFeedback.found
                 ? 'border-emerald-400 bg-emerald-50'
@@ -188,19 +190,19 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
         </div>
 
         {/* Search bar */}
-        <div className="relative mb-4">
-          <Search size={24} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+        <div className="relative mb-2">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
             placeholder="Buscar producto..."
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl pl-14 pr-4 py-4 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400 text-lg font-medium transition"
+            className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400 text-sm font-medium transition"
           />
         </div>
 
         {categories.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-4">
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-2">
             {['Todos', ...categories].map((cat) => {
               const isAll = cat === 'Todos';
               const key = isAll ? 'all' : cat;
@@ -209,7 +211,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                 <button
                   key={key}
                   onPointerDown={() => setActiveCategory(key)}
-                  className={`shrink-0 h-14 px-6 rounded-2xl text-lg font-bold transition border-2 active:scale-95 ${
+                  className={`shrink-0 h-9 px-4 rounded-lg text-sm font-bold transition border active:scale-95 ${
                     active
                       ? 'bg-emerald-500 text-white border-emerald-500'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
@@ -224,7 +226,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
       </div>
 
       {/* ── Products Grid ── */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-3 pos-scroll">
         {displayed.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-4">
             <Package size={64} className="text-gray-300" />
@@ -234,7 +236,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
             {displayed.map((product) => {
               const stock    = product.stock_quantity ?? 0;
               const inStock  = ignoreStock || stock > 0;
@@ -252,17 +254,17 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                   onPointerDown={() => handleAdd(product)}
                   disabled={!inStock}
                   className={`
-                    relative flex flex-col p-3 rounded-lg border-2 text-left transition
-                    active:scale-95 select-none min-h-48
+                    relative flex flex-col p-2 rounded-lg border text-left transition
+                    active:scale-95 select-none min-h-36
                     ${inStock
-                      ? 'bg-white border-gray-200 hover:border-emerald-400 hover:shadow-lg cursor-pointer shadow-sm'
+                      ? 'bg-white border-gray-200 hover:border-emerald-400 hover:shadow cursor-pointer'
                       : 'bg-gray-50 border-gray-100 opacity-40 cursor-not-allowed'
                     }
                   `}
                 >
                   {/* Stock badge — hidden when plan doesn't track stock */}
                   {!ignoreStock && (
-                    <span className={`absolute top-2 right-2 text-xs font-black px-2 py-1 rounded-lg ${
+                    <span className={`absolute top-1 right-1 text-xs font-bold px-1.5 py-0.5 rounded ${
                       lowStock
                         ? 'bg-amber-100 text-amber-700'
                         : stock === 0
@@ -275,45 +277,45 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
                   {/* Add / Scale indicator */}
                   {inStock && (
-                    <div className="absolute bottom-2 right-2 w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
+                    <div className="absolute bottom-1 right-1 w-6 h-6 rounded bg-emerald-500 flex items-center justify-center">
                       {isWeight ? (
-                        <span className="text-white text-xs font-black">
+                        <span className="text-white text-[10px] font-black">
                           {product.unit_type?.abbreviation ?? 'kg'}
                         </span>
                       ) : (
-                        <Plus size={16} className="text-white" />
+                        <Plus size={12} className="text-white" />
                       )}
                     </div>
                   )}
 
                   {/* Name */}
-                  <span className="text-gray-900 font-bold text-sm leading-tight line-clamp-2 mb-2 pr-6 mt-0">
+                  <span className="text-gray-900 font-semibold text-xs leading-tight line-clamp-2 mb-1 pr-5 mt-0">
                     {product.name}
                   </span>
 
                   {product.sku && (
-                    <span className="text-gray-400 text-xs mb-2 font-medium">{product.sku}</span>
+                    <span className="text-gray-400 text-[10px] mb-1 font-medium">{product.sku}</span>
                   )}
 
                   {/* Promo badge */}
                   {promo && (
-                    <span className="self-start mb-1 inline-flex items-center gap-0.5 px-2 py-0.5 bg-violet-600 text-white text-xs font-black rounded-lg">
+                    <span className="self-start mb-0.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-violet-600 text-white text-[10px] font-black rounded">
                       🏷️ {promoLabel(promo)}
                     </span>
                   )}
 
                   {/* Unit type badge for weight products */}
                   {isWeight && (
-                    <span className="text-xs font-bold text-blue-600 bg-blue-50 rounded-lg px-2 py-0.5 mb-1 self-start">
+                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 mb-0.5 self-start">
                       Por {product.unit_type?.name ?? 'peso'}
                     </span>
                   )}
 
                   {/* Price */}
-                  <span className="text-emerald-600 font-black text-lg mt-auto pb-0.5">
+                  <span className="text-emerald-600 font-black text-sm mt-auto">
                     ₡{product.unit_price?.toLocaleString()}
                     {isWeight && (
-                      <span className="text-xs font-bold text-gray-400">
+                      <span className="text-[10px] font-bold text-gray-400">
                         /{product.unit_type?.abbreviation ?? 'kg'}
                       </span>
                     )}

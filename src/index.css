@@ -1,1 +1,32 @@
 @import "tailwindcss";
+
+/* ── POS scrollbar grande para uso táctil ───────────────────────────────── */
+.pos-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: #10b981 #f3f4f6;
+}
+
+.pos-scroll::-webkit-scrollbar {
+  width: 20px;
+  height: 20px;
+}
+
+.pos-scroll::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 10px;
+}
+
+.pos-scroll::-webkit-scrollbar-thumb {
+  background: #10b981;
+  border-radius: 10px;
+  border: 3px solid #f3f4f6;
+  min-height: 60px;
+}
+
+.pos-scroll::-webkit-scrollbar-thumb:hover {
+  background: #059669;
+}
+
+.pos-scroll::-webkit-scrollbar-thumb:active {
+  background: #047857;
+}

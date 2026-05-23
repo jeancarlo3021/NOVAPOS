@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { eyabDisplayService } from '@/services/pos/eyabDisplayService';
-import { displayService } from '@/services/pos/displayService';
 import type { CartItem } from '@/types/Types_POS';
+
+const DISPLAY_SERVER_URL = 'http://localhost:8888';
 
 interface UseDisplaySyncProps {
   cartItems: CartItem[];
@@ -10,90 +10,70 @@ interface UseDisplaySyncProps {
 }
 
 /**
- * Hook que sincroniza los datos del carrito con el mini display de la POS
- * Soporta: displays Eyab, USB, y puerto serie
+ * Hook que sincroniza el carrito con el display POS via servidor local
+ * El servidor (display-server/) debe estar corriendo en localhost:8888
+ * Funciona con: Eyab Jwk, CD5220, ESC/POS y otros displays seriales
  */
 export const useDisplaySync = ({ cartItems, total, isOnline }: UseDisplaySyncProps) => {
-  const initRef = useRef(false);
   const lastDisplayRef = useRef('');
-  const displayServiceRef = useRef<typeof eyabDisplayService | typeof displayService>(eyabDisplayService);
+  const serverAvailableRef = useRef(false);
 
+  // Verificar disponibilidad del servidor al iniciar
   useEffect(() => {
-    // Inicializar el display una sola vez
-    if (!initRef.current) {
-      initRef.current = true;
-
-      // Intentar Eyab primero (máquinas integradas)
-      eyabDisplayService.connect().then((connected) => {
-        if (connected) {
-          displayServiceRef.current = eyabDisplayService;
-          return;
-        }
-
-        // Si Eyab falla, intentar USB
-        displayService.initialize({ type: 'usb' }).then(() => {
-          displayServiceRef.current = displayService;
-        }).catch(() => {
-          // Si USB falla, intentar serie
-          displayService.initialize({ type: 'serial' }).catch(() => {
-            // Si ambos fallan, continuar sin display
-          });
-        });
+    fetch(`${DISPLAY_SERVER_URL}/status`, { signal: AbortSignal.timeout(2000) })
+      .then(r => r.json())
+      .then(data => {
+        serverAvailableRef.current = data?.running === true;
+      })
+      .catch(() => {
+        serverAvailableRef.current = false;
       });
-    }
   }, []);
 
+  // Enviar actualizaciones al display
   useEffect(() => {
-    // Determinar si tenemos conexión a algún display
-    const isEyabConnected = eyabDisplayService.getIsConnected();
-    const isGeneralConnected = displayService.getIsConnected();
+    if (!serverAvailableRef.current) return;
 
-    if (!isEyabConnected && !isGeneralConnected) return;
-
-    const service = isEyabConnected ? eyabDisplayService : displayService;
     let displayText = '';
+    let endpoint = '/total';
+    let body: any = {};
 
     if (!isOnline) {
       displayText = 'OFFLINE';
+      endpoint = '/display';
+      body = { text: 'OFFLINE' };
     } else if (cartItems.length === 0) {
-      displayText = '0.00'; // Eyab espera formato con decimales
+      displayText = '0.00';
+      endpoint = '/total';
+      body = { amount: 0 };
     } else {
-      // Mostrar el total en formato 0.00
-      const formatted = (total / 100).toFixed(2);
-      displayText = formatted;
+      displayText = total.toFixed(2);
+      endpoint = '/total';
+      body = { amount: total };
     }
 
-    // Solo actualizar si cambió
-    if (displayText !== lastDisplayRef.current) {
-      lastDisplayRef.current = displayText;
+    if (displayText === lastDisplayRef.current) return;
+    lastDisplayRef.current = displayText;
 
-      if (isEyabConnected) {
-        // Para Eyab, enviar solo texto
-        if (cartItems.length === 0 && isOnline) {
-          eyabDisplayService.showTotal(0).catch(() => {});
-        } else if (!isOnline) {
-          eyabDisplayService.sendText('OFFLINE').catch(() => {});
-        } else {
-          eyabDisplayService.showTotal(total).catch(() => {});
-        }
-      } else {
-        // Para displays genéricos
-        if (cartItems.length === 0 && isOnline) {
-          displayService.showValue('0000').catch(() => {});
-        } else if (!isOnline) {
-          displayService.showMessage('OFFLINE').catch(() => {});
-        } else {
-          displayService.showTotal(total).catch(() => {});
-        }
-      }
-    }
+    fetch(`${DISPLAY_SERVER_URL}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {
+      // Si falla, marcar servidor como no disponible
+      serverAvailableRef.current = false;
+    });
   }, [cartItems.length, total, isOnline]);
 
   // Limpiar al desmontar
   useEffect(() => {
     return () => {
-      eyabDisplayService.clear().catch(() => {});
-      displayService.clear().catch(() => {});
+      if (!serverAvailableRef.current) return;
+      fetch(`${DISPLAY_SERVER_URL}/clear`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(1000),
+      }).catch(() => {});
     };
   }, []);
 };
