@@ -1,6 +1,18 @@
-// Service específico para displays integrados en máquinas Eyab POS
-// Los displays Eyab se comunican generalmente por puerto COM interno
-// Formato: número/texto + terminador (CR/LF o ETX)
+// Service específico para displays integrados en máquinas Eyab POS (Eyab Jwk)
+// Los displays Eyab usan protocolo CD5220 o ESC/POS
+// Conexión: Virtual COM port (USB que emula serial)
+//
+// CD5220 Commands (más común en máquinas chinas como Eyab):
+// - 0x0C       - Limpia display
+// - 0x0B       - Cursor al inicio
+// - 0x1B 0x51 0x41 + texto + 0x0D  - Línea superior
+// - 0x1B 0x51 0x42 + texto + 0x0D  - Línea inferior
+// - 0x1B 0x73  - Mostrar fecha/hora
+//
+// ESC/POS Commands (alternativo):
+// - 0x1F 0x40  - Inicializar display
+// - 0x1F 0x43 0x01 - Cursor on
+// - 0x1F 0x24 X Y - Posición cursor
 
 interface EyabDisplayConfig {
   portName?: string;
@@ -88,8 +100,9 @@ class EyabDisplayService {
   }
 
   /**
-   * Envía un comando al display Eyab
-   * Intenta múltiples formatos de terminador
+   * Envía un comando al display Eyab usando protocolo CD5220
+   * Línea 1: texto superior (16 chars)
+   * Línea 2: texto inferior (16 chars) - típicamente el total
    */
   private async sendDisplay(data: string): Promise<boolean> {
     if (!this.isConnected || !this.port) {
@@ -100,52 +113,68 @@ class EyabDisplayService {
       const writer = (this.port as any).writable?.getWriter();
       if (!writer) return false;
 
-      const encoder = new TextEncoder();
+      // Protocolo CD5220 - estándar para máquinas chinas Eyab
+      const line1 = 'TOTAL:          '.substring(0, 16);
+      const line2 = data.padEnd(16, ' ').substring(0, 16);
 
-      // Intentar con diferentes terminadores
-      // Formato 1: data + CR (0x0D)
-      try {
-        await writer.write(encoder.encode(data + '\r'));
-        writer.releaseLock();
-        return true;
-      } catch {
-        // continue
-      }
+      // Comando CD5220 completo
+      const cmd = new Uint8Array([
+        0x0C,                          // Clear display
+        0x1B, 0x51, 0x41,              // ESC Q A - escribir línea 1
+        ...new TextEncoder().encode(line1),
+        0x0D,                          // CR
+        0x1B, 0x51, 0x42,              // ESC Q B - escribir línea 2
+        ...new TextEncoder().encode(line2),
+        0x0D,                          // CR
+      ]);
 
-      // Formato 2: data + LF (0x0A)
-      try {
-        await writer.write(encoder.encode(data + '\n'));
-        writer.releaseLock();
-        return true;
-      } catch {
-        // continue
-      }
-
-      // Formato 3: data + CR+LF
-      try {
-        await writer.write(encoder.encode(data + '\r\n'));
-        writer.releaseLock();
-        return true;
-      } catch {
-        // continue
-      }
-
-      // Formato 4: data + ETX (0x03)
-      try {
-        const arr = encoder.encode(data);
-        const withETX = new Uint8Array(arr.length + 1);
-        withETX.set(arr);
-        withETX[arr.length] = 0x03; // ETX
-        await writer.write(withETX);
-        writer.releaseLock();
-        return true;
-      } catch {
-        // continue
-      }
-
+      await writer.write(cmd);
       writer.releaseLock();
-      return false;
+      return true;
     } catch (err) {
+      return false;
+    }
+  }
+
+  /**
+   * Envía un comando ESC/POS alternativo (si CD5220 no funciona)
+   */
+  async sendDisplayESCPOS(text: string): Promise<boolean> {
+    if (!this.isConnected || !this.port) return false;
+
+    try {
+      const writer = (this.port as any).writable?.getWriter();
+      if (!writer) return false;
+
+      const cmd = new Uint8Array([
+        0x1F, 0x40,                    // Initialize display
+        0x1F, 0x43, 0x00,              // Cursor off
+        ...new TextEncoder().encode(text.padEnd(20, ' ').substring(0, 20)),
+      ]);
+
+      await writer.write(cmd);
+      writer.releaseLock();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Modo de prueba: envía texto crudo sin formato
+   */
+  async sendRaw(text: string): Promise<boolean> {
+    if (!this.isConnected || !this.port) return false;
+
+    try {
+      const writer = (this.port as any).writable?.getWriter();
+      if (!writer) return false;
+
+      const encoder = new TextEncoder();
+      await writer.write(encoder.encode(text + '\r\n'));
+      writer.releaseLock();
+      return true;
+    } catch {
       return false;
     }
   }

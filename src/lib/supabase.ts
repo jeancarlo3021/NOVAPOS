@@ -9,15 +9,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-// Uses sessionStorage via authStorage so each browser tab is isolated.
-// "Remember Me" mode additionally mirrors tokens to localStorage so new
-// tabs can restore the session automatically.
+// Session duration: 12 hours guaranteed
+// access_token refreshes automatically every ~1h via autoRefreshToken
+// refresh_token stays valid up to 12h via SESSION_MAX_DURATION_MS check
+export const SESSION_MAX_DURATION_MS = 12 * 60 * 60 * 1000; // 12 hours
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
     storage: authStorage,
+    flowType: 'pkce',
   },
 });
 

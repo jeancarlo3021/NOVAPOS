@@ -234,7 +234,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {displayed.map((product) => {
               const stock    = product.stock_quantity ?? 0;
               const inStock  = ignoreStock || stock > 0;
@@ -252,8 +252,8 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                   onPointerDown={() => handleAdd(product)}
                   disabled={!inStock}
                   className={`
-                    relative flex flex-col p-7 rounded-2xl border-2 text-left transition
-                    active:scale-95 select-none min-h-80
+                    relative flex flex-col p-3 rounded-lg border-2 text-left transition
+                    active:scale-95 select-none min-h-48
                     ${inStock
                       ? 'bg-white border-gray-200 hover:border-emerald-400 hover:shadow-lg cursor-pointer shadow-sm'
                       : 'bg-gray-50 border-gray-100 opacity-40 cursor-not-allowed'
@@ -262,7 +262,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                 >
                   {/* Stock badge — hidden when plan doesn't track stock */}
                   {!ignoreStock && (
-                    <span className={`absolute top-4 right-4 text-base font-black px-3 py-2 rounded-xl ${
+                    <span className={`absolute top-2 right-2 text-xs font-black px-2 py-1 rounded-lg ${
                       lowStock
                         ? 'bg-amber-100 text-amber-700'
                         : stock === 0
@@ -275,52 +275,52 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
                   {/* Add / Scale indicator */}
                   {inStock && (
-                    <div className="absolute bottom-4 right-4 w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center">
+                    <div className="absolute bottom-2 right-2 w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
                       {isWeight ? (
-                        <span className="text-white text-sm font-black">
+                        <span className="text-white text-xs font-black">
                           {product.unit_type?.abbreviation ?? 'kg'}
                         </span>
                       ) : (
-                        <Plus size={24} className="text-white" />
+                        <Plus size={16} className="text-white" />
                       )}
                     </div>
                   )}
 
                   {/* Name */}
-                  <span className="text-gray-900 font-black text-2xl leading-snug line-clamp-3 mb-4 pr-8 mt-1">
+                  <span className="text-gray-900 font-bold text-sm leading-tight line-clamp-2 mb-2 pr-6 mt-0">
                     {product.name}
                   </span>
 
                   {product.sku && (
-                    <span className="text-gray-400 text-base mb-3 font-medium">{product.sku}</span>
+                    <span className="text-gray-400 text-xs mb-2 font-medium">{product.sku}</span>
                   )}
 
                   {/* Promo badge */}
                   {promo && (
-                    <span className="self-start mb-2 inline-flex items-center gap-1 px-3 py-1 bg-violet-600 text-white text-sm font-black rounded-lg">
+                    <span className="self-start mb-1 inline-flex items-center gap-0.5 px-2 py-0.5 bg-violet-600 text-white text-xs font-black rounded-lg">
                       🏷️ {promoLabel(promo)}
                     </span>
                   )}
 
                   {/* Unit type badge for weight products */}
                   {isWeight && (
-                    <span className="text-sm font-bold text-blue-600 bg-blue-50 rounded-lg px-3 py-1 mb-2 self-start">
+                    <span className="text-xs font-bold text-blue-600 bg-blue-50 rounded-lg px-2 py-0.5 mb-1 self-start">
                       Por {product.unit_type?.name ?? 'peso'}
                     </span>
                   )}
 
                   {/* Price */}
-                  <span className="text-emerald-600 font-black text-4xl mt-auto pb-1">
+                  <span className="text-emerald-600 font-black text-lg mt-auto pb-0.5">
                     ₡{product.unit_price?.toLocaleString()}
                     {isWeight && (
-                      <span className="text-base font-bold text-gray-400">
+                      <span className="text-xs font-bold text-gray-400">
                         /{product.unit_type?.abbreviation ?? 'kg'}
                       </span>
                     )}
                   </span>
 
                   {!inStock && (
-                    <span className="absolute inset-0 flex items-center justify-center bg-white/70 rounded-2xl text-2xl text-gray-400 font-black">
+                    <span className="absolute inset-0 flex items-center justify-center bg-white/70 rounded-lg text-xs text-gray-400 font-black">
                       Sin stock
                     </span>
                   )}

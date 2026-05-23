@@ -597,9 +597,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
+    // Proactive token refresh every 30 minutes to keep session alive for 12h
+    const refreshInterval = setInterval(async () => {
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (currentSession) {
+          await supabase.auth.refreshSession();
+        }
+      } catch {
+        // Silently fail — autoRefreshToken will retry
+      }
+    }, 30 * 60 * 1000); // 30 minutes
+
     return () => {
       mounted = false;
       subscription?.unsubscribe();
+      clearInterval(refreshInterval);
     };
   }, []);
 
