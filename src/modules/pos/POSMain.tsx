@@ -61,28 +61,36 @@ export const POSMain = () => {
   const [showDisplayTest, setShowDisplayTest] = useState(false);
 
   // Load tax settings — with offline cache fallback
+  // Usar el MISMO cache key que useSettings('general') para que se sincronice
   useEffect(() => {
     if (!tenantId) return;
-    const ck = cacheKey(tenantId, 'general_settings');
+    const ck = cacheKey(tenantId, 'settings_general');
+    const ckOld = cacheKey(tenantId, 'general_settings'); // legacy
 
     const applyConfig = (cfg: any) => {
-      if (typeof cfg.taxEnabled === 'boolean') setTaxEnabled(cfg.taxEnabled);
+      if (!cfg) return;
+      // taxEnabled — explicitly check for false (default true)
+      if (cfg.taxEnabled === false || cfg.taxEnabled === true) {
+        setTaxEnabled(cfg.taxEnabled);
+      }
       if (typeof cfg.taxPercentage === 'number' && cfg.taxPercentage >= 0)
         setTaxRate(cfg.taxPercentage / 100);
     };
 
-    // Apply cached config immediately (so POS works instantly offline)
-    const cached = cacheGet<any>(ck);
+    // Apply cached config immediately
+    const cached = cacheGet<any>(ck) ?? cacheGet<any>(ckOld);
     if (cached) applyConfig(cached);
 
     if (!navigator.onLine) return;
 
-    apiFetch<{ config: any }>('/settings/general')
-      .then((data) => {
-        if (!data?.config) return;
-        const cfg = data.config as any;
-        applyConfig(cfg);
-        cacheSet(ck, cfg);
+    // API returns the config object directly (not wrapped in { config: ... })
+    apiFetch<any>('/settings/general')
+      .then((cfg) => {
+        if (!cfg) return;
+        // Support both wrapped and unwrapped responses
+        const actualCfg = cfg.config ?? cfg;
+        applyConfig(actualCfg);
+        cacheSet(ck, actualCfg);
       })
       .catch(() => {/* ignore — cached config is already applied */});
   }, [tenantId]);
@@ -281,9 +289,10 @@ export const POSMain = () => {
   ) => {
     if (!tenantId) return;
     try {
-      // Cache de settings — sin esperar API
-      const cachedGeneral = cacheGet<any>(cacheKey(tenantId, 'general_settings'));
-      const general = cachedGeneral;
+      // Cache de settings — sin esperar API (mismo key que useSettings)
+      const cachedGeneral = cacheGet<any>(cacheKey(tenantId, 'settings_general'))
+                          ?? cacheGet<any>(cacheKey(tenantId, 'general_settings'));
+      const general = cachedGeneral?.config ?? cachedGeneral;
       const now = new Date();
 
       // Receipt

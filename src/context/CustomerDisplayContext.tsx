@@ -1,5 +1,9 @@
-import React, { createContext, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useState, lazy, Suspense } from 'react';
 import { useCustomerDisplay } from '@/hooks/POS/useCustomerDisplay';
+
+const DisplayTestPanel = lazy(() =>
+  import('@/modules/pos/components/DisplayTestPanel').then(m => ({ default: m.DisplayTestPanel }))
+);
 
 interface CustomerDisplayContextValue {
   isConnected: boolean;
@@ -7,6 +11,8 @@ interface CustomerDisplayContextValue {
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
   updateDisplay: (line1: string, line2: string) => Promise<void>;
+  openTestPanel: () => void;
+  closeTestPanel: () => void;
 }
 
 const CustomerDisplayContext = createContext<CustomerDisplayContextValue | null>(null);
@@ -17,6 +23,10 @@ interface ProviderProps {
 
 export const CustomerDisplayProvider: React.FC<ProviderProps> = ({ children }) => {
   const display = useCustomerDisplay();
+  const [showTestPanel, setShowTestPanel] = useState(false);
+
+  const openTestPanel = () => setShowTestPanel(true);
+  const closeTestPanel = () => setShowTestPanel(false);
 
   // Auto-reconectar al cargar si previamente estaba conectado
   useEffect(() => {
@@ -27,9 +37,32 @@ export const CustomerDisplayProvider: React.FC<ProviderProps> = ({ children }) =
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Shortcut global Ctrl+I — funciona desde CUALQUIER página
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+        const target = e.target as HTMLElement;
+        const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+        if (isTyping) return;
+        e.preventDefault();
+        setShowTestPanel(prev => !prev);
+      }
+      if (e.key === 'Escape' && showTestPanel) {
+        setShowTestPanel(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showTestPanel]);
+
   return (
-    <CustomerDisplayContext.Provider value={display}>
+    <CustomerDisplayContext.Provider value={{ ...display, openTestPanel, closeTestPanel }}>
       {children}
+      {showTestPanel && (
+        <Suspense fallback={null}>
+          <DisplayTestPanel onClose={closeTestPanel} />
+        </Suspense>
+      )}
     </CustomerDisplayContext.Provider>
   );
 };

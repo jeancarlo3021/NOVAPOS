@@ -535,7 +535,13 @@ export class POSPrinterService {
       color-adjust: exact !important;
     }
     @media print {
-      img { filter: contrast(2) brightness(0.7) grayscale(1) !important; }
+      /* Forzar contraste máximo en impresión */
+      img {
+        filter: url(#logoThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0) !important;
+        image-rendering: crisp-edges !important;
+        image-rendering: -webkit-optimize-contrast !important;
+        image-rendering: pixelated !important;
+      }
     }
     body {
       font-family: 'Courier New', Courier, monospace;
@@ -605,7 +611,43 @@ export class POSPrinterService {
     ${(() => {
       const logo = receiptData.logoUrl || cfg.logoUrl;
       if (!logo) return '';
-      return `<div style="text-align:center;margin-bottom:8px;padding:4px;"><img src="${logo}" alt="Logo" style="max-height:160px;max-width:100%;width:auto;object-fit:contain;display:inline-block;filter:contrast(2) brightness(0.7) grayscale(1);image-rendering:crisp-edges;-webkit-print-color-adjust:exact;print-color-adjust:exact;"></div>`;
+      // Logo a máximo contraste — convierte a blanco/negro puro estilo 1-bit
+      // grayscale(1)     → quita el color
+      // brightness(0.4)  → oscurece para que los grises se vuelvan negros
+      // contrast(5)      → expone fuertemente blancos y negros (efecto threshold)
+      // saturate(0)      → asegura sin saturación de color
+      return `
+        <svg width="0" height="0" style="position:absolute">
+          <filter id="logoThreshold">
+            <feColorMatrix type="matrix" values="
+              0.33 0.33 0.33 0 0
+              0.33 0.33 0.33 0 0
+              0.33 0.33 0.33 0 0
+              0    0    0    1 0"/>
+            <feComponentTransfer>
+              <feFuncR type="discrete" tableValues="0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1"/>
+              <feFuncG type="discrete" tableValues="0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1"/>
+              <feFuncB type="discrete" tableValues="0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1"/>
+            </feComponentTransfer>
+          </filter>
+        </svg>
+        <div style="text-align:center;margin-bottom:8px;padding:4px;">
+          <img src="${logo}"
+               alt="Logo"
+               style="max-height:160px;
+                      max-width:100%;
+                      width:auto;
+                      object-fit:contain;
+                      display:inline-block;
+                      filter:url(#logoThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0);
+                      image-rendering:crisp-edges;
+                      image-rendering:-webkit-optimize-contrast;
+                      image-rendering:pixelated;
+                      -webkit-print-color-adjust:exact;
+                      print-color-adjust:exact;
+                      color-adjust:exact;">
+        </div>
+      `;
     })()}
     <div class="title">TICKET DE VENTA</div>
     ${cfg.showInvoiceNumber ? `<div class="subtitle">Factura #${receiptData.invoiceNumber}</div>` : ''}
