@@ -453,46 +453,61 @@ export class POSPrinterService {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Courier New', Courier, monospace;
-      font-size: 11px;
-      line-height: 1.45;
+      font-size: 13px;
+      line-height: 1.7;
       color: #000;
       background: #fff;
       width: ${widthMM};
+      font-weight: 700;
     }
     .receipt {
       width: 100%;
       padding: 3mm 3mm 6mm;
     }
     .center { text-align: center; }
-    .bold { font-weight: bold; }
-    .large { font-size: 15px; font-weight: bold; text-align: center; }
+    .bold { font-weight: 900; }
+    .large { font-size: 18px; font-weight: 900; text-align: center; }
     .divider {
       border: none;
-      border-top: 1px dashed #000;
-      margin: 3px 0;
+      border-top: 3px solid #000;
+      margin: 4px 0;
     }
-    .header { text-align: center; margin-bottom: 4px; }
-    .title { font-size: 13px; font-weight: bold; }
-    .subtitle { font-size: 10px; color: #333; }
-    .store-block { text-align: center; font-size: 10px; margin: 3px 0; }
-    .customer-block { font-size: 10px; margin: 2px 0 4px; }
+    .header { text-align: center; margin-bottom: 5px; }
+    .title { font-size: 16px; font-weight: 900; letter-spacing: 1px; }
+    .subtitle { font-size: 13px; color: #000; font-weight: 900; margin: 2px 0; }
+    .store-block { text-align: center; font-size: 13px; margin: 4px 0; font-weight: 800; }
+    .customer-block { font-size: 12px; margin: 3px 0 5px; font-weight: 800; }
     .section-label {
-      font-weight: bold;
-      font-size: 10px;
-      border-bottom: 1px dashed #000;
-      margin: 4px 0 2px;
+      font-weight: 900;
+      font-size: 13px;
+      border-top: 3px solid #000;
+      border-bottom: 3px solid #000;
+      margin: 5px 0 3px;
+      padding: 2px 0;
+      letter-spacing: 1px;
     }
     table { width: 100%; border-collapse: collapse; }
-    .item-name { width: 55%; }
-    .item-qty { width: 10%; text-align: right; }
-    .item-price { width: 35%; text-align: right; }
-    .item-detail { font-size: 10px; color: #444; }
-    .totals { font-size: 11px; }
+    .item-name { width: 55%; font-weight: 800; font-size: 13px; }
+    .item-qty { width: 10%; text-align: right; font-weight: 900; font-size: 13px; }
+    .item-price { width: 35%; text-align: right; font-weight: 900; font-size: 13px; }
+    .item-detail { font-size: 12px; color: #000; font-weight: 700; margin: 1px 0; }
+    .totals { font-size: 13px; font-weight: 800; }
+    .totals tr { border-bottom: 1px solid #000; }
+    .totals td { padding: 2px 0; }
     .totals td:last-child { text-align: right; }
-    .total-line { font-size: 14px; font-weight: bold; text-align: center; margin: 4px 0; }
-    .payment-block { font-size: 11px; margin: 3px 0; }
-    .footer { text-align: center; font-size: 11px; font-weight: bold; margin-top: 6px; }
-    .cashier { text-align: center; font-size: 10px; color: #555; margin: 2px 0; }
+    .total-line {
+      font-size: 20px;
+      font-weight: 900;
+      text-align: center;
+      margin: 6px 0;
+      padding: 4px 0;
+      border-top: 4px solid #000;
+      border-bottom: 4px solid #000;
+      letter-spacing: 2px;
+    }
+    .payment-block { font-size: 14px; margin: 4px 0; font-weight: 900; }
+    .footer { text-align: center; font-size: 14px; font-weight: 900; margin-top: 8px; letter-spacing: 0.5px; }
+    .cashier { text-align: center; font-size: 12px; color: #000; margin: 3px 0; font-weight: 800; }
   </style>
 </head>
 <body>

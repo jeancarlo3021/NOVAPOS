@@ -4,6 +4,7 @@ import { useCashSession } from '@/hooks/useCashSession';
 import { useTenantId } from '@/hooks/useTenant';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
+import { useDisplaySync } from '@/hooks/POS/useDisplaySync';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
 import {
@@ -19,6 +20,7 @@ import { POSProductsPanel } from './POSProducts';
 import { POSCartPanel } from './POSCart';
 import { POSModals } from './POSModals';
 import { VoidInvoiceModal } from './VoidInvoiceModal';
+import { DisplayTestModal } from './components/DisplayTestModal';
 import { CashOpenModal } from './cashManagement/CashOpenModal';
 import { CashCloseModal } from './cashManagement/CashCloseModal';
 import { PaymentConfirmationModal, PaymentData } from './cashManagement/PaymentConfirmationModal';
@@ -56,6 +58,7 @@ export const POSMain = () => {
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
+  const [showDisplayTest, setShowDisplayTest] = useState(false);
 
   // Load tax settings — with offline cache fallback
   useEffect(() => {
@@ -169,19 +172,24 @@ export const POSMain = () => {
     }
   }, [forceRefresh, currentSession]);
 
-  // Monitor currentSession changes for debugging
+
   useEffect(() => {
-    console.log('[POSMain] currentSession cambió:', {
-      id: currentSession?.id,
-      status: currentSession?.status,
-      opening_amount: currentSession?.opening_amount,
-    });
-  }, [currentSession]);
+    const countPending = async () => {
+      const count = await posOfflineService.getPendingCount();
+      setPendingInvoices(count);
+    };
+    countPending();
+    const interval = setInterval(countPending, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const subtotal = Math.round(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
   const effectiveTaxRate = taxEnabled ? taxRate : 0;
   const taxAmount = Math.round(subtotal * effectiveTaxRate);
   const total = subtotal + taxAmount;
+
+  // Sync cart data with mini display
+  useDisplaySync({ cartItems, total, isOnline });
 
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     const promo = getProductPromotion(
@@ -542,6 +550,28 @@ export const POSMain = () => {
           allowCard={planFeatures.pos_card}
           allowSinpe={planFeatures.pos_sinpe}
         />
+      )}
+
+      {showDisplayTest && (
+        <DisplayTestModal onClose={() => setShowDisplayTest(false)} />
+      )}
+
+      {/* Hidden display test trigger button — press Ctrl+D to open */}
+      {typeof window !== 'undefined' && (
+        <div style={{ display: 'none' }} id="display-test-trigger">
+          {(() => {
+            if (typeof window !== 'undefined' && !window.displayTestListener) {
+              window.displayTestListener = true;
+              document.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'd') {
+                  e.preventDefault();
+                  setShowDisplayTest(prev => !prev);
+                }
+              });
+            }
+            return null;
+          })()}
+        </div>
       )}
     </div>
   );
