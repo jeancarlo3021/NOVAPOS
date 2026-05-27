@@ -15,6 +15,7 @@ import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from 
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
+import { CashMovementModal } from './cashManagement/CashMovementModal';
 import { POSProductsPanel } from './POSProducts';
 import { POSCartPanel } from './POSCart';
 import { POSModals } from './POSModals';
@@ -57,6 +58,7 @@ export const POSMain = () => {
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
+  const [cashMovement, setCashMovement] = useState<'in' | 'out' | null>(null);
   const [showDisplayTest, setShowDisplayTest] = useState(false);
 
   // Load tax settings — with offline cache fallback
@@ -468,6 +470,8 @@ export const POSMain = () => {
         onOpenCash={() => setShowOpenModal(true)}
         onCloseCash={() => setShowCloseModal(true)}
         onVoidInvoice={currentSession ? () => setShowVoidModal(true) : undefined}
+        onCashIn={currentSession?.status === 'open' ? () => setCashMovement('in') : undefined}
+        onCashOut={currentSession?.status === 'open' ? () => setCashMovement('out') : undefined}
         onSync={isOnline ? syncOfflineInvoices : undefined}
       />
 
@@ -565,6 +569,19 @@ export const POSMain = () => {
           onVoided={(invoiceNumber) => {
             setShowVoidModal(false);
             setSuccess(`Factura ${invoiceNumber} anulada correctamente`);
+          }}
+        />
+      )}
+
+      {cashMovement && currentSession && tenantId && (
+        <CashMovementModal
+          sessionId={currentSession.id}
+          tenantId={tenantId}
+          initialType={cashMovement}
+          onCancel={() => setCashMovement(null)}
+          onSuccess={() => {
+            setSuccess(`Movimiento de ${cashMovement === 'in' ? 'entrada' : 'salida'} registrado`);
+            setCashMovement(null);
           }}
         />
       )}

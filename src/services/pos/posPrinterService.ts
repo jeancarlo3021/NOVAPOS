@@ -216,6 +216,152 @@ export class POSPrinterService {
     }
   }
 
+  // ─── Cash Close Report print ──────────────────────────────────────────────────
+
+  async printCashClose(report: {
+    session_id: string;
+    opened_at: string;
+    closed_at: string;
+    cashier_name?: string;
+    opening_amount: number;
+    cash_total: number;
+    card_total: number;
+    sinpe_total: number;
+    closing_amount: number;
+    expected_amount: number;     // = opening + ventas en efectivo
+    difference: number;
+    invoices_count: number;
+    invoices_total: number;
+    cash_movements?: Array<{ type: 'in' | 'out'; amount: number; reason: string }>;
+  }, tenantId: string): Promise<void> {
+    const cfg = await this.loadReceiptConfig(tenantId);
+
+    // Datos del local desde cache
+    let general: any = null;
+    try {
+      const cached = localStorage.getItem(`novapos_cache_${tenantId}_settings_general`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        general = parsed?.data ?? parsed;
+      }
+    } catch {}
+
+    const html = this.generateCashCloseHTML(report, cfg, general);
+
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      try {
+        if (!(await qzIsAvailable())) throw new Error('QZ Tray no disponible');
+        await qzConnect();
+        const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
+        if (receiptPrinters.length > 0) {
+          const qz = (window as any).qz;
+          for (const printer of receiptPrinters) {
+            const printerCfg = printer.connection === 'network'
+              ? qz.configs.create({ host: printer.ip, port: printer.port ?? 9100 })
+              : qz.configs.create(printer.printer_name);
+            await qz.print(printerCfg, [{ type: 'html', format: 'plain', data: html }]);
+          }
+          return;
+        }
+      } catch {
+        // fall through to browser
+      }
+    }
+    await this.printHTMLContent(html);
+  }
+
+  private generateCashCloseHTML(report: any, cfg: ReceiptConfig, general?: any): string {
+    const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
+    const fmtDateTime = (s: string) => new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' });
+    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth] ?? '80mm';
+
+    const storeName = general?.businessName || 'CIERRE DE CAJA';
+    const diffColor = report.difference === 0 ? '#000' : report.difference > 0 ? '#16a34a' : '#dc2626';
+    const diffLabel = report.difference === 0 ? 'CUADRADO' : report.difference > 0 ? 'SOBRANTE' : 'FALTANTE';
+
+    const movementsRows = (report.cash_movements ?? [])
+      .map((m: any) => `
+        <tr>
+          <td style="font-weight:800;">${m.type === 'in' ? '↓ Entrada' : '↑ Salida'}</td>
+          <td style="text-align:right;font-weight:900;color:${m.type === 'in' ? '#16a34a' : '#dc2626'}">${fmt(m.amount)}</td>
+        </tr>
+        <tr><td colspan="2" style="font-size:11px;padding-bottom:4px;">${m.reason || '-'}</td></tr>
+      `).join('');
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Cierre de Caja</title>
+  <style>
+    @page { size: ${widthMM} auto; margin: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0;
+      -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.7;
+      color: #000; background: #fff; width: ${widthMM}; font-weight: 700; }
+    .receipt { width: 100%; padding: 3mm 3mm 6mm; }
+    .title { font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 2px;
+      padding: 4px 0; margin-bottom: 6px; border-top: 4px solid #000; border-bottom: 4px solid #000; }
+    .store-name { font-size: 14px; font-weight: 900; text-align: center; margin-bottom: 6px; }
+    .meta { font-size: 13px; font-weight: 800; margin: 2px 0; }
+    .section { font-weight: 900; font-size: 13px; border-top: 3px solid #000; border-bottom: 3px solid #000;
+      margin: 5px 0 3px; padding: 2px 0; letter-spacing: 1px; text-align: center; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 2px 0; font-size: 13px; font-weight: 800; }
+    .total-line { font-size: 18px; font-weight: 900; text-align: center; margin: 6px 0;
+      padding: 4px 0; border-top: 4px solid #000; border-bottom: 4px solid #000; letter-spacing: 1px; }
+    .diff-line { font-size: 20px; font-weight: 900; text-align: center; margin: 8px 0;
+      padding: 6px 0; border: 4px solid; letter-spacing: 2px; }
+    .feed { padding-bottom: 15mm; }
+  </style>
+</head>
+<body>
+<div class="receipt">
+
+  <div class="title">CIERRE DE CAJA</div>
+  <div class="store-name">${storeName}</div>
+
+  <div class="meta"><strong>Apertura:</strong> ${fmtDateTime(report.opened_at)}</div>
+  <div class="meta"><strong>Cierre:</strong> ${fmtDateTime(report.closed_at)}</div>
+  ${report.cashier_name ? `<div class="meta"><strong>Cajero:</strong> ${report.cashier_name}</div>` : ''}
+
+  <div class="section">RESUMEN DE VENTAS</div>
+  <table>
+    <tr><td>Facturas emitidas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
+    <tr><td>Total ventas:</td><td style="text-align:right">${fmt(report.invoices_total)}</td></tr>
+  </table>
+
+  <div class="section">DESGLOSE</div>
+  <table>
+    <tr><td>Fondo inicial:</td><td style="text-align:right">${fmt(report.opening_amount)}</td></tr>
+    <tr><td>Efectivo contado:</td><td style="text-align:right">${fmt(report.cash_total)}</td></tr>
+    <tr><td>Tarjeta:</td><td style="text-align:right">${fmt(report.card_total)}</td></tr>
+    <tr><td>SINPE:</td><td style="text-align:right">${fmt(report.sinpe_total)}</td></tr>
+  </table>
+
+  ${report.cash_movements && report.cash_movements.length > 0 ? `
+    <div class="section">MOVIMIENTOS DE EFECTIVO</div>
+    <table>${movementsRows}</table>
+  ` : ''}
+
+  <div class="total-line">CONTADO: ${fmt(report.closing_amount)}</div>
+  <div class="meta" style="text-align:center"><strong>Esperado:</strong> ${fmt(report.expected_amount)}</div>
+
+  <div class="diff-line" style="color:${diffColor};border-color:${diffColor};">
+    ${diffLabel}<br>${fmt(Math.abs(report.difference))}
+  </div>
+
+  <div class="section">FIRMA</div>
+  <div style="text-align:center;margin-top:14px;font-size:16px;font-weight:900;letter-spacing:3px;">
+    _______________________
+  </div>
+
+  <div class="feed">&nbsp;</div>
+</div>
+</body>
+</html>`;
+  }
+
   // ─── Purchase Order print ─────────────────────────────────────────────────────
 
   async printPurchaseOrder(order: {

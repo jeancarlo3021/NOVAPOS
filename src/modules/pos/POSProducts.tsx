@@ -236,11 +236,14 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {displayed.map((product) => {
               const stock    = product.stock_quantity ?? 0;
-              const inStock  = ignoreStock || stock > 0;
-              const lowStock = !ignoreStock && stock > 0 && stock <= 5;
+              // Si el producto NO maneja stock (tracks_stock=false) → siempre disponible
+              const productTracksStock = (product as any).tracks_stock !== false;
+              const effectiveIgnore = ignoreStock || !productTracksStock;
+              const inStock  = effectiveIgnore || stock > 0;
+              const lowStock = !effectiveIgnore && stock > 0 && stock <= 5;
               const isWeight = needsWeightInput(product);
               const promo    = getProductPromotion(
                 product.id,
@@ -254,17 +257,30 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                   onClick={() => handleAdd(product)}
                   disabled={!inStock}
                   className={`
-                    relative flex flex-col p-2 rounded-lg border text-left transition
-                    active:scale-95 select-none min-h-36
+                    relative flex flex-col p-4 rounded-xl border-2 text-left transition
+                    active:scale-95 select-none min-h-60
                     ${inStock
-                      ? 'bg-white border-gray-200 hover:border-emerald-400 hover:shadow cursor-pointer'
+                      ? 'bg-white border-gray-200 hover:border-emerald-400 hover:shadow-md cursor-pointer'
                       : 'bg-gray-50 border-gray-100 opacity-40 cursor-not-allowed'
                     }
                   `}
                 >
-                  {/* Stock badge — hidden when plan doesn't track stock */}
-                  {!ignoreStock && (
-                    <span className={`absolute top-1 right-1 text-xs font-bold px-1.5 py-0.5 rounded ${
+                  {/* Imagen del producto */}
+                  {(product as any).image_url ? (
+                    <div className="w-full h-24 mb-2 rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
+                      <img
+                        src={(product as any).image_url}
+                        alt={product.name}
+                        loading="lazy"
+                        className="w-full h-full object-contain"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    </div>
+                  ) : null}
+
+                  {/* Stock badge — solo si el plan y el producto manejan stock */}
+                  {!ignoreStock && productTracksStock && (
+                    <span className={`absolute top-2 right-2 text-sm font-black px-2.5 py-1 rounded-lg ${
                       lowStock
                         ? 'bg-amber-100 text-amber-700'
                         : stock === 0
@@ -274,48 +290,54 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                       {stock}
                     </span>
                   )}
+                  {/* Badge "∞" si el producto no maneja stock */}
+                  {!ignoreStock && !productTracksStock && (
+                    <span className="absolute top-2 right-2 text-sm font-black px-2.5 py-1 rounded-lg bg-blue-100 text-blue-600" title="Stock ilimitado">
+                      ∞
+                    </span>
+                  )}
 
                   {/* Add / Scale indicator */}
                   {inStock && (
-                    <div className="absolute bottom-1 right-1 w-6 h-6 rounded bg-emerald-500 flex items-center justify-center">
+                    <div className="absolute bottom-2 right-2 w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-sm">
                       {isWeight ? (
-                        <span className="text-white text-[10px] font-black">
+                        <span className="text-white text-sm font-black">
                           {product.unit_type?.abbreviation ?? 'kg'}
                         </span>
                       ) : (
-                        <Plus size={12} className="text-white" />
+                        <Plus size={20} className="text-white" />
                       )}
                     </div>
                   )}
 
                   {/* Name */}
-                  <span className="text-gray-900 font-semibold text-xs leading-tight line-clamp-2 mb-1 pr-5 mt-0">
+                  <span className="text-gray-900 font-black text-base leading-tight line-clamp-2 mb-1 pr-9 mt-0">
                     {product.name}
                   </span>
 
                   {product.sku && (
-                    <span className="text-gray-400 text-[10px] mb-1 font-medium">{product.sku}</span>
+                    <span className="text-gray-400 text-sm mb-1.5 font-semibold">{product.sku}</span>
                   )}
 
                   {/* Promo badge */}
                   {promo && (
-                    <span className="self-start mb-0.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-violet-600 text-white text-[10px] font-black rounded">
+                    <span className="self-start mb-1 inline-flex items-center gap-1 px-2 py-1 bg-violet-600 text-white text-sm font-black rounded-md">
                       🏷️ {promoLabel(promo)}
                     </span>
                   )}
 
                   {/* Unit type badge for weight products */}
                   {isWeight && (
-                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 mb-0.5 self-start">
+                    <span className="text-sm font-bold text-blue-600 bg-blue-50 rounded-md px-2 py-0.5 mb-1 self-start">
                       Por {product.unit_type?.name ?? 'peso'}
                     </span>
                   )}
 
                   {/* Price */}
-                  <span className="text-emerald-600 font-black text-sm mt-auto">
+                  <span className="text-emerald-600 font-black text-2xl mt-auto leading-none">
                     ₡{product.unit_price?.toLocaleString()}
                     {isWeight && (
-                      <span className="text-[10px] font-bold text-gray-400">
+                      <span className="text-sm font-bold text-gray-400">
                         /{product.unit_type?.abbreviation ?? 'kg'}
                       </span>
                     )}

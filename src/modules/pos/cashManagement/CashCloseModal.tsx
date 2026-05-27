@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import { LockKeyhole, X, TrendingUp, TrendingDown, Plus, Trash2, CreditCard, Smartphone, Banknote } from 'lucide-react';
 import { cashSessionService } from '@/services/cashManagement/cashSessionsService';
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
+import { posPrinterService } from '@/services/pos/posPrinterService';
+import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 import { CashSession } from '@/types/Types_POS';
 
 const DENOMINATIONS = [
@@ -36,6 +39,7 @@ interface CashCloseModalProps {
 }
 
 export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSuccess, onCancel }) => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('cash');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -116,6 +120,53 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       } else {
         // Online: Close immediately
         updatedSession = await cashSessionService.closeCashSession(closeData);
+      }
+
+      // Imprimir reporte de cierre (fire-and-forget, no bloquea)
+      try {
+        const tenantId = user?.tenant_id;
+        if (tenantId) {
+          // Obtener invoices y movimientos de esta sesión
+          const [invRes, movRes] = await Promise.all([
+            apiFetch<{ invoices: any[] }>(`/invoices?cash_session_id=${session.id}`).catch(() => ({ invoices: [] })),
+            apiFetch<any[]>(`/cash-movements?cash_session_id=${session.id}`).catch(() => []),
+          ]);
+          const invoices = invRes?.invoices ?? [];
+          const cashInvoices = invoices.filter((i: any) => i.payment_method === 'cash');
+          const cashSales = cashInvoices.reduce((s: number, i: any) => s + Number(i.total ?? 0), 0);
+
+          // Movimientos manuales (in/out)
+          const movements = (Array.isArray(movRes) ? movRes : [])
+            .filter((m: any) => m.type === 'cash_in' || m.type === 'cash_out')
+            .map((m: any) => ({
+              type: m.type === 'cash_in' ? 'in' as const : 'out' as const,
+              amount: Math.abs(Number(m.amount ?? 0)),
+              reason: m.description ?? '',
+            }));
+
+          const movementsIn = movements.filter((m) => m.type === 'in').reduce((s, m) => s + m.amount, 0);
+          const movementsOut = movements.filter((m) => m.type === 'out').reduce((s, m) => s + m.amount, 0);
+          const expectedAmount = openingAmount + cashSales + movementsIn - movementsOut;
+
+          posPrinterService.printCashClose({
+            session_id: session.id,
+            opened_at: session.opened_at ?? session.created_at ?? new Date().toISOString(),
+            closed_at: updatedSession.closed_at ?? new Date().toISOString(),
+            cashier_name: user?.email,
+            opening_amount: openingAmount,
+            cash_total: cashTotal,
+            card_total: cardTotal,
+            sinpe_total: sinpeTotal,
+            closing_amount: grandTotal,
+            expected_amount: expectedAmount,
+            difference: grandTotal - expectedAmount,
+            invoices_count: invoices.length,
+            invoices_total: invoices.reduce((s: number, i: any) => s + Number(i.total ?? 0), 0),
+            cash_movements: movements,
+          }, tenantId).catch(() => {});
+        }
+      } catch {
+        // No bloquear el cierre por error en impresión
       }
 
       onSuccess(updatedSession);

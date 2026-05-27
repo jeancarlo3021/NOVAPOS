@@ -24,7 +24,7 @@ export interface PaymentData {
   voucherNumber?: string;
 }
 
-const QUICK_AMOUNTS = [5000, 10000, 20000, 50000];
+const QUICK_AMOUNTS = [1000, 2000, 5000, 10000, 20000];
 
 const METHODS = [
   {
@@ -178,7 +178,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
               {/* Quick amounts */}
               <div>
                 <p className="text-gray-500 text-xs font-black uppercase tracking-wider mb-1.5 px-1">Billetes rápidos</p>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="grid grid-cols-5 gap-1.5">
                   {QUICK_AMOUNTS.map(amt => (
                     <button
                       key={amt}

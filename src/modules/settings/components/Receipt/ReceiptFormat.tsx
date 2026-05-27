@@ -1,6 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+import { Upload, Loader, Trash2 } from 'lucide-react';
+import { storageService } from '@/services/storage/storageService';
+import { useAuth } from '@/context/AuthContext';
 
 interface ReceiptConfig {
   paperWidth: 32 | 40 | 48 | 56 | 80;
@@ -15,6 +18,10 @@ interface Props {
 }
 
 export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
+  const { user } = useAuth();
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const paperWidths = [
     { value: 32, label: '32 caracteres (58mm)' },
     { value: 40, label: '40 caracteres (80mm)' },
@@ -23,17 +30,51 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
     { value: 80, label: '80 caracteres (A4)' },
   ];
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setConfig({
-          ...config,
-          logoUrl: event.target?.result as string,
-        });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    const tenantId = user?.tenant_id;
+    if (!tenantId) {
+      setError('No se pudo identificar el negocio');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setError('El archivo debe ser una imagen');
+      return;
+    }
+
+    setError(null);
+    setUploading(true);
+    try {
+      // Borrar logo anterior si existe en Storage
+      if (config.logoUrl) {
+        const oldPath = storageService.extractPathFromUrl(config.logoUrl, 'logos');
+        if (oldPath) {
+          await storageService.remove('logos', [oldPath]).catch(() => {});
+        }
+      }
+
+      const url = await storageService.uploadImage('logos', tenantId, file, 'logo');
+      // Agregar timestamp para forzar refresh del cache de imagen
+      setConfig({ ...config, logoUrl: `${url}?t=${Date.now()}` });
+    } catch (err: any) {
+      setError(err.message || 'Error al subir el logo');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!config.logoUrl) return;
+    setError(null);
+    try {
+      const path = storageService.extractPathFromUrl(config.logoUrl, 'logos');
+      if (path) await storageService.remove('logos', [path]);
+      setConfig({ ...config, logoUrl: undefined });
+    } catch (err: any) {
+      setError(err.message || 'Error al eliminar el logo');
     }
   };
 
@@ -81,31 +122,60 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
         {config.showLogo && (
           <div className="mt-4 space-y-3">
             {config.logoUrl && (
-              <div className="w-32 h-32 bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-200">
-                <img
-                  src={config.logoUrl}
-                  alt="Logo"
-                  className="w-full h-full object-contain p-2"
-                />
+              <div className="flex items-start gap-3">
+                <div className="w-32 h-32 bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-200">
+                  <img
+                    src={config.logoUrl}
+                    alt="Logo"
+                    className="w-full h-full object-contain p-2"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveLogo}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm font-semibold rounded-lg transition"
+                >
+                  <Trash2 size={14} /> Eliminar
+                </button>
               </div>
             )}
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Cargar imagen
+                {config.logoUrl ? 'Reemplazar imagen' : 'Cargar imagen'}
               </label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleLogoUpload}
-                className="block w-full text-sm text-gray-500
-                  file:mr-4 file:py-2 file:px-4
-                  file:rounded-lg file:border-0
-                  file:text-sm file:font-semibold
-                  file:bg-blue-50 file:text-blue-700
-                  hover:file:bg-blue-100"
-              />
+              <div className="flex items-center gap-3">
+                <label className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer transition ${
+                  uploading
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-50 hover:bg-blue-100 text-blue-700'
+                }`}>
+                  {uploading ? (
+                    <><Loader size={16} className="animate-spin" /> Subiendo...</>
+                  ) : (
+                    <><Upload size={16} /> Seleccionar archivo</>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                    onChange={handleLogoUpload}
+                    disabled={uploading}
+                    className="hidden"
+                  />
+                </label>
+                <span className="text-xs text-gray-400">JPG, PNG, WebP, SVG (max 500 KB)</span>
+              </div>
             </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg">
+                ✗ {error}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-400">
+              💡 La imagen se almacena en Supabase Storage y se sirve desde CDN
+            </p>
           </div>
         )}
       </div>

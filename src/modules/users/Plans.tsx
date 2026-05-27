@@ -158,7 +158,10 @@ export default function Plans() {
       if (pf.pos_sinpe) a.push('SINPE');
       if (pf.pos_discount) a.push('Descuentos');
     }
-    if (pf.inventory) a.push(pf.inventory_products_only ? 'Inventario básico' : 'Inventario completo');
+    if (pf.inventory) {
+      a.push(pf.inventory_products_only ? 'Inventario básico' : 'Inventario completo');
+      if (pf.inventory_mixed_stock) a.push('Stock mixto');
+    }
     if (pf.reports) a.push(pf.reports_basic ? 'Reportes básicos' : 'Reportes completos');
     if (pf.expenses) a.push('Gastos');
     if (pf.purchases) a.push('Compras');
@@ -383,6 +386,8 @@ export default function Plans() {
                 description="Productos, stock y categorías" checked={features.inventory} onChange={v => set({ inventory: v })}>
                 <SubFeatureRow icon={Package} color="bg-emerald-400" title="Solo Productos"
                   description="Acceso limitado, sin stock ni compras" checked={features.inventory_products_only} onChange={v => set({ inventory_products_only: v })} />
+                <SubFeatureRow icon={Package} color="bg-blue-400" title="Stock Mixto"
+                  description="Permite productos con stock y otros sin (servicios)" checked={!!features.inventory_mixed_stock} onChange={v => set({ inventory_mixed_stock: v })} />
               </FeatureRow>
 
               {/* Reportes */}

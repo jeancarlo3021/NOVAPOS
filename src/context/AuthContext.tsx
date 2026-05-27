@@ -119,6 +119,7 @@ export interface PlanFeatures {
   pos_discount: boolean;
   // Inventory tiers
   inventory_products_only: boolean;
+  inventory_mixed_stock?: boolean; // Permite que algunos productos lleven stock y otros no
   // Reports tiers
   reports_basic: boolean;
   // Optional modules
@@ -153,6 +154,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   pos_sinpe: false,
   pos_discount: false,
   inventory_products_only: false,
+  inventory_mixed_stock: false,
   reports_basic: false,
   expenses: false,
   purchases: false,
@@ -173,6 +175,7 @@ export const FULL_FEATURES: PlanFeatures = {
   pos_sinpe: true,
   pos_discount: true,
   inventory_products_only: false,
+  inventory_mixed_stock: true,
   reports_basic: true,
   expenses: true,
   purchases: true,

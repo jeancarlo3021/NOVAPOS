@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban } from 'lucide-react';
+import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 import { CashSession } from '@/types/Types_POS';
 
 interface POSHeaderProps {
@@ -18,6 +18,8 @@ interface POSHeaderProps {
   onCloseCash: () => void;
   onVoidInvoice?: () => void;
   onSync?: () => void;
+  onCashIn?: () => void;
+  onCashOut?: () => void;
 }
 
 export const POSHeader: React.FC<POSHeaderProps> = ({
@@ -35,6 +37,8 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   onCloseCash,
   onVoidInvoice,
   onSync,
+  onCashIn,
+  onCashOut,
 }) => {
   const navigate = useNavigate();
 
@@ -74,12 +78,32 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
                   ₡{currentSession.opening_amount?.toLocaleString()}
                 </span>
               </div>
+              {onCashIn && (
+                <button
+                  onClick={onCashIn}
+                  className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+                  title="Entrada de efectivo"
+                >
+                  <ArrowDownCircle size={15} />
+                  <span className="hidden lg:inline">Entrada</span>
+                </button>
+              )}
+              {onCashOut && (
+                <button
+                  onClick={onCashOut}
+                  className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+                  title="Salida de efectivo"
+                >
+                  <ArrowUpCircle size={15} />
+                  <span className="hidden lg:inline">Salida</span>
+                </button>
+              )}
               <button
                 onClick={onCloseCash}
                 className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
               >
                 <LockKeyhole size={15} />
-                Cerrar caja
+                <span className="hidden sm:inline">Cerrar caja</span>
               </button>
               {onVoidInvoice && (
                 <button

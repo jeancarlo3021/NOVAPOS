@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, AlertCircle, TrendingUp } from 'lucide-react';
+import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon } from 'lucide-react';
 import { calcMargin, MARGIN_TEXT } from '@/utils/priceUtils';
 import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
 import { Card, CardHeader, CardContent, CardFooter, Spinner } from '@/components/ui/uiComponents';
+import { storageService } from '@/services/storage/storageService';
 
 // ── Form ───────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,13 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     min_stock_level: '10',
     max_stock_level: '100',
   });
+
+  const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [tracksStock, setTracksStock] = useState<boolean>(true);
+
+  // Feature de plan: si NO permite mezclar, fuerza tracks_stock = true para todos
+  const canMixStock = !!planFeatures?.inventory_mixed_stock;
 
   const [submitting, setSubmitting] = useState(false);
   const [loadingProduct, setLoadingProduct] = useState(!!productId);
@@ -105,6 +113,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           min_stock_level: product.min_stock_level?.toString() || '10',
           max_stock_level: product.max_stock_level?.toString() || '100',
         });
+        setImageUrl((product as any).image_url || undefined);
+        // Si el plan no permite mezclar, siempre true. Si permite, usa el del producto.
+        setTracksStock(canMixStock ? ((product as any).tracks_stock ?? true) : true);
       })
       .catch((err) => {
         if (!active) return;
@@ -167,6 +178,49 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!tid) {
+      setFormError('No se pudo identificar el negocio');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      setFormError('El archivo debe ser una imagen');
+      return;
+    }
+
+    setFormError('');
+    setUploadingImage(true);
+    try {
+      // Borrar imagen anterior si existe
+      if (imageUrl) {
+        const oldPath = storageService.extractPathFromUrl(imageUrl, 'products');
+        if (oldPath) await storageService.remove('products', [oldPath]).catch(() => {});
+      }
+
+      // Subir nueva imagen comprimida
+      const slug = formData.sku?.trim() || formData.name?.trim() || `prod-${Date.now()}`;
+      const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const url = await storageService.uploadImage('products', tid, file, safeSlug);
+      setImageUrl(`${url}?t=${Date.now()}`);
+    } catch (err: any) {
+      setFormError(err.message || 'Error al subir la imagen');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleRemoveImage = async () => {
+    if (!imageUrl) return;
+    try {
+      const path = storageService.extractPathFromUrl(imageUrl, 'products');
+      if (path) await storageService.remove('products', [path]);
+    } catch {}
+    setImageUrl(undefined);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -182,12 +236,17 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         return;
       }
 
+      // Si el plan no permite mezclar stock, fuerza tracks_stock = true para todos
+      const finalTracksStock = canMixStock ? tracksStock : true;
+
       const productData: any = {
         name: formData.name,
         sku: formData.sku,
         description: formData.description || undefined,
         unit_price: formData.unit_price ? parseFloat(formData.unit_price) : 0,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
+        image_url: imageUrl ? imageUrl.split('?')[0] : null,
+        tracks_stock: finalTracksStock,
       };
 
       // Si NO es products_only, agrega los campos de stock, categoría y tipo de unidad
@@ -269,6 +328,54 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* Imagen del producto */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Imagen del Producto</label>
+              <div className="flex items-start gap-4">
+                {/* Preview */}
+                <div className="w-28 h-28 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">
+                  {imageUrl ? (
+                    <img src={imageUrl} alt="Producto" className="w-full h-full object-contain p-1" />
+                  ) : (
+                    <ImageIcon size={28} className="text-gray-300" />
+                  )}
+                </div>
+
+                {/* Botones */}
+                <div className="flex-1 flex flex-col gap-2">
+                  <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-sm cursor-pointer transition w-fit ${
+                    uploadingImage
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-blue-50 hover:bg-blue-100 text-blue-700'
+                  }`}>
+                    {uploadingImage ? (
+                      <><Loader size={14} className="animate-spin" /> Subiendo...</>
+                    ) : (
+                      <><Upload size={14} /> {imageUrl ? 'Reemplazar' : 'Cargar imagen'}</>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleImageUpload}
+                      disabled={uploadingImage}
+                      className="hidden"
+                    />
+                  </label>
+                  {imageUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold transition w-fit"
+                    >
+                      <Trash2 size={12} /> Eliminar
+                    </button>
+                  )}
+                  <span className="text-xs text-gray-400">JPG, PNG o WebP · max 1 MB · se comprime automáticamente</span>
+                </div>
+              </div>
+            </div>
+
             {/* Fila 1: Nombre y SKU */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -478,8 +585,41 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
               );
             })()}
 
-            {/* Fila 4: Stock - Solo si NO es products_only */}
-            {!isProductsOnly && (
+            {/* Toggle: Manejar Stock — solo visible si el plan permite mezclar */}
+            {!isProductsOnly && canMixStock && (
+              <div className={`flex items-start gap-3 p-4 rounded-xl border-2 transition ${
+                tracksStock
+                  ? 'bg-emerald-50 border-emerald-200'
+                  : 'bg-amber-50 border-amber-200'
+              }`}>
+                <button
+                  type="button"
+                  onClick={() => setTracksStock(!tracksStock)}
+                  className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                    tracksStock ? 'bg-emerald-500' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                      tracksStock ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+                <div className="flex-1">
+                  <p className={`font-bold text-sm ${tracksStock ? 'text-emerald-800' : 'text-amber-800'}`}>
+                    📦 Manejar stock para este producto
+                  </p>
+                  <p className={`text-xs mt-0.5 ${tracksStock ? 'text-emerald-600' : 'text-amber-700'}`}>
+                    {tracksStock
+                      ? 'Las ventas descontarán del inventario. Útil para productos físicos.'
+                      : 'Stock ilimitado. Ideal para servicios, comidas preparadas o productos sin inventario.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Fila 4: Stock - Solo si NO es products_only Y maneja stock */}
+            {!isProductsOnly && tracksStock && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Actual</label>

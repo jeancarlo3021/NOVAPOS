@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader } from 'lucide-react';
+import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Sliders } from 'lucide-react';
 import { Card, Badge } from '@/components/ui/uiComponents';
 import { Product } from '@/types/Types_POS';
 import { useAuth } from '@/context/AuthContext';
 import { calcMargin, MARGIN_TEXT, MARGIN_BG } from '@/utils/priceUtils';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
+import { StockAdjustModal } from './StockAdjustModal';
 
 interface ProductWithRelations extends Product {
   category?: { id: string; name: string } | null;
@@ -21,6 +22,7 @@ interface ProductCardProps {
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDelete, onUpdated }) => {
   const { planFeatures } = useAuth();
   const isProductsOnly = planFeatures?.inventory_products_only ?? false;
+  const [showAdjust, setShowAdjust] = useState(false);
 
   // ── Inline price editor ─────────────────────────────────────────────────────
   const [editingPrice, setEditingPrice] = useState(false);
@@ -69,7 +71,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
   const marginBg    = MARGIN_BG[marginCol];
 
   const minStock = product.min_stock_level ?? 0;
-  const isLowStock = product.stock_quantity < minStock;
+  const productTracksStock = (product as any).tracks_stock !== false;
+  const isLowStock = productTracksStock && product.stock_quantity < minStock;
   const stockPercentage = minStock > 0 ? (product.stock_quantity / minStock) * 100 : 100;
   const stockStatus = stockPercentage > 100 ? 'optimal' : stockPercentage > 50 ? 'warning' : 'critical';
 
@@ -94,6 +97,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           </div>
 
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+            {!isProductsOnly && productTracksStock && (
+              <button
+                onClick={() => setShowAdjust(true)}
+                className="p-2 text-amber-600 hover:bg-amber-100 rounded-lg transition"
+                title="Ajustar stock"
+              >
+                <Sliders size={16} />
+              </button>
+            )}
             <button onClick={onEdit} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition" title="Editar">
               <Edit2 size={16} />
             </button>
@@ -102,6 +114,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             </button>
           </div>
         </div>
+
+        {showAdjust && (
+          <StockAdjustModal
+            product={{
+              id: product.id,
+              name: product.name,
+              sku: product.sku,
+              stock_quantity: product.stock_quantity,
+            }}
+            onClose={() => setShowAdjust(false)}
+            onSuccess={() => {
+              setShowAdjust(false);
+              onUpdated?.();
+            }}
+          />
+        )}
 
         {/* Categoría */}
         {!isProductsOnly && product.category && (
@@ -199,7 +227,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
         <div className="h-px bg-linear-to-r from-gray-200 to-transparent mb-4" />
 
         {/* Stock */}
-        {!isProductsOnly && (
+        {!isProductsOnly && productTracksStock && (
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600 font-medium">Stock</span>
@@ -227,6 +255,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             <div className="flex justify-between text-xs text-gray-500">
               <span>Mínimo: {minStock}</span>
               <span>Actual: {product.stock_quantity}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Badge "Sin control de stock" — visible si el producto NO maneja stock */}
+        {!isProductsOnly && !productTracksStock && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center gap-2">
+            <span className="text-blue-600 text-xl font-black">∞</span>
+            <div>
+              <p className="text-blue-800 font-bold text-xs">Stock ilimitado</p>
+              <p className="text-blue-500 text-[10px]">No descuenta del inventario</p>
             </div>
           </div>
         )}
