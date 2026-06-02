@@ -4,6 +4,9 @@ import {
   TrendingDown, Settings, Users, CreditCard, Smartphone,
   Percent, ClipboardList, Check, ChevronRight, Wallet,
   BookOpen, UserCog, Tag, LayoutGrid,
+  Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
+  Banknote, FileX, TrendingUp, Clock, DollarSign,
+  Activity, Shield, CalendarDays, History,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
@@ -351,87 +354,140 @@ export default function Plans() {
         </div>
       )}
 
-      {/* ── MODAL: Características ── */}
+      {/* ── MODAL: Características (layout horizontal) ── */}
       {showFeaturesModal && selectedPlan && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[92vh] flex flex-col">
 
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
               <div>
                 <h2 className="text-lg font-black text-gray-900">Módulos del Plan</h2>
-                <p className="text-xs text-gray-400">{selectedPlan.name}</p>
+                <p className="text-xs text-gray-400">{selectedPlan.name} · control total sobre lo que ofreces</p>
               </div>
               <button onClick={() => setShowFeaturesModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 transition">
                 <X size={20} />
               </button>
             </div>
 
-            {/* Scrollable body */}
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3">
+            {/* Body — grid horizontal por categoría */}
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
 
-              {/* POS */}
-              <FeatureRow icon={ShoppingCart} color="bg-blue-500" title="Punto de Venta (POS)"
-                description="Módulo de caja y ventas" checked={features.pos} onChange={v => set({ pos: v })}>
-                <SubFeatureRow icon={CreditCard} color="bg-blue-400" title="Datáfono / Tarjeta"
-                  description="Cobro con tarjeta de crédito/débito" checked={features.pos_card} onChange={v => set({ pos_card: v })} />
-                <SubFeatureRow icon={Smartphone} color="bg-violet-500" title="SINPE Móvil"
-                  description="Cobro por SINPE con comprobante" checked={features.pos_sinpe} onChange={v => set({ pos_sinpe: v })} />
-                <SubFeatureRow icon={Percent} color="bg-orange-400" title="Descuentos"
-                  description="Aplicar descuentos por producto" checked={features.pos_discount} onChange={v => set({ pos_discount: v })} />
-              </FeatureRow>
+                {/* ── Columna 1: Ventas / POS ────────────────────────────── */}
+                <section className="space-y-3">
+                  <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-wider px-1">Ventas</h3>
 
-              {/* Inventario */}
-              <FeatureRow icon={Package} color="bg-emerald-500" title="Inventario"
-                description="Productos, stock y categorías" checked={features.inventory} onChange={v => set({ inventory: v })}>
-                <SubFeatureRow icon={Package} color="bg-emerald-400" title="Solo Productos"
-                  description="Acceso limitado, sin stock ni compras" checked={features.inventory_products_only} onChange={v => set({ inventory_products_only: v })} />
-                <SubFeatureRow icon={Package} color="bg-blue-400" title="Stock Mixto"
-                  description="Permite productos con stock y otros sin (servicios)" checked={!!features.inventory_mixed_stock} onChange={v => set({ inventory_mixed_stock: v })} />
-              </FeatureRow>
+                  <FeatureRow icon={ShoppingCart} color="bg-blue-500" title="Punto de Venta (POS)"
+                    description="Caja y ventas" checked={features.pos} onChange={v => set({ pos: v })}>
+                    <SubFeatureRow icon={CreditCard} color="bg-blue-400" title="Datáfono / Tarjeta"
+                      description="Cobro con tarjeta" checked={features.pos_card} onChange={v => set({ pos_card: v })} />
+                    <SubFeatureRow icon={Smartphone} color="bg-violet-500" title="SINPE Móvil"
+                      description="Cobro por SINPE" checked={features.pos_sinpe} onChange={v => set({ pos_sinpe: v })} />
+                    <SubFeatureRow icon={Percent} color="bg-orange-400" title="Descuentos"
+                      description="Aplicar descuentos por producto" checked={features.pos_discount} onChange={v => set({ pos_discount: v })} />
+                    <SubFeatureRow icon={Banknote} color="bg-emerald-400" title="Gestión de Caja"
+                      description="Apertura y cierre de caja" checked={!!features.pos_cash_management} onChange={v => set({ pos_cash_management: v })} />
+                    <SubFeatureRow icon={Monitor} color="bg-cyan-500" title="Display de Cliente"
+                      description="Pantalla secundaria para el cliente" checked={!!features.pos_customer_display} onChange={v => set({ pos_customer_display: v })} />
+                    <SubFeatureRow icon={FileX} color="bg-red-400" title="Anular Facturas"
+                      description="Permite anular facturas emitidas" checked={!!features.pos_void_invoice} onChange={v => set({ pos_void_invoice: v })} />
+                  </FeatureRow>
 
-              {/* Reportes */}
-              <FeatureRow icon={BarChart2} color="bg-indigo-500" title="Reportes"
-                description="Análisis de ventas y estadísticas" checked={features.reports} onChange={v => set({ reports: v })}>
-                <SubFeatureRow icon={BarChart2} color="bg-indigo-400" title="Solo Reportes Básicos"
-                  description="Limita el acceso a reportes avanzados" checked={features.reports_basic} onChange={v => set({ reports_basic: v })} />
-              </FeatureRow>
+                  <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones"
+                    description="Descuentos y ofertas en el POS" checked={features.promotions ?? false} onChange={v => set({ promotions: v })} />
 
-              {/* Gastos */}
-              <FeatureRow icon={TrendingDown} color="bg-red-400" title="Gastos"
-                description="Registro y gestión de gastos" checked={features.expenses} onChange={v => set({ expenses: v })} />
+                  <FeatureRow icon={LayoutGrid} color="bg-blue-500" title="Mapa de Mesas"
+                    description="Canvas de mesas para restaurantes" checked={features.tables ?? false} onChange={v => set({ tables: v })} />
 
-              {/* Compras */}
-              <FeatureRow icon={ClipboardList} color="bg-cyan-500" title="Órdenes de Compra"
-                description="Gestión de compras a proveedores" checked={features.purchases ?? false} onChange={v => set({ purchases: v })} />
+                  <FeatureRow icon={BookOpen} color="bg-lime-500" title="Recetas"
+                    description="Recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />
+                </section>
 
-              {/* Cuentas por Pagar */}
-              <FeatureRow icon={Wallet} color="bg-rose-500" title="Cuentas por Pagar"
-                description="Control de pagos a proveedores con crédito" checked={features.accounts_payable ?? false} onChange={v => set({ accounts_payable: v })} />
+                {/* ── Columna 2: Inventario y Operaciones ─────────────── */}
+                <section className="space-y-3">
+                  <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-wider px-1">Inventario y Operaciones</h3>
 
-              {/* Mapa de Mesas */}
-              <FeatureRow icon={LayoutGrid} color="bg-blue-500" title="Mapa de Mesas"
-                description="Canvas de mesas para restaurantes" checked={features.tables ?? false} onChange={v => set({ tables: v })} />
+                  <FeatureRow icon={Package} color="bg-emerald-500" title="Inventario"
+                    description="Productos y stock" checked={features.inventory} onChange={v => set({ inventory: v })}>
+                    <SubFeatureRow icon={Box} color="bg-emerald-400" title="Solo Productos"
+                      description="Sin control de stock ni compras" checked={features.inventory_products_only} onChange={v => set({ inventory_products_only: v })} />
+                    <SubFeatureRow icon={Layers} color="bg-blue-400" title="Stock Mixto"
+                      description="Productos con/sin stock convivientes" checked={!!features.inventory_mixed_stock} onChange={v => set({ inventory_mixed_stock: v })} />
+                    <SubFeatureRow icon={Layers} color="bg-emerald-400" title="Categorías"
+                      description="Tab de categorías" checked={features.inventory_categories ?? true} onChange={v => set({ inventory_categories: v })} />
+                    <SubFeatureRow icon={Box} color="bg-emerald-400" title="Tipos de Unidad"
+                      description="Tab de tipos de unidad" checked={features.inventory_unit_types ?? true} onChange={v => set({ inventory_unit_types: v })} />
+                    <SubFeatureRow icon={Truck} color="bg-amber-500" title="Proveedores"
+                      description="Tab de proveedores" checked={features.inventory_suppliers ?? true} onChange={v => set({ inventory_suppliers: v })} />
+                    <SubFeatureRow icon={Box} color="bg-blue-500" title="Vista de Stock"
+                      description="Tab de stock con ajustes" checked={features.inventory_stock_view ?? true} onChange={v => set({ inventory_stock_view: v })} />
+                    <SubFeatureRow icon={AlertTriangle} color="bg-orange-400" title="Alertas Stock Bajo"
+                      description="Tab de alertas y mínimos" checked={features.inventory_low_stock_alerts ?? true} onChange={v => set({ inventory_low_stock_alerts: v })} />
+                    <SubFeatureRow icon={Sliders} color="bg-amber-500" title="Ajustes con Motivo"
+                      description="Modal de ajuste manual con razones" checked={features.inventory_stock_adjustments ?? true} onChange={v => set({ inventory_stock_adjustments: v })} />
+                  </FeatureRow>
 
-              {/* Promociones */}
-              <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones del día"
-                description="Descuentos y ofertas en el POS" checked={features.promotions ?? false} onChange={v => set({ promotions: v })} />
+                  <FeatureRow icon={ClipboardList} color="bg-cyan-500" title="Órdenes de Compra"
+                    description="Compras a proveedores" checked={features.purchases ?? false} onChange={v => set({ purchases: v })} />
 
-              {/* Recetas */}
-              <FeatureRow icon={BookOpen} color="bg-lime-500" title="Recetas"
-                description="Módulo de recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />
+                  <FeatureRow icon={Wallet} color="bg-rose-500" title="Cuentas por Pagar"
+                    description="Crédito de proveedores" checked={features.accounts_payable ?? false} onChange={v => set({ accounts_payable: v })} />
 
-              {/* Recursos Humanos */}
-              <FeatureRow icon={UserCog} color="bg-violet-500" title="Recursos Humanos"
-                description="Gestión de empleados y nómina" checked={features.hr ?? false} onChange={v => set({ hr: v })} />
+                  <FeatureRow icon={TrendingDown} color="bg-red-400" title="Gastos"
+                    description="Registro y gestión" checked={features.expenses} onChange={v => set({ expenses: v })} />
+                </section>
 
-              {/* Configuración */}
-              <FeatureRow icon={Settings} color="bg-gray-500" title="Configuración"
-                description="Ajustes del sistema y negocio" checked={features.settings} onChange={v => set({ settings: v })} />
+                {/* ── Columna 3: Reportes y Administración ────────────── */}
+                <section className="space-y-3">
+                  <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-wider px-1">Reportes y Administración</h3>
 
-              {/* Usuarios */}
-              <FeatureRow icon={Users} color="bg-amber-500" title="Gestión de Usuarios"
-                description="Crear y administrar usuarios del negocio" checked={features.users} onChange={v => set({ users: v })} />
+                  <FeatureRow icon={BarChart2} color="bg-indigo-500" title="Reportes"
+                    description="Análisis y estadísticas" checked={features.reports} onChange={v => set({ reports: v })}>
+                    <SubFeatureRow icon={BarChart2} color="bg-indigo-400" title="Ventas Básicas"
+                      description="Reporte simple de ventas" checked={features.reports_basic} onChange={v => set({ reports_basic: v })} />
+                    <SubFeatureRow icon={TrendingUp} color="bg-indigo-500" title="Ventas Avanzadas"
+                      description="Métricas detalladas" checked={features.report_advanced_sales ?? true} onChange={v => set({ report_advanced_sales: v })} />
+                    <SubFeatureRow icon={Clock} color="bg-violet-500" title="Ventas por Hora"
+                      description="Distribución horaria" checked={features.report_hourly_sales ?? true} onChange={v => set({ report_hourly_sales: v })} />
+                    <SubFeatureRow icon={DollarSign} color="bg-emerald-500" title="Utilidad"
+                      description="Margen y ganancia" checked={features.report_profit ?? true} onChange={v => set({ report_profit: v })} />
+                    <SubFeatureRow icon={Users} color="bg-amber-500" title="Vendedores"
+                      description="Ranking de cajeros" checked={features.report_sellers ?? true} onChange={v => set({ report_sellers: v })} />
+                    <SubFeatureRow icon={Package} color="bg-blue-500" title="Productos"
+                      description="Detalle por producto" checked={features.report_product_detail ?? true} onChange={v => set({ report_product_detail: v })} />
+                    <SubFeatureRow icon={Box} color="bg-cyan-500" title="Stock"
+                      description="Inventario y motivos" checked={features.report_stock ?? true} onChange={v => set({ report_stock: v })} />
+                    <SubFeatureRow icon={Sliders} color="bg-amber-500" title="Ajustes de Stock"
+                      description="Historial de ajustes" checked={features.report_stock_adjustments ?? true} onChange={v => set({ report_stock_adjustments: v })} />
+                    <SubFeatureRow icon={Banknote} color="bg-emerald-500" title="Cierres de Caja"
+                      description="Sesiones de caja" checked={features.report_cash_sessions ?? true} onChange={v => set({ report_cash_sessions: v })} />
+                    <SubFeatureRow icon={TrendingDown} color="bg-red-400" title="Gastos"
+                      description="Reporte de gastos" checked={features.report_expenses ?? true} onChange={v => set({ report_expenses: v })} />
+                    <SubFeatureRow icon={ClipboardList} color="bg-cyan-500" title="Compras"
+                      description="Reporte de compras" checked={features.report_purchases ?? true} onChange={v => set({ report_purchases: v })} />
+                  </FeatureRow>
+
+                  <FeatureRow icon={Users} color="bg-amber-500" title="Usuarios"
+                    description="Gestión de cuentas" checked={features.users} onChange={v => set({ users: v })}>
+                    <SubFeatureRow icon={Shield} color="bg-purple-500" title="Roles"
+                      description="Permisos por rol" checked={features.users_roles ?? true} onChange={v => set({ users_roles: v })} />
+                    <SubFeatureRow icon={Users} color="bg-blue-500" title="Equipos"
+                      description="Grupos de trabajo" checked={features.users_teams ?? true} onChange={v => set({ users_teams: v })} />
+                    <SubFeatureRow icon={CalendarDays} color="bg-emerald-500" title="Turnos"
+                      description="Calendario de turnos" checked={features.users_shifts ?? true} onChange={v => set({ users_shifts: v })} />
+                    <SubFeatureRow icon={History} color="bg-violet-500" title="Actividad"
+                      description="Historial de acciones" checked={features.users_activity ?? true} onChange={v => set({ users_activity: v })} />
+                  </FeatureRow>
+
+                  <FeatureRow icon={UserCog} color="bg-violet-500" title="Recursos Humanos"
+                    description="Empleados y nómina" checked={features.hr ?? false} onChange={v => set({ hr: v })} />
+
+                  <FeatureRow icon={Settings} color="bg-gray-500" title="Configuración"
+                    description="Ajustes del sistema" checked={features.settings} onChange={v => set({ settings: v })} />
+                </section>
+
+              </div>
             </div>
 
             {/* Footer */}

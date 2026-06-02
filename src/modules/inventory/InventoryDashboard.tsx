@@ -32,26 +32,29 @@ export const InventoryDashboard: React.FC = () => {
     { id: 'unitTypes', label: 'Tipo de unidades', requiredFeature: 'inventory' },
   ];
 
-  // ✅ Verificar si el usuario tiene acceso a inventario
-  const hasInventoryAccess = (planFeatures as any).inventory === true;
-  
-  // ✅ Verificar si solo tiene acceso a productos
-  const hasProductsOnlyAccess = (planFeatures as any).inventory_products_only === true;
+  const pf = planFeatures as any;
+  const hasInventoryAccess = pf.inventory === true;
+  const hasProductsOnlyAccess = pf.inventory_products_only === true;
 
-  // ✅ Filtrar pestañas según permisos
+  // Flag por tab — undefined = activo por defecto (compat con planes viejos).
+  const flagOn = (v: unknown) => v === undefined ? true : !!v;
+
   const getAvailableTabs = (): TabConfig[] => {
     return tabs.filter(tab => {
-
-      // Sin acceso a inventario → nada
       if (!hasInventoryAccess) return false;
 
-      // Plan solo-productos: muestra Productos, Proveedores, Categorías y Tipos de unidad
-      // Stock y Alertas quedan ocultos (requieren inventario completo)
-      if (hasProductsOnlyAccess) {
-        return ['products', 'suppliers', 'categories', 'unitTypes'].includes(tab.id);
+      // Tabs con su propio flag granular.
+      if (tab.id === 'suppliers'  && !flagOn(pf.inventory_suppliers))         return false;
+      if (tab.id === 'categories' && !flagOn(pf.inventory_categories))        return false;
+      if (tab.id === 'unitTypes'  && !flagOn(pf.inventory_unit_types))        return false;
+      if (tab.id === 'stock'      && !flagOn(pf.inventory_stock_view))        return false;
+      if (tab.id === 'alerts'     && !flagOn(pf.inventory_low_stock_alerts))  return false;
+
+      // Plan solo-productos sigue ocultando stock + alertas.
+      if (hasProductsOnlyAccess && !['products', 'suppliers', 'categories', 'unitTypes'].includes(tab.id)) {
+        return false;
       }
 
-      // Inventario completo → todas las pestañas disponibles
       return true;
     });
   };

@@ -104,7 +104,7 @@ export interface Tenant {
 }
 
 export interface PlanFeatures {
-  // Module access
+  // ── Módulos principales ────────────────────────────────────────────────────
   pos: boolean;
   inventory: boolean;
   reports: boolean;
@@ -113,16 +113,40 @@ export interface PlanFeatures {
   expenses: boolean;
   purchases: boolean;
   accounts_payable: boolean;
-  // POS capabilities
+  // ── POS ────────────────────────────────────────────────────────────────────
   pos_card: boolean;
   pos_sinpe: boolean;
   pos_discount: boolean;
-  // Inventory tiers
+  pos_cash_management?: boolean;     // Apertura/cierre de caja
+  pos_customer_display?: boolean;    // Display de cliente serial
+  pos_void_invoice?: boolean;        // Anular facturas emitidas
+  // ── Inventario ─────────────────────────────────────────────────────────────
   inventory_products_only: boolean;
-  inventory_mixed_stock?: boolean; // Permite que algunos productos lleven stock y otros no
-  // Reports tiers
-  reports_basic: boolean;
-  // Optional modules
+  inventory_mixed_stock?: boolean;       // Productos con/sin stock mixtos
+  inventory_categories?: boolean;        // Tab Categorías
+  inventory_unit_types?: boolean;        // Tab Tipos de unidad
+  inventory_suppliers?: boolean;         // Tab Proveedores
+  inventory_stock_view?: boolean;        // Tab Stock
+  inventory_low_stock_alerts?: boolean;  // Tab Alertas
+  inventory_stock_adjustments?: boolean; // Ajustes manuales con motivo
+  // ── Reportes ───────────────────────────────────────────────────────────────
+  reports_basic: boolean;                // Ventas básicas (compat)
+  report_advanced_sales?: boolean;
+  report_hourly_sales?: boolean;
+  report_profit?: boolean;
+  report_sellers?: boolean;
+  report_product_detail?: boolean;
+  report_stock?: boolean;
+  report_stock_adjustments?: boolean;
+  report_cash_sessions?: boolean;
+  report_expenses?: boolean;
+  report_purchases?: boolean;
+  // ── Usuarios ───────────────────────────────────────────────────────────────
+  users_roles?: boolean;     // Tab Roles
+  users_teams?: boolean;     // Tab Equipos
+  users_shifts?: boolean;    // Tab Turnos
+  users_activity?: boolean;  // Tab Actividad
+  // ── Módulos opcionales ────────────────────────────────────────────────────
   recipes?: boolean;
   hr?: boolean;
   promotions?: boolean;
@@ -174,9 +198,32 @@ export const FULL_FEATURES: PlanFeatures = {
   pos_card: true,
   pos_sinpe: true,
   pos_discount: true,
+  pos_cash_management: true,
+  pos_customer_display: true,
+  pos_void_invoice: true,
   inventory_products_only: false,
   inventory_mixed_stock: true,
+  inventory_categories: true,
+  inventory_unit_types: true,
+  inventory_suppliers: true,
+  inventory_stock_view: true,
+  inventory_low_stock_alerts: true,
+  inventory_stock_adjustments: true,
   reports_basic: true,
+  report_advanced_sales: true,
+  report_hourly_sales: true,
+  report_profit: true,
+  report_sellers: true,
+  report_product_detail: true,
+  report_stock: true,
+  report_stock_adjustments: true,
+  report_cash_sessions: true,
+  report_expenses: true,
+  report_purchases: true,
+  users_roles: true,
+  users_teams: true,
+  users_shifts: true,
+  users_activity: true,
   expenses: true,
   purchases: true,
   accounts_payable: true,

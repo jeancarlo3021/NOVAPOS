@@ -19,6 +19,9 @@ interface Tab {
 export const Users: React.FC = () => {
   const { planFeatures } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('users');
+  const pf = planFeatures as any;
+  // undefined = activo (compat planes viejos)
+  const flagOn = (v: unknown) => v === undefined ? true : !!v;
 
   // Check if users module is enabled in plan
   if (!planFeatures?.users) {
@@ -33,38 +36,27 @@ export const Users: React.FC = () => {
     );
   }
 
-  const tabs: Tab[] = [
-    {
-      id: 'users',
-      label: 'Usuarios',
-      icon: <UsersIcon size={18} />,
-      component: <UsersList />,
-    },
-    {
-      id: 'roles',
-      label: 'Roles',
-      icon: <Shield size={18} />,
-      component: <RoleSettings />,
-    },
-    {
-      id: 'activity',
-      label: 'Actividad',
-      icon: <BarChart3 size={18} />,
-      component: <ActivityLog />,
-    },
-    {
-      id: 'teams',
-      label: 'Equipos',
-      icon: <Users2 size={18} />,
-      component: <TeamsView />,
-    },
-    {
-      id: 'shifts',
-      label: 'Turnos',
-      icon: <Calendar size={18} />,
-      component: <ShiftsCalendar />,
-    },
+  const allTabs: Tab[] = [
+    { id: 'users',    label: 'Usuarios',  icon: <UsersIcon size={18} />, component: <UsersList /> },
+    { id: 'roles',    label: 'Roles',     icon: <Shield size={18} />,    component: <RoleSettings /> },
+    { id: 'activity', label: 'Actividad', icon: <BarChart3 size={18} />, component: <ActivityLog /> },
+    { id: 'teams',    label: 'Equipos',   icon: <Users2 size={18} />,    component: <TeamsView /> },
+    { id: 'shifts',   label: 'Turnos',    icon: <Calendar size={18} />,  component: <ShiftsCalendar /> },
   ];
+
+  // Filtrado por flags granulares del plan (undefined = visible).
+  const tabs = allTabs.filter(t => {
+    if (t.id === 'roles'    && !flagOn(pf.users_roles))    return false;
+    if (t.id === 'activity' && !flagOn(pf.users_activity)) return false;
+    if (t.id === 'teams'    && !flagOn(pf.users_teams))    return false;
+    if (t.id === 'shifts'   && !flagOn(pf.users_shifts))   return false;
+    return true;
+  });
+
+  // Si la pestaña activa quedó deshabilitada, salta a la primera disponible.
+  if (tabs.length > 0 && !tabs.some(t => t.id === activeTab)) {
+    setTimeout(() => setActiveTab(tabs[0].id), 0);
+  }
 
   return (
     <div className="h-screen flex flex-col bg-white">

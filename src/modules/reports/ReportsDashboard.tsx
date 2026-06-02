@@ -44,29 +44,29 @@ interface Tab {
   label: string;
   description?: string;
   icon: React.ElementType;
-  featureKey: 'reports' | 'reports_basic' | 'purchases' | 'expenses';
+  featureKey: keyof import('@/context/AuthContext').PlanFeatures;
   group: 'ventas' | 'inventario' | 'finanzas' | 'operacional';
 }
 
 const TABS: Tab[] = [
   // Ventas
-  { id: 'basic',    label: 'Ventas Básicas',    description: 'Resumen general',          icon: TrendingUp,    featureKey: 'reports_basic', group: 'ventas' },
-  { id: 'advanced', label: 'Ventas Avanzadas',  description: 'Análisis completo',         icon: BarChart2,     featureKey: 'reports',       group: 'ventas' },
-  { id: 'hourly',   label: 'Ventas por Hora',   description: 'Patrones horarios',         icon: Clock,         featureKey: 'reports',       group: 'ventas' },
+  { id: 'basic',    label: 'Ventas Básicas',    description: 'Resumen general',          icon: TrendingUp,    featureKey: 'reports_basic',         group: 'ventas' },
+  { id: 'advanced', label: 'Ventas Avanzadas',  description: 'Análisis completo',         icon: BarChart2,     featureKey: 'report_advanced_sales', group: 'ventas' },
+  { id: 'hourly',   label: 'Ventas por Hora',   description: 'Patrones horarios',         icon: Clock,         featureKey: 'report_hourly_sales',   group: 'ventas' },
 
   // Inventario
-  { id: 'purchases', label: 'Compras',          description: 'Órdenes y proveedores',     icon: ShoppingCart,  featureKey: 'purchases',     group: 'inventario' },
-  { id: 'stock',     label: 'Stock',            description: 'Inventario actual',         icon: Package,       featureKey: 'reports',       group: 'inventario' },
-  { id: 'stock_adjustments', label: 'Movimientos de Stock', description: 'Ajustes manuales con motivo', icon: Package, featureKey: 'reports', group: 'inventario' },
-  { id: 'products',  label: 'Detalle Productos', description: 'Análisis por producto',    icon: Package,       featureKey: 'reports',       group: 'inventario' },
+  { id: 'purchases', label: 'Compras',                  description: 'Órdenes y proveedores',           icon: ShoppingCart,  featureKey: 'report_purchases',           group: 'inventario' },
+  { id: 'stock',     label: 'Stock',                    description: 'Inventario actual',               icon: Package,       featureKey: 'report_stock',               group: 'inventario' },
+  { id: 'stock_adjustments', label: 'Movimientos de Stock', description: 'Ajustes manuales con motivo', icon: Package,       featureKey: 'report_stock_adjustments',   group: 'inventario' },
+  { id: 'products',  label: 'Detalle Productos',        description: 'Análisis por producto',           icon: Package,       featureKey: 'report_product_detail',      group: 'inventario' },
 
   // Finanzas
-  { id: 'expenses', label: 'Gastos',            description: 'Egresos del negocio',       icon: TrendingDown,  featureKey: 'expenses',      group: 'finanzas' },
-  { id: 'profit',   label: 'Ganancias',         description: 'Margen y rentabilidad',     icon: Target,        featureKey: 'reports',       group: 'finanzas' },
+  { id: 'expenses', label: 'Gastos',            description: 'Egresos del negocio',       icon: TrendingDown,  featureKey: 'report_expenses',     group: 'finanzas' },
+  { id: 'profit',   label: 'Ganancias',         description: 'Margen y rentabilidad',     icon: Target,        featureKey: 'report_profit',       group: 'finanzas' },
 
   // Operacional
-  { id: 'sellers',  label: 'Por Vendedor',      description: 'Desempeño del equipo',      icon: Users,         featureKey: 'reports',       group: 'operacional' },
-  { id: 'cash',     label: 'Cierres de Caja',   description: 'Cuadres y arqueos',         icon: Vault,         featureKey: 'reports',       group: 'operacional' },
+  { id: 'sellers',  label: 'Por Vendedor',      description: 'Desempeño del equipo',      icon: Users,         featureKey: 'report_sellers',      group: 'operacional' },
+  { id: 'cash',     label: 'Cierres de Caja',   description: 'Cuadres y arqueos',         icon: Vault,         featureKey: 'report_cash_sessions',group: 'operacional' },
 ];
 
 const GROUP_LABELS: Record<string, string> = {
@@ -162,6 +162,15 @@ const ReportsDashboard: React.FC = () => {
   const hasAdvanced = planFeatures.reports;
   const hasBasic = planFeatures.reports_basic;
 
+  // Por defecto un reporte está habilitado salvo que el plan lo deshabilite
+  // explícitamente (undefined → true para compat con planes antiguos).
+  const isTabEnabled = (tab: Tab): boolean => {
+    if (tab.id === 'basic') return !!hasBasic;
+    if (!hasAdvanced) return false;
+    const v = planFeatures[tab.featureKey];
+    return v === undefined ? true : !!v;
+  };
+
   const [activeTab, setActiveTab] = useState<TabId>(() => hasAdvanced ? 'advanced' : 'basic');
   const [range, setRange] = useState(() => getDateRange(7));
   const [customFrom, setCustomFrom] = useState(range.from);
@@ -186,11 +195,9 @@ const ReportsDashboard: React.FC = () => {
     }
   };
 
-  // Si plan básico → solo 'basic'. Si avanzado → todos menos 'basic'
-  const visibleTabs = TABS.filter(tab => {
-    if (hasBasic && !hasAdvanced) return tab.id === 'basic';
-    return tab.id !== 'basic';
-  });
+  // Cada reporte aparece sólo si el plan lo permite. 'basic' depende de
+  // reports_basic; el resto requiere `reports` + su flag específico.
+  const visibleTabs = TABS.filter(isTabEnabled);
 
   const validTab = visibleTabs.find(t => t.id === activeTab) ?? visibleTabs[0];
   const currentTab = validTab ?? TABS[0];
@@ -355,28 +362,23 @@ const ReportsDashboard: React.FC = () => {
               <span>Sin conexión — los reportes requieren internet para calcularse en tiempo real.</span>
             </div>
           )}
-          {currentTab.id === 'basic' && <BasicSalesReport key={refreshKey} tenantId={tenantId} />}
-          {currentTab.id === 'advanced' &&
-            (hasAdvanced ? <AdvancedSalesReport key={`adv-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} /> : <LockedTab />)}
-          {currentTab.id === 'hourly' &&
-            (hasAdvanced ? <HourlySalesReport key={`hourly-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} /> : <LockedTab />)}
-          {currentTab.id === 'purchases' &&
-            (hasAdvanced ? <PurchasesReport key={`pur-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} /> : <LockedTab />)}
-          {currentTab.id === 'stock' &&
-            (hasAdvanced ? <StockReport key={`stk-${refreshKey}`} tenantId={tenantId} /> : <LockedTab />)}
-          {currentTab.id === 'stock_adjustments' &&
-            (hasAdvanced ? <StockAdjustmentsReport key={`adj-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} /> : <LockedTab />)}
-          {currentTab.id === 'sellers' &&
-            (hasAdvanced ? <SellerReport key={`sel-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} /> : <LockedTab />)}
-          {currentTab.id === 'expenses' && (
-            <ExpensesReport key={`exp-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />
-          )}
-          {currentTab.id === 'products' &&
-            (hasAdvanced ? <ProductDetailReport key={`prd-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} /> : <LockedTab />)}
-          {currentTab.id === 'cash' &&
-            (hasAdvanced ? <CashSessionsReport key={`cash-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} /> : <LockedTab />)}
-          {currentTab.id === 'profit' &&
-            (hasAdvanced ? <ProfitReport key={`profit-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} /> : <LockedTab />)}
+          {(() => {
+            if (!isTabEnabled(currentTab)) return <LockedTab />;
+            switch (currentTab.id) {
+              case 'basic':             return <BasicSalesReport key={refreshKey} tenantId={tenantId} />;
+              case 'advanced':          return <AdvancedSalesReport key={`adv-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'hourly':            return <HourlySalesReport key={`hourly-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'purchases':         return <PurchasesReport key={`pur-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'stock':             return <StockReport key={`stk-${refreshKey}`} tenantId={tenantId} />;
+              case 'stock_adjustments': return <StockAdjustmentsReport key={`adj-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'sellers':           return <SellerReport key={`sel-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'expenses':          return <ExpensesReport key={`exp-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'products':          return <ProductDetailReport key={`prd-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'cash':              return <CashSessionsReport key={`cash-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'profit':            return <ProfitReport key={`profit-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              default:                  return null;
+            }
+          })()}
         </div>
       </div>
     </div>

@@ -107,7 +107,7 @@ export function ReceiveReviewModal({ purchase, tenantId, canUpdateStock, onClose
         await purchasesOfflineService.queueReceive(receiveData);
       } else {
         // Call backend API to handle receive (creates AP automatically)
-        await inventoryPurchasesService.receivePurchase(purchase.id, itemsData);
+        await inventoryPurchasesService.receivePurchase(purchase.id, itemsData, canUpdateStock, notes);
       }
       onConfirmed();
     } catch (err) {

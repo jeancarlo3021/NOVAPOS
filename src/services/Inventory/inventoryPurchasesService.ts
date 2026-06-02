@@ -76,11 +76,17 @@ export const inventoryPurchasesService = {
     });
   },
 
-  // Recibir compra
-  async receivePurchase(id: string, items: Array<{ product_id: string; quantity: number }>) {
+  // Recibir compra. `canUpdateStock` indica si el plan permite actualizar stock;
+  // si es false, el backend solo marca la compra como recibida sin tocar inventario.
+  async receivePurchase(
+    id: string,
+    items: Array<{ product_id: string; quantity: number }>,
+    canUpdateStock = true,
+    notes?: string,
+  ) {
     return apiFetch<InventoryPurchase>('/purchases/' + id + '/receive', {
       method: 'POST',
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({ items, canUpdateStock, notes }),
     });
   },
 
