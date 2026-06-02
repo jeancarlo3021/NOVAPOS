@@ -1,9 +1,21 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { Package, AlertTriangle, TrendingUp, Search, Download } from 'lucide-react';
+import { Package, AlertTriangle, TrendingUp, Search, Download, History } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { stockAdjustmentsService, type StockAdjustment, type AdjustmentType } from '@/services/Inventory/stockAdjustmentsService';
+
+const REASON_META: Record<AdjustmentType, { label: string; emoji: string; color: string; direction: 'in' | 'out' | 'set' }> = {
+  increase: { label: 'Entrada',        emoji: '📥', color: 'emerald', direction: 'in'  },
+  return:   { label: 'Devolución',     emoji: '↩️', color: 'emerald', direction: 'in'  },
+  decrease: { label: 'Salida',         emoji: '📤', color: 'red',     direction: 'out' },
+  damage:   { label: 'Dañado',         emoji: '💥', color: 'red',     direction: 'out' },
+  expired:  { label: 'Vencido',        emoji: '⏰', color: 'red',     direction: 'out' },
+  theft:    { label: 'Robo / Pérdida', emoji: '🚨', color: 'red',     direction: 'out' },
+  set:      { label: 'Corrección',     emoji: '✏️', color: 'blue',    direction: 'set' },
+  count:    { label: 'Conteo',         emoji: '📋', color: 'blue',    direction: 'set' },
+};
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -26,6 +38,7 @@ export const StockReport: React.FC<Props> = ({ tenantId }) => {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'low' | 'ok' | 'zero'>('all');
+  const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
 
   const load = useCallback(async () => {
     if (!tenantId) return;
@@ -39,7 +52,41 @@ export const StockReport: React.FC<Props> = ({ tenantId }) => {
     }
   }, [tenantId]);
 
+  const loadAdjustments = useCallback(async () => {
+    if (!tenantId) return;
+    try {
+      const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const to = new Date().toISOString().slice(0, 10);
+      const data = await stockAdjustmentsService.list({ from, to });
+      setAdjustments(Array.isArray(data) ? data : []);
+    } catch {
+      setAdjustments([]);
+    }
+  }, [tenantId]);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadAdjustments(); }, [loadAdjustments]);
+
+  // Breakdown por motivo (últimos 30 días)
+  const reasonStats = useMemo(() => {
+    const map: Record<string, { count: number; qty: number }> = {};
+    adjustments.forEach(a => {
+      const t = a.type;
+      if (!map[t]) map[t] = { count: 0, qty: 0 };
+      map[t].count += 1;
+      map[t].qty += Math.abs(Number(a.quantity) || 0);
+    });
+    return (Object.keys(REASON_META) as AdjustmentType[])
+      .map(t => ({ type: t, ...(map[t] ?? { count: 0, qty: 0 }), meta: REASON_META[t] }))
+      .filter(r => r.count > 0);
+  }, [adjustments]);
+
+  const recentAdjustments = useMemo(
+    () => [...adjustments]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 8),
+    [adjustments],
+  );
 
   const isLow = (p: StockProduct) => p.stock_quantity > 0 && p.stock_quantity <= (p.min_stock_level ?? 0);
   const isZero = (p: StockProduct) => p.stock_quantity === 0;
@@ -121,6 +168,83 @@ export const StockReport: React.FC<Props> = ({ tenantId }) => {
           </ResponsiveContainer>
         </div>
       )}
+
+      {/* Motivos de ajuste (últimos 30 días) */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-5 border-b border-gray-100 flex items-center gap-2">
+          <History size={16} className="text-emerald-500" />
+          <h2 className="text-base font-black text-gray-900">Motivos de ajuste</h2>
+          <span className="text-xs text-gray-400 font-semibold">últimos 30 días</span>
+        </div>
+
+        {reasonStats.length === 0 ? (
+          <div className="py-10 text-center text-gray-400 text-sm">
+            Sin ajustes registrados en los últimos 30 días
+          </div>
+        ) : (
+          <>
+            <div className="p-5 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {reasonStats.map(r => (
+                <div key={r.type} className={`rounded-xl border bg-${r.meta.color}-50 border-${r.meta.color}-200 p-3 flex items-center gap-3`}>
+                  <span className="text-xl shrink-0">{r.meta.emoji}</span>
+                  <div className="min-w-0">
+                    <p className={`text-xs font-bold uppercase tracking-wide text-${r.meta.color}-700`}>{r.meta.label}</p>
+                    <p className="text-gray-900 font-black text-lg leading-tight">
+                      {r.qty} <span className="text-xs text-gray-500 font-semibold">uds</span>
+                    </p>
+                    <p className="text-[10px] text-gray-500 font-semibold">{r.count} movimiento{r.count !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {recentAdjustments.length > 0 && (
+              <div className="border-t border-gray-100">
+                <div className="px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                  Últimos ajustes
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-5 py-2 text-[10px] font-bold text-gray-500 uppercase">Fecha</th>
+                        <th className="text-left px-5 py-2 text-[10px] font-bold text-gray-500 uppercase">Producto</th>
+                        <th className="text-left px-5 py-2 text-[10px] font-bold text-gray-500 uppercase">Motivo</th>
+                        <th className="text-right px-5 py-2 text-[10px] font-bold text-gray-500 uppercase">Cambio</th>
+                        <th className="text-right px-5 py-2 text-[10px] font-bold text-gray-500 uppercase">Después</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentAdjustments.map(a => {
+                        const meta = REASON_META[a.type];
+                        const qty = Number(a.quantity);
+                        return (
+                          <tr key={a.id} className="border-t border-gray-100">
+                            <td className="px-5 py-2 text-xs text-gray-500 font-mono">
+                              {new Date(a.created_at).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' })}
+                            </td>
+                            <td className="px-5 py-2 text-xs text-gray-800 font-semibold">{a.product?.name ?? '—'}</td>
+                            <td className="px-5 py-2">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-${meta.color}-50 text-${meta.color}-700`}>
+                                {meta.emoji} {meta.label}
+                              </span>
+                              {a.notes && <p className="text-[10px] text-gray-500 mt-0.5">{a.notes}</p>}
+                            </td>
+                            <td className={`px-5 py-2 text-right font-bold font-mono text-xs ${qty > 0 ? 'text-emerald-600' : qty < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                              {qty > 0 ? '+' : ''}{qty}
+                            </td>
+                            <td className="px-5 py-2 text-right font-bold text-gray-900 font-mono text-xs">{a.stock_after}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Table with filters */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
