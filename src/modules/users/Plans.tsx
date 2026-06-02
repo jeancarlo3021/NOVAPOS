@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
-import { PlanFeatures, DEFAULT_FEATURES } from '@/context/AuthContext';
+import { PlanFeatures, DEFAULT_FEATURES, useAuth } from '@/context/AuthContext';
 
 // ── Toggle component ──────────────────────────────────────────────────────────
 
@@ -85,6 +85,7 @@ function SubFeatureRow({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Plans() {
+  const { tenant, refreshPlan } = useAuth();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -136,9 +137,18 @@ export default function Plans() {
     if (!selectedPlan) return;
     setSaving(true);
     try {
-      await subscriptionPlansService.updatePlan(selectedPlan.id, { features });
+      // Normaliza: cada flag se guarda como booleano explícito (los undefined
+      // que JSON.stringify dropearía causaban que el toggle "off" no persistiera).
+      const explicit = { ...DEFAULT_FEATURES, ...features } as PlanFeatures;
+      await subscriptionPlansService.updatePlan(selectedPlan.id, { features: explicit });
       setShowFeaturesModal(false);
-      setPlans(plans.map(p => p.id === selectedPlan.id ? { ...p, features } as SubscriptionPlan : p));
+      setPlans(plans.map(p => p.id === selectedPlan.id ? { ...p, features: explicit } as SubscriptionPlan : p));
+
+      // Si el plan editado es el del tenant actual, refresca el AuthContext
+      // para que los cambios se reflejen sin tener que recargar / reloguear.
+      if (tenant?.id && selectedPlan.id === tenant.plan_id) {
+        try { await refreshPlan(tenant.id); } catch {}
+      }
     } catch (err: any) { setError(err.message); }
     finally { setSaving(false); }
   };
