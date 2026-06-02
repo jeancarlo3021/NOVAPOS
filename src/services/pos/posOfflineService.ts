@@ -210,6 +210,16 @@ export function generateInvoiceNumber(): string {
 
 // ─── Pending invoices queue ───────────────────────────────────────────────────
 
+// Notifica a los listeners (POSMain, etc.) que la cola de facturas pendientes
+// cambió. Evita tener que hacer polling de getPendingCount cada N segundos.
+function notifyPendingChanged() {
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('pos-pending-changed'));
+    }
+  } catch { /* SSR-safe */ }
+}
+
 async function queueInvoice(payload: Omit<OfflineInvoicePayload, 'id' | 'invoiceNumber' | 'timestamp' | 'synced' | 'retries'>): Promise<string> {
   const db = await openDB();
   const invoiceNumber = generateOfflineInvoiceNumber();
@@ -222,6 +232,7 @@ async function queueInvoice(payload: Omit<OfflineInvoicePayload, 'id' | 'invoice
     retries: 0,
   };
   await idbPut(db, INVOICES_STORE, invoice);
+  notifyPendingChanged();
   return invoiceNumber; // Return invoice number instead of ID
 }
 
@@ -234,7 +245,10 @@ async function getPendingInvoices(): Promise<OfflineInvoicePayload[]> {
 async function markInvoiceSynced(id: string): Promise<void> {
   const db = await openDB();
   const inv = await idbGet<OfflineInvoicePayload>(db, INVOICES_STORE, id);
-  if (inv) await idbPut(db, INVOICES_STORE, { ...inv, synced: 1 });
+  if (inv) {
+    await idbPut(db, INVOICES_STORE, { ...inv, synced: 1 });
+    notifyPendingChanged();
+  }
 }
 
 async function markInvoiceError(id: string, error: string): Promise<void> {

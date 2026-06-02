@@ -100,6 +100,7 @@ export interface Tenant {
   created_at?: string;
   subscription_id?: string;
   plan_id?: string;
+  status?: 'active' | 'suspended' | 'inactive' | 'cancelled' | 'trial';
   subscription?: TenantSubscription | null;
 }
 
@@ -396,7 +397,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const TENANT_SELECT = `
-    id, name, owner_id, is_demo, created_at, subscription_id, plan_id,
+    id, name, owner_id, is_demo, created_at, subscription_id, plan_id, status,
     subscription:subscriptions!tenants_subscription_id_fkey (
       id, status, started_at, ends_at, auto_renew,
       plan:plan_id (
@@ -687,6 +688,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subscription?.unsubscribe();
       clearInterval(refreshInterval);
     };
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Realtime: si el admin cambia el status del tenant (suspended/inactive/
+  // cancelled/active), nos llega el evento y actualizamos el state al
+  // instante. ProtectedRoute se re-renderiza y muestra / oculta el modal de
+  // "Cuenta suspendida" sin necesidad de recargar.
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!tenant?.id) return;
+    const channelName = `tenant_status_${tenant.id}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'tenants', filter: `id=eq.${tenant.id}` },
+        (payload: any) => {
+          const next = payload?.new;
+          if (!next) return;
+          setTenant(prev => prev ? { ...prev, status: next.status, name: next.name ?? prev.name } : prev);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try { supabase.removeChannel(channel); } catch { /* ignore */ }
+    };
+  }, [tenant?.id]);
+
+  // Backup: si una llamada al API devuelve 403 con code=tenant_suspended,
+  // apiFetch dispara este evento global. Garantiza el bloqueo incluso si la
+  // suscripción realtime se desconectó.
+  useEffect(() => {
+    const onStatusChanged = (e: Event) => {
+      const detail = (e as CustomEvent<{ status?: string }>).detail;
+      const status = detail?.status ?? 'suspended';
+      setTenant(prev => prev ? { ...prev, status: status as Tenant['status'] } : prev);
+    };
+    window.addEventListener('tenant-status-changed', onStatusChanged);
+    return () => window.removeEventListener('tenant-status-changed', onStatusChanged);
   }, []);
 
   // ============================================

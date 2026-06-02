@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { AccountSuspendedModal } from './AccountSuspendedModal';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
+// Estados del tenant que bloquean el acceso al dashboard.
+const BLOCKING_STATUSES = new Set(['suspended', 'inactive', 'cancelled']);
+
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, loading: authLoading } = useAuth();
+  const { user, tenant, loading: authLoading } = useAuth();
   const [isReady, setIsReady] = useState(false);
   const [hasTimedOut, setHasTimedOut] = useState(false);
   const isMountedRef = useRef(true);
@@ -72,6 +76,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   // ✅ Si no hay usuario, redirigir a login
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  // ✅ Tenant suspendido / inactivo / cancelado → bloquea TODO con un modal.
+  // El admin (que gestiona /create-owner) puede no tener tenant — no se bloquea.
+  if (tenant?.status && BLOCKING_STATUSES.has(tenant.status)) {
+    return <AccountSuspendedModal status={tenant.status} />;
   }
 
   // ✅ Usuario autenticado, mostrar contenido

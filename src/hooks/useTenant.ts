@@ -55,8 +55,11 @@ export const useTenantId = () => {
 
         // 3. Fetch tenant from API (falls back to DB server-side)
         try {
-          const data = await apiFetch<{ tenant_id: string }>('/tenants/me');
-          if (data?.tenant_id) id = data.tenant_id;
+          // El backend `/tenants/me` devuelve la fila completa de tenants,
+          // donde el id del tenant es `id` (no `tenant_id`). Aceptamos ambos
+          // formatos por compat con versiones futuras.
+          const data = await apiFetch<{ tenant_id?: string; id?: string }>('/tenants/me');
+          id = data?.tenant_id ?? data?.id;
         } catch {
           // API unreachable — handled below
         }

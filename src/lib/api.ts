@@ -129,6 +129,18 @@ export async function apiFetch<T = unknown>(
     }
 
     if (!res.ok) {
+      // Detección instantánea: si el backend rechaza por tenant suspendido,
+      // disparamos un evento global para que AuthContext actualice el state
+      // y se muestre el modal de "Cuenta suspendida" sin esperar al próximo
+      // refresh ni a la subscripción realtime.
+      if (res.status === 403 && body?.code === 'tenant_suspended') {
+        try {
+          window.dispatchEvent(new CustomEvent('tenant-status-changed', {
+            detail: { status: body.status ?? 'suspended' },
+          }));
+        } catch { /* SSR-safe */ }
+      }
+
       const errorMsg = body?.error || body?.message || `HTTP ${res.status}`;
       throw new Error(errorMsg);
     }

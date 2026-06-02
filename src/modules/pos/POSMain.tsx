@@ -182,14 +182,29 @@ export const POSMain = () => {
   }, [forceRefresh, currentSession]);
 
 
+  // Mantén el contador de pendientes actualizado por eventos en vez de polling.
+  // Se dispara `pos-pending-changed` desde posOfflineService cuando cambia la
+  // cola, y también recontamos al volver online o al recibir el foco.
   useEffect(() => {
     const countPending = async () => {
       const count = await posOfflineService.getPendingCount();
       setPendingInvoices(count);
     };
     countPending();
-    const interval = setInterval(countPending, 5000);
-    return () => clearInterval(interval);
+
+    const onChanged = () => { countPending(); };
+    const onOnline  = () => { countPending(); };
+    const onFocus   = () => { countPending(); };
+
+    window.addEventListener('pos-pending-changed', onChanged);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      window.removeEventListener('pos-pending-changed', onChanged);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   const subtotal = Math.round(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
