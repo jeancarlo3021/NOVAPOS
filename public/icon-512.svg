@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <g fill="none" stroke="#10b981" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M160 112v144a32 32 0 0 0 32 32h0v112"/>
+    <path d="M224 112v144"/>
+    <path d="M192 112v64"/>
+    <path d="M352 112c-24 0-48 32-48 80s24 64 48 64v144"/>
+  </g>
+  <text x="256" y="470" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="48" fill="#10b981">NovaPOS</text>
+</svg>

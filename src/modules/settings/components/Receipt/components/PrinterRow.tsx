@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   Receipt, Utensils, Settings, Trash2, Printer,
   RefreshCw, Usb, Network, ChevronDown,
@@ -43,15 +43,44 @@ export function PrinterRow({ printer, qzPrinters, onChange, onRemove, onTest, te
                 Activa
               </label>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
-              <span className={`px-1.5 py-0.5 rounded font-mono font-semibold ${isReceipt ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+
+            <div className="mt-1 flex items-center gap-2 flex-wrap">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${isReceipt ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
                 {isReceipt ? 'Ticket' : 'Comanda'}
               </span>
-              {printer.connection === 'network'
-                ? <span className="flex items-center gap-0.5"><Network size={10} />{printer.ip || 'Sin IP'}</span>
-                : <span className="flex items-center gap-0.5"><Usb size={10} />{printer.printer_name || 'Sin impresora'}</span>
-              }
-            </p>
+
+              {printer.connection === 'network' ? (
+                <>
+                  <Network size={11} className="text-slate-400" />
+                  <input type="text" value={printer.ip ?? ''}
+                    onChange={e => onChange({ ip: e.target.value })}
+                    placeholder="192.168.1.100"
+                    className="px-2 py-1 border border-slate-200 rounded-md text-[11px] font-mono w-32 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  />
+                </>
+              ) : (
+                <>
+                  <Usb size={11} className="text-slate-400" />
+                  {qzPrinters.length > 0 ? (
+                    <div className="relative">
+                      <select value={printer.printer_name ?? ''} onChange={e => onChange({ printer_name: e.target.value })}
+                        className="pl-2 pr-6 py-1 border border-slate-200 rounded-md text-[11px] bg-white appearance-none focus:outline-none focus:ring-1 focus:ring-indigo-300 max-w-55"
+                      >
+                        <option value="">— Seleccionar impresora —</option>
+                        {qzPrinters.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                      <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+                  ) : (
+                    <input type="text" value={printer.printer_name ?? ''}
+                      onChange={e => onChange({ printer_name: e.target.value })}
+                      placeholder="Conecta QZ Tray para ver impresoras"
+                      className="px-2 py-1 border border-slate-200 rounded-md text-[11px] w-56 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                    />
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -105,43 +134,13 @@ export function PrinterRow({ printer, qzPrinters, onChange, onRemove, onTest, te
             </button>
           </div>
 
-          {printer.connection === 'usb' && (
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Nombre de impresora en el SO</label>
-              {qzPrinters.length > 0 ? (
-                <div className="relative">
-                  <select value={printer.printer_name ?? ''} onChange={e => onChange({ printer_name: e.target.value })}
-                    className="w-full px-3 py-1.5 pr-8 border border-slate-200 rounded-lg text-xs bg-white appearance-none focus:ring-2 focus:ring-indigo-300">
-                    <option value="">— Seleccionar —</option>
-                    {qzPrinters.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                  <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                </div>
-              ) : (
-                <input type="text" value={printer.printer_name ?? ''}
-                  onChange={e => onChange({ printer_name: e.target.value })}
-                  placeholder="Nombre exacto en el sistema operativo"
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-300"
-                />
-              )}
-            </div>
-          )}
-
           {printer.connection === 'network' && (
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2">
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Dirección IP</label>
-                <input type="text" value={printer.ip ?? ''} onChange={e => onChange({ ip: e.target.value })}
-                  placeholder="192.168.1.100"
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-300"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Puerto</label>
-                <input type="number" value={printer.port ?? 9100} onChange={e => onChange({ port: parseInt(e.target.value) || 9100 })}
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-300"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Puerto</label>
+              <input type="number" value={printer.port ?? 9100} onChange={e => onChange({ port: parseInt(e.target.value) || 9100 })}
+                className="w-32 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-300"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">Por defecto las térmicas usan el puerto 9100.</p>
             </div>
           )}
         </div>

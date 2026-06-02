@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
-import { RotateCw } from 'lucide-react';
+import { RotateCw, Sliders } from 'lucide-react';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useTenantId } from '@/hooks/useTenant';
-import { 
-  Card, 
-  CardHeader, 
+import { StockAdjustModal } from '../products/StockAdjustModal';
+import {
+  Card,
+  CardHeader,
   CardContent,
   Spinner,
   Alert,
@@ -23,6 +24,7 @@ export const StockMovements: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [adjustProductId, setAdjustProductId] = useState<string | null>(null);
 
   React.useEffect(() => {
     return () => {
@@ -318,6 +320,14 @@ export const StockMovements: React.FC = () => {
                         }}
                       />
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setAdjustProductId(product.id)}
+                      className="mt-4 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-bold transition"
+                    >
+                      <Sliders size={14} /> Ajustar stock
+                    </button>
                   </CardContent>
                 </Card>
               );
@@ -325,6 +335,21 @@ export const StockMovements: React.FC = () => {
           </div>
         </div>
       )}
+
+      {adjustProductId && (() => {
+        const p = products.find(x => x.id === adjustProductId);
+        if (!p) return null;
+        return (
+          <StockAdjustModal
+            product={{ id: p.id, name: p.name, sku: p.sku, stock_quantity: p.stock_quantity }}
+            onClose={() => setAdjustProductId(null)}
+            onSuccess={async () => {
+              setAdjustProductId(null);
+              await retry();
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };
