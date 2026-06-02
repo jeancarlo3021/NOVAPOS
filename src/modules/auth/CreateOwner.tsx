@@ -7,11 +7,12 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, AlertTriangle, X,
+  Clock, TrendingUp, Users, AlertTriangle, X, Receipt,
 } from 'lucide-react';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import type { OwnerData } from './components/RenewModal';
+import { PaymentReceiptsView } from './components/PaymentReceiptsView';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,8 @@ function daysUntil(dateStr: string | undefined): number | null {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+type AdminTab = 'businesses' | 'receipts';
+
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
   const [owners,    setOwners]    = useState<OwnerData[]>([]);
@@ -38,6 +41,7 @@ export const CreateOwner: React.FC = () => {
   const [success,   setSuccess]   = useState('');
   const [showForm,  setShowForm]  = useState(false);
   const [renewing,  setRenewing]  = useState<OwnerData | null>(null);
+  const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
@@ -260,6 +264,34 @@ export const CreateOwner: React.FC = () => {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="border-b border-gray-200 bg-white sticky top-19.5 z-10">
+        <div className="max-w-7xl mx-auto px-6 flex">
+          {[
+            { id: 'businesses' as AdminTab, label: 'Negocios',     icon: Building2 },
+            { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
+          ].map(t => {
+            const Icon = t.icon;
+            const active = activeTab === t.id;
+            return (
+              <button key={t.id} onClick={() => setActiveTab(t.id)}
+                className={`flex items-center gap-2 px-4 py-3 font-bold text-sm transition relative ${
+                  active ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-gray-500 hover:text-gray-900'
+                }`}>
+                <Icon size={15} /> {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeTab === 'receipts' && (
+        <div className="max-w-7xl mx-auto p-6">
+          <PaymentReceiptsView owners={owners} />
+        </div>
+      )}
+
+      {activeTab === 'businesses' && (
       <div className="max-w-7xl mx-auto p-6 space-y-6">
 
         {/* Alerts */}
@@ -521,6 +553,7 @@ export const CreateOwner: React.FC = () => {
           )}
         </div>
       </div>
+      )}
 
       {/* Renew modal */}
       {renewing && (
