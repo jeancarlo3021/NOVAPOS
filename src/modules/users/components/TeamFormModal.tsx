@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, RefreshCw, Check } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { teamsService } from '@/services/users/teamsService';
 import type { Team } from '@/types/Types_Users';
 
 interface TeamFormModalProps {
@@ -84,18 +85,19 @@ export const TeamFormModal: React.FC<TeamFormModalProps> = ({
         return;
       }
 
-      // This will be integrated with teamsService once backend is ready
-      // For now, we show the structure
-      const payload = {
-        name: form.name,
-        description: form.description || undefined,
-        color: form.color,
-      };
-
-      // Mock API call - replace with actual teamsService when available
-
-      // Simulating API delay
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (isEditing && team) {
+        await teamsService.updateTeam(team.id, {
+          name: form.name,
+          description: form.description || undefined,
+          color: form.color,
+        });
+      } else {
+        await teamsService.createTeam(tenantId, {
+          name: form.name,
+          description: form.description || undefined,
+          color: form.color,
+        });
+      }
 
       onSuccess();
       onClose();

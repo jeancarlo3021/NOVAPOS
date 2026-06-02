@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { X, RefreshCw, Check } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { usersService } from '@/services/users/usersService';
-import { USER_ROLES } from '@/types/Types_Users';
+import { USER_ROLES, ROLE_META } from '@/types/Types_Users';
 import type { User, CreateUserFormData, UpdateUserFormData, UserRole } from '@/types/Types_Users';
 
 interface UserFormModalProps {
@@ -44,7 +44,7 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
   if (!isOpen) return null;
 
   const isEditing = !!user;
-  const set = (k: keyof (CreateUserFormData | UpdateUserFormData), v: string) => {
+  const set = (k: keyof CreateUserFormData | keyof UpdateUserFormData, v: string) => {
     setForm((f) => ({ ...f, [k]: v }));
   };
 
@@ -61,7 +61,11 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
     if (!isEditing) {
       const createForm = form as CreateUserFormData;
       if (!createForm.email?.trim()) {
-        setError('El correo electrónico es requerido');
+        setError('El usuario es requerido');
+        return;
+      }
+      if (/\s/.test(createForm.email.trim())) {
+        setError('El usuario no puede contener espacios');
         return;
       }
       if (!createForm.password || createForm.password.length < 6) {
@@ -110,7 +114,7 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-900">
             {isEditing ? 'Editar Usuario' : 'Nuevo Usuario'}
@@ -147,15 +151,20 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
             <>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">
-                  Correo Electrónico *
+                  Usuario *
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   value={createForm.email}
-                  onChange={(e) => set('email', e.target.value)}
-                  placeholder="usuario@ejemplo.com"
+                  onChange={(e) => set('email', e.target.value.trim())}
+                  placeholder="ej. juanperez (o un correo si tiene)"
+                  autoCapitalize="none"
+                  autoCorrect="off"
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Si no tiene correo, escribe solo un nombre de usuario. Se usará para iniciar sesión.
+                </p>
               </div>
 
               <div>
@@ -174,21 +183,40 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Rol *
+            <label className="block text-xs font-semibold text-gray-600 mb-2">
+              Rol asignado *
             </label>
-            <select
-              value={form.role}
-              onChange={(e) => set('role', e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            >
-              <option value="">Selecciona un rol</option>
-              {Object.entries(USER_ROLES).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.keys(USER_ROLES) as UserRole[])
+                .filter(r => r !== 'owner')  // No permitir crear owners
+                .sort((a, b) => ROLE_META[b].level - ROLE_META[a].level)
+                .map((roleKey) => {
+                  const meta = ROLE_META[roleKey];
+                  const selected = form.role === roleKey;
+                  return (
+                    <button
+                      key={roleKey}
+                      type="button"
+                      onClick={() => set('role', roleKey)}
+                      className={`text-left p-2.5 rounded-xl border-2 transition ${
+                        selected
+                          ? `bg-${meta.color}-50 border-${meta.color}-500`
+                          : 'bg-white border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-base">{meta.emoji}</span>
+                        <span className={`text-xs font-black ${selected ? `text-${meta.color}-800` : 'text-gray-700'}`}>
+                          {meta.label}
+                        </span>
+                      </div>
+                      <p className={`text-[10px] leading-tight ${selected ? `text-${meta.color}-600` : 'text-gray-400'}`}>
+                        {meta.description}
+                      </p>
+                    </button>
+                  );
+                })}
+            </div>
           </div>
 
           <div>

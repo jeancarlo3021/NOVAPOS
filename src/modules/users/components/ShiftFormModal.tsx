@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, RefreshCw, Check, Clock } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { shiftsService } from '@/services/users/shiftsService';
 import type { User, Team, Shift, CreateShiftFormData, UpdateShiftFormData } from '@/types/Types_Users';
 
 interface ShiftFormModalProps {
@@ -111,10 +112,11 @@ export const ShiftFormModal: React.FC<ShiftFormModalProps> = ({
         notes: form.notes || undefined,
       };
 
-      // This will be integrated with shiftsService once backend is ready
-
-      // Simulating API delay
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (isEditing && shift) {
+        await shiftsService.updateShift(shift.id, payload as UpdateShiftFormData);
+      } else {
+        await shiftsService.createShift(tenantId, payload as CreateShiftFormData);
+      }
 
       onSuccess();
       onClose();

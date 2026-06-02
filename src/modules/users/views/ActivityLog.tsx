@@ -1,26 +1,49 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  Clock, AlertCircle, Loader2, Users, Search, Filter,
-  Wifi, WifiOff,
+  Clock, AlertCircle, Loader2, Filter, WifiOff,
+  LogIn, UserPlus, UserMinus, Lock, FileText, ShoppingCart, TrendingDown,
+  Package, Tag, Activity,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { activityService } from '@/services/users/activityService';
-import { cacheGet, cacheKey } from '@/utils/offlineCache';
-import type { ActivityLog, User } from '@/types/Types_Users';
+import { cacheGet, cacheSet, cacheKey } from '@/utils/offlineCache';
+import type { ActivityLog as ActivityLogType, User } from '@/types/Types_Users';
 import { usersService } from '@/services/users/usersService';
+
+interface ActionMeta {
+  label: string;
+  icon: React.ElementType;
+  color: string;
+}
+
+const ACTION_META: Record<string, ActionMeta> = {
+  login:                { label: 'Inicio de sesión',         icon: LogIn,         color: 'blue'    },
+  user_created:         { label: 'Usuario creado',           icon: UserPlus,      color: 'emerald' },
+  user_deleted:         { label: 'Usuario eliminado',        icon: UserMinus,     color: 'red'     },
+  user_password_reset:  { label: 'Contraseña restablecida',  icon: Lock,          color: 'amber'   },
+  invoice_created:      { label: 'Factura creada',           icon: FileText,      color: 'emerald' },
+  invoice_voided:       { label: 'Factura anulada',          icon: FileText,      color: 'red'     },
+  purchase_created:     { label: 'Compra creada',            icon: ShoppingCart,  color: 'blue'    },
+  expense_created:      { label: 'Gasto registrado',         icon: TrendingDown,  color: 'rose'    },
+  product_created:      { label: 'Producto creado',          icon: Package,       color: 'emerald' },
+  product_updated:      { label: 'Producto actualizado',     icon: Package,       color: 'sky'     },
+  promotion_created:    { label: 'Promoción creada',         icon: Tag,           color: 'violet'  },
+  promotion_updated:    { label: 'Promoción actualizada',    icon: Tag,           color: 'sky'     },
+};
+
+const META_DEFAULT: ActionMeta = { label: 'Acción', icon: Activity, color: 'gray' };
+const fmtDateTime = (s: string) => new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' });
 
 export const ActivityLog: React.FC = () => {
   const { tenantId } = useTenantId();
-
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [activities, setActivities] = useState<ActivityLogType[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Filters
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -30,15 +53,13 @@ export const ActivityLog: React.FC = () => {
   const usersCacheKey_ = cacheKey(tenantId, 'users_list');
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
+    const up = () => setIsOnline(true);
+    const dn = () => setIsOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', dn);
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', up);
+      window.removeEventListener('offline', dn);
     };
   }, []);
 
@@ -46,31 +67,25 @@ export const ActivityLog: React.FC = () => {
     if (!tenantId) return;
     try {
       if (!navigator.onLine) {
-        const cached = cacheGet<User[]>(usersCacheKey_);
-        if (cached) setUsers(cached);
+        const c = cacheGet<User[]>(usersCacheKey_);
+        if (c) setUsers(c);
         return;
       }
-
-      const data = await usersService.getAllUsers(tenantId);
-      setUsers(data);
+      setUsers(await usersService.getAllUsers(tenantId));
     } catch {
-      const cached = cacheGet<User[]>(usersCacheKey_);
-      if (cached) setUsers(cached);
+      const c = cacheGet<User[]>(usersCacheKey_);
+      if (c) setUsers(c);
     }
   }, [tenantId, usersCacheKey_]);
 
-  const loadActivityLogs = useCallback(async () => {
+  const loadLogs = useCallback(async () => {
     if (!tenantId) return;
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
       if (!navigator.onLine) {
-        const cached = cacheGet<ActivityLog[]>(cacheKey_);
-        setActivities(cached ?? []);
-        if (!cached) setError('Sin conexión — sin datos en caché');
+        setActivities(cacheGet<ActivityLogType[]>(cacheKey_) ?? []);
         return;
       }
-
       const filters: any = { limit: 500 };
       if (dateFrom) filters.from = dateFrom;
       if (dateTo) filters.to = dateTo;
@@ -79,248 +94,184 @@ export const ActivityLog: React.FC = () => {
 
       const data = await activityService.getActivityLogs(tenantId, filters);
       setActivities(data);
-
-      // Cache only if no filters
-      if (!dateFrom && !dateTo && !selectedUserId && !actionSearch) {
-        cacheSet(cacheKey_, data);
-      }
-    } catch (err: unknown) {
-      const cached = cacheGet<ActivityLog[]>(cacheKey_);
-      if (cached) {
-        setActivities(cached);
-      } else {
-        setError(
-          err instanceof Error ? err.message : 'Error al cargar historial'
-        );
-      }
+      if (!dateFrom && !dateTo && !selectedUserId && !actionSearch) cacheSet(cacheKey_, data);
+    } catch (err: any) {
+      const c = cacheGet<ActivityLogType[]>(cacheKey_);
+      if (c) setActivities(c);
+      else setError(err.message || 'Error al cargar historial');
     } finally {
       setLoading(false);
     }
   }, [tenantId, dateFrom, dateTo, selectedUserId, actionSearch, cacheKey_]);
 
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+  useEffect(() => { loadUsers(); }, [loadUsers]);
+  useEffect(() => { loadLogs(); }, [loadLogs]);
 
-  useEffect(() => {
-    loadActivityLogs();
-  }, [loadActivityLogs]);
-
-  const displayedActivities = activities.sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  const sorted = useMemo(
+    () => [...activities].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [activities],
   );
 
-  const formatDateTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-CR', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    });
-  };
+  const stats = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const todayCount = activities.filter(a => a.created_at.slice(0, 10) === today).length;
+    const usersActive = new Set(activities.filter(a => a.user_id).map(a => a.user_id)).size;
+    const logins = activities.filter(a => a.action === 'login').length;
+    return { total: activities.length, todayCount, usersActive, logins };
+  }, [activities]);
 
-  const getActionLabel = (action: string) => {
-    const labels: Record<string, string> = {
-      login: 'Inicio de sesión',
-      user_created: 'Usuario creado',
-      user_deleted: 'Usuario eliminado',
-      user_password_reset: 'Contraseña restablecida',
-      invoice_created: 'Factura creada',
-      purchase_created: 'Compra creada',
-      expense_created: 'Gasto creado',
-      product_created: 'Producto creado',
-      product_updated: 'Producto actualizado',
-      promotion_created: 'Promoción creada',
-      promotion_updated: 'Promoción actualizada',
-    };
-    return labels[action] || action;
+  const clearFilters = () => {
+    setDateFrom(''); setDateTo(''); setSelectedUserId(''); setActionSearch('');
   };
+  const hasFilters = dateFrom || dateTo || selectedUserId || actionSearch;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+
       {/* Header */}
       <div className="flex items-center gap-2">
         <Clock className="w-5 h-5 text-blue-600" />
-        <h2 className="text-lg font-semibold text-gray-900">Historial de Actividad</h2>
+        <h2 className="text-xl font-black text-gray-900">Historial de Actividad</h2>
       </div>
 
-      {/* Online Status Alert */}
       {!isOnline && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-lg flex items-start gap-3">
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl flex items-start gap-3">
           <WifiOff className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Sin conexión a internet</p>
-            <p className="text-sm">Se requiere conexión para ver el historial de actividad. Mostrando datos en caché.</p>
-          </div>
+          <p className="text-sm font-semibold">Sin conexión — mostrando datos en caché</p>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-gray-600" />
-          <h3 className="text-sm font-semibold text-gray-700">Filtros</h3>
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard icon={Activity} label="Total registros" value={String(stats.total)} color="bg-blue-500" />
+        <StatCard icon={Clock}    label="Hoy"             value={String(stats.todayCount)} color="bg-emerald-500" />
+        <StatCard icon={LogIn}    label="Inicios sesión"  value={String(stats.logins)} color="bg-violet-500" />
+        <StatCard icon={UserPlus} label="Usuarios activos" value={String(stats.usersActive)} color="bg-amber-500" />
+      </div>
+
+      {/* Filtros */}
+      <div className="bg-white border-2 border-gray-100 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-500" />
+            <h3 className="text-xs font-black text-gray-700 uppercase tracking-wider">Filtros</h3>
+          </div>
+          {hasFilters && (
+            <button onClick={clearFilters} className="text-xs font-bold text-blue-600 hover:underline">
+              Limpiar filtros
+            </button>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Desde
-            </label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Hasta
-            </label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Usuario
-            </label>
-            <select
-              value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          <FilterField label="Desde">
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400" />
+          </FilterField>
+          <FilterField label="Hasta">
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400" />
+          </FilterField>
+          <FilterField label="Usuario">
+            <select value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400">
               <option value="">Todos</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>
-                  {u.full_name}
-                </option>
-              ))}
+              {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
             </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Búsqueda de acción
-            </label>
-            <input
-              type="text"
-              placeholder="Ej: login, invoice..."
-              value={actionSearch}
-              onChange={(e) => setActionSearch(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
+          </FilterField>
+          <FilterField label="Acción">
+            <input type="text" placeholder="Ej: login, invoice..." value={actionSearch}
+              onChange={e => setActionSearch(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400" />
+          </FilterField>
         </div>
       </div>
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-3">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-start gap-3">
           <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Error</p>
-            <p className="text-sm">{error}</p>
-          </div>
+          <p className="text-sm">{error}</p>
         </div>
       )}
 
-      {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
         </div>
       )}
 
-      {/* Empty State */}
-      {!loading && displayedActivities.length === 0 && (
-        <div className="text-center py-12">
+      {!loading && sorted.length === 0 && (
+        <div className="bg-white border border-gray-100 rounded-2xl text-center py-12">
           <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">Sin actividad registrada</p>
+          <p className="text-gray-500 font-semibold">Sin actividad</p>
           <p className="text-gray-400 text-sm mt-1">
-            {dateFrom || dateTo || selectedUserId || actionSearch
-              ? 'No hay registros que coincidan con los filtros'
-              : 'Aún no hay actividad en el sistema'}
+            {hasFilters ? 'No hay registros con esos filtros' : 'Aún no hay actividad'}
           </p>
         </div>
       )}
 
-      {/* Activity List */}
-      {!loading && displayedActivities.length > 0 && (
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Fecha y Hora
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Usuario
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Acción
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Tipo de Entidad
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  ID de Entidad
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Detalles
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {displayedActivities.map(activity => (
-                <tr key={activity.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {formatDateTime(activity.created_at)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-900">
-                    {activity.user_name || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className="inline-block px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                      {getActionLabel(activity.action)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {activity.entity_type || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600 font-mono text-xs">
-                    {activity.entity_id || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {activity.details ? (
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">
-                        {JSON.stringify(activity.details).substring(0, 50)}...
+      {/* Timeline */}
+      {!loading && sorted.length > 0 && (
+        <div className="bg-white border-2 border-gray-100 rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="font-black text-gray-900 text-sm">
+              Eventos recientes <span className="text-gray-400 font-normal">({sorted.length})</span>
+            </h3>
+          </div>
+          <div className="divide-y divide-gray-100 max-h-150 overflow-y-auto">
+            {sorted.map(a => {
+              const meta = ACTION_META[a.action] ?? META_DEFAULT;
+              const Icon = meta.icon;
+              return (
+                <div key={a.id} className="px-5 py-3 flex items-start gap-3 hover:bg-gray-50 transition">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-${meta.color}-100 text-${meta.color}-600`}>
+                    <Icon size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-black px-2 py-0.5 rounded-md bg-${meta.color}-50 text-${meta.color}-700`}>
+                        {meta.label}
                       </span>
-                    ) : (
-                      '—'
+                      {a.entity_type && (
+                        <span className="text-[10px] text-gray-400 font-mono uppercase">
+                          {a.entity_type}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-gray-800 mt-0.5">{a.user_name ?? 'Sistema'}</p>
+                    {a.details && Object.keys(a.details).length > 0 && (
+                      <p className="text-xs text-gray-500 truncate mt-0.5">
+                        {Object.entries(a.details).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                      </p>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Entry Count */}
-      {!loading && displayedActivities.length > 0 && (
-        <div className="text-xs text-gray-500 text-right">
-          Mostrando {displayedActivities.length} de {displayedActivities.length} registros
+                  </div>
+                  <span className="text-xs text-gray-400 font-mono shrink-0">{fmtDateTime(a.created_at)}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
   );
 };
 
-// Import missing utility
-import { cacheSet } from '@/utils/offlineCache';
+const StatCard: React.FC<{ icon: any; label: string; value: string; color: string }> = ({ icon: Icon, label, value, color }) => (
+  <div className="bg-white rounded-2xl p-4 border border-gray-100 flex items-center gap-3">
+    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
+      <Icon size={18} className="text-white" />
+    </div>
+    <div className="min-w-0">
+      <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wide">{label}</p>
+      <p className="text-gray-900 font-black text-xl leading-tight">{value}</p>
+    </div>
+  </div>
+);
+
+const FilterField: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div>
+    <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">{label}</label>
+    {children}
+  </div>
+);

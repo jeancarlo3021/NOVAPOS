@@ -3,13 +3,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Users2, AlertCircle, Loader2, Plus, Trash2, Eye,
-  Edit, MoreVertical,
+  Edit, UserPlus,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { teamsService } from '@/services/users/teamsService';
 import { usersService } from '@/services/users/usersService';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
-import type { Team, User, TeamMember } from '@/types/Types_Users';
+import type { Team, User } from '@/types/Types_Users';
 import { TeamFormModal } from '../components/TeamFormModal';
 import { ViewMembersModal } from '../components/ViewMembersModal';
 import { AddMembersModal } from '../components/AddMembersModal';
@@ -134,126 +134,166 @@ export const TeamsView: React.FC = () => {
     }
   };
 
+  const totalMembers = teams.reduce((s, t) => s + (t.members?.length ?? 0), 0);
+  const unassignedUsers = users.filter(u =>
+    !teams.some(t => t.members?.some(m => m.user_id === u.id))
+  ).length;
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div className="space-y-5">
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-blue-500">
+            <Users2 size={20} className="text-white" />
+          </div>
+          <div>
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide">Equipos</p>
+            <p className="text-gray-900 font-black text-xl">{teams.length}</p>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-emerald-500">
+            <Users2 size={20} className="text-white" />
+          </div>
+          <div>
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide">Total miembros</p>
+            <p className="text-gray-900 font-black text-xl">{totalMembers}</p>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-amber-500">
+            <AlertCircle size={20} className="text-white" />
+          </div>
+          <div>
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide">Sin equipo</p>
+            <p className="text-gray-900 font-black text-xl">{unassignedUsers}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Users2 className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Equipos</h2>
-          <span className="text-sm text-gray-500">({teams.length})</span>
+          <h2 className="text-xl font-black text-gray-900">Equipos</h2>
+          <span className="text-sm text-gray-400 font-bold">({teams.length})</span>
         </div>
-        <button
-          onClick={handleCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Crear Equipo
+        <button onClick={handleCreate}
+          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition">
+          <Plus className="w-4 h-4" /> Crear equipo
         </button>
       </div>
 
-      {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-3">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-start gap-3">
           <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Error</p>
-            <p className="text-sm">{error}</p>
-          </div>
+          <p className="text-sm">{error}</p>
         </div>
       )}
 
-      {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
         </div>
       )}
 
-      {/* Empty State */}
       {!loading && teams.length === 0 && (
-        <div className="text-center py-12">
+        <div className="bg-white border border-gray-100 rounded-2xl text-center py-12">
           <Users2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">Sin equipos aún</p>
-          <p className="text-gray-400 text-sm mt-1">
-            Crea tu primer equipo para organizar a tus usuarios
-          </p>
+          <p className="text-gray-500 font-semibold">Sin equipos aún</p>
+          <p className="text-gray-400 text-sm mt-1">Crea tu primer equipo para organizar a tus usuarios</p>
         </div>
       )}
 
-      {/* Team Cards Grid */}
       {!loading && teams.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {teams.map(team => (
-            <div
-              key={team.id}
-              className="border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow"
-            >
-              {/* Team Color + Name */}
-              <div className="flex items-start gap-3 mb-3">
-                <div
-                  className="w-4 h-4 rounded flex-shrink-0 mt-1"
-                  style={{ backgroundColor: team.color || '#3b82f6' }}
-                />
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 truncate">
-                    {team.name}
-                  </h3>
-                  {team.description && (
-                    <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                      {team.description}
-                    </p>
+          {teams.map(team => {
+            const memberCount = team.members?.length ?? 0;
+            return (
+              <div key={team.id}
+                className="bg-white border-2 border-gray-100 rounded-2xl p-5 hover:shadow-md hover:border-gray-300 transition group">
+                {/* Header con color */}
+                <div className="flex items-start gap-3 mb-3">
+                  <div
+                    className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white font-black"
+                    style={{ backgroundColor: team.color || '#3b82f6' }}
+                  >
+                    {team.name?.[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-black text-gray-900 truncate">{team.name}</h3>
+                    {team.description && (
+                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{team.description}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Avatars de miembros (preview) */}
+                <div className="flex items-center justify-between mb-4 border-t border-gray-100 pt-3">
+                  <div className="flex items-center gap-2">
+                    <Users2 className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm font-bold text-gray-700">
+                      {memberCount} miembro{memberCount !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  {memberCount > 0 && team.members && (
+                    <div className="flex -space-x-1.5">
+                      {team.members.slice(0, 4).map(m => {
+                        const userName = m.users?.full_name ?? '?';
+                        const init = userName.split(' ').slice(0, 2).map(p => p[0] ?? '').join('').toUpperCase();
+                        return (
+                          <div key={m.id}
+                            title={userName}
+                            className="w-7 h-7 rounded-full bg-gray-100 border-2 border-white flex items-center justify-center text-[10px] font-black text-gray-700">
+                            {init}
+                          </div>
+                        );
+                      })}
+                      {memberCount > 4 && (
+                        <div className="w-7 h-7 rounded-full bg-gray-200 border-2 border-white flex items-center justify-center text-[10px] font-bold text-gray-600">
+                          +{memberCount - 4}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              </div>
 
-              {/* Member Count */}
-              <div className="flex items-center gap-2 mb-4 text-sm text-gray-600">
-                <Users2 className="w-4 h-4" />
-                <span>
-                  {team.members?.length ?? 0} miembro{(team.members?.length ?? 0) !== 1 ? 's' : ''}
-                </span>
+                {/* Acciones */}
+                <div className="flex gap-2">
+                  <button onClick={() => handleViewMembers(team)}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition">
+                    <Eye className="w-3.5 h-3.5" /> Ver miembros
+                  </button>
+                  <button onClick={() => handleAddMembers(team)}
+                    className="px-3 py-2 text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition"
+                    title="Agregar miembros">
+                    <UserPlus className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => handleEdit(team)}
+                    className="px-3 py-2 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
+                    title="Editar">
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => handleDelete(team.id)}
+                    disabled={deletingId === team.id}
+                    className="px-3 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition disabled:opacity-50"
+                    title="Eliminar">
+                    {deletingId === team.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
-
-              {/* Actions */}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleViewMembers(team)}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  title="Ver miembros"
-                >
-                  <Eye className="w-4 h-4" />
-                  Ver
-                </button>
-                <button
-                  onClick={() => handleEdit(team)}
-                  className="px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  title="Editar"
-                >
-                  <Edit className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleDelete(team.id)}
-                  disabled={deletingId === team.id}
-                  className="px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                  title="Eliminar"
-                >
-                  {deletingId === team.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Modals */}
       {showFormModal && (
         <TeamFormModal
-          team={editingTeam}
+          isOpen={showFormModal}
+          team={editingTeam ?? undefined}
           onClose={() => {
             setShowFormModal(false);
             setEditingTeam(null);
@@ -264,25 +304,23 @@ export const TeamsView: React.FC = () => {
 
       {showMembersModal && selectedTeam && (
         <ViewMembersModal
+          isOpen={showMembersModal}
           team={selectedTeam}
-          allUsers={users}
+          members={selectedTeam.members || []}
           onClose={() => {
             setShowMembersModal(false);
             setSelectedTeam(null);
           }}
-          onAddMembers={() => {
-            setShowMembersModal(false);
-            setShowAddMembersModal(true);
-          }}
-          onMembersChanged={handleMembersSuccess}
+          onMemberRemoved={handleMembersSuccess}
         />
       )}
 
       {showAddMembersModal && selectedTeam && (
         <AddMembersModal
-          team={selectedTeam}
-          allUsers={users}
-          currentMembers={selectedTeam.members || []}
+          isOpen={showAddMembersModal}
+          teamId={selectedTeam.id}
+          teamName={selectedTeam.name}
+          existingMembers={(selectedTeam.members || []).map(m => m.user_id)}
           onClose={() => {
             setShowAddMembersModal(false);
             setSelectedTeam(null);

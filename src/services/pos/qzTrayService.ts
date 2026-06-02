@@ -107,7 +107,30 @@ export async function qzConnect(): Promise<void> {
     }
   }
 
-  await q.websocket.connect();
+  // Intentar primero WSS (puertos 8181/8282 por defecto) y, si falla,
+  // hacer fallback a WS sin TLS (puertos 8182/8283). Algunos navegadores
+  // o configuraciones de red bloquean uno u otro.
+  const attempts: Array<{ usingSecure: boolean; label: string }> = [
+    { usingSecure: true,  label: 'wss' },
+    { usingSecure: false, label: 'ws'  },
+  ];
+
+  let lastError: unknown;
+  for (const attempt of attempts) {
+    try {
+      await q.websocket.connect({ usingSecure: attempt.usingSecure, retries: 1, delay: 1 });
+      return;
+    } catch (err) {
+      lastError = err;
+      // Si ya quedó activo en algún reintento interno, salimos.
+      if (q.websocket.isActive()) return;
+      // Continúa con el siguiente protocolo.
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('No se pudo conectar a QZ Tray (wss ni ws)');
 }
 
 export async function qzDisconnect(): Promise<void> {

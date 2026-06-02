@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { X, RefreshCw, Check, Search } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { usersService } from '@/services/users/usersService';
+import { teamsService } from '@/services/users/teamsService';
 import type { User } from '@/types/Types_Users';
 
 interface AddMembersModalProps {
@@ -83,17 +84,10 @@ export const AddMembersModal: React.FC<AddMembersModalProps> = ({
     setSaving(true);
     setError('');
     try {
-      // This will be integrated with teamsService once backend is ready
-      // For now, we show the structure
       const memberIds = Array.from(selectedUsers);
-      console.log('Adding members to team:', {
-        teamId,
-        memberIds,
-        count: memberIds.length,
-      });
-
-      // Simulating API calls
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      for (const userId of memberIds) {
+        await teamsService.addTeamMember(teamId, userId);
+      }
 
       onSuccess();
       onClose();

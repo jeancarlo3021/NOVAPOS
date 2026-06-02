@@ -29,6 +29,98 @@ export const USER_ROLES: Record<UserRole, string> = {
   contador: 'Contador',
 };
 
+// Metadatos visuales por rol (color del badge, descripción, jerarquía)
+export interface RoleMeta {
+  label: string;
+  color: string;        // tailwind color
+  emoji: string;
+  description: string;
+  level: number;        // jerarquía: 100=owner, 0=básico
+}
+
+export const ROLE_META: Record<UserRole, RoleMeta> = {
+  owner: {
+    label: 'Propietario',
+    color: 'purple',
+    emoji: '👑',
+    description: 'Acceso total al sistema. Único que puede gestionar el plan.',
+    level: 100,
+  },
+  admin: {
+    label: 'Administrador',
+    color: 'red',
+    emoji: '🛡️',
+    description: 'Gestión completa del negocio: usuarios, configuración, reportes.',
+    level: 90,
+  },
+  gerente: {
+    label: 'Gerente',
+    color: 'orange',
+    emoji: '💼',
+    description: 'Supervisa operaciones, aprueba gastos y ve reportes.',
+    level: 80,
+  },
+  asistente_1: {
+    label: 'Asistente 1',
+    color: 'blue',
+    emoji: '⭐',
+    description: 'Asistente principal con permisos amplios de operación.',
+    level: 70,
+  },
+  asistente_2: {
+    label: 'Asistente 2',
+    color: 'sky',
+    emoji: '⭐',
+    description: 'Asistente con permisos intermedios.',
+    level: 60,
+  },
+  asistente_3: {
+    label: 'Asistente 3',
+    color: 'cyan',
+    emoji: '⭐',
+    description: 'Asistente con permisos básicos.',
+    level: 50,
+  },
+  cajero: {
+    label: 'Cajero',
+    color: 'emerald',
+    emoji: '💵',
+    description: 'Maneja el POS, cobros y cierre de caja.',
+    level: 40,
+  },
+  mesero: {
+    label: 'Mesero',
+    color: 'teal',
+    emoji: '🍽️',
+    description: 'Toma órdenes y atiende mesas.',
+    level: 30,
+  },
+  cocinero: {
+    label: 'Cocinero',
+    color: 'amber',
+    emoji: '👨‍🍳',
+    description: 'Prepara productos. Recibe comandas de cocina.',
+    level: 20,
+  },
+  almacenero: {
+    label: 'Almacenero',
+    color: 'yellow',
+    emoji: '📦',
+    description: 'Gestiona inventario, recibe compras y ajusta stock.',
+    level: 25,
+  },
+  contador: {
+    label: 'Contador',
+    color: 'violet',
+    emoji: '📊',
+    description: 'Acceso de solo-lectura a reportes financieros y cierres.',
+    level: 35,
+  },
+};
+
+// Roles considerados "managers" para temas de permisos en otros módulos
+export const MANAGER_ROLES: UserRole[] = ['owner', 'admin', 'gerente'];
+
 export type UserModule =
   | 'pos' | 'inventory' | 'reports' | 'expenses'
   | 'purchases' | 'users' | 'promotions' | 'accounts_payable' | 'hr';

@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { Users as UsersIcon, Lock, Eye, BarChart3, Users2, Calendar } from 'lucide-react';
+import { Users as UsersIcon, Shield, BarChart3, Users2, Calendar } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { UsersList } from './views/UsersList';
-import { UserPermissions } from './views/UserPermissions';
+import { RoleSettings } from './views/RoleSettings';
 import { ActivityLog } from './views/ActivityLog';
 import { TeamsView } from './views/TeamsView';
 import { ShiftsCalendar } from './views/ShiftsCalendar';
 
-type TabType = 'users' | 'permissions' | 'activity' | 'teams' | 'shifts';
+type TabType = 'users' | 'roles' | 'activity' | 'teams' | 'shifts';
 
 interface Tab {
   id: TabType;
@@ -41,10 +41,10 @@ export const Users: React.FC = () => {
       component: <UsersList />,
     },
     {
-      id: 'permissions',
-      label: 'Permisos',
-      icon: <Lock size={18} />,
-      component: <UserPermissions />,
+      id: 'roles',
+      label: 'Roles',
+      icon: <Shield size={18} />,
+      component: <RoleSettings />,
     },
     {
       id: 'activity',

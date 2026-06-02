@@ -2,6 +2,21 @@ import { apiFetch } from '@/lib/api';
 import { validateUUID } from '@/lib/validation';
 import type { User, CreateUserFormData, UpdateUserFormData } from '@/types/Types_Users';
 
+// Dominio interno para respaldar usuarios sin correo en Supabase Auth.
+export const USERNAME_DOMAIN = 'nexoerp.local';
+
+// usuario → usuario@nexoerp.local (si ya es correo real, se deja igual)
+export const usernameToEmail = (login: string): string => {
+  const v = login.trim();
+  return v.includes('@') ? v : `${v}@${USERNAME_DOMAIN}`;
+};
+
+// usuario@nexoerp.local → usuario (para mostrar en la UI)
+export const emailToUsername = (email?: string | null): string => {
+  if (!email) return '';
+  return email.endsWith(`@${USERNAME_DOMAIN}`) ? email.slice(0, -(`@${USERNAME_DOMAIN}`).length) : email;
+};
+
 export const usersService = {
   async getAllUsers(_tenantId: string): Promise<User[]> {
     return apiFetch<User[]>('/users');
@@ -11,7 +26,7 @@ export const usersService = {
     return apiFetch<User>('/users', {
       method: 'POST',
       body: JSON.stringify({
-        email: form.email,
+        email: usernameToEmail(form.email),
         password: form.password,
         full_name: form.full_name,
         role: form.role,

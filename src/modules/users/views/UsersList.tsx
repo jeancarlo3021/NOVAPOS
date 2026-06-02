@@ -1,42 +1,19 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  Plus, Pencil, Trash2, RotateCw, AlertCircle,
-  Lock, Loader2, Users,
+  Plus, Pencil, Trash2, AlertCircle, Lock, Loader2,
+  Users, Search, Crown, Filter, Mail, Phone, Calendar,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
-import { usersService } from '@/services/users/usersService';
+import { usersService, emailToUsername } from '@/services/users/usersService';
 import { activityService } from '@/services/users/activityService';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
-import type { User } from '@/types/Types_Users';
+import type { User, UserRole } from '@/types/Types_Users';
+import { ROLE_META } from '@/types/Types_Users';
 import { UserFormModal } from '../components/UserFormModal';
 import { PasswordResetModal } from '../components/PasswordResetModal';
-
-interface PendingUser {
-  localId: string;
-  form: any;
-  tenantId: string;
-  createdAt: string;
-}
-
-const pendingKey = (tid: string) => `users_pending_${tid}`;
-
-function getPendingUsers(tid: string): PendingUser[] {
-  try {
-    return JSON.parse(localStorage.getItem(pendingKey(tid)) ?? '[]');
-  } catch {
-    return [];
-  }
-}
-
-function removePendingUser(tid: string, localId: string) {
-  const list = getPendingUsers(tid).filter(p => p.localId !== localId);
-  localStorage.setItem(pendingKey(tid), JSON.stringify(list));
-}
-
-type TabId = 'users';
 
 export const UsersList: React.FC = () => {
   const { tenantId } = useTenantId();
@@ -46,6 +23,7 @@ export const UsersList: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [filterRole, setFilterRole] = useState<UserRole | 'all'>('all');
 
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -66,48 +44,22 @@ export const UsersList: React.FC = () => {
         if (!cached) setError('Sin conexión — sin datos en caché');
         return;
       }
-
-      // Sync pending users first
-      const pending = getPendingUsers(tenantId);
-      for (const p of pending) {
-        try {
-          await usersService.createUser(tenantId, p.form);
-          removePendingUser(tenantId, p.localId);
-        } catch {
-          /* leave in queue if sync fails */
-        }
-      }
-
       const data = await usersService.getAllUsers(tenantId);
       setUsers(data);
       cacheSet(cacheKey_, data);
     } catch (err: unknown) {
       const cached = cacheGet<User[]>(cacheKey_);
-      if (cached) {
-        setUsers(cached);
-      } else {
-        setError(
-          err instanceof Error ? err.message : 'Error al cargar usuarios'
-        );
-      }
+      if (cached) setUsers(cached);
+      else setError(err instanceof Error ? err.message : 'Error al cargar usuarios');
     } finally {
       setLoading(false);
     }
   }, [tenantId, cacheKey_]);
 
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+  useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  const handleCreate = () => {
-    setEditingUser(null);
-    setShowFormModal(true);
-  };
-
-  const handleEdit = (user: User) => {
-    setEditingUser(user);
-    setShowFormModal(true);
-  };
+  const handleCreate = () => { setEditingUser(null); setShowFormModal(true); };
+  const handleEdit = (user: User) => { setEditingUser(user); setShowFormModal(true); };
 
   const handleFormSuccess = async () => {
     setShowFormModal(false);
@@ -123,14 +75,13 @@ export const UsersList: React.FC = () => {
   const handlePasswordSuccess = async () => {
     setShowPasswordModal(false);
     setPasswordUserId(null);
-    // Log the action
     if (currentUser && tenantId) {
       const user = users.find(u => u.id === passwordUserId);
       if (user) {
         await activityService.logActivity(tenantId, {
           action: 'user_password_reset',
           entity_type: 'user',
-          entity_id: passwordUserId,
+          entity_id: passwordUserId ?? undefined,
           user_name: currentUser.full_name,
           details: { reset_user: user.full_name },
         }).catch(() => {});
@@ -142,65 +93,117 @@ export const UsersList: React.FC = () => {
     if (!tenantId) return;
     const user = users.find(u => u.id === userId);
     if (!user) return;
+    if (!confirm(`¿Eliminar al usuario "${user.full_name}"? Esta acción no se puede deshacer.`)) return;
 
     setDeletingId(userId);
     try {
       await usersService.deleteUser(userId);
       setUsers(prev => prev.filter(u => u.id !== userId));
-      cacheSet(cacheKey_, users.filter(u => u.id !== userId));
-
-      // Log the action
       if (currentUser) {
-        await activityService.logUserDeleted(
-          tenantId,
-          userId,
-          user.full_name,
-          currentUser.full_name
-        ).catch(() => {});
+        await activityService.logUserDeleted(tenantId, userId, user.full_name, currentUser.full_name).catch(() => {});
       }
     } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : 'Error al eliminar usuario'
-      );
+      setError(err instanceof Error ? err.message : 'Error al eliminar usuario');
     } finally {
       setDeletingId(null);
     }
   };
 
-  const filteredUsers = users.filter(u =>
-    (u.full_name?.toLowerCase() ?? '').includes(search.toLowerCase()) ||
-    (u.email?.toLowerCase() ?? '').includes(search.toLowerCase()) ||
-    (u.phone?.toLowerCase() ?? '').includes(search.toLowerCase())
-  );
+  // ── Filtros y stats ──
+  const filteredUsers = useMemo(() => {
+    return users.filter(u => {
+      const matchSearch = !search ||
+        (u.full_name?.toLowerCase() ?? '').includes(search.toLowerCase()) ||
+        (u.email?.toLowerCase() ?? '').includes(search.toLowerCase()) ||
+        (u.phone?.toLowerCase() ?? '').includes(search.toLowerCase());
+      const matchRole = filterRole === 'all' || u.role === filterRole;
+      return matchSearch && matchRole;
+    });
+  }, [users, search, filterRole]);
+
+  const roleCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    users.forEach(u => { counts[u.role] = (counts[u.role] ?? 0) + 1; });
+    return counts;
+  }, [users]);
+
+  const totalManagers = (roleCounts.owner ?? 0) + (roleCounts.admin ?? 0) + (roleCounts.gerente ?? 0);
+  const totalOperators = users.length - totalManagers;
+
+  const initials = (name: string) =>
+    name.split(' ').slice(0, 2).map(p => p[0] ?? '').join('').toUpperCase();
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex-1 flex items-center gap-2">
-          <Users className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Usuarios</h2>
-          <span className="text-sm text-gray-500">({filteredUsers.length})</span>
-        </div>
-        <button
-          onClick={handleCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Crear Usuario
-        </button>
+    <div className="space-y-5">
+
+      {/* ── KPIs ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={Users} label="Total usuarios" value={String(users.length)} color="bg-blue-500" />
+        <StatCard icon={Crown} label="Administradores" value={String(totalManagers)} color="bg-purple-500" sub="Owner + Admin + Gerente" />
+        <StatCard icon={Users} label="Operativos" value={String(totalOperators)} color="bg-emerald-500" sub="Cajeros, meseros, cocina..." />
+        <StatCard icon={Lock} label="Roles activos" value={String(Object.keys(roleCounts).length)} color="bg-amber-500" sub="tipos distintos" />
       </div>
 
-      {/* Search */}
-      <input
-        type="text"
-        placeholder="Buscar por nombre, email o teléfono..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      />
+      {/* ── Toolbar ── */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-black text-gray-900">Usuarios</h2>
+          <span className="text-sm text-gray-400 font-bold">({filteredUsers.length})</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 pr-3 py-2 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-400 w-52"
+            />
+          </div>
+          <button onClick={handleCreate}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition">
+            <Plus size={16} /> Crear usuario
+          </button>
+        </div>
+      </div>
 
-      {/* Error */}
+      {/* ── Filtros por rol ── */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Filter size={14} className="text-gray-400" />
+        <button
+          onClick={() => setFilterRole('all')}
+          className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+            filterRole === 'all'
+              ? 'bg-gray-900 text-white'
+              : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'
+          }`}
+        >
+          Todos ({users.length})
+        </button>
+        {(Object.keys(ROLE_META) as UserRole[])
+          .filter(r => (roleCounts[r] ?? 0) > 0)
+          .sort((a, b) => ROLE_META[b].level - ROLE_META[a].level)
+          .map(r => {
+            const meta = ROLE_META[r];
+            const active = filterRole === r;
+            return (
+              <button
+                key={r}
+                onClick={() => setFilterRole(r)}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                  active
+                    ? `bg-${meta.color}-500 text-white`
+                    : `bg-${meta.color}-50 text-${meta.color}-700 border border-${meta.color}-200 hover:bg-${meta.color}-100`
+                }`}
+              >
+                {meta.emoji} {meta.label} ({roleCounts[r]})
+              </button>
+            );
+          })}
+      </div>
+
+      {/* ── Errores ── */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-3">
           <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
@@ -211,120 +214,122 @@ export const UsersList: React.FC = () => {
         </div>
       )}
 
-      {/* Loading */}
+      {/* ── Loading ── */}
       {loading && (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
         </div>
       )}
 
-      {/* Empty State */}
+      {/* ── Empty ── */}
       {!loading && filteredUsers.length === 0 && (
-        <div className="text-center py-12">
+        <div className="bg-white border border-gray-100 rounded-2xl text-center py-12">
           <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">No hay usuarios</p>
+          <p className="text-gray-500 font-semibold">No hay usuarios</p>
           <p className="text-gray-400 text-sm mt-1">
-            {search ? 'No coinciden los criterios de búsqueda' : 'Crea tu primer usuario para empezar'}
+            {search || filterRole !== 'all'
+              ? 'Ningún usuario coincide con los filtros'
+              : 'Crea tu primer usuario para empezar'}
           </p>
         </div>
       )}
 
-      {/* Table */}
+      {/* ── Cards de usuarios ── */}
       {!loading && filteredUsers.length > 0 && (
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Nombre
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Email
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Rol
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Teléfono
-                </th>
-                <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredUsers.map(user => (
-                <tr key={user.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                    {user.full_name}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {user.email}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className="inline-block px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                      {user.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {user.phone || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => handleEdit(user)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Editar"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleResetPassword(user.id)}
-                        className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                        title="Restablecer contraseña"
-                      >
-                        <Lock className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(user.id)}
-                        disabled={deletingId === user.id}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                        title="Eliminar"
-                      >
-                        {deletingId === user.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredUsers.map(user => {
+            const meta = ROLE_META[user.role as UserRole] ?? ROLE_META.asistente_1;
+            const isMe = user.id === currentUser?.id;
+            const isOwner = user.role === 'owner';
+            return (
+              <div key={user.id}
+                className={`bg-white p-5 rounded-2xl border-2 transition group ${
+                  isMe ? 'border-blue-300 bg-blue-50/30' : 'border-gray-100 hover:border-blue-200'
+                }`}>
+                <div className="flex items-start gap-3 mb-3">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-base shrink-0 bg-${meta.color}-100 text-${meta.color}-700`}>
+                    {initials(user.full_name ?? '?')}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <h3 className="font-black text-gray-900 truncate">{user.full_name}</h3>
+                      {isMe && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">TÚ</span>
+                      )}
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-${meta.color}-100 text-${meta.color}-700`}>
+                      <span>{meta.emoji}</span> {meta.label}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-1 text-xs text-gray-500 border-t border-gray-100 pt-3 mb-3">
+                  {user.email && (
+                    <div className="flex items-center gap-2 truncate">
+                      <Mail size={12} className="shrink-0" />
+                      <span className="truncate">{emailToUsername(user.email)}</span>
+                    </div>
+                  )}
+                  {user.phone && (
+                    <div className="flex items-center gap-2">
+                      <Phone size={12} className="shrink-0" /> {user.phone}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Calendar size={12} className="shrink-0" />
+                    Creado: {new Date(user.created_at).toLocaleDateString('es-CR')}
+                  </div>
+                </div>
+
+                {!isOwner && (
+                  <div className="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition">
+                    <button onClick={() => handleEdit(user)}
+                      className="flex-1 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
+                      <Pencil size={12} /> Editar
+                    </button>
+                    <button onClick={() => handleResetPassword(user.id)}
+                      title="Restablecer contraseña"
+                      className="px-3 py-1.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-100">
+                      <Lock size={12} />
+                    </button>
+                    {!isMe && (
+                      <button onClick={() => handleDelete(user.id)}
+                        disabled={deletingId === user.id}
+                        className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 disabled:opacity-50">
+                        {deletingId === user.id
+                          ? <Loader2 size={12} className="animate-spin" />
+                          : <Trash2 size={12} />}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {isOwner && (
+                  <div className="text-center text-xs text-gray-400 italic">
+                    El propietario no se puede modificar
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Modals */}
       {showFormModal && (
         <UserFormModal
-          user={editingUser}
-          onClose={() => {
-            setShowFormModal(false);
-            setEditingUser(null);
-          }}
+          isOpen={showFormModal}
+          user={editingUser ?? undefined}
+          onClose={() => { setShowFormModal(false); setEditingUser(null); }}
           onSuccess={handleFormSuccess}
         />
       )}
 
       {showPasswordModal && passwordUserId && (
         <PasswordResetModal
+          isOpen={showPasswordModal}
           userId={passwordUserId}
-          onClose={() => {
-            setShowPasswordModal(false);
-            setPasswordUserId(null);
-          }}
+          userName={users.find(u => u.id === passwordUserId)?.full_name ?? ''}
+          onClose={() => { setShowPasswordModal(false); setPasswordUserId(null); }}
           onSuccess={handlePasswordSuccess}
         />
       )}
@@ -332,4 +337,15 @@ export const UsersList: React.FC = () => {
   );
 };
 
-// Exported as named export from beginning of component declaration
+const StatCard: React.FC<{ icon: any; label: string; value: string; color: string; sub?: string }> = ({ icon: Icon, label, value, color, sub }) => (
+  <div className="bg-white rounded-2xl p-5 border border-gray-100 flex items-center gap-3">
+    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
+      <Icon size={20} className="text-white" />
+    </div>
+    <div className="min-w-0">
+      <p className="text-gray-500 text-xs font-bold uppercase tracking-wide">{label}</p>
+      <p className="text-gray-900 font-black text-xl leading-tight truncate">{value}</p>
+      {sub && <p className="text-gray-400 text-[10px]">{sub}</p>}
+    </div>
+  </div>
+);

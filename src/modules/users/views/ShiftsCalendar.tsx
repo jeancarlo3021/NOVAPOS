@@ -179,86 +179,91 @@ export const ShiftsCalendar: React.FC = () => {
     return date.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' });
   };
 
+  // KPIs de la semana
+  const weekShiftsAll = shifts.filter(s => {
+    const d = new Date(s.start_datetime);
+    return d >= weekStart && d <= weekEnd;
+  });
+  const totalShifts = weekShiftsAll.length;
+  const activeShifts = weekShiftsAll.filter(s => s.status === 'active').length;
+  const scheduledShifts = weekShiftsAll.filter(s => s.status === 'scheduled').length;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center gap-2">
         <Calendar className="w-5 h-5 text-blue-600" />
-        <h2 className="text-lg font-semibold text-gray-900">Calendario de Turnos</h2>
+        <h2 className="text-xl font-black text-gray-900">Calendario de Turnos</h2>
       </div>
 
-      {/* Error */}
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <ShiftKPI icon={Calendar} label="Turnos esta semana" value={String(totalShifts)} color="bg-blue-500" />
+        <ShiftKPI icon={Clock}    label="Activos"            value={String(activeShifts)} color="bg-emerald-500" />
+        <ShiftKPI icon={Calendar} label="Programados"        value={String(scheduledShifts)} color="bg-violet-500" />
+        <ShiftKPI icon={Users}    label={viewMode === 'users' ? 'Usuarios' : 'Equipos'} value={String(displayEntities.length)} color="bg-amber-500" />
+      </div>
+
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-3">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-start gap-3">
           <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Error</p>
-            <p className="text-sm">{error}</p>
-          </div>
+          <p className="text-sm">{error}</p>
         </div>
       )}
 
       {/* Controls */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+      <div className="bg-white border-2 border-gray-100 rounded-2xl p-4 space-y-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          {/* Week Navigation */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handlePrevWeek}
-              className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5" />
+          <div className="flex items-center gap-2">
+            <button onClick={handlePrevWeek}
+              className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+              <ChevronLeft className="w-4 h-4" />
             </button>
-            <div className="text-sm font-medium text-gray-700 min-w-fit">
-              {weekStart.toLocaleDateString('es-CR')} - {weekEnd.toLocaleDateString('es-CR')}
+            <div className="text-sm font-black text-gray-800 min-w-fit px-3">
+              {weekStart.toLocaleDateString('es-CR', { day: 'numeric', month: 'short' })} -{' '}
+              {weekEnd.toLocaleDateString('es-CR', { day: 'numeric', month: 'short', year: 'numeric' })}
             </div>
+            <button onClick={handleNextWeek}
+              className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+              <ChevronRight className="w-4 h-4" />
+            </button>
             <button
-              onClick={handleNextWeek}
-              className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+              onClick={() => setCurrentDate(new Date())}
+              className="ml-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg transition"
             >
-              <ChevronRight className="w-5 h-5" />
+              Hoy
             </button>
           </div>
 
-          {/* Create Button */}
-          <button
-            onClick={handleCreateShift}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            Nuevo Turno
+          <button onClick={handleCreateShift}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition whitespace-nowrap">
+            <Plus className="w-4 h-4" /> Nuevo turno
           </button>
         </div>
 
         {/* View Mode Toggle */}
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 bg-gray-100 p-1 rounded-xl w-fit">
           <button
             onClick={() => {
               setViewMode('users');
               setSelectedId(users[0]?.id || null);
             }}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              viewMode === 'users'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              viewMode === 'users' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            <Users className="w-4 h-4" />
-            Por Usuario
+            <Users className="w-3.5 h-3.5" /> Por Usuario
           </button>
           <button
             onClick={() => {
               setViewMode('teams');
               setSelectedId(teams[0]?.id || null);
             }}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              viewMode === 'teams'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              viewMode === 'teams' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            <Users className="w-4 h-4" />
-            Por Equipo
+            <Users className="w-3.5 h-3.5" /> Por Equipo
           </button>
         </div>
 
@@ -267,7 +272,7 @@ export const ShiftsCalendar: React.FC = () => {
           <select
             value={selectedId || ''}
             onChange={(e) => setSelectedId(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm font-semibold focus:outline-none focus:border-blue-400"
           >
             <option value="">-- Selecciona {viewMode === 'users' ? 'usuario' : 'equipo'} --</option>
             {displayEntities.map(entity => (
@@ -415,7 +420,8 @@ export const ShiftsCalendar: React.FC = () => {
       {/* Modal */}
       {showFormModal && (
         <ShiftFormModal
-          shift={editingShift}
+          isOpen={showFormModal}
+          shift={editingShift ?? undefined}
           users={users}
           teams={teams}
           onClose={() => {
@@ -428,3 +434,15 @@ export const ShiftsCalendar: React.FC = () => {
     </div>
   );
 };
+
+const ShiftKPI: React.FC<{ icon: any; label: string; value: string; color: string }> = ({ icon: Icon, label, value, color }) => (
+  <div className="bg-white rounded-2xl p-4 border border-gray-100 flex items-center gap-3">
+    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
+      <Icon size={18} className="text-white" />
+    </div>
+    <div className="min-w-0">
+      <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wide">{label}</p>
+      <p className="text-gray-900 font-black text-xl leading-tight">{value}</p>
+    </div>
+  </div>
+);
