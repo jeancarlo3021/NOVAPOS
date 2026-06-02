@@ -251,18 +251,28 @@ interface FormProps {
   onCreated: () => Promise<void> | void;
 }
 
+function addMonthsISO(dateStr: string, months: number): string {
+  const d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T12:00:00'));
+  if (isNaN(d.getTime())) return dateStr;
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
 function ReceiptFormModal({ owners, onClose, onCreated }: FormProps) {
   const [tenantId, setTenantId] = useState(owners[0]?.id ?? '');
   const [type, setType] = useState<ReceiptType>('subscription');
   const [amount, setAmount] = useState<string>('');
   const [paymentDate, setPaymentDate] = useState(today());
-  const [periodStart, setPeriodStart] = useState('');
-  const [periodEnd, setPeriodEnd] = useState('');
+  const [periodMonths, setPeriodMonths] = useState<number>(1); // 0 = sin periodo
   const [method, setMethod] = useState<string>('transfer');
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // El periodo cubierto se deriva del pago + meses elegidos.
+  const periodStart = periodMonths > 0 ? paymentDate : '';
+  const periodEnd   = periodMonths > 0 ? addMonthsISO(paymentDate, periodMonths) : '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -378,13 +388,34 @@ function ReceiptFormModal({ owners, onClose, onCreated }: FormProps) {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">Periodo cubierto (opcional)</label>
-            <div className="grid grid-cols-2 gap-2">
-              <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-400" />
-              <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-400" />
+            <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">Periodo cubierto</label>
+            <div className="grid grid-cols-6 gap-1.5">
+              {[
+                { v: 0,  l: '—' },
+                { v: 1,  l: '1m' },
+                { v: 3,  l: '3m' },
+                { v: 6,  l: '6m' },
+                { v: 12, l: '1a' },
+              ].map(opt => (
+                <button key={opt.v} type="button" onClick={() => setPeriodMonths(opt.v)}
+                  className={`py-1.5 rounded-lg border-2 text-xs font-bold transition ${
+                    periodMonths === opt.v
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                  }`}>
+                  {opt.l}
+                </button>
+              ))}
+              <input type="number" min={0} value={periodMonths}
+                onChange={e => setPeriodMonths(Math.max(0, parseInt(e.target.value) || 0))}
+                title="Personalizado (meses)"
+                className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs font-mono text-center focus:outline-none focus:border-emerald-400" />
             </div>
+            {periodMonths > 0 && (
+              <p className="text-[11px] text-gray-500 mt-1.5">
+                Cobertura: {fmtDate(periodStart)} → {fmtDate(periodEnd)}
+              </p>
+            )}
           </div>
 
           <div>
