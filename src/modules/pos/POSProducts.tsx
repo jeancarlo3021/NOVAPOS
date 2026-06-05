@@ -10,6 +10,8 @@ import {
   getProductPromotion,
   promoLabel,
 } from '@/services/promotions/promotionsService';
+import { categoriesService } from '@/services/Inventory/categoriesService';
+import { useTenantId } from '@/hooks/useTenant';
 
 // Abbreviations that require weight input when requires_weight is not set in DB
 const WEIGHT_ABBREVS = new Set(['kg', 'g', 'lb', 'lbs', 'oz', 'gr', 'kilo', 'kilos']);
@@ -59,14 +61,29 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 }) => {
   // Las tabs solo aplican si: estamos en modo escritorio Y el plan lo permite.
   const useSearchTabs = viewMode === 'desktop' && searchTabsEnabled;
+  const { tenantId } = useTenantId();
+  // Categoría activa: 'all' o el id de la categoría seleccionada.
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [weightProduct, setWeightProduct]   = useState<Product | null>(null);
   const [scanValue, setScanValue]           = useState('');
   const [scanFeedback, setScanFeedback]     = useState<ScanFeedback | null>(null);
   // Tab activo de búsqueda en modo escritorio: 'code' = SKU/scanner, 'name' = nombre.
   const [searchTab, setSearchTab] = useState<'code' | 'name'>('code');
+  // Lista de categorías cargada por separado del backend (más confiable que
+  // depender del JOIN en /products que puede no estar disponible si el deploy
+  // del backend es viejo o si vienen del cache offline sin la relación).
+  const [allCategories, setAllCategories] = useState<{ id: string; name: string }[]>([]);
   const scanInputRef = useRef<HTMLInputElement>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    categoriesService.getAllCategories(tenantId)
+      .then((cats: any[]) => setAllCategories(
+        (cats ?? []).map(c => ({ id: c.id, name: c.name })),
+      ))
+      .catch(() => setAllCategories([]));
+  }, [tenantId]);
 
   // Look up product by exact SKU (case-insensitive), add to cart
   const handleScan = useCallback((code: string) => {
@@ -103,14 +120,27 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
   const products = Array.isArray(filteredProducts) ? filteredProducts : [];
 
-  const categories = Array.from(
-    new Set(products.map((p) => (p as any).category?.name).filter(Boolean))
-  ) as string[];
+  // Categorías visibles: las del backend que tengan al menos un producto
+  // de la lista actual. Si el backend de categorías no responde, hacemos
+  // fallback a las que vienen embebidas en los productos.
+  const usedCategoryIds = new Set(
+    products.map((p) => (p as any).category_id).filter(Boolean),
+  );
+  const categories: { id: string; name: string }[] = allCategories.length > 0
+    ? allCategories.filter(c => usedCategoryIds.has(c.id))
+    : Array.from(
+        new Map(
+          products
+            .map((p) => (p as any).category)
+            .filter((c: any) => c && c.id && c.name)
+            .map((c: any) => [c.id, { id: c.id, name: c.name }]),
+        ).values(),
+      );
 
   const displayed =
     activeCategory === 'all'
       ? products
-      : products.filter((p) => (p as any).category?.name === activeCategory);
+      : products.filter((p) => (p as any).category_id === activeCategory);
 
   const handleAdd = (product: Product) => {
     if (!currentSession || currentSession.status !== 'open') {
@@ -246,21 +276,19 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
         {categories.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-2">
-            {['Todos', ...categories].map((cat) => {
-              const isAll = cat === 'Todos';
-              const key = isAll ? 'all' : cat;
-              const active = activeCategory === key;
+            {[{ id: 'all', name: 'Todos' }, ...categories].map((cat) => {
+              const active = activeCategory === cat.id;
               return (
                 <button
-                  key={key}
-                  onPointerDown={() => setActiveCategory(key)}
+                  key={cat.id}
+                  onPointerDown={() => setActiveCategory(cat.id)}
                   className={`shrink-0 h-9 px-4 rounded-lg text-sm font-bold transition border active:scale-95 ${
                     active
                       ? 'bg-emerald-500 text-white border-emerald-500'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
                   }`}
                 >
-                  {cat}
+                  {cat.name}
                 </button>
               );
             })}

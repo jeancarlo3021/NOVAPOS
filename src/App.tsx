@@ -120,8 +120,12 @@ function AppContent() {
               <Route path="/billing" element={
                 <PlanGuard feature="tables"><BillingDashboard /></PlanGuard>
               } />
-              <Route path="/branches"  element={<BranchesAdmin />} />
-              <Route path="/transfers" element={<TransfersDashboard />} />
+              <Route path="/branches"  element={
+                <PlanGuard feature="multi_branch"><BranchesAdmin /></PlanGuard>
+              } />
+              <Route path="/transfers" element={
+                <PlanGuard feature="multi_branch_transfers"><TransfersDashboard /></PlanGuard>
+              } />
 
               {/* Owner only */}
               <Route path="/create-owner" element={<CreateOwner />} />

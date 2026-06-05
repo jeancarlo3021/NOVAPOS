@@ -3,7 +3,7 @@ import { ChevronDown, Building, Check } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 export function BranchSwitcher() {
-  const { branches, currentBranchId, switchBranch } = useAuth();
+  const { branches, currentBranchId, switchBranch, planFeatures } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -15,6 +15,8 @@ export function BranchSwitcher() {
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
+  // Si el plan no tiene multi-sucursal activado, no se muestra el selector.
+  if (!(planFeatures as any).multi_branch) return null;
   if (branches.length === 0) return null;
   const current = branches.find(b => b.id === currentBranchId) ?? branches[0];
 

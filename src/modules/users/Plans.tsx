@@ -7,7 +7,7 @@ import {
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Activity, Shield, CalendarDays, History,
-  FileText, User, Search,
+  FileText, User, Search, Building,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
@@ -180,6 +180,10 @@ export default function Plans() {
     if (pf.expenses) a.push('Gastos');
     if (pf.purchases) a.push('Compras');
     if (pf.accounts_payable) a.push('Cuentas por Pagar');
+    if ((pf as any).multi_branch) {
+      a.push('Sucursales');
+      if ((pf as any).multi_branch_transfers) a.push('Transferencias');
+    }
     if (pf.promotions) a.push('Promociones');
     if (pf.tables)     a.push('Mapa de Mesas');
     if (pf.recipes) a.push('Recetas');
@@ -453,6 +457,15 @@ export default function Plans() {
 
                   <FeatureRow icon={TrendingDown} color="bg-red-400" title="Gastos"
                     description="Registro y gestión" checked={features.expenses} onChange={v => set({ expenses: v })} />
+
+                  <FeatureRow icon={Building} color="bg-indigo-600" title="Sucursales y Bodegas"
+                    description="Manejar varias sucursales y bodegas"
+                    checked={features.multi_branch ?? false} onChange={v => set({ multi_branch: v })}>
+                    <SubFeatureRow icon={Truck} color="bg-cyan-500" title="Transferencias entre bodegas"
+                      description="Mover stock de una bodega a otra"
+                      checked={features.multi_branch_transfers ?? false}
+                      onChange={v => set({ multi_branch_transfers: v })} />
+                  </FeatureRow>
                 </section>
 
                 {/* ── Columna 3: Reportes y Administración ────────────── */}

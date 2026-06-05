@@ -150,6 +150,9 @@ export interface PlanFeatures {
   users_teams?: boolean;     // Tab Equipos
   users_shifts?: boolean;    // Tab Turnos
   users_activity?: boolean;  // Tab Actividad
+  // ── Multi-sucursal ────────────────────────────────────────────────────────
+  multi_branch?: boolean;           // Sucursales y Bodegas
+  multi_branch_transfers?: boolean; // Transferencias entre bodegas (requiere multi_branch)
   // ── Módulos opcionales ────────────────────────────────────────────────────
   recipes?: boolean;
   hr?: boolean;
@@ -210,6 +213,8 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   users_teams: false,
   users_shifts: false,
   users_activity: false,
+  multi_branch: false,
+  multi_branch_transfers: false,
   expenses: false,
   purchases: false,
   accounts_payable: false,
@@ -257,6 +262,8 @@ export const FULL_FEATURES: PlanFeatures = {
   users_teams: true,
   users_shifts: true,
   users_activity: true,
+  multi_branch: true,
+  multi_branch_transfers: true,
   expenses: true,
   purchases: true,
   accounts_payable: true,
