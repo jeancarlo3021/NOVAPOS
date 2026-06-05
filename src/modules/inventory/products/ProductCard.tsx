@@ -243,7 +243,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           </div>
         )}
 
-        {!isProductsOnly && (
+        {/* Badge final de estado — solo si el producto realmente maneja stock */}
+        {!isProductsOnly && productTracksStock && (
           <div className="mt-4 pt-4 border-t border-gray-200">
             <Badge variant={
               stockStatus === 'optimal' ? 'success' :

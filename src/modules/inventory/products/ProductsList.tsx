@@ -61,10 +61,12 @@ export const ProductsList: React.FC = () => {
     p.sku.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const lowStockProducts = filteredProducts.filter(
+  // Solo cuentan los productos que SÍ manejan stock para las alertas.
+  const trackedProducts = filteredProducts.filter(p => (p as any).tracks_stock !== false);
+  const lowStockProducts = trackedProducts.filter(
     p => p.stock_quantity < (p.min_stock_level ?? 0)
   );
-  const criticalStockProducts = filteredProducts.filter(
+  const criticalStockProducts = trackedProducts.filter(
     p => p.stock_quantity < ((p.min_stock_level ?? 0) * 0.5)
   );
 

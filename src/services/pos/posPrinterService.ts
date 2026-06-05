@@ -716,6 +716,12 @@ export class POSPrinterService {
 
   generateHTML(receiptData: ReceiptData, cfg: ReceiptConfig): string {
     const widthMM = PAPER_WIDTH_MM[cfg.paperWidth] ?? '80mm';
+    // En 58mm el espacio útil es muy chico; reducimos el padding y lo
+    // recargamos a la izquierda (más a la izquierda como pidió el cliente).
+    // top, right, bottom, left
+    const receiptPadding = widthMM === '58mm'
+      ? '2mm 1mm 5mm 0mm'
+      : '3mm 3mm 6mm 3mm';
 
     const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -789,8 +795,16 @@ export class POSPrinterService {
     }
     .receipt {
       width: 100%;
-      padding: 3mm 3mm 6mm;
+      padding: ${receiptPadding};
     }
+    ${widthMM === '58mm' ? `
+    /* 58 mm: alinear texto centrado pero un poco más a la izquierda */
+    .receipt { text-align: left; }
+    .center, .title, .store-name, .store-block, .section-label, .total-line, .footer, .cashier { text-align: left !important; }
+    .item-name { width: 50%; }
+    .item-qty  { width: 12%; }
+    .item-price{ width: 38%; }
+    ` : ''}
     .center { text-align: center; }
     .bold { font-weight: 900; }
     .large { font-size: 18px; font-weight: 900; text-align: center; }

@@ -11,6 +11,7 @@ interface InvoiceRow {
   issued_at: string;
   total: number;
   payment_method: string;
+  status?: string;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -62,7 +63,9 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
 
       if (isOnline) {
         // Online: fetch from API and cache
-        const params = new URLSearchParams({ status: 'completed', limit: '60' });
+        // Traemos todas (completadas y anuladas) para que el usuario vea cuáles
+        // ya fueron anuladas. El back devuelve `status` en cada fila.
+        const params = new URLSearchParams({ limit: '60' });
         if (sessionId) {
           params.set('session_id', sessionId);
         } else {
@@ -266,29 +269,51 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                   {search ? 'No se encontraron facturas' : 'No hay facturas completadas en esta sesión'}
                 </p>
               ) : (
-                filtered.map(inv => (
-                  <div
-                    key={inv.id}
-                    className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 hover:border-red-200 hover:bg-red-50 transition"
-                  >
-                    <div>
-                      <p className="font-mono font-black text-gray-900 text-sm">{inv.invoice_number}</p>
-                      <p className="text-gray-500 text-xs mt-0.5">
-                        {new Date(inv.issued_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}
-                        {' · '}{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
-                      </p>
+                filtered.map(inv => {
+                  const isCancelled = inv.status === 'cancelled';
+                  return (
+                    <div
+                      key={inv.id}
+                      className={`flex items-center justify-between border rounded-xl px-4 py-3 transition ${
+                        isCancelled
+                          ? 'bg-red-50/60 border-red-200 opacity-75'
+                          : 'bg-gray-50 border-gray-200 hover:border-red-200 hover:bg-red-50'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className={`font-mono font-black text-sm ${isCancelled ? 'text-red-700 line-through' : 'text-gray-900'}`}>
+                            {inv.invoice_number}
+                          </p>
+                          {isCancelled && (
+                            <span className="text-[10px] font-black bg-red-600 text-white px-2 py-0.5 rounded uppercase tracking-wider">
+                              Anulada
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-gray-500 text-xs mt-0.5">
+                          {new Date(inv.issued_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}
+                          {' · '}{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className={`font-bold text-sm ${isCancelled ? 'text-red-500 line-through' : 'text-gray-800'}`}>
+                          {fmt(inv.total)}
+                        </span>
+                        {isCancelled ? (
+                          <span className="text-xs font-bold text-gray-400 px-3 py-1.5">—</span>
+                        ) : (
+                          <button
+                            onClick={() => setSelected(inv)}
+                            className="text-xs font-bold text-red-600 border border-red-300 bg-white hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg transition"
+                          >
+                            Anular
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-gray-800 text-sm">{fmt(inv.total)}</span>
-                      <button
-                        onClick={() => setSelected(inv)}
-                        className="text-xs font-bold text-red-600 border border-red-300 bg-white hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg transition"
-                      >
-                        Anular
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 

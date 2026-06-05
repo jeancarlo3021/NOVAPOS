@@ -294,8 +294,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     : 'No seleccionado';
 
   return (
-    <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 w-full p-8">
-      <Card className="w-full max-w-3xl max-h-3xl overflow-y-auto">
+    <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 w-full p-4">
+      <Card className="w-full max-w-6xl max-h-[95vh] overflow-y-auto">
         <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
           <h2 className="text-2xl font-bold">
             {productId ? '✏️ Editar Producto' : '➕ Nuevo Producto'}
@@ -307,27 +307,30 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
         <CardContent className="p-6 space-y-4">
           {formError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex gap-2">
-              <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
-              <p className="text-red-800">{formError}</p>
+            <div className="bg-red-50 border-2 border-red-400 rounded-2xl p-5 flex gap-4 shadow-md">
+              <AlertCircle className="text-red-600 flex-shrink-0" size={32} />
+              <div className="flex-1">
+                <p className="text-red-900 font-black text-xl leading-tight">No se pudo guardar el producto</p>
+                <p className="text-red-800 mt-1 text-base font-semibold">{formError}</p>
+              </div>
             </div>
           )}
 
           {formSuccess && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex gap-2">
-              <div className="text-green-600 flex-shrink-0">✓</div>
-              <p className="text-green-800">{formSuccess}</p>
+            <div className="bg-green-50 border-2 border-green-300 rounded-xl p-4 flex gap-3">
+              <div className="text-green-600 flex-shrink-0 text-2xl">✓</div>
+              <p className="text-green-800 font-semibold">{formSuccess}</p>
             </div>
           )}
 
           {(categoriesError || unitTypesError) && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex gap-2">
-              <AlertCircle className="text-yellow-600 flex-shrink-0" size={20} />
-              <p className="text-yellow-800">Algunos datos no se pudieron cargar. Intenta de nuevo.</p>
+            <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 flex gap-3">
+              <AlertCircle className="text-yellow-600 flex-shrink-0" size={22} />
+              <p className="text-yellow-800 font-semibold">Algunos datos no se pudieron cargar. Intenta de nuevo.</p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="lg:columns-2 lg:gap-6 space-y-4 *:break-inside-avoid *:mb-4 lg:*:mb-0 lg:[&>*+*]:mt-4">
 
             {/* Imagen del producto */}
             <div>
