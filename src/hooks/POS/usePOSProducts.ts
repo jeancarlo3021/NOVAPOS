@@ -15,19 +15,31 @@ export function usePOSProducts() {
   // ── Fetch from API and persist to IndexedDB ────────────────────────────────
 
   const fetchFromNetwork = async (_tid: string): Promise<Product[]> => {
-    // Fetch products and unit types separately, then join in frontend
-    const [products, unitTypes] = await Promise.all([
+    // Trae productos + unit-types + categorías en paralelo y hace JOIN en frontend.
+    // Si el backend ya manda el JOIN embebido, esto solo refuerza/normaliza
+    // los datos para que el caché siempre tenga las relaciones disponibles.
+    const [products, unitTypes, categories] = await Promise.all([
       apiFetch<any[]>('/products'),
-      apiFetch<any[]>('/unit-types')
+      apiFetch<any[]>('/unit-types').catch(() => []),
+      apiFetch<any[]>('/categories').catch(() => []),
     ]);
 
-    // Create a map of unit types for quick lookup
-    const unitTypeMap = Object.fromEntries(unitTypes.map(ut => [ut.id, ut]));
+    const unitTypeMap = Object.fromEntries(
+      (unitTypes ?? []).map(ut => [ut.id, ut]),
+    );
+    const categoryMap = Object.fromEntries(
+      (categories ?? []).map(c => [c.id, { id: c.id, name: c.name }]),
+    );
 
-    // Attach unit_type relationship to each product
     return products.map(p => ({
       ...p,
-      unit_type: p.unit_type_id ? unitTypeMap[p.unit_type_id] : null,
+      // Respeta el join si ya viene del backend; si no, lo arma localmente.
+      unit_type: p.unit_type
+        ?? (p.unit_type_id ? unitTypeMap[p.unit_type_id] : null)
+        ?? null,
+      category: p.category
+        ?? (p.category_id ? categoryMap[p.category_id] : null)
+        ?? null,
     }));
   };
 

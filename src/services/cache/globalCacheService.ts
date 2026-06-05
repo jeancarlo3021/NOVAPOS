@@ -4,7 +4,7 @@
  */
 
 import { apiFetch } from '@/lib/api';
-import { cacheSet, cacheKey } from '@/utils/offlineCache';
+import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 
 export interface GlobalCacheProgress {
   total: number;
@@ -159,6 +159,41 @@ export const globalCacheService = {
 
     // Wait for all cache tasks to complete
     await Promise.all(promises);
+
+    // ── Hidratación post-caché ────────────────────────────────────────────
+    // Después de bajar productos, categorías y unidades, los unimos para que
+    // los productos cacheados siempre tengan `category` y `unit_type` embebidos.
+    // Así el filtro por categoría del POS y el manejo por peso funcionan
+    // incluso offline o si el backend no devuelve el JOIN.
+    try {
+      const productsKey   = cacheKey(tenantId, 'global_products');
+      const categoriesKey = cacheKey(tenantId, 'global_categories');
+      const unitsKey      = cacheKey(tenantId, 'global_measurements');
+
+      const products: any[]   = cacheGet<any[]>(productsKey)   ?? [];
+      const categories: any[] = cacheGet<any[]>(categoriesKey) ?? [];
+      const units: any[]      = cacheGet<any[]>(unitsKey)      ?? [];
+
+      if (products.length > 0) {
+        const catMap  = new Map(categories.map(c => [c.id, { id: c.id, name: c.name }]));
+        const unitMap = new Map(units.map(u => [u.id, {
+          id: u.id, name: u.name,
+          abbreviation: u.abbreviation,
+          requires_weight: u.requires_weight,
+        }]));
+
+        const hydrated = products.map(p => ({
+          ...p,
+          category:  p.category  ?? (p.category_id  ? catMap.get(p.category_id)   : null) ?? null,
+          unit_type: p.unit_type ?? (p.unit_type_id ? unitMap.get(p.unit_type_id) : null) ?? null,
+        }));
+
+        cacheSet(productsKey, hydrated);
+        console.log(`✅ Hidratados ${hydrated.length} productos con categoría y unidad`);
+      }
+    } catch (err) {
+      console.warn('No se pudo hidratar productos con relaciones:', err);
+    }
 
     return stats;
   },
