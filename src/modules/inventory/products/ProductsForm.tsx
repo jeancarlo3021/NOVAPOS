@@ -295,7 +295,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
   return (
     <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 w-full p-4">
-      <Card className="w-full max-w-2xl max-h-[95vh] overflow-y-auto">
+      <Card className="w-full max-w-6xl max-h-[95vh] overflow-y-auto">
         <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
           <h2 className="text-2xl font-bold">
             {productId ? '✏️ Editar Producto' : '➕ Nuevo Producto'}
@@ -330,7 +330,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="lg:columns-2 lg:gap-6 space-y-4 *:break-inside-avoid *:mb-4 lg:*:mb-0 lg:[&>*+*]:mt-4">
 
             {/* Imagen del producto */}
             <div>
@@ -380,7 +380,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
             </div>
 
             {/* Fila 1: Nombre y SKU */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre del Producto *</label>
                 <input
@@ -427,7 +427,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
             {!isProductsOnly && (
               <>
                 {/* Fila 2: Categoría y Tipo de Unidad */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría</label>
                     <div className="flex gap-2">
@@ -530,7 +530,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
             )}
 
             {/* Fila 3: Precios */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Precio de Costo</label>
                 <input
@@ -623,7 +623,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
             {/* Fila 4: Stock - Solo si NO es products_only Y maneja stock */}
             {!isProductsOnly && tracksStock && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Actual</label>
                   <input
