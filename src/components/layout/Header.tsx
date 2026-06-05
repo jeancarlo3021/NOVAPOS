@@ -1,5 +1,6 @@
 import { Menu} from 'lucide-react';
 import { TenantSwitcher } from './TenantSwitcher';
+import { BranchSwitcher } from './BranchSwitcher';
 import { useLocation } from 'react-router-dom';
 
 interface HeaderProps {
@@ -25,7 +26,8 @@ export const Header: React.FC<HeaderProps> = ({ setSidebarOpen }) => {
           <Menu className="w-6 h-6" />
         </button>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        <BranchSwitcher />
         <TenantSwitcher />
       </div>
     </header>

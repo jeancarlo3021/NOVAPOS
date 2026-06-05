@@ -9,14 +9,16 @@ import {
   Printer,
   ChevronRight,
   X,
+  MonitorSmartphone,
 } from 'lucide-react';
 import { GeneralSettings } from '../components/General/GeneralSettings';
 import { PaymentSettings } from '../components/Payments/PaymentSettings';
 import { NotificationSettings } from '../components/Notifications/NotificationsSettings';
 import { ReceiptSettings } from '../components/Receipt/ReceiptSettings';
+import { POSViewSettings } from '../components/POSView/POSViewSettings';
 import { useAuth } from '@/context/AuthContext';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view';
 
 const SETTINGS_TABS = [
   {
@@ -36,6 +38,12 @@ const SETTINGS_TABS = [
     label: 'Factura',
     icon: Printer,
     description: 'Personalización de factura',
+  },
+  {
+    id: 'pos_view' as SettingTab,
+    label: 'Vista del POS',
+    icon: MonitorSmartphone,
+    description: 'Táctil o escritorio',
   },
   {
     id: 'notifications' as SettingTab,
@@ -74,6 +82,8 @@ const { planFeatures } = useAuth();
         return <PaymentSettings />;
       case 'receipt':
         return <ReceiptSettings />;
+      case 'pos_view':
+        return <POSViewSettings />;
       case 'notifications':
         return <NotificationSettings />;
       default:

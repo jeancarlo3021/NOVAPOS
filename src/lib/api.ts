@@ -110,12 +110,17 @@ export async function apiFetch<T = unknown>(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    // Sucursal activa: el backend la usa para filtrar/gating cuando aplique.
+    let branchId: string | null = null;
+    try { branchId = localStorage.getItem('novapos_current_branch_id'); } catch { /* SSR */ }
+
     const res = await fetch(`${API_URL}/api${path}`, {
       ...options,
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(branchId ? { 'x-branch-id': branchId } : {}),
         ...options.headers,
       },
     });

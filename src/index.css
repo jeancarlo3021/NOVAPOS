@@ -30,3 +30,58 @@
 .pos-scroll::-webkit-scrollbar-thumb:active {
   background: #047857;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Modo POS Táctil
+   Aplica solo dentro de [data-pos-view="touch"]. Botones, inputs y
+   tarjetas crecen para ser cómodos en pantallas táctiles y tablets.
+   ════════════════════════════════════════════════════════════════════════ */
+.pos-touch button:not(.no-touch-resize),
+.pos-touch [role="button"]:not(.no-touch-resize) {
+  min-height: 48px;
+}
+
+.pos-touch input:not([type="checkbox"]):not([type="radio"]),
+.pos-touch select,
+.pos-touch textarea {
+  min-height: 48px;
+  font-size: 16px;          /* Evita zoom automático en iOS al hacer focus */
+}
+
+/* Áreas tocables más grandes en los iconos pequeños (cerrar, eliminar, etc.) */
+.pos-touch button[title] svg,
+.pos-touch button > svg:only-child {
+  min-width: 20px;
+  min-height: 20px;
+}
+
+/* Texto del carrito y total más legibles */
+.pos-touch .pos-total,
+.pos-touch [data-pos-total] {
+  font-size: 2.25rem !important;
+  line-height: 1;
+}
+
+/* Tarjetas de producto más grandes */
+.pos-touch .pos-product-card {
+  min-height: 130px;
+  font-size: 1rem;
+}
+
+/* Sin estados hover en táctil — los dedos no hacen hover */
+@media (pointer: coarse) {
+  .pos-touch button:hover,
+  .pos-touch a:hover {
+    background-color: inherit;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Modo POS Escritorio (más denso, atajos de teclado pueden verse)
+   ════════════════════════════════════════════════════════════════════════ */
+.pos-desktop .pos-keyboard-hint {
+  display: inline-flex;
+}
+.pos-touch .pos-keyboard-hint {
+  display: none;
+}

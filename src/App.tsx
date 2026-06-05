@@ -29,6 +29,10 @@ const HRDashboard              = lazy(() => import('./modules/hr/HRDashboard').t
 const AccountsPayableDashboard = lazy(() => import('./modules/accountsPayable/AccountsPayableDashboard').then(m => ({ default: m.AccountsPayableDashboard })));
 const PromotionsDashboard      = lazy(() => import('./modules/promotions/PromotionsDashboard').then(m => ({ default: m.PromotionsDashboard })));
 const CreateOwner              = lazy(() => import('./modules/auth/CreateOwner').then(m => ({ default: m.CreateOwner })));
+const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashboard').then(m => ({ default: m.TablesDashboard })));
+const BillingDashboard         = lazy(() => import('./modules/billing/BillingDashboard').then(m => ({ default: m.BillingDashboard })));
+const BranchesAdmin            = lazy(() => import('./modules/branches/BranchesAdmin').then(m => ({ default: m.BranchesAdmin })));
+const TransfersDashboard       = lazy(() => import('./modules/branches/TransfersDashboard').then(m => ({ default: m.TransfersDashboard })));
 
 function RouteFallback() {
   return (
@@ -110,6 +114,14 @@ function AppContent() {
                   <AccountsPayableDashboard />
                 </PlanGuard>
               } />
+              <Route path="/tables" element={
+                <PlanGuard feature="tables"><TablesDashboard /></PlanGuard>
+              } />
+              <Route path="/billing" element={
+                <PlanGuard feature="tables"><BillingDashboard /></PlanGuard>
+              } />
+              <Route path="/branches"  element={<BranchesAdmin />} />
+              <Route path="/transfers" element={<TransfersDashboard />} />
 
               {/* Owner only */}
               <Route path="/create-owner" element={<CreateOwner />} />

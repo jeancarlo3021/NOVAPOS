@@ -4,6 +4,7 @@ import { useCashSession } from '@/hooks/useCashSession';
 import { useTenantId } from '@/hooks/useTenant';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
+import { usePOSViewMode } from '@/hooks/usePOSViewMode';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
 import {
@@ -15,6 +16,7 @@ import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from 
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
+import { POSDesktopBar } from './POSDesktopBar';
 import { CashMovementModal } from './cashManagement/CashMovementModal';
 import { POSProductsPanel } from './POSProducts';
 import { POSCartPanel } from './POSCart';
@@ -36,6 +38,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 export const POSMain = () => {
   const { user, planFeatures } = useAuth();
   const { tenantId, loading: tenantLoading, error: tenantError } = useTenantId();
+  const { mode: posViewMode } = usePOSViewMode();
   const { currentSession, loading: sessionLoading, refetchSession } = useCashSession();
   const { isOnline } = useOfflineSync();
   const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError } = usePOSProducts();
@@ -58,6 +61,10 @@ export const POSMain = () => {
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
+  // Cliente para la factura en curso (visible en modo escritorio).
+  const [customerName, setCustomerName] = useState('');
+  // Bump cuando se completa un cobro, para que POSDesktopBar re-lea el peek.
+  const [invoiceCounterKey, setInvoiceCounterKey] = useState(0);
   const [cashMovement, setCashMovement] = useState<'in' | 'out' | null>(null);
   const [showDisplayTest, setShowDisplayTest] = useState(false);
 
@@ -384,7 +391,7 @@ export const POSMain = () => {
           taxAmount,
           total,
           data.paymentMethod,
-          undefined,
+          customerName.trim() || undefined,
           notes,
           undefined,
           data.amountReceived,
@@ -410,6 +417,8 @@ export const POSMain = () => {
           payment_method: invoice.payment_method,
         });
         printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined);
+        setCustomerName('');
+        setInvoiceCounterKey(k => k + 1);
         return;
       } else {
         // ── Offline: queue for later sync ────────────────────────────────────
@@ -425,6 +434,7 @@ export const POSMain = () => {
           changeAmount: data.change,
           voucherNumber: data.voucherNumber,
           notes,
+          customerName: customerName.trim() || undefined,
         });
 
         // Limpiar UI INMEDIATAMENTE
@@ -442,7 +452,10 @@ export const POSMain = () => {
           payment_method: data.paymentMethod,
         });
         refreshPendingCount();
-        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod);
+        const offlineCustomer = customerName.trim() || undefined;
+        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer);
+        setCustomerName('');
+        setInvoiceCounterKey(k => k + 1);
         return;
       }
     } catch (err) {
@@ -470,7 +483,10 @@ export const POSMain = () => {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 overflow-hidden">
+    <div
+      className={`pos-root flex flex-col h-full bg-gray-50 overflow-hidden ${posViewMode === 'touch' ? 'pos-touch' : 'pos-desktop'}`}
+      data-pos-view={posViewMode}
+    >
       <POSHeader
         error={error}
         success={success}
@@ -490,8 +506,21 @@ export const POSMain = () => {
         onSync={isOnline ? syncOfflineInvoices : undefined}
       />
 
+      {posViewMode === 'desktop' &&
+        ((planFeatures as any).pos_invoice_preview || (planFeatures as any).pos_customer_field) && (
+        <POSDesktopBar
+          showInvoicePreview={!!(planFeatures as any).pos_invoice_preview}
+          showCustomerField={!!(planFeatures as any).pos_customer_field}
+          customerName={customerName}
+          onCustomerNameChange={setCustomerName}
+          invoiceNumberRefreshKey={invoiceCounterKey}
+        />
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         <POSProductsPanel
+          viewMode={posViewMode}
+          searchTabsEnabled={!!(planFeatures as any).pos_search_tabs}
           filteredProducts={filteredProducts}
           allProducts={products}
           searchTerm={searchTerm}

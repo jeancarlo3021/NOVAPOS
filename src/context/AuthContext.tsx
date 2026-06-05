@@ -121,6 +121,9 @@ export interface PlanFeatures {
   pos_cash_management?: boolean;     // Apertura/cierre de caja
   pos_customer_display?: boolean;    // Display de cliente serial
   pos_void_invoice?: boolean;        // Anular facturas emitidas
+  pos_invoice_preview?: boolean;     // Mostrar nº próxima factura en escritorio
+  pos_customer_field?: boolean;      // Campo de cliente en escritorio
+  pos_search_tabs?: boolean;         // Tabs separados código/nombre en escritorio
   // ── Inventario ─────────────────────────────────────────────────────────────
   inventory_products_only: boolean;
   inventory_mixed_stock?: boolean;       // Productos con/sin stock mixtos
@@ -181,6 +184,9 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   pos_cash_management: false,
   pos_customer_display: false,
   pos_void_invoice: false,
+  pos_invoice_preview: false,
+  pos_customer_field: false,
+  pos_search_tabs: false,
   inventory_products_only: false,
   inventory_mixed_stock: false,
   inventory_categories: false,
@@ -225,6 +231,9 @@ export const FULL_FEATURES: PlanFeatures = {
   pos_cash_management: true,
   pos_customer_display: true,
   pos_void_invoice: true,
+  pos_invoice_preview: true,
+  pos_customer_field: true,
+  pos_search_tabs: true,
   inventory_products_only: false,
   inventory_mixed_stock: true,
   inventory_categories: true,
@@ -294,6 +303,19 @@ interface AuthContextType {
   getRoleLabel: (role: string) => string;
   switchTenant: (tenantId: string) => Promise<void>;
   refreshPlan: (tenantId: string) => Promise<void>;
+  // ── Multi-sucursal ────────────────────────────────────────────────────
+  branches: BranchLite[];
+  currentBranchId: string | null;
+  switchBranch: (branchId: string) => void;
+  reloadBranches: () => Promise<void>;
+}
+
+export interface BranchLite {
+  id: string;
+  name: string;
+  code: string;
+  is_default: boolean;
+  is_user_default?: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -328,6 +350,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [planFeatures, setPlanFeatures] = useState<PlanFeatures>(DEFAULT_FEATURES);
+  const [branches, setBranches] = useState<BranchLite[]>([]);
+  const [currentBranchId, setCurrentBranchIdState] = useState<string | null>(() => {
+    try { return localStorage.getItem('novapos_current_branch_id'); } catch { return null; }
+  });
   const [planName, setPlanName] = useState<string>('demo');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -839,6 +865,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // ============================================
+  // BRANCHES (Multi-sucursal)
+  // ============================================
+
+  const reloadBranches = async () => {
+    if (!tenant?.id) { setBranches([]); return; }
+    try {
+      // import dinámico para no introducir dependencia circular del service.
+      const { branchesService } = await import('@/services/branches/branchesService');
+      const list = await branchesService.mine();
+      const lite: BranchLite[] = (list ?? []).map(b => ({
+        id: b.id, name: b.name, code: b.code,
+        is_default: b.is_default, is_user_default: b.is_user_default,
+      }));
+      setBranches(lite);
+
+      // Asegura que currentBranchId apunte a una sucursal válida.
+      if (lite.length > 0 && !lite.some(b => b.id === currentBranchId)) {
+        const pick = lite.find(b => b.is_user_default) ?? lite.find(b => b.is_default) ?? lite[0];
+        setCurrentBranchIdState(pick.id);
+        try { localStorage.setItem('novapos_current_branch_id', pick.id); } catch { /* ignore */ }
+      }
+    } catch {
+      // Si el backend aún no tiene la ruta (deploy pendiente), no bloquea.
+      setBranches([]);
+    }
+  };
+
+  const switchBranch = (branchId: string) => {
+    setCurrentBranchIdState(branchId);
+    try { localStorage.setItem('novapos_current_branch_id', branchId); } catch { /* ignore */ }
+    try {
+      window.dispatchEvent(new CustomEvent('branch-changed', { detail: { branchId } }));
+    } catch { /* SSR */ }
+  };
+
+  // Recarga sucursales al cambiar tenant o al loguearse.
+  useEffect(() => { reloadBranches(); /* eslint-disable-next-line */ }, [tenant?.id]);
+
+  // ============================================
   // CLEAR ERROR
   // ============================================
 
@@ -862,6 +927,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         getRoleLabel,
         switchTenant,
         refreshPlan,
+        branches,
+        currentBranchId,
+        switchBranch,
+        reloadBranches,
       }}
     >
       {children}

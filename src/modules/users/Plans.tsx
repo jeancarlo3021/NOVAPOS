@@ -7,6 +7,7 @@ import {
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Activity, Shield, CalendarDays, History,
+  FileText, User, Search,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
@@ -402,6 +403,12 @@ export default function Plans() {
                       description="Pantalla secundaria para el cliente" checked={!!features.pos_customer_display} onChange={v => set({ pos_customer_display: v })} />
                     <SubFeatureRow icon={FileX} color="bg-red-400" title="Anular Facturas"
                       description="Permite anular facturas emitidas" checked={!!features.pos_void_invoice} onChange={v => set({ pos_void_invoice: v })} />
+                    <SubFeatureRow icon={FileText} color="bg-blue-500" title="N° Próxima Factura"
+                      description="Muestra el consecutivo siguiente en modo escritorio" checked={!!features.pos_invoice_preview} onChange={v => set({ pos_invoice_preview: v })} />
+                    <SubFeatureRow icon={User} color="bg-emerald-500" title="Campo de Cliente"
+                      description="Permite asociar un cliente a la factura" checked={!!features.pos_customer_field} onChange={v => set({ pos_customer_field: v })} />
+                    <SubFeatureRow icon={Search} color="bg-violet-500" title="Buscar por Código / Nombre"
+                      description="Tabs separados de búsqueda en modo escritorio" checked={!!features.pos_search_tabs} onChange={v => set({ pos_search_tabs: v })} />
                   </FeatureRow>
 
                   <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones"

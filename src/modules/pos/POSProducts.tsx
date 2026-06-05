@@ -38,6 +38,10 @@ interface POSProductsPanelProps {
   /** When true, stock_quantity is ignored — plan doesn't track stock */
   ignoreStock?: boolean;
   activePromotions?: Promotion[];
+  /** Modo de vista. En 'desktop' la búsqueda se divide en pestañas (código / nombre). */
+  viewMode?: 'touch' | 'desktop';
+  /** Habilita las pestañas de búsqueda código/nombre (controlado por el plan). */
+  searchTabsEnabled?: boolean;
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
@@ -50,11 +54,17 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   productsError,
   ignoreStock = false,
   activePromotions = [],
+  viewMode = 'touch',
+  searchTabsEnabled = false,
 }) => {
+  // Las tabs solo aplican si: estamos en modo escritorio Y el plan lo permite.
+  const useSearchTabs = viewMode === 'desktop' && searchTabsEnabled;
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [weightProduct, setWeightProduct]   = useState<Product | null>(null);
   const [scanValue, setScanValue]           = useState('');
   const [scanFeedback, setScanFeedback]     = useState<ScanFeedback | null>(null);
+  // Tab activo de búsqueda en modo escritorio: 'code' = SKU/scanner, 'name' = nombre.
+  const [searchTab, setSearchTab] = useState<'code' | 'name'>('code');
   const scanInputRef = useRef<HTMLInputElement>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -129,7 +139,36 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
       {/* ── Scanner input + search ── */}
       <div className="bg-white border-b border-gray-200 px-3 pt-3 pb-0 shrink-0">
 
-        {/* Barcode scanner row */}
+        {/* En modo escritorio con la feature habilitada: tabs para alternar entre búsqueda por código y por nombre */}
+        {useSearchTabs && (
+          <div className="flex gap-1 mb-2 bg-gray-100 rounded-lg p-1">
+            <button
+              type="button"
+              onClick={() => setSearchTab('code')}
+              className={`flex-1 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                searchTab === 'code'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <ScanBarcode size={13} /> Buscar por código
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchTab('name')}
+              className={`flex-1 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                searchTab === 'name'
+                  ? 'bg-white text-emerald-600 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Search size={13} /> Buscar por nombre
+            </button>
+          </div>
+        )}
+
+        {/* Scanner: siempre visible salvo cuando las tabs están activas y muestran "nombre" */}
+        {(!useSearchTabs || searchTab === 'code') && (
         <div className="mb-2">
           <div className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 transition ${
             scanFeedback
@@ -188,8 +227,10 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             )}
           </div>
         </div>
+        )}
 
-        {/* Search bar */}
+        {/* Search bar: siempre visible salvo cuando las tabs están activas y muestran "código" */}
+        {(!useSearchTabs || searchTab === 'name') && (
         <div className="relative mb-2">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -197,9 +238,11 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             placeholder="Buscar producto..."
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
+            autoFocus={useSearchTabs}
             className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400 text-sm font-medium transition"
           />
         </div>
+        )}
 
         {categories.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-2">

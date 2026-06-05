@@ -22,6 +22,7 @@ export interface OfflineInvoicePayload {
   changeAmount?: number;
   voucherNumber?: string;
   notes?: string;
+  customerName?: string;
   timestamp: number;
   synced: 0 | 1;
   retries: number;
@@ -206,6 +207,15 @@ function generateOfflineInvoiceNumber(): string {
  */
 export function generateInvoiceNumber(): string {
   return generateOfflineInvoiceNumber();
+}
+
+/**
+ * Devuelve cuál va a ser el próximo nº de factura SIN consumirlo. Útil para
+ * mostrarlo en la UI antes de confirmar el cobro.
+ */
+export function peekNextInvoiceNumber(): string {
+  const next = getOfflineInvoiceCounter() + 1;
+  return String(next).padStart(6, '0');
 }
 
 // ─── Pending invoices queue ───────────────────────────────────────────────────
