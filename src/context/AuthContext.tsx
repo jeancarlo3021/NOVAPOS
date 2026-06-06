@@ -580,6 +580,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
 
+      // Persistir tenant id para que el fallback offline de apiFetch pueda
+      // encontrar el cache (que está namespaced por tenant).
+      if (selectedTenant) {
+        try { localStorage.setItem('novapos_current_tenant_id', selectedTenant.id); } catch {}
+      }
+
       // ✅ Pre-cache all essential data globally for offline functionality
       if (selectedTenant && navigator.onLine) {
         globalCacheService.preCacheAllData(selectedTenant.id)

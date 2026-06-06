@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle, Printer } from 'lucide-react';
 import { CashSession } from '@/types/Types_POS';
 
 interface POSHeaderProps {
@@ -17,6 +17,7 @@ interface POSHeaderProps {
   onOpenCash: () => void;
   onCloseCash: () => void;
   onVoidInvoice?: () => void;
+  onReprintInvoice?: () => void;
   onSync?: () => void;
   onCashIn?: () => void;
   onCashOut?: () => void;
@@ -36,6 +37,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   onOpenCash,
   onCloseCash,
   onVoidInvoice,
+  onReprintInvoice,
   onSync,
   onCashIn,
   onCashOut,
@@ -61,11 +63,23 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
             <DollarSign size={16} className="text-white" />
           </div>
-          <h1 className="text-gray-900 font-bold text-lg hidden md:block">NovaPOS</h1>
+          <h1 className="text-gray-900 font-bold text-lg hidden md:block">ColònClick</h1>
         </div>
 
         {/* Divider */}
         <div className="hidden md:block h-6 w-px bg-gray-200" />
+
+        {/* Reimprimir factura — siempre disponible, no requiere sesión abierta */}
+        {onReprintInvoice && (
+          <button
+            onClick={onReprintInvoice}
+            className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+            title="Reimprimir factura"
+          >
+            <Printer size={15} />
+            <span className="hidden lg:inline">Reimprimir</span>
+          </button>
+        )}
 
         {/* Cash session */}
         <div className="flex-1 flex justify-center">

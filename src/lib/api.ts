@@ -77,17 +77,43 @@ export async function apiFetch<T = unknown>(
 
       // Strip query parameters for cache key lookup
       const pathBase = path.split('?')[0];
-      const cacheKey = cacheKeyMap[pathBase];
-      if (cacheKey) {
-        const cached = localStorage.getItem(`novapos_cache_${cacheKey}`);
-        if (cached) {
+      const cacheBaseKey = cacheKeyMap[pathBase];
+      if (cacheBaseKey) {
+        // El cache global está namespaced por tenant: `novapos_cache_<tenantId>_<resource>`.
+        // Probar primero con tenant actual, luego variantes legacy sin tenant, y
+        // como último recurso escanear cualquier entrada que termine en el recurso.
+        let tenantId: string | null = null;
+        try { tenantId = localStorage.getItem('novapos_current_tenant_id'); } catch { /* SSR */ }
+
+        const candidates: string[] = [];
+        if (tenantId) candidates.push(`novapos_cache_${tenantId}_${cacheBaseKey}`);
+        candidates.push(`novapos_cache_${cacheBaseKey}`);
+
+        for (const k of candidates) {
+          const cached = localStorage.getItem(k);
+          if (!cached) continue;
           try {
             const data = JSON.parse(cached);
-            const items = data.data || data;
+            const items = data.data ?? data;
             return items as T;
-          } catch (e) {
-          }
+          } catch { /* siguiente candidato */ }
         }
+
+        // Fallback: escanear cualquier key `novapos_cache_*_<cacheBaseKey>` (otro tenant local).
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k || !k.startsWith('novapos_cache_')) continue;
+            if (!k.endsWith(`_${cacheBaseKey}`)) continue;
+            const cached = localStorage.getItem(k);
+            if (!cached) continue;
+            try {
+              const data = JSON.parse(cached);
+              const items = data.data ?? data;
+              return items as T;
+            } catch { /* siguiente */ }
+          }
+        } catch { /* SSR / acceso denegado */ }
       }
 
       throw new Error(`Sin conexión y sin datos cacheados para ${path}`);

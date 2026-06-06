@@ -16,6 +16,8 @@ interface POSCartPanelProps {
   canDiscount?: boolean;
   onApplyDiscount?: (productId: string, discountPct: number) => void;
   onPayment: () => void;
+  /** Cuando true, el carrito se expande para ocupar el área principal (modo lista). */
+  expanded?: boolean;
 }
 
 export const POSCartPanel: React.FC<POSCartPanelProps> = ({
@@ -32,6 +34,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   canDiscount,
   onApplyDiscount,
   onPayment,
+  expanded = false,
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
   const canPay = cartItems.length > 0 && currentSession?.status === 'open' && !loading;
@@ -57,7 +60,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   };
 
   return (
-    <div className="w-96 shrink-0 flex flex-col bg-white border-l-2 border-gray-200">
+    <div className={`flex flex-col bg-white ${expanded ? 'flex-1' : 'w-96 shrink-0 border-l-2 border-gray-200'}`}>
 
       {/* ── Header ── */}
       <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2 bg-white shrink-0">
@@ -79,6 +82,80 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               El carrito está vacío.<br />Toca un producto para agregar.
             </p>
           </div>
+        ) : expanded ? (
+          // ── Modo LISTA (expanded): renderizado tipo tabla, una fila por item.
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-gray-50 border-b border-gray-200 text-[11px] uppercase tracking-wider text-gray-500 font-bold">
+              <tr>
+                <th className="text-left px-3 py-2">Producto</th>
+                <th className="text-center px-2 py-2 w-32">Cantidad</th>
+                <th className="text-right px-2 py-2 w-24">P/U</th>
+                <th className="text-right px-2 py-2 w-28">Subtotal</th>
+                <th className="w-10"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {cartItems.map((item) => {
+                const hasDiscount = (item.discount_percent ?? 0) > 0;
+                const hasPromo    = !!item.promo;
+                const originalSubtotal = item.unit_price * item.quantity;
+                const showOriginal = hasDiscount || hasPromo;
+                return (
+                  <tr key={item.product_id} className="border-b border-gray-100 hover:bg-emerald-50/40">
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold text-gray-900 truncate">{item.product.name}</span>
+                        {hasPromo && (
+                          <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] bg-violet-100 text-violet-700 font-bold px-1.5 py-0.5 rounded">
+                            <Tag size={9} />
+                            {item.promo!.type === '2x1' ? '2×1' : item.promo!.type === 'percentage' ? `${item.promo!.value}%` : `-₡${item.promo!.value}`}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onPointerDown={() => onChangeQuantity(item.product_id, item.quantity - 1)}
+                          className="w-7 h-7 rounded-md bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 flex items-center justify-center"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="w-8 text-center font-black text-gray-900 tabular-nums">{item.quantity}</span>
+                        <button
+                          onPointerDown={() => onChangeQuantity(item.product_id, item.quantity + 1)}
+                          className="w-7 h-7 rounded-md bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white flex items-center justify-center"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-gray-600 font-semibold">
+                      ₡{item.unit_price.toLocaleString()}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {showOriginal && (
+                        <div className="text-[10px] text-gray-300 line-through leading-none">
+                          ₡{originalSubtotal.toLocaleString()}
+                        </div>
+                      )}
+                      <div className={`font-black ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
+                        ₡{item.subtotal.toLocaleString()}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <button
+                        onPointerDown={() => onRemoveFromCart(item.product_id)}
+                        className="w-7 h-7 rounded-md bg-red-50 hover:bg-red-100 text-red-500 inline-flex items-center justify-center"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         ) : (
           <ul className="divide-y divide-gray-100 px-5 py-2">
             {cartItems.map((item) => {

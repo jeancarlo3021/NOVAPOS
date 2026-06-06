@@ -85,3 +85,29 @@
 .pos-touch .pos-keyboard-hint {
   display: none;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Modo Asistido — para usuarios con poca experiencia o personas mayores.
+   Se activa cuando <html class="assisted-mode">.
+   ════════════════════════════════════════════════════════════════════════ */
+.assisted-mode body {
+  font-size: 18px;
+}
+.assisted-mode .text-xs   { font-size: 0.875rem; }
+.assisted-mode .text-sm   { font-size: 1rem; }
+.assisted-mode .text-base { font-size: 1.125rem; }
+.assisted-mode button,
+.assisted-mode [role="button"],
+.assisted-mode input:not([type="checkbox"]):not([type="radio"]),
+.assisted-mode select,
+.assisted-mode textarea {
+  min-height: 52px;
+  font-size: 16px;
+}
+/* Totales y resúmenes prominentes */
+.assisted-mode .pos-total,
+.assisted-mode [data-pos-total] {
+  font-size: 3rem !important;
+  font-weight: 900;
+  line-height: 1;
+}

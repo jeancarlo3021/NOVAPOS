@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Lock } from 'lucide-react';
+import {
+  Lock, ChevronLeft, Package, Boxes, AlertTriangle, FolderTree,
+  Ruler, Truck, BarChart3,
+} from 'lucide-react';
 import { ProductsList } from './products/ProductsList';
 import { SuppliersList } from './suppliers/SuppliersList';
 import { StockMovements } from './stock/StockMovements';
@@ -93,69 +96,182 @@ export const InventoryDashboard: React.FC = () => {
     </div>
   );
 
+  // ── Tiles gigantes estilo Eleventa para la vista "Panel" ────────────────
+  // Cada tile es un botón enorme con icono + color, que cambia a la pestaña
+  // correspondiente sin necesidad de la barra superior.
+  interface Tile {
+    id: TabType;
+    label: string;
+    description: string;
+    icon: React.ElementType;
+    bg: string;       // gradient classes
+    iconBg: string;
+    iconColor: string;
+    show: boolean;
+  }
+
+  const tiles: Tile[] = [
+    {
+      id: 'products',
+      label: 'Productos',
+      description: 'Crear, editar y buscar productos del inventario.',
+      icon: Package,
+      bg: 'from-blue-500 to-blue-600',
+      iconBg: 'bg-white/20',
+      iconColor: 'text-white',
+      show: hasInventoryAccess,
+    },
+    {
+      id: 'stock',
+      label: 'Stock y movimientos',
+      description: 'Entradas, salidas y ajustes de existencias.',
+      icon: Boxes,
+      bg: 'from-emerald-500 to-emerald-600',
+      iconBg: 'bg-white/20',
+      iconColor: 'text-white',
+      show: hasInventoryAccess && !hasProductsOnlyAccess && flagOn(pf.inventory_stock_view),
+    },
+    {
+      id: 'alerts',
+      label: 'Alertas de stock bajo',
+      description: 'Productos por debajo del mínimo configurado.',
+      icon: AlertTriangle,
+      bg: 'from-amber-500 to-orange-500',
+      iconBg: 'bg-white/20',
+      iconColor: 'text-white',
+      show: hasInventoryAccess && !hasProductsOnlyAccess && flagOn(pf.inventory_low_stock_alerts),
+    },
+    {
+      id: 'categories',
+      label: 'Categorías',
+      description: 'Agrupar productos para filtros del POS.',
+      icon: FolderTree,
+      bg: 'from-violet-500 to-purple-600',
+      iconBg: 'bg-white/20',
+      iconColor: 'text-white',
+      show: hasInventoryAccess && flagOn(pf.inventory_categories),
+    },
+    {
+      id: 'unitTypes',
+      label: 'Tipos de unidad',
+      description: 'Kilos, litros, unidades, libras…',
+      icon: Ruler,
+      bg: 'from-cyan-500 to-sky-600',
+      iconBg: 'bg-white/20',
+      iconColor: 'text-white',
+      show: hasInventoryAccess && flagOn(pf.inventory_unit_types),
+    },
+    {
+      id: 'suppliers',
+      label: 'Proveedores',
+      description: 'Contactos y datos de proveedores.',
+      icon: Truck,
+      bg: 'from-rose-500 to-pink-600',
+      iconBg: 'bg-white/20',
+      iconColor: 'text-white',
+      show: hasInventoryAccess && flagOn(pf.inventory_suppliers),
+    },
+  ];
+
+  const visibleTiles = tiles.filter(t => t.show);
+
+  const activeTabConfig = tabs.find(t => t.id === activeTab);
+  const onLandingPanel = activeTab === 'dashboard';
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">Gestión de Inventario</h1>
-            </div>
-          </div>
+      {/* Header */}
+      <nav className="bg-white shadow-sm sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3">
+          {!onLandingPanel && (
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm transition"
+            >
+              <ChevronLeft size={18} />
+              <span className="hidden sm:inline">Volver al panel</span>
+            </button>
+          )}
+          <h1 className="text-xl font-black text-gray-900 truncate">
+            {onLandingPanel ? 'Inventario' : activeTabConfig?.label ?? 'Inventario'}
+          </h1>
         </div>
       </nav>
 
-      <div className="border-b bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8 overflow-x-auto">
-            {availableTabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* Contenido */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {onLandingPanel ? (
+          <>
+            {/* Tiles gigantes — Eleventa-style */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 mb-8">
+              {visibleTiles.map((tile) => {
+                const Icon = tile.icon;
+                return (
+                  <button
+                    key={tile.id}
+                    type="button"
+                    onClick={() => setActiveTab(tile.id)}
+                    className={`relative overflow-hidden rounded-3xl p-6 sm:p-7 text-left bg-linear-to-br ${tile.bg} text-white shadow-lg hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] transition-all duration-150 min-h-45 sm:min-h-50 flex flex-col justify-between`}
+                  >
+                    {/* Decoración suave */}
+                    <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+                    <div className="absolute -bottom-10 -left-10 w-24 h-24 rounded-full bg-white/5 blur-xl pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto">
-        {activeTab === 'dashboard' && !hasProductsOnlyAccess && <InventoryStats />}
-        
-        {activeTab === 'products' && (
-          hasInventoryAccess ? <ProductsList /> : <LockedTab tabLabel="Productos" />
-        )}
-        
-        {/* Proveedores, Categorías y Tipos de unidad: accesibles también en plan solo-productos */}
-        {activeTab === 'suppliers' && (
-          hasInventoryAccess ? <SuppliersList /> : <LockedTab tabLabel="Proveedores" />
-        )}
+                    <div className={`relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl ${tile.iconBg} flex items-center justify-center backdrop-blur-sm`}>
+                      <Icon size={36} strokeWidth={2.2} className={tile.iconColor} />
+                    </div>
 
-        {activeTab === 'categories' && (
-          hasInventoryAccess ? <CategoriesManagement /> : <LockedTab tabLabel="Categorías" />
-        )}
+                    <div className="relative">
+                      <h3 className="text-2xl sm:text-3xl font-black leading-tight mb-1.5">{tile.label}</h3>
+                      <p className="text-sm sm:text-base text-white/85 font-medium leading-snug">
+                        {tile.description}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
 
-        {activeTab === 'unitTypes' && (
-          hasInventoryAccess ? <UnitTypesManagement /> : <LockedTab tabLabel="Tipo de unidades" />
-        )}
+            {/* Stats abajo del grid (solo si plan no es products-only) */}
+            {hasInventoryAccess && !hasProductsOnlyAccess && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-2 sm:p-4">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 mb-2">
+                  <BarChart3 size={18} className="text-gray-400" />
+                  <h2 className="text-base font-bold text-gray-700">Resumen del inventario</h2>
+                </div>
+                <InventoryStats />
+              </div>
+            )}
 
-        {/* Stock y Alertas: solo en inventario completo */}
-        {activeTab === 'stock' && (
-          hasInventoryAccess && !hasProductsOnlyAccess
-            ? <StockMovements />
-            : <LockedTab tabLabel="Stock" />
-        )}
-
-        {activeTab === 'alerts' && (
-          hasInventoryAccess && !hasProductsOnlyAccess
-            ? <LowStockAlerts />
-            : <LockedTab tabLabel="Alertas" />
+            {visibleTiles.length === 0 && (
+              <LockedTab tabLabel="Inventario" />
+            )}
+          </>
+        ) : (
+          <>
+            {activeTab === 'products' && (
+              hasInventoryAccess ? <ProductsList /> : <LockedTab tabLabel="Productos" />
+            )}
+            {activeTab === 'suppliers' && (
+              hasInventoryAccess ? <SuppliersList /> : <LockedTab tabLabel="Proveedores" />
+            )}
+            {activeTab === 'categories' && (
+              hasInventoryAccess ? <CategoriesManagement /> : <LockedTab tabLabel="Categorías" />
+            )}
+            {activeTab === 'unitTypes' && (
+              hasInventoryAccess ? <UnitTypesManagement /> : <LockedTab tabLabel="Tipo de unidades" />
+            )}
+            {activeTab === 'stock' && (
+              hasInventoryAccess && !hasProductsOnlyAccess
+                ? <StockMovements />
+                : <LockedTab tabLabel="Stock" />
+            )}
+            {activeTab === 'alerts' && (
+              hasInventoryAccess && !hasProductsOnlyAccess
+                ? <LowStockAlerts />
+                : <LockedTab tabLabel="Alertas" />
+            )}
+          </>
         )}
       </div>
     </div>

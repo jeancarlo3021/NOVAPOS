@@ -11,6 +11,8 @@ interface InvoiceRow {
   issued_at: string;
   total: number;
   payment_method: string;
+  status?: 'completed' | 'cancelled' | 'draft';
+  voided?: boolean; // legacy cache field (mismo significado que status='cancelled')
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -61,16 +63,15 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
       let invoiceData: InvoiceRow[] = [];
 
       if (isOnline) {
-        // Online: fetch from API and cache
-        const params = new URLSearchParams({ status: 'completed', limit: '60' });
-        if (sessionId) {
-          params.set('session_id', sessionId);
-        } else {
-          const today = new Date().toISOString().slice(0, 10);
-          params.set('from', `${today}T00:00:00`);
-        }
-        const data = await apiFetch<InvoiceRow[]>(`/invoices?${params.toString()}`);
-        invoiceData = data ?? [];
+        // Online: trae TODAS las facturas (incluyendo anuladas) para que el
+        // usuario pueda ver el estado y no intentar anular dos veces.
+        const params = new URLSearchParams({ limit: '300' });
+        const raw = await apiFetch<any>(`/invoices?${params.toString()}`);
+        // El backend puede devolver el array directo o envuelto en { invoices, total, ... }
+        const arr: InvoiceRow[] = Array.isArray(raw)
+          ? raw
+          : Array.isArray(raw?.invoices) ? raw.invoices : [];
+        invoiceData = arr;
 
         // Combine API invoices with cached ones (to show both)
         const cached = posOfflineService.getCachedInvoices();
@@ -124,6 +125,12 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
 
   const handleVoid = async () => {
     if (!selected) return;
+    // Guarda defensa: si por alguna razón se intenta anular una ya anulada
+    // (estado obsoleto en el cliente), abortar antes de pegar al backend.
+    if (selected.status === 'cancelled') {
+      setPinError('Esta factura ya estaba anulada');
+      return;
+    }
     if (storedPin && pin !== storedPin) {
       setPinError('PIN incorrecto');
       setPin('');
@@ -132,15 +139,22 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
     setVoiding(true);
     try {
       if (isOnline) {
-        // Online: cancel immediately
         await invoicesService.cancelInvoice(selected.id);
-        onVoided(selected.invoice_number);
       } else {
-        // Offline: queue the void operation
         await posOfflineService.queueVoid(selected.id, selected.invoice_number);
-        setPinError('');
-        onVoided(selected.invoice_number);
       }
+      // Marcar inmediatamente como anulada en estado local + cache offline para
+      // que aunque el modal se reabra sin re-fetch, la factura ya aparezca con
+      // el badge "Anulada" y el botón bloqueado. Esto evita la doble anulación
+      // por UI obsoleta.
+      try { posOfflineService.markVoidedInCache(selected.id); } catch { /* ignore */ }
+      setInvoices(prev =>
+        prev.map(inv =>
+          inv.id === selected.id ? { ...inv, status: 'cancelled', voided: true } : inv,
+        ),
+      );
+      setPinError('');
+      onVoided(selected.invoice_number);
     } catch (e) {
       setPinError(e instanceof Error ? e.message : 'Error al anular la factura');
       setVoiding(false);
@@ -157,7 +171,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[88vh]">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[88vh]">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
@@ -263,38 +277,63 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                 </div>
               ) : filtered.length === 0 ? (
                 <p className="text-gray-400 text-center py-14 text-sm">
-                  {search ? 'No se encontraron facturas' : 'No hay facturas completadas en esta sesión'}
+                  {search ? 'No se encontraron facturas' : 'No hay facturas completadas'}
                 </p>
               ) : (
-                filtered.map(inv => (
-                  <div
-                    key={inv.id}
-                    className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 hover:border-red-200 hover:bg-red-50 transition"
-                  >
-                    <div>
-                      <p className="font-mono font-black text-gray-900 text-sm">{inv.invoice_number}</p>
-                      <p className="text-gray-500 text-xs mt-0.5">
-                        {new Date(inv.issued_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}
-                        {' · '}{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
-                      </p>
+                filtered.map(inv => {
+                  const isCancelled = inv.status === 'cancelled' || inv.voided === true;
+                  return (
+                    <div
+                      key={inv.id}
+                      className={`flex items-center justify-between rounded-xl px-4 py-3 transition border ${
+                        isCancelled
+                          ? 'bg-gray-50 border-gray-200 opacity-75'
+                          : 'bg-gray-50 border-gray-200 hover:border-red-200 hover:bg-red-50'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className={`font-mono font-black text-sm ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                            {inv.invoice_number}
+                          </p>
+                          {isCancelled && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-100 text-red-700 text-[10px] font-black uppercase tracking-wider border border-red-200">
+                              <Ban size={10} />
+                              Anulada
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-gray-500 text-xs mt-0.5">
+                          {new Date(inv.issued_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}
+                          {' · '}{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className={`font-bold text-sm ${isCancelled ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                          {fmt(inv.total)}
+                        </span>
+                        {isCancelled ? (
+                          <span className="text-xs font-bold text-gray-400 px-3 py-1.5">
+                            —
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setSelected(inv)}
+                            className="text-xs font-bold text-red-600 border border-red-300 bg-white hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg transition"
+                          >
+                            Anular
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-gray-800 text-sm">{fmt(inv.total)}</span>
-                      <button
-                        onClick={() => setSelected(inv)}
-                        className="text-xs font-bold text-red-600 border border-red-300 bg-white hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg transition"
-                      >
-                        Anular
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
             <div className="px-6 py-3 border-t border-gray-100 shrink-0">
               <p className="text-xs text-gray-400 text-center">
-                Facturas completadas de la sesión actual · máximo 60
+                Mostrando hasta las últimas 300 facturas completadas
               </p>
             </div>
           </>

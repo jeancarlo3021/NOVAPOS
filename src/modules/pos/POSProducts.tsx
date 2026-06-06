@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Search, Package, Plus, ScanBarcode, CheckCircle2, XCircle } from 'lucide-react';
+import { Search, Package, Plus, CheckCircle2, XCircle } from 'lucide-react';
 import { Product, CashSession } from '@/types/Types_POS';
 import { WeightInputModal } from './WeightInputModal';
 import { useBarcodeScanner } from '@/hooks/POS/useBarcodeScanner';
@@ -12,6 +12,8 @@ import {
 } from '@/services/promotions/promotionsService';
 import { categoriesService } from '@/services/Inventory/categoriesService';
 import { useTenantId } from '@/hooks/useTenant';
+import { usePOSLayout } from '@/hooks/usePOSLayout';
+import { ProductSearchModal } from './ProductSearchModal';
 
 // Abbreviations that require weight input when requires_weight is not set in DB
 const WEIGHT_ABBREVS = new Set(['kg', 'g', 'lb', 'lbs', 'oz', 'gr', 'kilo', 'kilos']);
@@ -56,19 +58,17 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   productsError,
   ignoreStock = false,
   activePromotions = [],
-  viewMode = 'touch',
-  searchTabsEnabled = false,
+  viewMode: _viewMode = 'touch',
+  searchTabsEnabled: _searchTabsEnabled = false,
 }) => {
-  // Las tabs solo aplican si: estamos en modo escritorio Y el plan lo permite.
-  const useSearchTabs = viewMode === 'desktop' && searchTabsEnabled;
   const { tenantId } = useTenantId();
+  const { layout } = usePOSLayout();
   // Categoría activa: 'all' o el id de la categoría seleccionada.
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [weightProduct, setWeightProduct]   = useState<Product | null>(null);
   const [scanValue, setScanValue]           = useState('');
   const [scanFeedback, setScanFeedback]     = useState<ScanFeedback | null>(null);
-  // Tab activo de búsqueda en modo escritorio: 'code' = SKU/scanner, 'name' = nombre.
-  const [searchTab, setSearchTab] = useState<'code' | 'name'>('code');
+  const [showSearchModal, setShowSearchModal] = useState(false);
   // Lista de categorías cargada por separado del backend (más confiable que
   // depender del JOIN en /products que puede no estar disponible si el deploy
   // del backend es viejo o si vienen del cache offline sin la relación).
@@ -163,104 +163,168 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
     }
   };
 
+  const isListLayout = layout === 'list';
+
+  // ── Modo LISTA: cabecera minimalista ───────────────────────────────────
+  // El input del escáner permanece en el DOM (oculto fuera de pantalla) para
+  // mantener el foco y permitir que la pistola siga disparando lecturas.
+  // El listener global de useBarcodeScanner sigue capturando aunque no haya
+  // foco. En su lugar el usuario abre un Modal de búsqueda con un botón.
+  if (isListLayout) {
+    return (
+      <>
+        <div className="shrink-0 w-full bg-white border-b border-gray-200 px-3 py-3 flex items-center gap-3">
+          {/* Botón principal: abrir modal de búsqueda */}
+          <button
+            type="button"
+            onClick={() => setShowSearchModal(true)}
+            className="flex-1 h-12 flex items-center gap-3 px-4 rounded-xl border-2 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 active:scale-[0.99] transition text-left"
+          >
+            <Search size={22} className="text-emerald-600 shrink-0" />
+            <span className="flex-1 text-emerald-700 font-bold text-base">
+              Buscar producto…
+            </span>
+            <span className="hidden sm:inline text-xs font-mono text-emerald-600/60">
+              o usa la pistola
+            </span>
+          </button>
+
+          {/* Feedback del escáner (toast inline) */}
+          {scanFeedback && (
+            <div className={`flex items-center gap-2 shrink-0 px-3 py-2 rounded-lg ${
+              scanFeedback.found ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'
+            }`}>
+              {scanFeedback.found ? (
+                <>
+                  <CheckCircle2 size={18} className="text-emerald-600" />
+                  <span className="text-sm font-bold text-emerald-700 max-w-32 truncate">
+                    {scanFeedback.productName}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <XCircle size={18} className="text-red-500" />
+                  <span className="text-sm font-bold text-red-600">
+                    {scanFeedback.productName ?? `"${scanFeedback.code}" no encontrado`}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Input del escáner: oculto visualmente pero funcional (mantiene foco). */}
+        <input
+          ref={scanInputRef}
+          type="text"
+          inputMode="none"
+          value={scanValue}
+          onChange={e => setScanValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (scanValue.trim()) handleScan(scanValue.trim());
+            }
+          }}
+          aria-hidden="true"
+          tabIndex={-1}
+          style={{
+            position: 'absolute',
+            left: -9999,
+            top: -9999,
+            width: 1,
+            height: 1,
+            opacity: 0,
+            pointerEvents: 'none',
+          }}
+        />
+
+        {showSearchModal && (
+          <ProductSearchModal
+            products={allProducts.length > 0 ? allProducts : products}
+            onPick={(p) => {
+              handleAdd(p);
+              setShowSearchModal(false);
+            }}
+            onClose={() => setShowSearchModal(false)}
+            ignoreStock={ignoreStock}
+            activePromotions={activePromotions}
+          />
+        )}
+
+        {/* Weight input modal — también disponible en modo lista */}
+        {weightProduct && (
+          <WeightInputModal
+            product={weightProduct}
+            onConfirm={handleWeightConfirm}
+            onClose={() => setWeightProduct(null)}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
-    <div className="flex-1 flex flex-col bg-gray-100 overflow-hidden">
+    <div className={`flex flex-col bg-gray-100 overflow-hidden flex-1`}>
 
       {/* ── Scanner input + search ── */}
       <div className="bg-white border-b border-gray-200 px-3 pt-3 pb-0 shrink-0">
 
-        {/* En modo escritorio con la feature habilitada: tabs para alternar entre búsqueda por código y por nombre */}
-        {useSearchTabs && (
-          <div className="flex gap-1 mb-2 bg-gray-100 rounded-lg p-1">
-            <button
-              type="button"
-              onClick={() => setSearchTab('code')}
-              className={`flex-1 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                searchTab === 'code'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <ScanBarcode size={13} /> Buscar por código
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchTab('name')}
-              className={`flex-1 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                searchTab === 'name'
-                  ? 'bg-white text-emerald-600 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <Search size={13} /> Buscar por nombre
-            </button>
-          </div>
-        )}
+        {/* Tabs de código/nombre eliminadas: el SKU ahora se captura sólo por
+            pistola (input oculto). La barra de nombre queda siempre visible. */}
 
-        {/* Scanner: siempre visible salvo cuando las tabs están activas y muestran "nombre" */}
-        {(!useSearchTabs || searchTab === 'code') && (
-        <div className="mb-2">
-          <div className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 transition ${
-            scanFeedback
-              ? scanFeedback.found
-                ? 'border-emerald-400 bg-emerald-50'
-                : 'border-red-400 bg-red-50'
-              : 'border-blue-300 bg-blue-50 focus-within:border-blue-500'
+        {/* Escáner: input oculto fuera de pantalla (la pistola sigue funcionando
+            por el listener global de useBarcodeScanner). Solo aparece un toast
+            corto cuando se registra una lectura, sin ocupar espacio en la UI. */}
+        <input
+          ref={scanInputRef}
+          type="text"
+          inputMode="none"
+          value={scanValue}
+          onChange={e => setScanValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (scanValue.trim()) handleScan(scanValue.trim());
+            }
+          }}
+          aria-hidden="true"
+          tabIndex={-1}
+          style={{
+            position: 'absolute',
+            left: -9999,
+            top: -9999,
+            width: 1,
+            height: 1,
+            opacity: 0,
+            pointerEvents: 'none',
+          }}
+        />
+        {scanFeedback && (
+          <div className={`mb-2 flex items-center gap-2 px-3 py-2 rounded-lg border ${
+            scanFeedback.found
+              ? 'border-emerald-200 bg-emerald-50'
+              : 'border-red-200 bg-red-50'
           }`}>
-            <ScanBarcode
-              size={24}
-              className={`shrink-0 transition ${
-                scanFeedback
-                  ? scanFeedback.found ? 'text-emerald-600' : 'text-red-500'
-                  : 'text-blue-500'
-              }`}
-            />
-            <input
-              ref={scanInputRef}
-              type="text"
-              inputMode="none"          // Prevents mobile keyboard — scanner provides input
-              value={scanValue}
-              onChange={e => setScanValue(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  if (scanValue.trim()) handleScan(scanValue.trim());
-                }
-              }}
-              placeholder="Apunta la pistola aquí · F2 para enfocar"
-              className={`flex-1 bg-transparent text-base font-semibold placeholder:font-normal focus:outline-none ${
-                scanFeedback
-                  ? scanFeedback.found ? 'text-emerald-700 placeholder:text-emerald-400' : 'text-red-700 placeholder:text-red-400'
-                  : 'text-blue-700 placeholder:text-blue-400'
-              }`}
-            />
-
-            {/* Feedback badge */}
-            {scanFeedback ? (
-              scanFeedback.found ? (
-                <div className="flex items-center gap-2 shrink-0">
-                  <CheckCircle2 size={20} className="text-emerald-600" />
-                  <span className="text-sm font-bold text-emerald-700 max-w-32 truncate">
-                    {scanFeedback.productName}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 shrink-0">
-                  <XCircle size={20} className="text-red-500" />
-                  <span className="text-sm font-bold text-red-600">
-                    {scanFeedback.productName ?? `"${scanFeedback.code}" no encontrado`}
-                  </span>
-                </div>
-              )
+            {scanFeedback.found ? (
+              <>
+                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                <span className="text-sm font-bold text-emerald-700 truncate">
+                  {scanFeedback.productName}
+                </span>
+              </>
             ) : (
-              <span className="text-sm text-blue-400 shrink-0 hidden sm:block">SKU / código</span>
+              <>
+                <XCircle size={16} className="text-red-500 shrink-0" />
+                <span className="text-sm font-bold text-red-600 truncate">
+                  {scanFeedback.productName ?? `"${scanFeedback.code}" no encontrado`}
+                </span>
+              </>
             )}
           </div>
-        </div>
         )}
 
-        {/* Search bar: siempre visible salvo cuando las tabs están activas y muestran "código" */}
-        {(!useSearchTabs || searchTab === 'name') && (
+        {/* Búsqueda por nombre — siempre visible. */}
         <div className="relative mb-2">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -268,11 +332,9 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             placeholder="Buscar producto..."
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
-            autoFocus={useSearchTabs}
             className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400 text-sm font-medium transition"
           />
         </div>
-        )}
 
         {categories.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-2">
@@ -296,7 +358,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
         )}
       </div>
 
-      {/* ── Products Grid ── */}
+      {/* ── Products area (solo layout grid) ── */}
       <div className="flex-1 overflow-y-auto p-3 pos-scroll">
         {displayed.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-4">

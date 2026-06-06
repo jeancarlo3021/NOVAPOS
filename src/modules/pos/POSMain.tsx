@@ -5,6 +5,8 @@ import { useTenantId } from '@/hooks/useTenant';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
 import { usePOSViewMode } from '@/hooks/usePOSViewMode';
+import { useAssistedMode } from '@/hooks/useAssistedMode';
+import { usePOSLayout } from '@/hooks/usePOSLayout';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
 import {
@@ -22,6 +24,7 @@ import { POSProductsPanel } from './POSProducts';
 import { POSCartPanel } from './POSCart';
 import { POSModals } from './POSModals';
 import { VoidInvoiceModal } from './VoidInvoiceModal';
+import { ReprintInvoiceModal } from './ReprintInvoiceModal';
 import { DisplayTestModal } from './components/DisplayTestModal';
 import { CashOpenModal } from './cashManagement/CashOpenModal';
 import { CashCloseModal } from './cashManagement/CashCloseModal';
@@ -39,6 +42,9 @@ export const POSMain = () => {
   const { user, planFeatures } = useAuth();
   const { tenantId, loading: tenantLoading, error: tenantError } = useTenantId();
   const { mode: posViewMode } = usePOSViewMode();
+  const { assisted } = useAssistedMode();
+  const { layout: posLayout } = usePOSLayout();
+  const isListLayout = posLayout === 'list';
   const { currentSession, loading: sessionLoading, refetchSession } = useCashSession();
   const { isOnline } = useOfflineSync();
   const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError } = usePOSProducts();
@@ -53,6 +59,22 @@ export const POSMain = () => {
   const [paymentData, setPaymentData] = useState<any>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // ── Auto-dismiss de los toasts en el header del POS ─────────────────────
+  // Mensajes de éxito desaparecen a los 3.5 s, errores a los 6 s (más tiempo
+  // porque pueden requerir atención). El timer se resetea cada vez que cambia
+  // el mensaje, así dos eventos seguidos no se solapan ni se borran antes.
+  useEffect(() => {
+    if (!success) return;
+    const id = setTimeout(() => setSuccess(''), 3500);
+    return () => clearTimeout(id);
+  }, [success]);
+
+  useEffect(() => {
+    if (!error) return;
+    const id = setTimeout(() => setError(''), 6000);
+    return () => clearTimeout(id);
+  }, [error]);
   const [paymentLoading, setPaymentLoading] = useState(false);
 
   // Tax settings loaded from general config
@@ -61,6 +83,7 @@ export const POSMain = () => {
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
+  const [showReprintModal, setShowReprintModal] = useState(false);
   // Cliente para la factura en curso (visible en modo escritorio).
   const [customerName, setCustomerName] = useState('');
   // Bump cuando se completa un cobro, para que POSDesktopBar re-lea el peek.
@@ -218,6 +241,26 @@ export const POSMain = () => {
   const effectiveTaxRate = taxEnabled ? taxRate : 0;
   const taxAmount = Math.round(subtotal * effectiveTaxRate);
   const total = subtotal + taxAmount;
+
+  // ── Atajos de teclado estilo Eleventa ─────────────────────────────────
+  // F12 = Cobrar · F4 = Anular · Esc = Cerrar modal
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'F12') {
+        e.preventDefault();
+        if (cartItems.length > 0 && currentSession?.status === 'open') {
+          setShowPaymentModal(true);
+        }
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        if (currentSession) setShowVoidModal(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cartItems.length, currentSession]);
 
   // Pre-cargar configuración de impresión y conexión QZ Tray
   // para que el primer cobro sea instantáneo
@@ -484,8 +527,9 @@ export const POSMain = () => {
 
   return (
     <div
-      className={`pos-root flex flex-col h-full bg-gray-50 overflow-hidden ${posViewMode === 'touch' ? 'pos-touch' : 'pos-desktop'}`}
+      className={`pos-root flex flex-col h-full bg-gray-50 overflow-hidden ${posViewMode === 'touch' ? 'pos-touch' : 'pos-desktop'} ${assisted ? 'pos-assisted' : ''}`}
       data-pos-view={posViewMode}
+      data-assisted={assisted ? '1' : '0'}
     >
       <POSHeader
         error={error}
@@ -501,6 +545,7 @@ export const POSMain = () => {
         onOpenCash={() => setShowOpenModal(true)}
         onCloseCash={() => setShowCloseModal(true)}
         onVoidInvoice={currentSession ? () => setShowVoidModal(true) : undefined}
+        onReprintInvoice={() => setShowReprintModal(true)}
         onCashIn={currentSession?.status === 'open' ? () => setCashMovement('in') : undefined}
         onCashOut={currentSession?.status === 'open' ? () => setCashMovement('out') : undefined}
         onSync={isOnline ? syncOfflineInvoices : undefined}
@@ -517,7 +562,55 @@ export const POSMain = () => {
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* ── Barra de Total estilo Eleventa ──────────────────────────────────
+           Se muestra en modo Asistido O en layout de Lista (ahí el carrito
+           ocupa el centro, así que el total grande va arriba como banner).  */}
+      {(assisted || isListLayout) && (
+        <div className="relative shrink-0 px-5 py-4 bg-linear-to-br from-slate-900 via-emerald-900 to-emerald-700 text-white shadow-[0_6px_18px_-6px_rgba(16,185,129,0.55)] border-b-2 border-emerald-400/40 overflow-hidden">
+          {/* Decoración suave de fondo */}
+          <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-emerald-400/10 blur-3xl" />
+          <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-emerald-300/10 blur-2xl" />
+
+          <div className="relative flex items-center justify-between gap-4">
+            {/* Lado izquierdo: detalles */}
+            <div className="flex flex-col gap-1 min-w-0">
+              <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-emerald-300/90">
+                Total a cobrar
+              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs sm:text-sm text-emerald-100/90 font-semibold">
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+                  {cartItems.length} {cartItems.length === 1 ? 'artículo' : 'artículos'}
+                </span>
+                {taxEnabled && taxAmount > 0 && (
+                  <>
+                    <span className="text-emerald-300/40">·</span>
+                    <span className="tabular-nums">Sub ₡{subtotal.toLocaleString('es-CR')}</span>
+                    <span className="text-emerald-300/40">·</span>
+                    <span className="tabular-nums">IVA ₡{taxAmount.toLocaleString('es-CR')}</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Lado derecho: monto gigante */}
+            <div className="text-right shrink-0">
+              <p
+                className="font-black tabular-nums leading-none drop-shadow-[0_2px_8px_rgba(16,185,129,0.45)]"
+                style={{ fontSize: 'clamp(2rem, 5vw, 3.5rem)' }}
+              >
+                <span className="text-emerald-300 mr-1">₡</span>
+                <span className="text-white">{total.toLocaleString('es-CR')}</span>
+              </p>
+              <p className="text-[10px] sm:text-xs font-semibold text-emerald-200/70 mt-0.5">
+                Presiona <kbd className="px-1 py-0.5 rounded bg-emerald-500/30 border border-emerald-400/30 text-emerald-100 font-mono text-[10px]">F12</kbd> para cobrar
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={`flex flex-1 overflow-hidden ${isListLayout ? 'flex-col' : 'flex-row'}`}>
         <POSProductsPanel
           viewMode={posViewMode}
           searchTabsEnabled={!!(planFeatures as any).pos_search_tabs}
@@ -546,8 +639,42 @@ export const POSMain = () => {
           onChangeQuantity={handleChangeQuantity}
           onApplyDiscount={handleApplyDiscount}
           onPayment={() => setShowPaymentModal(true)}
+          expanded={isListLayout}
         />
       </div>
+
+      {/* Cintillo de atajos F-keys estilo Eleventa — solo en modo escritorio */}
+      {posViewMode === 'desktop' && (
+        <div className="bg-gray-900 text-white px-4 py-1.5 flex items-center gap-3 text-[11px] font-mono shrink-0 overflow-x-auto pos-keyboard-hint">
+          <span className="font-bold text-emerald-400">
+            <span className="bg-emerald-600 text-white px-1.5 py-0.5 rounded mr-1.5">F12</span>
+            Cobrar
+          </span>
+          <span className="text-gray-400">·</span>
+          <span className="font-bold text-red-300">
+            <span className="bg-red-600 text-white px-1.5 py-0.5 rounded mr-1.5">F4</span>
+            Anular
+          </span>
+          <span className="text-gray-400">·</span>
+          <span className="font-bold text-blue-300">
+            <span className="bg-blue-600 text-white px-1.5 py-0.5 rounded mr-1.5">F2</span>
+            Pistola lectora
+          </span>
+          <span className="text-gray-400">·</span>
+          <span className="font-bold text-gray-300">
+            <span className="bg-gray-600 text-white px-1.5 py-0.5 rounded mr-1.5">Esc</span>
+            Cancelar
+          </span>
+          <span className="text-gray-400">·</span>
+          <span className="font-bold text-gray-300">
+            <span className="bg-gray-600 text-white px-1.5 py-0.5 rounded mr-1.5">Enter</span>
+            Confirmar
+          </span>
+          <span className="ml-auto text-gray-500">
+            ColònClick · {assisted ? 'Modo Asistido' : 'Escritorio'}
+          </span>
+        </div>
+      )}
 
       {/* POSModals only handles the receipt now */}
       <POSModals
@@ -614,6 +741,13 @@ export const POSMain = () => {
             setShowVoidModal(false);
             setSuccess(`Factura ${invoiceNumber} anulada correctamente`);
           }}
+        />
+      )}
+
+      {showReprintModal && (
+        <ReprintInvoiceModal
+          cashierName={user?.email ?? undefined}
+          onClose={() => setShowReprintModal(false)}
         />
       )}
 

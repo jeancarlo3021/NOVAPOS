@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icon-512.svg', 'icon-maskable.svg', 'qz-tray.js'],
       manifest: {
-        name: 'NovaPOS',
-        short_name: 'NovaPOS',
+        name: 'ColònClick',
+        short_name: 'ColònClick',
         description: 'Sistema de gestión y punto de venta',
         theme_color: '#10b981',
         background_color: '#0f172a',

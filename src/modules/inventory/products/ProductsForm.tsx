@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon } from 'lucide-react';
+import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon, ChevronDown, ChevronUp } from 'lucide-react';
 import { calcMargin, MARGIN_TEXT } from '@/utils/priceUtils';
 import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
@@ -66,6 +66,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const [newUnit, setNewUnit] = useState({ name: '', abbreviation: '' });
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [unitLoading, setUnitLoading] = useState(false);
+  // Modo simple por defecto al crear, modo avanzado al editar (para no esconder
+  // datos ya configurados). Botón para mostrar/ocultar campos opcionales.
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(!!productId);
 
   // Cargar categorías y tipos de unidad
   const {
@@ -330,32 +333,27 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="lg:columns-2 lg:gap-6 space-y-4 *:break-inside-avoid *:mb-4 lg:*:mb-0 lg:[&>*+*]:mt-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
 
-            {/* Imagen del producto */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Imagen del Producto</label>
-              <div className="flex items-start gap-4">
-                {/* Preview */}
-                <div className="w-28 h-28 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">
-                  {imageUrl ? (
-                    <img src={imageUrl} alt="Producto" className="w-full h-full object-contain p-1" />
-                  ) : (
-                    <ImageIcon size={28} className="text-gray-300" />
-                  )}
-                </div>
-
-                {/* Botones */}
-                <div className="flex-1 flex flex-col gap-2">
-                  <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-sm cursor-pointer transition w-fit ${
-                    uploadingImage
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-blue-50 hover:bg-blue-100 text-blue-700'
+            {/* ── BLOQUE ESENCIAL — siempre visible, campos grandes ─────────── */}
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-4 items-start">
+                {/* Imagen compacta */}
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-28 h-28 rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+                    {imageUrl ? (
+                      <img src={imageUrl} alt="Producto" className="w-full h-full object-contain p-1" />
+                    ) : (
+                      <ImageIcon size={32} className="text-gray-300" />
+                    )}
+                  </div>
+                  <label className={`text-xs font-bold cursor-pointer transition ${
+                    uploadingImage ? 'text-gray-400' : 'text-blue-600 hover:underline'
                   }`}>
                     {uploadingImage ? (
-                      <><Loader size={14} className="animate-spin" /> Subiendo...</>
+                      <span className="inline-flex items-center gap-1"><Loader size={12} className="animate-spin" /> Subiendo…</span>
                     ) : (
-                      <><Upload size={14} /> {imageUrl ? 'Reemplazar' : 'Cargar imagen'}</>
+                      <span className="inline-flex items-center gap-1"><Upload size={12} /> {imageUrl ? 'Cambiar' : 'Subir foto'}</span>
                     )}
                     <input
                       type="file"
@@ -369,263 +367,68 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     <button
                       type="button"
                       onClick={handleRemoveImage}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold transition w-fit"
+                      className="inline-flex items-center gap-1 text-xs text-red-500 hover:underline"
                     >
-                      <Trash2 size={12} /> Eliminar
+                      <Trash2 size={11} /> Quitar
                     </button>
                   )}
-                  <span className="text-xs text-gray-400">JPG, PNG o WebP · max 1 MB · se comprime automáticamente</span>
                 </div>
-              </div>
-            </div>
 
-            {/* Fila 1: Nombre y SKU */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre del Producto *</label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="Ej: Laptop Dell XPS 13"
-                  required
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">SKU *</label>
-                <input
-                  type="text"
-                  name="sku"
-                  value={formData.sku}
-                  onChange={handleChange}
-                  placeholder="Ej: DELL-XPS-001"
-                  required
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
-              </div>
-            </div>
-
-            {/* Descripción */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Descripción</label>
-              <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleChange}
-                placeholder="Descripción detallada del producto..."
-                rows={3}
-                disabled={submitting}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-              />
-            </div>
-
-            {/* Campos que se ocultan si es products_only */}
-            {!isProductsOnly && (
-              <>
-                {/* Fila 2: Categoría y Tipo de Unidad */}
-                <div className="space-y-4">
+                {/* Nombre + SKU + Precio (los 3 esenciales) */}
+                <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría</label>
-                    <div className="flex gap-2">
-                      <select
-                        name="category_id"
-                        value={formData.category_id}
+                    <label className="block text-base font-black text-gray-800 mb-1.5">Nombre del producto *</label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleChange}
+                      placeholder="Ej: Coca-Cola 600ml"
+                      required
+                      autoFocus
+                      disabled={submitting}
+                      className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">SKU / Código *</label>
+                      <input
+                        type="text"
+                        name="sku"
+                        value={formData.sku}
                         onChange={handleChange}
-                        disabled={submitting || categoriesLoading}
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                      >
-                        <option value="">Seleccionar categoría...</option>
-                        {categories.map(cat => (
-                          <option key={cat.id} value={cat.id}>
-                            {cat.name}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder="Ej: 7501055309948"
+                        required
+                        disabled={submitting}
+                        className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                      />
                     </div>
-                    {showCategoryForm && (
-                      <div className="mt-2 flex gap-2">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Precio de venta *</label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-black text-lg">₡</span>
                         <input
-                          type="text"
-                          value={newCategory}
-                          onChange={(e) => setNewCategory(e.target.value)}
-                          placeholder="Nueva categoría..."
-                          disabled={categoryLoading}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
+                          type="number"
+                          name="unit_price"
+                          value={formData.unit_price}
+                          onChange={handleChange}
+                          placeholder="0"
+                          step="0.01"
+                          min="0"
+                          disabled={submitting}
+                          className="w-full pl-8 pr-4 py-2.5 text-lg font-black border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 tabular-nums"
                         />
-                        <button
-                          type="button"
-                          onClick={handleAddCategory}
-                          disabled={categoryLoading}
-                          className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
-                        >
-                          {categoryLoading ? '⏳' : 'Agregar'}
-                        </button>
                       </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de Unidad</label>
-                    <div className="flex gap-2">
-                      <select
-                        name="unit_type_id"
-                        value={formData.unit_type_id}
-                        onChange={handleChange}
-                        disabled={submitting || unitTypesLoading}
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                      >
-                        <option value="">Seleccionar unidad...</option>
-                        {unitTypes.map(unit => (
-                          <option key={unit.id} value={unit.id}>
-                            {unit.name} ({unit.abbreviation})
-                          </option>
-                        ))}
-                      </select>
                     </div>
-                    {showUnitForm && (
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        <input
-                          type="text"
-                          value={newUnit.name}
-                          onChange={(e) => setNewUnit({ ...newUnit, name: e.target.value })}
-                          placeholder="Nombre..."
-                          disabled={unitLoading}
-                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
-                        />
-                        <input
-                          type="text"
-                          value={newUnit.abbreviation}
-                          onChange={(e) => setNewUnit({ ...newUnit, abbreviation: e.target.value })}
-                          placeholder="Abreviatura..."
-                          disabled={unitLoading}
-                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddUnitType}
-                          disabled={unitLoading}
-                          className="col-span-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
-                        >
-                          {unitLoading ? '⏳ Agregando...' : 'Agregar Unidad'}
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
-              </>
-            )}
-
-            {/* Mostrar tipo de unidad en modo products_only */}
-            {isProductsOnly && (
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de Unidad</label>
-                <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
-                  {unitTypeDisplay}
-                </div>
               </div>
-            )}
 
-            {/* Fila 3: Precios */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Precio de Costo</label>
-                <input
-                  type="number"
-                  name="cost_price"
-                  value={formData.cost_price}
-                  onChange={handleChange}
-                  placeholder="0.00"
-                  step="0.01"
-                  min="0"
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Precio de Venta</label>
-                <input
-                  type="number"
-                  name="unit_price"
-                  value={formData.unit_price}
-                  onChange={handleChange}
-                  placeholder="0.00"
-                  step="0.01"
-                  min="0"
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
-              </div>
-            </div>
-
-            {/* Margen — solo display */}
-            {(() => {
-              const { label, profit, color } = calcMargin(formData.unit_price, formData.cost_price);
-              const mc = MARGIN_TEXT[color];
-              const bg =
-                color === 'gray'  ? 'bg-gray-50 border-gray-100'   :
-                color === 'red'   ? 'bg-red-50 border-red-100'     :
-                color === 'amber' ? 'bg-amber-50 border-amber-100' :
-                                    'bg-emerald-50 border-emerald-100';
-              return (
-                <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 ${bg}`}>
-                  <div className="flex items-center gap-2">
-                    <TrendingUp size={15} className={mc} />
-                    <span className="text-sm font-semibold text-gray-600">Margen</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {profit !== null && (
-                      <span className={`text-xs font-semibold ${mc}`}>
-                        {profit >= 0 ? '+' : ''}₡{Math.abs(profit).toLocaleString('es-CR', { minimumFractionDigits: 0 })} ganancia
-                      </span>
-                    )}
-                    <span className={`text-lg font-black ${mc}`}>{label}</span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Toggle: Manejar Stock — solo visible si el plan permite mezclar */}
-            {!isProductsOnly && canMixStock && (
-              <div className={`flex items-start gap-3 p-4 rounded-xl border-2 transition ${
-                tracksStock
-                  ? 'bg-emerald-50 border-emerald-200'
-                  : 'bg-amber-50 border-amber-200'
-              }`}>
-                <button
-                  type="button"
-                  onClick={() => setTracksStock(!tracksStock)}
-                  className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-                    tracksStock ? 'bg-emerald-500' : 'bg-gray-300'
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
-                      tracksStock ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-                <div className="flex-1">
-                  <p className={`font-bold text-sm ${tracksStock ? 'text-emerald-800' : 'text-amber-800'}`}>
-                    📦 Manejar stock para este producto
-                  </p>
-                  <p className={`text-xs mt-0.5 ${tracksStock ? 'text-emerald-600' : 'text-amber-700'}`}>
-                    {tracksStock
-                      ? 'Las ventas descontarán del inventario. Útil para productos físicos.'
-                      : 'Stock ilimitado. Ideal para servicios, comidas preparadas o productos sin inventario.'}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Fila 4: Stock - Solo si NO es products_only Y maneja stock */}
-            {!isProductsOnly && tracksStock && (
-              <div className="space-y-4">
+              {/* Stock actual — esencial si maneja inventario */}
+              {!isProductsOnly && tracksStock && (
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Actual</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">Stock actual</label>
                   <input
                     type="number"
                     name="stock_quantity"
@@ -634,54 +437,264 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     placeholder="0"
                     min="0"
                     disabled={submitting}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    className="w-full px-4 py-2.5 text-lg font-bold border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 tabular-nums"
                   />
                 </div>
+              )}
+            </div>
+
+            {/* ── Botón "Más opciones" ───────────────────────────────────── */}
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(s => !s)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold text-sm transition"
+            >
+              {showAdvanced ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              {showAdvanced ? 'Ocultar opciones avanzadas' : 'Más opciones (categoría, costo, unidad, descripción…)'}
+            </button>
+
+            {/* ── BLOQUE AVANZADO — colapsable ─────────────────────────── */}
+            {showAdvanced && (
+              <div className="lg:columns-2 lg:gap-6 space-y-4 *:break-inside-avoid *:mb-4 lg:*:mb-0 lg:[&>*+*]:mt-4 pt-2 border-t border-gray-100">
+
+                {/* Descripción */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Mínimo</label>
-                  <input
-                    type="number"
-                    name="min_stock_level"
-                    value={formData.min_stock_level}
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Descripción</label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
                     onChange={handleChange}
-                    placeholder="10"
-                    min="0"
+                    placeholder="Detalle opcional…"
+                    rows={2}
                     disabled={submitting}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                   />
                 </div>
+
+                {!isProductsOnly && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría</label>
+                      <select
+                        name="category_id"
+                        value={formData.category_id}
+                        onChange={handleChange}
+                        disabled={submitting || categoriesLoading}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                      >
+                        <option value="">Sin categoría</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ))}
+                      </select>
+                      {showCategoryForm && (
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            type="text"
+                            value={newCategory}
+                            onChange={(e) => setNewCategory(e.target.value)}
+                            placeholder="Nueva categoría…"
+                            disabled={categoryLoading}
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddCategory}
+                            disabled={categoryLoading}
+                            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
+                          >
+                            {categoryLoading ? '⏳' : 'Agregar'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de unidad</label>
+                      <select
+                        name="unit_type_id"
+                        value={formData.unit_type_id}
+                        onChange={handleChange}
+                        disabled={submitting || unitTypesLoading}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                      >
+                        <option value="">Sin unidad</option>
+                        {unitTypes.map(unit => (
+                          <option key={unit.id} value={unit.id}>
+                            {unit.name} ({unit.abbreviation})
+                          </option>
+                        ))}
+                      </select>
+                      {showUnitForm && (
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            value={newUnit.name}
+                            onChange={(e) => setNewUnit({ ...newUnit, name: e.target.value })}
+                            placeholder="Nombre…"
+                            disabled={unitLoading}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
+                          />
+                          <input
+                            type="text"
+                            value={newUnit.abbreviation}
+                            onChange={(e) => setNewUnit({ ...newUnit, abbreviation: e.target.value })}
+                            placeholder="Abreviatura…"
+                            disabled={unitLoading}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddUnitType}
+                            disabled={unitLoading}
+                            className="col-span-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
+                          >
+                            {unitLoading ? '⏳ Agregando…' : 'Agregar unidad'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {isProductsOnly && (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de unidad</label>
+                    <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
+                      {unitTypeDisplay}
+                    </div>
+                  </div>
+                )}
+
+                {/* Precio de costo */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Stock Máximo</label>
-                  <input
-                    type="number"
-                    name="max_stock_level"
-                    value={formData.max_stock_level}
-                    onChange={handleChange}
-                    placeholder="100"
-                    min="0"
-                    disabled={submitting}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                  />
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Precio de costo</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₡</span>
+                    <input
+                      type="number"
+                      name="cost_price"
+                      value={formData.cost_price}
+                      onChange={handleChange}
+                      placeholder="0"
+                      step="0.01"
+                      min="0"
+                      disabled={submitting}
+                      className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 tabular-nums"
+                    />
+                  </div>
                 </div>
+
+                {/* Margen */}
+                {(() => {
+                  const { label, profit, color } = calcMargin(formData.unit_price, formData.cost_price);
+                  const mc = MARGIN_TEXT[color];
+                  const bg =
+                    color === 'gray'  ? 'bg-gray-50 border-gray-100'   :
+                    color === 'red'   ? 'bg-red-50 border-red-100'     :
+                    color === 'amber' ? 'bg-amber-50 border-amber-100' :
+                                        'bg-emerald-50 border-emerald-100';
+                  return (
+                    <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 ${bg}`}>
+                      <div className="flex items-center gap-2">
+                        <TrendingUp size={15} className={mc} />
+                        <span className="text-sm font-semibold text-gray-600">Margen</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {profit !== null && (
+                          <span className={`text-xs font-semibold ${mc}`}>
+                            {profit >= 0 ? '+' : ''}₡{Math.abs(profit).toLocaleString('es-CR', { minimumFractionDigits: 0 })} ganancia
+                          </span>
+                        )}
+                        <span className={`text-lg font-black ${mc}`}>{label}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Toggle: Manejar Stock */}
+                {!isProductsOnly && canMixStock && (
+                  <div className={`flex items-start gap-3 p-4 rounded-xl border-2 transition ${
+                    tracksStock
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : 'bg-amber-50 border-amber-200'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => setTracksStock(!tracksStock)}
+                      className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                        tracksStock ? 'bg-emerald-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                          tracksStock ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                    <div className="flex-1">
+                      <p className={`font-bold text-sm ${tracksStock ? 'text-emerald-800' : 'text-amber-800'}`}>
+                        Manejar stock para este producto
+                      </p>
+                      <p className={`text-xs mt-0.5 ${tracksStock ? 'text-emerald-600' : 'text-amber-700'}`}>
+                        {tracksStock
+                          ? 'Las ventas descuentan del inventario.'
+                          : 'Stock ilimitado (servicios, comidas, etc.)'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Min / Max stock */}
+                {!isProductsOnly && tracksStock && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Stock mínimo</label>
+                      <input
+                        type="number"
+                        name="min_stock_level"
+                        value={formData.min_stock_level}
+                        onChange={handleChange}
+                        placeholder="10"
+                        min="0"
+                        disabled={submitting}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Stock máximo</label>
+                      <input
+                        type="number"
+                        name="max_stock_level"
+                        value={formData.max_stock_level}
+                        onChange={handleChange}
+                        placeholder="100"
+                        min="0"
+                        disabled={submitting}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </form>
         </CardContent>
 
-        <CardFooter className="bg-gray-50 border-t border-gray-200 flex justify-end gap-3 p-6">
+        <CardFooter className="bg-gray-50 border-t border-gray-200 grid grid-cols-3 gap-3 p-5">
           <button
             onClick={onCancel}
             disabled={submitting}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 font-medium text-gray-700 disabled:opacity-50"
+            className="h-14 rounded-2xl border-2 border-gray-300 hover:bg-gray-100 font-black text-base text-gray-700 disabled:opacity-50 transition"
           >
             Cancelar
           </button>
           <button
             onClick={handleSubmit}
             disabled={submitting}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium flex items-center gap-2"
+            className="col-span-2 h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-black text-lg disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2 transition shadow-sm"
           >
-            {submitting ? '⏳ Guardando...' : '💾 Guardar'}
+            {submitting ? 'Guardando…' : (productId ? 'Actualizar producto' : 'Guardar producto')}
           </button>
         </CardFooter>
       </Card>
