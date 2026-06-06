@@ -31,9 +31,13 @@ const METHOD_LABEL: Record<string, string> = {
 
 interface Props {
   owners: OwnerData[];
+  /** Callback opcional cuando se registra un comprobante de tipo "subscription".
+   *  El parent (CreateOwner) lo usa para refrescar los owners y reflejar el
+   *  nuevo `ends_at` (próximo cobro). */
+  onReceiptCreated?: () => void | Promise<void>;
 }
 
-export function PaymentReceiptsView({ owners }: Props) {
+export function PaymentReceiptsView({ owners, onReceiptCreated }: Props) {
   const [receipts, setReceipts] = useState<PaymentReceipt[]>([]);
   const [loading, setLoading]   = useState(false);
   const [error,   setError]     = useState('');
