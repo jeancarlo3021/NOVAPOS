@@ -103,7 +103,28 @@ export default function Plans() {
   const fetchPlans = async () => {
     try {
       setLoading(true);
-      setPlans(await subscriptionPlansService.getAllPlans());
+      const all = await subscriptionPlansService.getAllPlans();
+
+      // Auto-reactivar el plan Admin si llegó desactivado del backend (defensa
+      // contra estados corruptos: si quedó inactive nadie puede gestionar
+      // tenants). También aseguramos que admin_dashboard siga en true.
+      const fixedPromises = all
+        .filter(p => {
+          const f = (p.features as any) ?? {};
+          return f.admin_dashboard === true && p.is_active === false;
+        })
+        .map(p =>
+          subscriptionPlansService.togglePlanStatus(p.id, true).catch(() => {}),
+        );
+      if (fixedPromises.length > 0) {
+        await Promise.all(fixedPromises);
+        for (const p of all) {
+          const f = (p.features as any) ?? {};
+          if (f.admin_dashboard === true) p.is_active = true;
+        }
+      }
+
+      setPlans(all);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -141,6 +162,11 @@ export default function Plans() {
       // Normaliza: cada flag se guarda como booleano explícito (los undefined
       // que JSON.stringify dropearía causaban que el toggle "off" no persistiera).
       const explicit = { ...DEFAULT_FEATURES, ...features } as PlanFeatures;
+      // El plan Admin DEBE conservar admin_dashboard=true. Si se intentó apagar
+      // accidentalmente desde el toggle, lo forzamos de vuelta acá.
+      if (isAdminPlan(selectedPlan)) {
+        (explicit as any).admin_dashboard = true;
+      }
       await subscriptionPlansService.updatePlan(selectedPlan.id, { features: explicit });
       setShowFeaturesModal(false);
       setPlans(plans.map(p => p.id === selectedPlan.id ? { ...p, features: explicit } as SubscriptionPlan : p));
@@ -155,10 +181,24 @@ export default function Plans() {
   };
 
   const handleToggleStatus = async (plan: SubscriptionPlan) => {
+    // El plan Admin (con admin_dashboard=true) nunca debe poder desactivarse:
+    // es la cuenta del super-admin que gestiona los demás tenants. Si quedara
+    // inactivo, te trabás sin acceso al panel /create-owner.
+    if (isAdminPlan(plan) && plan.is_active) {
+      setError('El plan Admin no se puede desactivar (necesario para gestionar otros negocios).');
+      return;
+    }
     try {
       await subscriptionPlansService.togglePlanStatus(plan.id, !plan.is_active);
       setPlans(plans.map(p => p.id === plan.id ? { ...p, is_active: !p.is_active } : p));
     } catch (err: any) { setError(err.message); }
+  };
+
+  // Identifica el plan administrador por la feature admin_dashboard. Este plan
+  // siempre permanece habilitado y con esa feature encendida.
+  const isAdminPlan = (plan: SubscriptionPlan): boolean => {
+    const features = (plan.features as any) ?? {};
+    return features.admin_dashboard === true;
   };
 
   const feat = (plan: SubscriptionPlan) =>
@@ -223,21 +263,31 @@ export default function Plans() {
         {plans.map(plan => {
           const pf = feat(plan);
           const summary = featureSummary(pf);
+          const isAdmin = isAdminPlan(plan);
           return (
-            <div key={plan.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+            <div key={plan.id} className={`bg-white rounded-2xl shadow-sm border overflow-hidden flex flex-col ${
+              isAdmin ? 'border-amber-300 ring-2 ring-amber-100' : 'border-gray-100'
+            }`}>
               {/* Card header */}
               <div className="px-5 pt-5 pb-4 border-b border-gray-50">
-                <div className="flex items-start justify-between mb-2">
+                <div className="flex items-start justify-between mb-2 gap-2">
                   <h3 className="text-lg font-black text-gray-900">{plan.name}</h3>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                    plan.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {plan.is_active ? 'Activo' : 'Inactivo'}
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      plan.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {plan.is_active ? 'Activo' : 'Inactivo'}
+                    </span>
+                    {isAdmin && (
+                      <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 uppercase tracking-wider">
+                        Admin · siempre activo
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p className="text-xs text-gray-400">{plan.description}</p>
                 <div className="mt-3">
-                  <span className="text-3xl font-black text-blue-600">${plan.price}</span>
+                  <span className="text-3xl font-black text-blue-600">₡{Number(plan.price ?? 0).toLocaleString('es-CR')}</span>
                   <span className="text-gray-400 text-sm ml-1">/{plan.billing_cycle}</span>
                 </div>
               </div>
@@ -280,16 +330,25 @@ export default function Plans() {
                     <ChevronRight size={13} /> Módulos
                   </button>
                 </div>
-                <button
-                  onClick={() => handleToggleStatus(plan)}
-                  className={`w-full text-xs font-bold px-3 py-2 rounded-lg transition ${
-                    plan.is_active
-                      ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                  }`}
-                >
-                  {plan.is_active ? 'Desactivar plan' : 'Activar plan'}
-                </button>
+                {isAdmin ? (
+                  <div
+                    className="w-full text-xs font-bold px-3 py-2 rounded-lg bg-amber-50 text-amber-700 text-center cursor-not-allowed select-none"
+                    title="El plan Admin permanece siempre activo para mantener el acceso al panel de gestión de tenants."
+                  >
+                    🔒 No se puede desactivar
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => handleToggleStatus(plan)}
+                    className={`w-full text-xs font-bold px-3 py-2 rounded-lg transition ${
+                      plan.is_active
+                        ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                        : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    }`}
+                  >
+                    {plan.is_active ? 'Desactivar plan' : 'Activar plan'}
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -325,7 +384,7 @@ export default function Plans() {
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">Precio</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₡</span>
                     <input type="number" value={formData.price || ''} onChange={e => setFormData({ ...formData, price: parseFloat(e.target.value) })}
                       step="0.01" className="w-full border border-gray-200 rounded-xl pl-7 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
                   </div>

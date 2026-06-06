@@ -62,60 +62,80 @@ export const Dashboard = () => {
   const [subEndsAt, setSubEndsAt] = useState<string | null>(null);
   const [qzConnected, setQzConnected] = useState(false);
 
+  // Admin de SaaS no tiene tenant operativo → los endpoints tipo
+  // /accounts-payable, /purchases, /reports devuelven 403 y tardan ~14 s en
+  // resolver porque el middleware busca el tenant en Supabase. Detectamos
+  // este caso y saltamos las llamadas de stats por completo.
+  const isSaasAdmin = (planFeatures as any)?.admin_dashboard === true;
+
   const load = useCallback(async () => {
-    if (!tenantId) return;
-    setLoading(true);
-    try {
-      const todayStr = new Date().toISOString().slice(0, 10);
-
-      // Ventas de hoy (lo único de stats que se muestra en la cabecera).
-      let todayTotal = 0, todayCount = 0;
-      try {
-        const salesResponse = await apiFetch<{ invoices: any[] } | any[]>(
-          `/reports/sales?from=${todayStr}&to=${todayStr}`,
-        );
-        const all = Array.isArray(salesResponse) ? salesResponse : (salesResponse?.invoices ?? []);
-        const todayItems = Array.isArray(all) ? all.filter((r: any) => r.issued_at?.startsWith(todayStr)) : [];
-        todayCount = todayItems.length;
-        todayTotal = todayItems.reduce((s: number, r: any) => s + Number(r.total ?? 0), 0);
-      } catch { /* ignore */ }
-
-      // Alertas que valen banner
-      let lowStockCount = 0;
-      if (hasFullInventory) {
-        try {
-          const r = await apiFetch<{ low_stock_count: number }>('/reports/stock');
-          lowStockCount = r?.low_stock_count ?? 0;
-        } catch { /* ignore */ }
-      }
-
-      let overdueAP = 0;
-      if (pf.accounts_payable) {
-        try {
-          const rows = await apiFetch<Array<{ status: string }>>('/accounts-payable?status=pending');
-          overdueAP = Array.isArray(rows) ? rows.filter(r => r.status === 'overdue').length : 0;
-        } catch { /* ignore */ }
-      }
-
-      let pendingPurchases = 0;
-      if (pf.purchases) {
-        try {
-          const rows = await apiFetch<Array<{ id: string }>>('/purchases?status=pending');
-          pendingPurchases = Array.isArray(rows) ? rows.length : 0;
-        } catch { /* ignore */ }
-      }
-
-      // Vencimiento de suscripción
-      try {
-        const subRow = await apiFetch<{ ends_at: string } | null>('/plans/current');
-        setSubEndsAt(subRow?.ends_at ?? null);
-      } catch { /* ignore */ }
-
-      setStats({ todayTotal, todayCount, lowStockCount, overdueAP, pendingPurchases });
-    } finally {
+    if (!tenantId || isSaasAdmin) {
       setLoading(false);
+      return;
     }
-  }, [tenantId, hasFullInventory, pf.accounts_payable, pf.purchases]);
+    setLoading(true);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    // Timeout corto: estas llamadas son OPCIONALES, no deben bloquear el
+    // dashboard 20 s si una está lenta o devuelve 403.
+    const QUICK_TIMEOUT = 5000;
+
+    // Paralelizamos TODO con Promise.allSettled — una llamada lenta o
+    // fallida no atrasa al resto. Antes era secuencial (5×) y bastaba
+    // que una se colgara para que el dashboard tardara minutos.
+    const callOrSkip = <T,>(
+      enabled: boolean,
+      path: string,
+    ): Promise<T | null> =>
+      enabled
+        ? apiFetch<T>(path, {}, QUICK_TIMEOUT).catch(() => null as any)
+        : Promise.resolve(null);
+
+    const [salesR, stockR, apR, purchR, subR] = await Promise.allSettled([
+      callOrSkip<{ invoices: any[] } | any[]>(true, `/reports/sales?from=${todayStr}&to=${todayStr}`),
+      callOrSkip<{ low_stock_count: number }>(hasFullInventory, '/reports/stock'),
+      callOrSkip<Array<{ status: string }>>(!!pf.accounts_payable, '/accounts-payable?status=pending'),
+      callOrSkip<Array<{ id: string }>>(!!pf.purchases, '/purchases?status=pending'),
+      callOrSkip<{ ends_at: string } | null>(true, '/plans/current'),
+    ]);
+
+    // Ventas
+    let todayTotal = 0, todayCount = 0;
+    if (salesR.status === 'fulfilled' && salesR.value) {
+      const v = salesR.value as any;
+      const all = Array.isArray(v) ? v : (v?.invoices ?? []);
+      const todayItems = Array.isArray(all) ? all.filter((r: any) => r.issued_at?.startsWith(todayStr)) : [];
+      todayCount = todayItems.length;
+      todayTotal = todayItems.reduce((s: number, r: any) => s + Number(r.total ?? 0), 0);
+    }
+
+    // Stock
+    let lowStockCount = 0;
+    if (stockR.status === 'fulfilled' && stockR.value) {
+      lowStockCount = (stockR.value as any)?.low_stock_count ?? 0;
+    }
+
+    // Cuentas por pagar
+    let overdueAP = 0;
+    if (apR.status === 'fulfilled' && Array.isArray(apR.value)) {
+      overdueAP = (apR.value as any[]).filter(r => r.status === 'overdue').length;
+    }
+
+    // Compras pendientes
+    let pendingPurchases = 0;
+    if (purchR.status === 'fulfilled' && Array.isArray(purchR.value)) {
+      pendingPurchases = (purchR.value as any[]).length;
+    }
+
+    // Suscripción
+    if (subR.status === 'fulfilled' && subR.value) {
+      setSubEndsAt((subR.value as any)?.ends_at ?? null);
+    }
+
+    setStats({ todayTotal, todayCount, lowStockCount, overdueAP, pendingPurchases });
+    setLoading(false);
+  }, [tenantId, isSaasAdmin, hasFullInventory, pf.accounts_payable, pf.purchases]);
 
   useEffect(() => { load(); }, [load]);
 

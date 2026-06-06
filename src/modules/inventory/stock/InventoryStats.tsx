@@ -1,13 +1,12 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Package, AlertTriangle, TrendingUp, DollarSign, RefreshCw, RotateCw } from 'lucide-react';
-import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
-import { useSafeFetch } from '@/hooks/useSafeFetch';
+import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { useTenantId } from '@/hooks/useTenant';
 import {
   Card,
   Spinner,
   Alert,
-  Button
+  Button,
 } from '@/components/ui/uiComponents';
 
 interface Stats {
@@ -47,35 +46,33 @@ const StatCard: React.FC<StatCardProps> = ({ icon: Icon, label, value, color, tr
 export const InventoryStats: React.FC = () => {
   const { tenantId } = useTenantId();
 
-  // Obtener estadísticas de inventario
-  const {
-    data: inventoryStats,
-    loading: statsLoading,
-    error: statsError,
-    retry: retryStats
-  } = useSafeFetch(
-    () => inventoryProductsService.getInventoryStats(tenantId),
-    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
-  );
+  // Un único fetch compartido con ProductsList (cache + stale-while-revalidate).
+  // Antes hacíamos 2 llamadas a /products redundantes (getInventoryStats +
+  // getLowStockProducts) que devolvían exactamente lo mismo.
+  const { products, loading, refreshing, error, refresh } = useInventoryProducts(tenantId);
+  const handleRetry = refresh;
 
-  // Obtener productos con stock bajo
-  const {
-    data: lowStockProducts = [],
-    loading: lowStockLoading,
-    error: lowStockError,
-    retry: retryLowStock
-  } = useSafeFetch(
-    () => inventoryProductsService.getLowStockProducts(tenantId),
-    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
-  );
-
-  const handleRetry = () => {
-    retryStats();
-    retryLowStock();
-  };
-
-  const loading = statsLoading || lowStockLoading;
-  const error = statsError || lowStockError;
+  // Stats derivadas en memo: solo recalculan si cambia la lista.
+  const { inventoryStats, lowStockProducts } = useMemo(() => {
+    const list = Array.isArray(products) ? products : [];
+    const totalProducts = list.length;
+    const totalValue = list.reduce(
+      (s, p) => s + (p.unit_price || 0) * (p.stock_quantity || 0), 0,
+    );
+    const totalCost = list.reduce(
+      (s, p) => s + (p.cost_price || 0) * (p.stock_quantity || 0), 0,
+    );
+    // Excluir productos con stock infinito (tracks_stock=false) del cálculo de stock bajo.
+    const low = list.filter(
+      (p) =>
+        (p as any).tracks_stock !== false &&
+        (p.stock_quantity ?? 0) <= (p.min_stock_level ?? 0),
+    );
+    return {
+      inventoryStats: { totalProducts, totalValue, totalCost },
+      lowStockProducts: low,
+    };
+  }, [products]);
 
   if (loading) {
     return (
@@ -133,7 +130,7 @@ export const InventoryStats: React.FC = () => {
     {
       icon: DollarSign,
       label: 'Valor Total',
-      value: `$${stats.totalValue.toFixed(2)}`,
+      value: `₡${Math.round(stats.totalValue).toLocaleString('es-CR')}`,
       color: 'bg-gradient-to-br from-green-50 to-green-100 text-green-600',
       trend: 5.8
     },
@@ -155,10 +152,11 @@ export const InventoryStats: React.FC = () => {
         </div>
         <button
           onClick={handleRetry}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          title="Actualizar"
+          disabled={refreshing}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+          title={refreshing ? 'Actualizando…' : 'Actualizar'}
         >
-          <RefreshCw size={20} className="text-gray-600" />
+          <RefreshCw size={20} className={`text-gray-600 ${refreshing ? 'animate-spin' : ''}`} />
         </button>
       </div>
       

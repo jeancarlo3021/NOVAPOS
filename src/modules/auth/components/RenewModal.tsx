@@ -17,6 +17,12 @@ export interface OwnerData {
   subscription_status?: string;
   started_at?: string;
   ends_at?: string;
+  /** Facturas no anuladas del mes actual — para conteo de Facturación Electrónica. */
+  monthly_invoices?: number;
+  /** Ciclo de facturación del plan: 'monthly' | 'yearly' (resuelto del Plan). */
+  plan_billing_cycle?: string;
+  /** True si el plan asignado tiene `admin_dashboard=true` (cuenta del super-admin). */
+  is_admin_plan?: boolean;
 }
 
 export interface RenewModalProps {

@@ -13,13 +13,13 @@ interface ProductWithRelations extends Product {
 
 interface ProductCardProps {
   product: ProductWithRelations;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
   onUpdated?: () => void;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDelete, onUpdated }) => {
-  const { planFeatures } = useAuth();
+  const { planFeatures, isReadOnly } = useAuth();
   const isProductsOnly = planFeatures?.inventory_products_only ?? false;
 
   // ── Inline price editor ─────────────────────────────────────────────────────
@@ -94,14 +94,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             <p className="text-xs text-gray-500 font-mono">SKU: {product.sku}</p>
           </div>
 
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
-            <button onClick={onEdit} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition" title="Editar">
-              <Edit2 size={16} />
-            </button>
-            <button onClick={onDelete} className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition" title="Eliminar">
-              <Trash2 size={16} />
-            </button>
-          </div>
+          {(onEdit || onDelete) && (
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+              {onEdit && (
+                <button onClick={onEdit} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition" title="Editar">
+                  <Edit2 size={16} />
+                </button>
+              )}
+              {onDelete && (
+                <button onClick={onDelete} className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition" title="Eliminar">
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Categoría */}
@@ -121,12 +127,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             <span className="text-sm text-gray-600 font-medium pt-1">Precio</span>
 
             {!editingPrice ? (
-              /* Vista normal — clic para editar */
+              /* Vista normal — clic para editar (deshabilitado en solo-lectura) */
               <div className="flex items-baseline gap-2">
                 <button
-                  onClick={startPriceEdit}
-                  title="Clic para ajustar el precio"
-                  className="flex items-baseline gap-1.5 group/price"
+                  onClick={isReadOnly ? undefined : startPriceEdit}
+                  disabled={isReadOnly}
+                  title={isReadOnly ? 'Modo solo lectura' : 'Clic para ajustar el precio'}
+                  className="flex items-baseline gap-1.5 group/price disabled:cursor-not-allowed"
                 >
                   <span className="text-2xl font-bold text-blue-600 group-hover/price:text-blue-700 transition">
                     ₡{product.unit_price.toLocaleString('es-CR', { minimumFractionDigits: 2 })}

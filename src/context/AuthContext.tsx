@@ -315,6 +315,9 @@ interface AuthContextType {
   currentBranchId: string | null;
   switchBranch: (branchId: string) => void;
   reloadBranches: () => Promise<void>;
+  // ── Modo solo-lectura por morosidad (>15 días vencido) ────────────────
+  /** True cuando el tenant está suspendido por morosidad pero aún puede ver. */
+  isReadOnly: boolean;
 }
 
 export interface BranchLite {
@@ -811,6 +814,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       setLoading(true);
 
+      // Limpiamos cualquier rastro del modo solo-lectura antes de salir, así
+      // el próximo usuario que entre desde este navegador no hereda el bloqueo.
+      try { localStorage.removeItem('novapos_read_only'); } catch { /* ignore */ }
+
       // Flag so onAuthStateChange knows this SIGNED_OUT is from THIS tab
       isSigningOutRef.current = true;
 
@@ -924,8 +931,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
   };
 
+  // Modo solo-lectura: tenant suspendido por morosidad. Permite entrar pero
+  // sólo a vistas de inventario y todas las mutaciones quedan deshabilitadas.
+  const isReadOnly = tenant?.status === 'suspended';
+
+  // Persistir el flag para que apiFetch lo lea desde cualquier servicio sin
+  // necesidad de pasarle el contexto. Se limpia al cambiar de tenant o estado.
+  useEffect(() => {
+    try {
+      if (isReadOnly) localStorage.setItem('novapos_read_only', '1');
+      else            localStorage.removeItem('novapos_read_only');
+    } catch { /* SSR / privacidad — ignorar */ }
+  }, [isReadOnly]);
+
   return (
-    <AuthContext.Provider 
+    <AuthContext.Provider
       value={{
         user,
         tenant,
@@ -944,6 +964,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentBranchId,
         switchBranch,
         reloadBranches,
+        isReadOnly,
       }}
     >
       {children}

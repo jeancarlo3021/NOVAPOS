@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { RotateCw, Sliders, Search, X } from 'lucide-react';
-import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
-import { useSafeFetch } from '@/hooks/useSafeFetch';
+import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { useTenantId } from '@/hooks/useTenant';
 import { StockAdjustModal } from '../products/StockAdjustModal';
 import {
@@ -20,16 +19,13 @@ export const StockMovements: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'low' | 'critical' | 'ok'>('all');
 
   const {
-    data: productsData,
+    products,
     loading,
+    refreshing: _refreshing,
     error,
-    retry
-  } = useSafeFetch(
-    () => inventoryProductsService.getAllProducts(tenantId),
-    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
-  );
-
-  const products = Array.isArray(productsData) ? productsData : [];
+    refresh: retry,
+  } = useInventoryProducts(tenantId);
+  void _refreshing;
 
   // Productos sin control de stock (tracks_stock=false) son "ilimitados":
   // no aparecen en críticos/bajos y nunca cuentan en las alertas.

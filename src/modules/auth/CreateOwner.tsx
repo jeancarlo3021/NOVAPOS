@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, AlertTriangle, X, Receipt,
+  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search,
 } from 'lucide-react';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
@@ -22,10 +22,30 @@ const fmt = (n: number) =>
 const fmtDate = (s: string | undefined) =>
   s ? new Date(s + (s.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('es-CR', { dateStyle: 'medium' }) : '—';
 
-function daysUntil(dateStr: string | undefined): number | null {
+function daysUntil(dateStr: string | undefined | null): number | null {
   if (!dateStr) return null;
   const d = dateStr.includes('T') ? new Date(dateStr) : new Date(dateStr + 'T00:00:00');
   return Math.ceil((d.getTime() - Date.now()) / 86400000);
+}
+
+// ── Fecha efectiva de próximo cobro ────────────────────────────────────────
+// Si la suscripción tiene `ends_at`, lo usamos tal cual (autoritativo).
+// Si no, calculamos sumando el ciclo al `started_at` (fallback: `created_at`).
+// Por defecto asumimos 30 días (mensual) si no se conoce el ciclo.
+function effectiveEndsAt(o: {
+  ends_at?: string | null;
+  started_at?: string | null;
+  created_at?: string;
+  plan_billing_cycle?: string;
+}): { date: string | null; computed: boolean } {
+  if (o.ends_at) return { date: o.ends_at, computed: false };
+  const base = o.started_at ?? o.created_at;
+  if (!base) return { date: null, computed: false };
+  const start = base.includes('T') ? new Date(base) : new Date(base + 'T00:00:00');
+  const cycle = (o.plan_billing_cycle ?? 'monthly').toLowerCase();
+  const daysToAdd = cycle === 'yearly' ? 365 : 30;
+  const end = new Date(start.getTime() + daysToAdd * 86400000);
+  return { date: end.toISOString(), computed: true };
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -43,6 +63,7 @@ export const CreateOwner: React.FC = () => {
   const [renewing,  setRenewing]  = useState<OwnerData | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [formData, setFormData] = useState({
     email: '', password: '', businessName: '', planId: '', withDemo: false,
@@ -88,12 +109,34 @@ export const CreateOwner: React.FC = () => {
     try {
       setLoading(true);
 
-      const [allPlans, ownersData] = await Promise.all([
+      // Carga en paralelo y RESILIENTE: si una de las llamadas falla (timeout,
+      // endpoint no desplegado, backend caído), las otras se muestran igual.
+      // Antes usábamos Promise.all → cualquier fallo abortaba la carga entera
+      // y la tabla quedaba vacía con "NetworkError".
+      const [plansR, ownersR, invR] = await Promise.allSettled([
         plansService.getAllPlans(),
         apiFetch<any[]>('/admin/owners'),
+        apiFetch<Array<{ tenant_id: string; count: number }>>('/admin/invoices-monthly'),
       ]);
 
+      const allPlans     = plansR.status  === 'fulfilled' ? plansR.value   : [];
+      const ownersData   = ownersR.status === 'fulfilled' ? ownersR.value  : [];
+      const invCounts    = invR.status    === 'fulfilled' ? invR.value     : [];
+
+      // Reportar fallas individuales como warning (no detiene la UI)
+      const failures: string[] = [];
+      if (plansR.status  === 'rejected') failures.push(`planes (${plansR.reason?.message ?? 'error'})`);
+      if (ownersR.status === 'rejected') failures.push(`negocios (${ownersR.reason?.message ?? 'error'})`);
+      // El de facturas mensuales NO se reporta — es opcional/futuro.
+      if (failures.length > 0) {
+        setError(`No se pudieron cargar: ${failures.join(', ')}. Reintentá en unos segundos.`);
+      }
+
       setPlans(allPlans);
+
+      const countMap = new Map<string, number>(
+        (invCounts ?? []).map(r => [r.tenant_id, r.count]),
+      );
 
       setOwners((ownersData ?? []).map((row: any) => {
         const planId = row.sub_plan_id ?? row.plan_id;
@@ -108,10 +151,13 @@ export const CreateOwner: React.FC = () => {
           plan_id:             planId ?? null,
           plan_name:           plan?.name ?? 'Sin plan',
           plan_price:          plan?.price ?? 0,
+          plan_billing_cycle:  plan?.billing_cycle ?? 'monthly',
+          is_admin_plan:       ((plan?.features as any)?.admin_dashboard === true),
           subscription_id:     row.sub_id ?? null,
           subscription_status: row.sub_status ?? '—',
           started_at:          row.started_at ?? null,
           ends_at:             row.ends_at ?? null,
+          monthly_invoices:    countMap.get(row.id) ?? 0,
         };
       }));
     } catch (err: any) {
@@ -167,15 +213,26 @@ export const CreateOwner: React.FC = () => {
 
   // ── Delete ─────────────────────────────────────────────────────────────────
 
-  const handleDeleteOwner = async (tenantId: string, ownerId: string) => {
-    if (!confirm('¿Eliminar este negocio y todos sus datos? Esta acción no se puede deshacer.')) return;
+  const handleDeleteOwner = async (tenantId: string, ownerId: string, businessName: string) => {
+    // Doble confirmación: 1) confirm normal, 2) pedir que escriban el nombre.
+    if (!confirm(
+      `Vas a ELIMINAR el negocio "${businessName}" y TODOS sus datos:\n\n` +
+      `· Facturas, productos, gastos, compras, sesiones de caja, usuarios.\n\n` +
+      `Esta acción NO se puede deshacer.\n\n¿Continuar?`,
+    )) return;
+    const typed = prompt(`Para confirmar, escribí el nombre exacto del negocio:\n\n"${businessName}"`);
+    if (typed === null) return;
+    if (typed.trim() !== businessName.trim()) {
+      setError(`El nombre no coincide. Esperaba: "${businessName}". Recibí: "${typed}"`);
+      return;
+    }
     setLoading(true);
     try {
       await apiFetch('/admin/delete-owner', {
         method: 'POST',
         body: JSON.stringify({ tenantId, ownerId }),
       });
-      setSuccess('✅ Negocio eliminado');
+      setSuccess(`✅ Negocio "${businessName}" eliminado`);
       fetchOwners();
     } catch (err: any) {
       setError(err.message || 'Error al eliminar');
@@ -226,15 +283,19 @@ export const CreateOwner: React.FC = () => {
   // ── KPIs ───────────────────────────────────────────────────────────────────
 
   const activeOwners   = owners.filter(o => o.status === 'active');
+  // El plan Admin NO factura — no debe contar en vencidos ni en alertas.
   const overdueOwners  = owners.filter(o => {
-    const d = daysUntil(o.ends_at);
+    if (o.is_admin_plan) return false;
+    const d = daysUntil(effectiveEndsAt(o).date);
     return d !== null && d < 0 && o.status === 'active';
   });
   const dueSoonOwners  = owners.filter(o => {
-    const d = daysUntil(o.ends_at);
+    if (o.is_admin_plan) return false;
+    const d = daysUntil(effectiveEndsAt(o).date);
     return d !== null && d >= 0 && d <= 7 && o.status === 'active';
   });
   const monthlyRevenue = activeOwners.reduce((s, o) => s + (o.plan_price ?? 0), 0);
+  const totalMonthlyInvoices = owners.reduce((s, o) => s + (o.monthly_invoices ?? 0), 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -315,7 +376,7 @@ export const CreateOwner: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <DaysTag days={daysUntil(o.ends_at)} />
+                    <DaysTag days={daysUntil(effectiveEndsAt(o).date)} />
                     <button onClick={() => setRenewing(o)}
                       className="flex items-center gap-1 px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
                       <RefreshCw size={11} /> Renovar
@@ -333,7 +394,7 @@ export const CreateOwner: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <DaysTag days={daysUntil(o.ends_at)} />
+                    <DaysTag days={daysUntil(effectiveEndsAt(o).date)} />
                     <button onClick={() => setRenewing(o)}
                       className="flex items-center gap-1 px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
                       <RefreshCw size={11} /> Renovar
@@ -346,12 +407,13 @@ export const CreateOwner: React.FC = () => {
         )}
 
         {/* KPIs */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {[
-            { icon: Users,        label: 'Negocios activos', value: String(activeOwners.length),        color: 'bg-blue-500'    },
-            { icon: AlertTriangle,label: 'Vencidos',          value: String(overdueOwners.length),       color: overdueOwners.length > 0 ? 'bg-red-500' : 'bg-gray-400' },
-            { icon: Clock,        label: 'Vencen esta semana',value: String(dueSoonOwners.length),       color: dueSoonOwners.length > 0 ? 'bg-amber-500' : 'bg-gray-400' },
-            { icon: TrendingUp,   label: 'Ingreso mensual',   value: fmt(monthlyRevenue),                color: 'bg-emerald-500' },
+            { icon: Users,        label: 'Negocios activos',  value: String(activeOwners.length),  color: 'bg-blue-500'    },
+            { icon: AlertTriangle,label: 'Vencidos',          value: String(overdueOwners.length), color: overdueOwners.length > 0 ? 'bg-red-500' : 'bg-gray-400' },
+            { icon: Clock,        label: 'Vencen esta semana',value: String(dueSoonOwners.length), color: dueSoonOwners.length > 0 ? 'bg-amber-500' : 'bg-gray-400' },
+            { icon: TrendingUp,   label: 'Ingreso mensual',   value: fmt(monthlyRevenue),          color: 'bg-emerald-500' },
+            { icon: FileText,     label: 'Facturas del mes',  value: String(totalMonthlyInvoices), color: 'bg-violet-500' },
           ].map(({ icon: Icon, label, value, color }) => (
             <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
               <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center shrink-0`}>
@@ -441,10 +503,46 @@ export const CreateOwner: React.FC = () => {
 
         {/* Table */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-            <p className="font-black text-gray-800">{owners.length} negocio{owners.length !== 1 ? 's' : ''} registrado{owners.length !== 1 ? 's' : ''}</p>
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3 flex-wrap">
+            <p className="font-black text-gray-800 shrink-0">
+              {(() => {
+                const filteredCount = owners.filter(o => {
+                  const t = searchTerm.trim().toLowerCase();
+                  if (!t) return true;
+                  return o.name?.toLowerCase().includes(t)
+                      || o.plan_name?.toLowerCase().includes(t)
+                      || o.subscription_status?.toLowerCase().includes(t);
+                }).length;
+                return searchTerm
+                  ? `${filteredCount} de ${owners.length} negocio${owners.length !== 1 ? 's' : ''}`
+                  : `${owners.length} negocio${owners.length !== 1 ? 's' : ''} registrado${owners.length !== 1 ? 's' : ''}`;
+              })()}
+            </p>
+
+            {/* Buscador */}
+            <div className="relative flex-1 min-w-48 max-w-md">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Buscar por nombre, plan…"
+                className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+                  title="Limpiar"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
             <button onClick={fetchOwners} disabled={loading}
-              className="p-2 border border-gray-200 rounded-xl hover:border-gray-300 text-gray-500 transition">
+              className="p-2 border border-gray-200 rounded-xl hover:border-gray-300 text-gray-500 transition"
+              title="Recargar">
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
@@ -465,16 +563,39 @@ export const CreateOwner: React.FC = () => {
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Negocio</th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Plan · Precio</th>
-                    <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Calendar size={11} /> Activación</th>
+                    <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase"><span className="flex items-center gap-1"><Calendar size={11} /> Activación</span></th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Próximo cobro</th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Días restantes</th>
+                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Facturas no anuladas emitidas este mes — para tracking de Facturación Electrónica">
+                      <span className="inline-flex items-center gap-1"><FileText size={11} /> Facturas (mes)</span>
+                    </th>
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Estado</th>
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {owners.map(o => {
-                    const days      = daysUntil(o.ends_at);
+                  {(() => {
+                    const t = searchTerm.trim().toLowerCase();
+                    const filtered = !t
+                      ? owners
+                      : owners.filter(o =>
+                          o.name?.toLowerCase().includes(t)
+                          || o.plan_name?.toLowerCase().includes(t)
+                          || o.subscription_status?.toLowerCase().includes(t),
+                        );
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={8} className="px-5 py-10 text-center text-gray-400 text-sm">
+                            No se encontraron negocios con "{searchTerm}"
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return filtered.map(o => {
+                    const eff       = effectiveEndsAt(o);
+                    // El plan Admin no factura: ocultamos próximo cobro / días.
+                    const days      = o.is_admin_plan ? null : daysUntil(eff.date);
                     const isActive  = o.status === 'active';
                     const isBusy    = togglingId === o.id;
                     return (
@@ -482,10 +603,16 @@ export const CreateOwner: React.FC = () => {
                         {/* Negocio */}
                         <td className="px-5 py-4">
                           <p className="font-bold text-gray-900">{o.name}</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${o.is_demo ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'}`}>
-                              {o.is_demo ? 'DEMO' : 'PAGO'}
-                            </span>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            {o.is_admin_plan ? (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full font-black bg-amber-100 text-amber-800 uppercase tracking-wider">
+                                ⭐ Admin
+                              </span>
+                            ) : (
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${o.is_demo ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'}`}>
+                                {o.is_demo ? 'DEMO' : 'PAGO'}
+                              </span>
+                            )}
                           </div>
                         </td>
                         {/* Plan */}
@@ -495,14 +622,47 @@ export const CreateOwner: React.FC = () => {
                         </td>
                         {/* Activación */}
                         <td className="px-5 py-4 text-gray-600 text-xs">{fmtDate(o.started_at ?? o.created_at)}</td>
-                        {/* Próximo cobro */}
+                        {/* Próximo cobro — usa fecha efectiva (real o calculada del ciclo) */}
                         <td className="px-5 py-4">
-                          <p className={`text-sm font-semibold ${days !== null && days < 0 ? 'text-red-600' : days !== null && days <= 7 ? 'text-amber-600' : 'text-gray-700'}`}>
-                            {fmtDate(o.ends_at)}
-                          </p>
+                          {o.is_admin_plan ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">
+                              ∞ Sin vencimiento
+                            </span>
+                          ) : (
+                            <>
+                              <p className={`text-sm font-semibold ${days !== null && days < 0 ? 'text-red-600' : days !== null && days <= 7 ? 'text-amber-600' : 'text-gray-700'}`}>
+                                {fmtDate(eff.date ?? undefined)}
+                              </p>
+                              {eff.computed && (
+                                <p className="text-[10px] text-gray-400 italic mt-0.5" title="No hay fecha de fin en la suscripción; se calculó a partir de la activación y el ciclo del plan.">
+                                  estimado
+                                </p>
+                              )}
+                            </>
+                          )}
                         </td>
                         {/* Días */}
-                        <td className="px-5 py-4"><DaysTag days={days} /></td>
+                        <td className="px-5 py-4">
+                          {o.is_admin_plan ? (
+                            <span className="text-xs text-gray-400">—</span>
+                          ) : (
+                            <DaysTag days={days} />
+                          )}
+                        </td>
+                        {/* Facturas del mes — para Facturación Electrónica futura */}
+                        <td className="px-5 py-4 text-center">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold tabular-nums ${
+                              (o.monthly_invoices ?? 0) === 0
+                                ? 'bg-gray-100 text-gray-500'
+                                : 'bg-violet-100 text-violet-700'
+                            }`}
+                            title={`${o.monthly_invoices ?? 0} facturas emitidas este mes (excluye anuladas)`}
+                          >
+                            <FileText size={11} />
+                            {(o.monthly_invoices ?? 0).toLocaleString('es-CR')}
+                          </span>
+                        </td>
                         {/* Estado */}
                         <td className="px-5 py-4 text-center">
                           <span className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full ${
@@ -538,15 +698,19 @@ export const CreateOwner: React.FC = () => {
                               {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
                             {/* Eliminar */}
-                            <button onClick={() => handleDeleteOwner(o.id, o.owner_id)}
-                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Eliminar">
-                              <Trash2 size={14} />
+                            <button
+                              onClick={() => handleDeleteOwner(o.id, o.owner_id, o.name)}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-red-50 border border-red-200 text-red-700 rounded-lg hover:bg-red-600 hover:text-white hover:border-red-600 transition"
+                              title="Eliminar negocio (requiere confirmación con nombre)"
+                            >
+                              <Trash2 size={11} /> Eliminar
                             </button>
                           </div>
                         </td>
                       </tr>
                     );
-                  })}
+                  });
+                  })()}
                 </tbody>
               </table>
             </div>

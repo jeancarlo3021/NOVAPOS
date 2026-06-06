@@ -178,8 +178,7 @@ export const GeneralSettings: React.FC = () => {
             <label className="block text-sm font-semibold text-gray-700 mb-1">Moneda</label>
             <select name="currency" value={formData.currency} onChange={handleChange}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition bg-white">
-              <option value="CRC">CRC (₡ Colón)</option>
-              <option value="USD">USD ($ Dólar)</option>
+              <option value="CRC">CRC (₡ Colón costarricense)</option>
             </select>
           </div>
         </div>

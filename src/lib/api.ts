@@ -42,7 +42,7 @@ async function getToken(): Promise<string | null> {
 export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {},
-  timeoutMs: number = 10000
+  timeoutMs: number = 20000
 ): Promise<T> {
   // Validate path doesn't contain undefined
   if (path.includes('undefined')) {
@@ -54,6 +54,17 @@ export async function apiFetch<T = unknown>(
   const method = (options.method || 'GET').toUpperCase();
   const isGetRequest = method === 'GET';
   const isOffline = !navigator.onLine;
+
+  // ── Modo solo-lectura por morosidad ──────────────────────────────────────
+  // Bloquea mutaciones SI: 1) hay token (usuario autenticado) Y 2) la flag
+  // local está activa. Sin token significa login/refresh — no debemos romper.
+  if (!isGetRequest && token) {
+    let readOnly = false;
+    try { readOnly = localStorage.getItem('novapos_read_only') === '1'; } catch { /* ignore */ }
+    if (readOnly) {
+      throw new Error('Cuenta en modo solo lectura — regularizá tu pago para hacer cambios.');
+    }
+  }
 
 
   // Handle offline requests

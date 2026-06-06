@@ -174,7 +174,7 @@ export const POSModals: React.FC<POSModalsProps> = ({
             <div className="space-y-4">
               <div className="bg-slate-800 rounded p-4 mb-4">
                 <p className="text-sm text-slate-400">Total a Pagar</p>
-                <p className="text-2xl font-bold text-blue-400">${total.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-blue-400">₡{Math.round(total).toLocaleString('es-CR')}</p>
               </div>
 
               <div>

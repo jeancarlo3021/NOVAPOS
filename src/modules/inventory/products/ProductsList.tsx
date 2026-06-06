@@ -4,15 +4,14 @@ import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
-import { useSafeFetch } from '@/hooks/useSafeFetch';
-import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
+import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { ProductForm } from './ProductsForm';
 import { ProductCard } from './ProductCard';
 import { Alert, LoadingState, Badge, Button, Card, CardContent } from '@/components/ui/uiComponents';
 
 export const ProductsList: React.FC = () => {
   const { tenantId } = useTenantId();
-  const { planFeatures } = useAuth();
+  const { planFeatures, isReadOnly } = useAuth();
   const { isOnline } = useOfflineSync();
   const hasStockAlerts = planFeatures.inventory && !(planFeatures as any).inventory_products_only;
   const [showForm, setShowForm] = useState(false);
@@ -20,26 +19,14 @@ export const ProductsList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const ck = cacheKey(tenantId, 'products_list');
-
   const {
-    data: productsData,
+    products,
     loading,
+    refreshing,
     error,
-    retry
-  } = useSafeFetch(
-    async () => {
-      if (!navigator.onLine) {
-        return cacheGet(ck) ?? [];
-      }
-      const data = await inventoryProductsService.getAllProducts(tenantId);
-      cacheSet(ck, data);
-      return data;
-    },
-    { timeout: 10000, retries: 2, retryDelay: 1000, key: tenantId }
-  );
-
-  const products = Array.isArray(productsData) ? productsData : [];
+    fromCache,
+    refresh: retry,
+  } = useInventoryProducts(tenantId);
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('¿Estás seguro de que deseas eliminar este producto?')) return;
@@ -61,10 +48,13 @@ export const ProductsList: React.FC = () => {
     p.sku.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const lowStockProducts = filteredProducts.filter(
+  // Productos con stock infinito (tracks_stock=false) NO entran a las alertas:
+  // su stock_quantity siempre es 0/N/A y no debería marcarse como "crítico".
+  const trackedProducts = filteredProducts.filter(p => (p as any).tracks_stock !== false);
+  const lowStockProducts = trackedProducts.filter(
     p => p.stock_quantity < (p.min_stock_level ?? 0)
   );
-  const criticalStockProducts = filteredProducts.filter(
+  const criticalStockProducts = trackedProducts.filter(
     p => p.stock_quantity < ((p.min_stock_level ?? 0) * 0.5)
   );
 
@@ -76,14 +66,16 @@ export const ProductsList: React.FC = () => {
           <h1 className="text-3xl font-bold">Productos</h1>
           <p className="text-gray-600">Administra tu inventario de productos</p>
         </div>
-        <Button
-          onClick={() => { setEditingId(null); setShowForm(true); }}
-          size="lg"
-          className="bg-blue-600 hover:bg-blue-700"
-          disabled={loading}
-        >
-          <Plus className="w-5 h-5 mr-2" /> Nuevo Producto
-        </Button>
+        {!isReadOnly && (
+          <Button
+            onClick={() => { setEditingId(null); setShowForm(true); }}
+            size="lg"
+            className="bg-blue-600 hover:bg-blue-700"
+            disabled={loading}
+          >
+            <Plus className="w-5 h-5 mr-2" /> Nuevo Producto
+          </Button>
+        )}
       </div>
 
       {/* Estado de conexión */}
@@ -148,16 +140,25 @@ export const ProductsList: React.FC = () => {
       ) : filteredProducts.length > 0 ? (
         <div>
           <div className="flex justify-between items-center mb-4">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 flex items-center gap-2">
               Mostrando {filteredProducts.length} de {products.length} productos
+              {refreshing && (
+                <span className="inline-flex items-center gap-1 text-xs text-blue-500 font-medium">
+                  <RotateCw size={11} className="animate-spin" /> Actualizando…
+                </span>
+              )}
+              {fromCache && !refreshing && (
+                <span className="text-xs text-gray-400 italic">desde caché</span>
+              )}
             </p>
             <Button
               onClick={retry}
               size="sm"
               variant="secondary"
               className="flex items-center gap-2"
+              disabled={refreshing}
             >
-              <RotateCw size={16} /> Actualizar
+              <RotateCw size={16} className={refreshing ? 'animate-spin' : ''} /> Actualizar
             </Button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -165,8 +166,8 @@ export const ProductsList: React.FC = () => {
               <ProductCard
                 key={product.id}
                 product={product}
-                onEdit={() => { setEditingId(product.id); setShowForm(true); }}
-                onDelete={() => handleDelete(product.id)}
+                onEdit={isReadOnly ? undefined : () => { setEditingId(product.id); setShowForm(true); }}
+                onDelete={isReadOnly ? undefined : () => handleDelete(product.id)}
                 onUpdated={() => retry()}
               />
             ))}
@@ -178,7 +179,7 @@ export const ProductsList: React.FC = () => {
             <p className="text-gray-500 text-lg">
               {searchTerm ? 'No hay productos que coincidan con tu búsqueda' : 'No hay productos registrados'}
             </p>
-            {!searchTerm && (
+            {!searchTerm && !isReadOnly && (
               <Button
                 onClick={() => { setEditingId(null); setShowForm(true); }}
                 className="mt-4 bg-blue-600 hover:bg-blue-700"

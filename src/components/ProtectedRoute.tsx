@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { AccountSuspendedModal } from './AccountSuspendedModal';
 
@@ -7,11 +7,20 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
-// Estados del tenant que bloquean el acceso al dashboard.
-const BLOCKING_STATUSES = new Set(['suspended', 'inactive', 'cancelled']);
+// inactive y cancelled bloquean por completo (no logging at all to dashboard).
+// 'suspended' (morosidad > 15 días) ahora permite acceso SOLO-LECTURA al
+// inventario; cualquier otra ruta se redirige a /inventory.
+const HARD_BLOCK_STATUSES = new Set(['inactive', 'cancelled']);
+
+// Rutas que SÍ se permiten en modo solo-lectura. Mantenelo conservador.
+const READ_ONLY_ALLOWED_PATHS = new Set<string>([
+  '/inventory',
+  '/create-owner', // el super-admin no se ve afectado
+]);
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { user, tenant, loading: authLoading } = useAuth();
+  const location = useLocation();
   const [isReady, setIsReady] = useState(false);
   const [hasTimedOut, setHasTimedOut] = useState(false);
   const isMountedRef = useRef(true);
@@ -78,10 +87,19 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
 
-  // ✅ Tenant suspendido / inactivo / cancelado → bloquea TODO con un modal.
-  // El admin (que gestiona /create-owner) puede no tener tenant — no se bloquea.
-  if (tenant?.status && BLOCKING_STATUSES.has(tenant.status)) {
+  // ✅ Tenant cancelado / inactivo → bloquea TODO con modal (no hay redención).
+  if (tenant?.status && HARD_BLOCK_STATUSES.has(tenant.status)) {
     return <AccountSuspendedModal status={tenant.status} />;
+  }
+
+  // ✅ Tenant suspendido (morosidad > 15 días): modo solo-lectura.
+  // Permitimos navegar solo a /inventory; cualquier otra ruta se redirige.
+  if (tenant?.status === 'suspended') {
+    const path = location.pathname;
+    const allowed = Array.from(READ_ONLY_ALLOWED_PATHS).some(p => path === p || path.startsWith(p + '/'));
+    if (!allowed) {
+      return <Navigate to="/inventory" replace />;
+    }
   }
 
   // ✅ Usuario autenticado, mostrar contenido

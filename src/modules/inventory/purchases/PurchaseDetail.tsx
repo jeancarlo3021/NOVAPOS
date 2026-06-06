@@ -187,13 +187,13 @@ export const PurchaseDetail: React.FC<PurchaseDetailProps> = ({ purchaseId, onCl
                     <tr key={item.id} className="hover:bg-gray-50 transition">
                       <td className="px-4 py-3 text-gray-900 font-medium">{item.product_name}</td>
                       <td className="text-right px-4 py-3 text-gray-600">{item.quantity}</td>
-                      <td className="text-right px-4 py-3 text-gray-600">${item.unit_price.toFixed(2)}</td>
+                      <td className="text-right px-4 py-3 text-gray-600">₡{Math.round(item.unit_price).toLocaleString('es-CR')}</td>
                       <td className="text-right px-4 py-3">
                         <Badge variant={item.received_quantity === item.quantity ? 'success' : 'warning'}>
                           {item.received_quantity}/{item.quantity}
                         </Badge>
                       </td>
-                      <td className="text-right px-4 py-3 font-semibold text-gray-900">${item.subtotal.toFixed(2)}</td>
+                      <td className="text-right px-4 py-3 font-semibold text-gray-900">₡{Math.round(item.subtotal).toLocaleString('es-CR')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -204,7 +204,7 @@ export const PurchaseDetail: React.FC<PurchaseDetailProps> = ({ purchaseId, onCl
           {/* Total */}
           <div className="bg-gradient-to-r from-brand-50 to-brand-100 rounded-lg p-4 flex items-center justify-between border border-brand-200">
             <span className="font-semibold text-gray-900">Total de Compra:</span>
-            <span className="text-2xl font-bold text-brand-600">${purchase.total_amount.toFixed(2)}</span>
+            <span className="text-2xl font-bold text-brand-600">₡{Math.round(purchase.total_amount).toLocaleString('es-CR')}</span>
           </div>
 
           {/* Notes */}

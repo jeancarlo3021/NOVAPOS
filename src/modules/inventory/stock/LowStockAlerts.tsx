@@ -1,32 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { Package, AlertTriangle } from 'lucide-react';
-import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
+import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { useTenantId } from '@/hooks/useTenant';
 import { Card, CardHeader, CardContent, Spinner, Alert, Badge } from '@/components/ui/uiComponents';
-import type { Product } from '@/types/Types_POS';
 
 export const LowStockAlerts: React.FC = () => {
   const { tenantId } = useTenantId();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Mismo hook compartido del inventario — instantáneo desde cache + refresh
+  // en fondo. Antes hacíamos un /products independiente que no aprovechaba
+  // el cache global del login.
+  const {
+    products: allProducts,
+    loading,
+    error,
+    refresh,
+  } = useInventoryProducts(tenantId);
+  const fetchLowStockProducts = refresh;
 
-  useEffect(() => {
-    if (tenantId) fetchLowStockProducts();
-  }, [tenantId]);
-
-  const fetchLowStockProducts = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await inventoryProductsService.getLowStockProducts(tenantId);
-      setProducts(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar alertas');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Solo productos que manejan stock Y están bajo el mínimo. Excluye los
+  // de stock infinito (tracks_stock=false).
+  const products = useMemo(
+    () =>
+      allProducts.filter(
+        (p: any) =>
+          p.tracks_stock !== false &&
+          (p.stock_quantity ?? 0) <= (p.min_stock_level ?? 0),
+      ),
+    [allProducts],
+  );
 
   if (loading) {
     return (
