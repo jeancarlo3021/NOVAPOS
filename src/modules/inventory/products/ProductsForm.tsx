@@ -427,7 +427,41 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                 </div>
               </div>
 
-              {/* Stock actual — esencial si maneja inventario */}
+              {/* ── Stock infinito vs Stock actual — ESENCIAL, siempre visible ── */}
+              {!isProductsOnly && canMixStock && (
+                <div className={`rounded-xl border-2 p-3 transition ${
+                  !tracksStock
+                    ? 'border-blue-300 bg-blue-50'
+                    : 'border-gray-200 bg-gray-50'
+                }`}>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!tracksStock}
+                      onChange={e => setTracksStock(!e.target.checked)}
+                      disabled={submitting}
+                      className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-2 focus:ring-blue-400"
+                    />
+                    <div className="flex-1">
+                      <p className="font-black text-gray-900 text-sm flex items-center gap-1.5">
+                        Stock infinito (∞)
+                        {!tracksStock && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-600 text-white rounded uppercase tracking-wider">
+                            Activo
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {!tracksStock
+                          ? 'Las ventas NO descontarán inventario. Útil para servicios, comidas preparadas o productos hechos al momento.'
+                          : 'Marcá esta opción si el producto no necesita control de stock (servicios, comidas, etc.)'}
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
+
+              {/* Stock actual — solo si lleva control de stock */}
               {!isProductsOnly && tracksStock && (
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">Stock actual</label>
@@ -614,38 +648,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                   );
                 })()}
 
-                {/* Toggle: Manejar Stock */}
-                {!isProductsOnly && canMixStock && (
-                  <div className={`flex items-start gap-3 p-4 rounded-xl border-2 transition ${
-                    tracksStock
-                      ? 'bg-emerald-50 border-emerald-200'
-                      : 'bg-amber-50 border-amber-200'
-                  }`}>
-                    <button
-                      type="button"
-                      onClick={() => setTracksStock(!tracksStock)}
-                      className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-                        tracksStock ? 'bg-emerald-500' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
-                          tracksStock ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                    <div className="flex-1">
-                      <p className={`font-bold text-sm ${tracksStock ? 'text-emerald-800' : 'text-amber-800'}`}>
-                        Manejar stock para este producto
-                      </p>
-                      <p className={`text-xs mt-0.5 ${tracksStock ? 'text-emerald-600' : 'text-amber-700'}`}>
-                        {tracksStock
-                          ? 'Las ventas descuentan del inventario.'
-                          : 'Stock ilimitado (servicios, comidas, etc.)'}
-                      </p>
-                    </div>
-                  </div>
-                )}
+                {/* Toggle "Stock infinito" se movió arriba al bloque esencial. */}
 
                 {/* Min / Max stock */}
                 {!isProductsOnly && tracksStock && (
