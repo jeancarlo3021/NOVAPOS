@@ -1,0 +1,49 @@
+# ColónClick — robots.txt
+# Permite el acceso público a la landing y el login, bloquea el resto
+# (rutas autenticadas que solo devolverían redirects al login).
+
+User-agent: *
+Allow: /$
+Allow: /login
+
+Disallow: /pos
+Disallow: /inventory
+Disallow: /settings
+Disallow: /users
+Disallow: /recipes
+Disallow: /reports
+Disallow: /expenses
+Disallow: /purchases
+Disallow: /hr
+Disallow: /promotions
+Disallow: /accounts-payable
+Disallow: /tables
+Disallow: /billing
+Disallow: /branches
+Disallow: /transfers
+Disallow: /create-owner
+Disallow: /plans
+Disallow: /categorie
+Disallow: /unit-types
+Disallow: /api/
+
+# Bloquear bots agresivos / scrapers de IA que no aportan valor
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+Sitemap: https://colonclick.com/sitemap.xml
