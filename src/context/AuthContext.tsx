@@ -191,7 +191,10 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   pos_customer_field: false,
   pos_search_tabs: false,
   inventory_products_only: false,
-  inventory_mixed_stock: false,
+  // Por defecto, todos los planes permiten mezclar productos con stock
+  // tracked + stock infinito. Si algún plan futuro quiere bloquearlo, basta
+  // con poner explícitamente `false` en su configuración de features.
+  inventory_mixed_stock: true,
   inventory_categories: false,
   inventory_unit_types: false,
   inventory_suppliers: false,

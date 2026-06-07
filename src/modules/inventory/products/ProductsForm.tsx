@@ -53,8 +53,10 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const [uploadingImage, setUploadingImage] = useState(false);
   const [tracksStock, setTracksStock] = useState<boolean>(true);
 
-  // Feature de plan: si NO permite mezclar, fuerza tracks_stock = true para todos
-  const canMixStock = !!planFeatures?.inventory_mixed_stock;
+  // Feature de plan: solo bloqueamos el toggle cuando el plan tiene
+  // `inventory_mixed_stock` EXPLÍCITAMENTE en false. Si está en true o
+  // ausente (undefined), permitimos elegir entre tracked/infinito.
+  const canMixStock = planFeatures?.inventory_mixed_stock !== false;
 
   const [submitting, setSubmitting] = useState(false);
   const [loadingProduct, setLoadingProduct] = useState(!!productId);
@@ -299,7 +301,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   return (
     <div className="fixed inset-0 backdrop-blur-lg bg-white/30 flex items-center justify-center z-50 w-full p-4">
       <Card className="w-full max-w-6xl max-h-[95vh] overflow-y-auto">
-        <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
+        <CardHeader className="bg-linear-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
           <h2 className="text-2xl font-bold">
             {productId ? '✏️ Editar Producto' : '➕ Nuevo Producto'}
           </h2>
@@ -311,7 +313,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         <CardContent className="p-6 space-y-4">
           {formError && (
             <div className="bg-red-50 border-2 border-red-400 rounded-2xl p-5 flex gap-4 shadow-md">
-              <AlertCircle className="text-red-600 flex-shrink-0" size={32} />
+              <AlertCircle className="text-red-600 shrink-0" size={32} />
               <div className="flex-1">
                 <p className="text-red-900 font-black text-xl leading-tight">No se pudo guardar el producto</p>
                 <p className="text-red-800 mt-1 text-base font-semibold">{formError}</p>
@@ -321,14 +323,14 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
           {formSuccess && (
             <div className="bg-green-50 border-2 border-green-300 rounded-xl p-4 flex gap-3">
-              <div className="text-green-600 flex-shrink-0 text-2xl">✓</div>
+              <div className="text-green-600 shrink-0 text-2xl">✓</div>
               <p className="text-green-800 font-semibold">{formSuccess}</p>
             </div>
           )}
 
           {(categoriesError || unitTypesError) && (
             <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 flex gap-3">
-              <AlertCircle className="text-yellow-600 flex-shrink-0" size={22} />
+              <AlertCircle className="text-yellow-600 shrink-0" size={22} />
               <p className="text-yellow-800 font-semibold">Algunos datos no se pudieron cargar. Intenta de nuevo.</p>
             </div>
           )}
