@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useRef } from 'r
 import { supabase } from '@/lib/supabase';
 import { setRememberMe } from '@/lib/authStorage';
 import { globalCacheService } from '@/services/cache/globalCacheService';
+import { identifySentryUser, clearSentryUser } from '@/lib/sentry';
 
 // ============================================
 // AUTH CACHE (localStorage) — offline support
@@ -575,6 +576,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPlanFeatures(planData.features);
       setPlanName(planData.name);
 
+      // Identificar al usuario en Sentry — cualquier error futuro queda
+      // taggeado con su email y tenant. No-op si Sentry no fue iniciado.
+      try {
+        identifySentryUser({
+          id: userData.id,
+          email: userData.email,
+          full_name: userData.full_name,
+          tenant_id: selectedTenant?.id,
+        });
+      } catch { /* no romper auth si Sentry falla */ }
+
       // Persist to localStorage so next load works offline
       writeAuthCache({
         userId,
@@ -820,6 +832,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Limpiamos cualquier rastro del modo solo-lectura antes de salir, así
       // el próximo usuario que entre desde este navegador no hereda el bloqueo.
       try { localStorage.removeItem('novapos_read_only'); } catch { /* ignore */ }
+
+      // Limpiamos también la identidad en Sentry para que errores post-logout
+      // no queden taggeados con el usuario anterior.
+      try { clearSentryUser(); } catch { /* ignore */ }
 
       // Flag so onAuthStateChange knows this SIGNED_OUT is from THIS tab
       isSigningOutRef.current = true;
