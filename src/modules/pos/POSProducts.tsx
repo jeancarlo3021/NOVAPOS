@@ -120,14 +120,14 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
   const products = Array.isArray(filteredProducts) ? filteredProducts : [];
 
-  // Categorías visibles: las del backend que tengan al menos un producto
-  // de la lista actual. Si el backend de categorías no responde, hacemos
-  // fallback a las que vienen embebidas en los productos.
-  const usedCategoryIds = new Set(
-    products.map((p) => (p as any).category_id).filter(Boolean),
-  );
+  // Categorías visibles: TODAS las del backend. Antes filtrábamos por las
+  // que tuvieran productos en la lista actual, pero en navegadores con caché
+  // stale (p. ej. Edge) los productos podían venir sin `category_id` y
+  // perdíamos categorías que sí existen. Mejor mostrar el listado completo;
+  // si una categoría queda vacía, simplemente no muestra productos al
+  // seleccionarla — pero sí aparece como opción.
   const categories: { id: string; name: string }[] = allCategories.length > 0
-    ? allCategories.filter(c => usedCategoryIds.has(c.id))
+    ? allCategories
     : Array.from(
         new Map(
           products
@@ -372,8 +372,12 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {displayed.map((product) => {
               const stock    = product.stock_quantity ?? 0;
-              // Si el producto NO maneja stock (tracks_stock=false) → siempre disponible
-              const productTracksStock = (product as any).tracks_stock !== false;
+              // Solo bloqueamos venta cuando tracks_stock está EXPLÍCITAMENTE en true.
+              // Si está en false, null o undefined (p. ej. caché vieja sin el campo
+              // o producto creado antes de la columna), el producto se vende sin
+              // chequear stock. Esto mantiene a Edge alineado con Inventario en
+              // navegadores donde la caché del POS quedó stale.
+              const productTracksStock = (product as any).tracks_stock === true;
               const effectiveIgnore = ignoreStock || !productTracksStock;
               const inStock  = effectiveIgnore || stock > 0;
               const lowStock = !effectiveIgnore && stock > 0 && stock <= 5;

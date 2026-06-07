@@ -7,6 +7,7 @@ import { Login } from '@/modules/auth/Login';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/modules/dashboard/Dasboard';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { ClearCacheShortcut } from '@/components/ClearCacheShortcut';
 import { useTokenRefresh } from '@/hooks/useTokenRefresh';
 
 // ── Módulos cargados bajo demanda ─────────────────────────────────────────
@@ -51,6 +52,7 @@ function AppContent() {
 
   return (
     <>
+      <ClearCacheShortcut />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/login" element={<Login />} />

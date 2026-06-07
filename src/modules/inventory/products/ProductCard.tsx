@@ -250,7 +250,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           </div>
         )}
 
-        {!isProductsOnly && (
+        {/* Badge global de estado de stock — solo si el producto trackea stock.
+            Antes aparecía "✕ Stock Crítico" en productos con tracks_stock=false
+            porque stock_quantity siempre vale 0 y stockPercentage→0. */}
+        {!isProductsOnly && productTracksStock && (
           <div className="mt-4 pt-4 border-t border-gray-200">
             <Badge variant={
               stockStatus === 'optimal' ? 'success' :

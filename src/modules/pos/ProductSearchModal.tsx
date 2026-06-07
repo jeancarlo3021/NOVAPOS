@@ -70,7 +70,7 @@ export const ProductSearchModal: React.FC<Props> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="w-full max-w-3xl max-h-[85vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50 to-white">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-linear-to-r from-emerald-50 to-white">
           <div className="flex items-center gap-2">
             <Search size={22} className="text-emerald-600" />
             <h2 className="text-xl font-black text-gray-900">Buscar producto</h2>
@@ -131,7 +131,9 @@ export const ProductSearchModal: React.FC<Props> = ({
             <ul className="divide-y divide-gray-100 bg-white rounded-xl border border-gray-200">
               {filtered.slice(0, 80).map((product) => {
                 const stock = product.stock_quantity ?? 0;
-                const tracksStock = (product as any).tracks_stock !== false;
+                // Misma lógica que POSProducts: solo bloqueamos si tracks_stock
+                // está explícitamente en true. Faltante/null/false => sin bloqueo.
+                const tracksStock = (product as any).tracks_stock === true;
                 const effectiveIgnore = ignoreStock || !tracksStock;
                 const inStock = effectiveIgnore || stock > 0;
                 const promo = getProductPromotion(
