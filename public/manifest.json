@@ -1,0 +1,56 @@
+{
+  "name": "ColónClick",
+  "short_name": "ColónClick",
+  "description": "Sistema de Punto de Venta y Facturación Electrónica para comercios en Costa Rica.",
+  "theme_color": "#10b981",
+  "background_color": "#0f172a",
+  "display": "standalone",
+  "orientation": "any",
+  "scope": "/",
+  "start_url": "/",
+  "lang": "es-CR",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "64x64",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Vender",
+      "short_name": "POS",
+      "description": "Abrir el punto de venta",
+      "url": "/pos",
+      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Inventario",
+      "short_name": "Inventario",
+      "description": "Gestionar productos y stock",
+      "url": "/inventory",
+      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Reportes",
+      "short_name": "Reportes",
+      "description": "Ver reportes y analítica",
+      "url": "/reports",
+      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ]
+}

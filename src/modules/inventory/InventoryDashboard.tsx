@@ -53,8 +53,10 @@ export const InventoryDashboard: React.FC = () => {
       if (tab.id === 'stock'      && !flagOn(pf.inventory_stock_view))        return false;
       if (tab.id === 'alerts'     && !flagOn(pf.inventory_low_stock_alerts))  return false;
 
-      // Plan solo-productos sigue ocultando stock + alertas.
-      if (hasProductsOnlyAccess && !['products', 'suppliers', 'categories', 'unitTypes'].includes(tab.id)) {
+      // Plan solo-productos sigue ocultando stock + alertas. El "dashboard"
+      // (panel principal con tiles gigantes) SIEMPRE se incluye para que sea
+      // la landing del módulo — los tiles que no apliquen no se renderizan.
+      if (hasProductsOnlyAccess && !['dashboard', 'products', 'suppliers', 'categories', 'unitTypes'].includes(tab.id)) {
         return false;
       }
 
