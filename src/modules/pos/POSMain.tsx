@@ -7,6 +7,8 @@ import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
 import { usePOSViewMode } from '@/hooks/usePOSViewMode';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
 import { usePOSLayout } from '@/hooks/usePOSLayout';
+import { usePOSTabs } from '@/hooks/POS/usePOSTabs';
+import { POSTabs } from './POSTabs';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
 import {
@@ -50,7 +52,15 @@ export const POSMain = () => {
   const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError } = usePOSProducts();
   const activePromotions = usePOSPromotions(tenantId);
 
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  // Carrito multi-pestaña: cada tab tiene su propio cart + cliente, persistido
+  // en localStorage. setCartItems/setCustomerName mantienen la misma firma que
+  // los useState anteriores, así el resto del componente no cambia.
+  const {
+    tabs, activeTabId, setActiveTabId, newTab, closeTab, renameTab,
+    cartItems, setCartItems,
+    customerName: tabCustomerName, setCustomerName: setTabCustomerName,
+    resetActive,
+  } = usePOSTabs(tenantId);
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
@@ -84,8 +94,10 @@ export const POSMain = () => {
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
   const [showReprintModal, setShowReprintModal] = useState(false);
-  // Cliente para la factura en curso (visible en modo escritorio).
-  const [customerName, setCustomerName] = useState('');
+  // Cliente para la factura en curso — reusamos el del tab activo así viaja
+  // junto con la pestaña cuando el cajero cambia entre ventas en espera.
+  const customerName    = tabCustomerName;
+  const setCustomerName = setTabCustomerName;
   // Bump cuando se completa un cobro, para que POSDesktopBar re-lea el peek.
   const [invoiceCounterKey, setInvoiceCounterKey] = useState(0);
   const [cashMovement, setCashMovement] = useState<'in' | 'out' | null>(null);
@@ -443,8 +455,9 @@ export const POSMain = () => {
           invNum
         );
 
-        // Limpiar UI INMEDIATAMENTE para que esté lista para nueva venta
-        setCartItems([]);
+        // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
+        // actual de una sola llamada (más limpio que setCartItems([]) + setCustomerName('')).
+        resetActive();
         setShowPaymentModal(false);
         setPaymentLoading(false);
         setLastInvoice(invoice);
@@ -460,7 +473,6 @@ export const POSMain = () => {
           payment_method: invoice.payment_method,
         });
         printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined);
-        setCustomerName('');
         setInvoiceCounterKey(k => k + 1);
         return;
       } else {
@@ -480,8 +492,11 @@ export const POSMain = () => {
           customerName: customerName.trim() || undefined,
         });
 
-        // Limpiar UI INMEDIATAMENTE
-        setCartItems([]);
+        // Snapshot del cliente antes del reset (lo necesitamos para impresión).
+        const offlineCustomer = customerName.trim() || undefined;
+
+        // Limpiar UI del tab activo INMEDIATAMENTE
+        resetActive();
         setShowPaymentModal(false);
         setPaymentLoading(false);
         setSuccess(`Venta guardada sin conexión (${invoiceNumber}) — se sincronizará al reconectar`);
@@ -495,9 +510,7 @@ export const POSMain = () => {
           payment_method: data.paymentMethod,
         });
         refreshPendingCount();
-        const offlineCustomer = customerName.trim() || undefined;
         printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer);
-        setCustomerName('');
         setInvoiceCounterKey(k => k + 1);
         return;
       }
@@ -561,6 +574,20 @@ export const POSMain = () => {
           invoiceNumberRefreshKey={invoiceCounterKey}
         />
       )}
+
+      {/* ── Tabs de ventas en espera ──────────────────────────────────────── */}
+      <POSTabs
+        tabs={tabs}
+        activeId={activeTabId}
+        onSwitch={setActiveTabId}
+        onNew={() => newTab()}
+        onClose={closeTab}
+        onRename={renameTab}
+        computeTotal={(tab) => {
+          const sub = tab.cartItems.reduce((s, i) => s + (i.subtotal ?? 0), 0);
+          return sub + (taxEnabled ? sub * taxRate : 0);
+        }}
+      />
 
       {/* ── Barra de Total estilo Eleventa ──────────────────────────────────
            Se muestra en modo Asistido O en layout de Lista (ahí el carrito
