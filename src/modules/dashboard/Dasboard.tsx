@@ -76,6 +76,11 @@ export const Dashboard = () => {
     setLoading(true);
 
     const todayStr = new Date().toISOString().slice(0, 10);
+    // issued_at es TIMESTAMPTZ: si mandamos solo YYYY-MM-DD el backend
+    // interpreta el `to` como medianoche y deja afuera todas las facturas
+    // del día. Mandamos timestamps explícitos para cubrir 00:00 → 23:59:59.
+    const dayFrom = `${todayStr}T00:00:00`;
+    const dayTo   = `${todayStr}T23:59:59.999`;
 
     // Timeout corto: estas llamadas son OPCIONALES, no deben bloquear el
     // dashboard 20 s si una está lenta o devuelve 403.
@@ -93,21 +98,31 @@ export const Dashboard = () => {
         : Promise.resolve(null);
 
     const [salesR, stockR, apR, purchR, subR] = await Promise.allSettled([
-      callOrSkip<{ invoices: any[] } | any[]>(true, `/reports/sales?from=${todayStr}&to=${todayStr}`),
+      callOrSkip<{ total_revenue: number; total_invoices: number; invoices: any[] } | any[]>(
+        true,
+        `/reports/sales?from=${encodeURIComponent(dayFrom)}&to=${encodeURIComponent(dayTo)}`,
+      ),
       callOrSkip<{ low_stock_count: number }>(hasFullInventory, '/reports/stock'),
       callOrSkip<Array<{ status: string }>>(!!pf.accounts_payable, '/accounts-payable?status=pending'),
       callOrSkip<Array<{ id: string }>>(!!pf.purchases, '/purchases?status=pending'),
       callOrSkip<{ ends_at: string } | null>(true, '/plans/current'),
     ]);
 
-    // Ventas
+    // Ventas — preferimos los totales pre-calculados del backend; si la
+    // respuesta vino como array (formato viejo), caemos al cálculo manual.
     let todayTotal = 0, todayCount = 0;
     if (salesR.status === 'fulfilled' && salesR.value) {
       const v = salesR.value as any;
-      const all = Array.isArray(v) ? v : (v?.invoices ?? []);
-      const todayItems = Array.isArray(all) ? all.filter((r: any) => r.issued_at?.startsWith(todayStr)) : [];
-      todayCount = todayItems.length;
-      todayTotal = todayItems.reduce((s: number, r: any) => s + Number(r.total ?? 0), 0);
+      if (!Array.isArray(v) && typeof v?.total_revenue === 'number') {
+        todayTotal = Number(v.total_revenue) || 0;
+        todayCount = Number(v.total_invoices ?? (Array.isArray(v.invoices) ? v.invoices.length : 0)) || 0;
+      } else {
+        const all = Array.isArray(v) ? v : (v?.invoices ?? []);
+        todayCount = Array.isArray(all) ? all.length : 0;
+        todayTotal = Array.isArray(all)
+          ? all.reduce((s: number, r: any) => s + Number(r.total ?? 0), 0)
+          : 0;
+      }
     }
 
     // Stock

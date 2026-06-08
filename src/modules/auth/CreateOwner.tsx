@@ -7,12 +7,13 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search,
+  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search, Sparkles,
 } from 'lucide-react';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
+import { PrinterSandbox } from './components/PrinterSandbox';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'receipts';
+type AdminTab = 'businesses' | 'receipts' | 'sandbox';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -331,6 +332,7 @@ export const CreateOwner: React.FC = () => {
           {[
             { id: 'businesses' as AdminTab, label: 'Negocios',     icon: Building2 },
             { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
+            { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
           ].map(t => {
             const Icon = t.icon;
             const active = activeTab === t.id;
@@ -349,6 +351,12 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'receipts' && (
         <div className="max-w-7xl mx-auto p-6">
           <PaymentReceiptsView owners={owners} />
+        </div>
+      )}
+
+      {activeTab === 'sandbox' && (
+        <div className="max-w-5xl mx-auto p-6">
+          <PrinterSandbox />
         </div>
       )}
 

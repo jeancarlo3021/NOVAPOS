@@ -1,31 +1,35 @@
 {
-  "name": "ColónClick",
+  "name": "ColónClick — Punto de Venta",
   "short_name": "ColónClick",
   "description": "Sistema de Punto de Venta y Facturación Electrónica para comercios en Costa Rica.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
   "theme_color": "#10b981",
   "background_color": "#0f172a",
-  "display": "standalone",
-  "orientation": "any",
-  "scope": "/",
-  "start_url": "/",
   "lang": "es-CR",
-  "categories": ["business", "finance", "productivity"],
+  "dir": "ltr",
+  "categories": ["business", "finance", "productivity", "shopping"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/favicon.svg",
-      "sizes": "64x64",
+      "sizes": "64x64 96x96 128x128 192x192 256x256 384x384 512x512",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
       "src": "/icon-512.svg",
-      "sizes": "192x192 512x512 any",
+      "sizes": "192x192 512x512",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
       "src": "/icon-maskable.svg",
-      "sizes": "512x512",
+      "sizes": "192x192 512x512",
       "type": "image/svg+xml",
       "purpose": "maskable"
     }
@@ -35,22 +39,29 @@
       "name": "Vender",
       "short_name": "POS",
       "description": "Abrir el punto de venta",
-      "url": "/pos",
-      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+      "url": "/pos?source=pwa-shortcut",
+      "icons": [{ "src": "/favicon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     },
     {
       "name": "Inventario",
       "short_name": "Inventario",
       "description": "Gestionar productos y stock",
-      "url": "/inventory",
-      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+      "url": "/inventory?source=pwa-shortcut",
+      "icons": [{ "src": "/favicon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     },
     {
       "name": "Reportes",
       "short_name": "Reportes",
       "description": "Ver reportes y analítica",
-      "url": "/reports",
-      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+      "url": "/reports?source=pwa-shortcut",
+      "icons": [{ "src": "/favicon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     }
-  ]
+  ],
+  "screenshots": [],
+  "edge_side_panel": {
+    "preferred_width": 480
+  },
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
 }
