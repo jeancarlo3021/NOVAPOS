@@ -28,6 +28,56 @@ function bytes(...parts: (number[] | Uint8Array | string)[]): Uint8Array {
   return new Uint8Array(all);
 }
 
+// ── Encoders single-byte para impresoras térmicas ──────────────────────────
+// Las impresoras ESC/POS NO entienden UTF-8 por defecto. Cada carácter Unicode
+// no-ASCII debe traducirse al byte equivalente en su code page activo. Si
+// mandamos UTF-8 (la "ó" es C3 B3), el firmware lo interpreta como caracteres
+// multi-byte (a menudo chinos) y sale basura.
+//
+// CP437 = IBM PC original, universal. CP858 = Latin-9, soporta € y acentos.
+
+const CP437_MAP: Record<string, number> = {
+  'Ç': 0x80, 'ü': 0x81, 'é': 0x82, 'â': 0x83, 'ä': 0x84, 'à': 0x85, 'å': 0x86,
+  'ç': 0x87, 'ê': 0x88, 'ë': 0x89, 'è': 0x8A, 'ï': 0x8B, 'î': 0x8C, 'ì': 0x8D,
+  'Ä': 0x8E, 'Å': 0x8F, 'É': 0x90, 'æ': 0x91, 'Æ': 0x92, 'ô': 0x93, 'ö': 0x94,
+  'ò': 0x95, 'û': 0x96, 'ù': 0x97, 'ÿ': 0x98, 'Ö': 0x99, 'Ü': 0x9A, '¢': 0x9B,
+  '£': 0x9C, '¥': 0x9D, '₧': 0x9E, 'ƒ': 0x9F, 'á': 0xA0, 'í': 0xA1, 'ó': 0xA2,
+  'ú': 0xA3, 'ñ': 0xA4, 'Ñ': 0xA5, 'ª': 0xA6, 'º': 0xA7, '¿': 0xA8, '¬': 0xAA,
+  '½': 0xAB, '¼': 0xAC, '¡': 0xAD, '«': 0xAE, '»': 0xAF,
+  '°': 0xF8, '·': 0xFA, '²': 0xFD, '■': 0xFE,
+};
+
+const CP858_MAP: Record<string, number> = {
+  // Igual que CP437 pero con € en 0xD5 y algunas letras adicionales (CP850/858).
+  ...CP437_MAP,
+  '€': 0xD5,
+  'Á': 0xB5, 'Í': 0xD6, 'Ó': 0xE0, 'Ú': 0xE9,
+  'Ï': 0xD8, 'Ì': 0xDE,
+  'Ô': 0xE2, 'Ò': 0xE3, 'Ù': 0xEB,
+  'Â': 0xB6, 'Ê': 0xD2, 'Î': 0xD7, 'Û': 0xEA,
+  'Ã': 0xC6, 'ã': 0xC7, 'Õ': 0xE4, 'õ': 0xE5,
+  'š': 0xF0, 'Š': 0xE7, 'ý': 0xEC, 'Ý': 0xED,
+  'µ': 0xE6, '×': 0x9E,
+};
+
+function encodeWithMap(text: string, map: Record<string, number>): Uint8Array {
+  const out: number[] = [];
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    if (code < 0x80) {
+      out.push(code);                       // ASCII puro
+    } else if (map[ch] != null) {
+      out.push(map[ch]);                    // mapeo single-byte
+    } else {
+      out.push(0x3F);                       // '?' para caracteres no soportados
+    }
+  }
+  return new Uint8Array(out);
+}
+
+const encodeCP437 = (t: string) => encodeWithMap(t, CP437_MAP);
+const encodeCP858 = (t: string) => encodeWithMap(t, CP858_MAP);
+
 // ── Lenguajes ──────────────────────────────────────────────────────────────
 export const PRINTER_LANGUAGES: PrinterLanguage[] = [
   // ── Térmicos directos ──────────────────────────────────────────────────
@@ -47,17 +97,17 @@ export const PRINTER_LANGUAGES: PrinterLanguage[] = [
   },
   {
     id: 'xprinter-cn',
-    label: 'Xprinter chino (cancela GB18030)',
+    label: 'Xprinter chino (cancela GB18030 + CP437)',
     family: 'thermal',
     vendors: 'Xprinter XP-58 · XP-80 · XP-T80 en modo chino de fábrica',
-    description: 'Para Xprinter configuradas con firmware en chino GB18030/GBK. Manda FS . para CANCELAR el modo chino y deja imprimir Latin-1 normal.',
+    description: 'Cancela modo chino y codifica texto en CP437 single-byte (NO UTF-8). Acentos básicos (á é í ó ú ñ) salen bien. Sin €.',
     wrap: (text) => bytes(
       [0x1B, 0x40],                  // ESC @ — init
       [0x1C, 0x2E],                  // FS . — CANCELAR modo chino (clave!)
       [0x1B, 0x52, 0x00],            // ESC R 0 — international charset: USA
-      [0x1B, 0x74, 0x00],            // ESC t 0 — code page: CP437 (ASCII)
-      [0x1B, 0x21, 0x00],            // ESC ! 0 — modo normal (sin negrita ni doble)
-      text + '\n',
+      [0x1B, 0x74, 0x00],            // ESC t 0 — code page: CP437
+      [0x1B, 0x21, 0x00],            // ESC ! 0 — modo normal
+      encodeCP437(text + '\n'),      // ← TEXTO EN CP437, NO UTF-8
       [0x0A, 0x0A, 0x0A],
       [0x1D, 0x56, 0x00],            // GS V 0 — full cut
     ),
@@ -66,14 +116,29 @@ export const PRINTER_LANGUAGES: PrinterLanguage[] = [
     id: 'xprinter-cn-cp858',
     label: 'Xprinter chino + CP858 (acentos €ñáé)',
     family: 'thermal',
-    vendors: 'Xprinter chinas + textos con tildes y €',
-    description: 'Como "Xprinter chino" pero usa code page CP858 — soporta acentos españoles, ñ y €. Probá esta si la anterior imprime pero pierde tildes.',
+    vendors: 'Xprinter chinas + textos con tildes, ñ y €',
+    description: 'Cancela modo chino y codifica el texto en CP858 single-byte. Soporta TODAS las tildes (mayúsculas incluidas), ñ, ¿¡ y €.',
     wrap: (text) => bytes(
       [0x1B, 0x40],
       [0x1C, 0x2E],                  // FS . — cancel Chinese mode
       [0x1B, 0x52, 0x07],            // ESC R 7 — international: Spain
-      [0x1B, 0x74, 0x13],            // ESC t 19 — CP858 (Latin con €, ñ, tildes)
-      text + '\n',
+      [0x1B, 0x74, 0x13],            // ESC t 19 — CP858 (Latin con €)
+      encodeCP858(text + '\n'),      // ← TEXTO EN CP858, NO UTF-8
+      [0x0A, 0x0A, 0x0A],
+      [0x1D, 0x56, 0x00],
+    ),
+  },
+  {
+    id: 'escpos-cp858',
+    label: 'ESC/POS estándar + CP858 (recomendado)',
+    family: 'thermal',
+    vendors: 'Cualquier impresora ESC/POS con acentos',
+    description: 'Versión "correcta" para impresoras ya en modo Latin. CP858 single-byte + ESC R 7. Sin FS . (no necesita cancelar chino).',
+    wrap: (text) => bytes(
+      [0x1B, 0x40],
+      [0x1B, 0x52, 0x07],            // ESC R 7 — internacional: España
+      [0x1B, 0x74, 0x13],            // ESC t 19 — CP858
+      encodeCP858(text + '\n'),
       [0x0A, 0x0A, 0x0A],
       [0x1D, 0x56, 0x00],
     ),
