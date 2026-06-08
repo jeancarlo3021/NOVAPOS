@@ -68,21 +68,8 @@ const DRAWER_KICKS: RawCommand[] = [
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-const enc = new TextEncoder();
-
-function buildBytes(parts: (number[] | Uint8Array | string)[]): Uint8Array {
-  const all: number[] = [];
-  for (const p of parts) {
-    if (typeof p === 'string') {
-      enc.encode(p).forEach(b => all.push(b));
-    } else if (p instanceof Uint8Array) {
-      p.forEach(b => all.push(b));
-    } else {
-      all.push(...p);
-    }
-  }
-  return new Uint8Array(all);
-}
+// El armado de bytes vive en printerLanguages.ts (cada lenguaje tiene su
+// propia función wrap()). Acá solo necesitamos parsear input hex y previews.
 
 function parseHexInput(text: string): Uint8Array {
   // Acepta "1B 40 0A" o "0x1B 0x40 0x0A" o "1B,40,0A" o sin separadores "1B400A".
