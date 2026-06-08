@@ -173,12 +173,28 @@ export async function qzGetPrinters(): Promise<string[]> {
 // ── Print functions ───────────────────────────────────────────────────────────
 
 /**
+ * QZ Tray serializa el payload del WebSocket a JSON. Si le pasamos un
+ * Uint8Array directo, se convierte a {"0":27,"1":...} literalmente y
+ * la impresora termina imprimiendo esa cadena. La forma correcta es
+ * codificarlo a base64 y usar `format: 'base64'`.
+ */
+function uint8ToBase64(data: Uint8Array): string {
+  let binary = '';
+  // Procesamos en chunks para evitar el límite de argumentos de fromCharCode.
+  const chunk = 0x8000;
+  for (let i = 0; i < data.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, Array.from(data.subarray(i, i + chunk)));
+  }
+  return btoa(binary);
+}
+
+/**
  * Print raw ESC/POS bytes to a USB printer (identified by OS name).
  */
 export async function qzPrintUSB(printerName: string, data: Uint8Array): Promise<void> {
   const q = getQZ();
   const config = q.configs.create(printerName);
-  await q.print(config, [{ type: 'raw', format: 'command', data }]);
+  await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
 }
 
 /**
@@ -188,7 +204,7 @@ export async function qzPrintUSB(printerName: string, data: Uint8Array): Promise
 export async function qzPrintNetwork(ip: string, port: number, data: Uint8Array): Promise<void> {
   const q = getQZ();
   const config = q.configs.create({ host: ip, port });
-  await q.print(config, [{ type: 'raw', format: 'command', data }]);
+  await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
 }
 
 /**
