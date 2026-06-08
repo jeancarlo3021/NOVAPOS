@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, X, Pencil, Check } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Plus, X, Pencil, Check, AlertTriangle, ShoppingBag, Trash2 } from 'lucide-react';
 import type { POSTab } from '@/hooks/POS/usePOSTabs';
 
 interface Props {
@@ -21,6 +21,7 @@ export const POSTabs: React.FC<Props> = ({
 }) => {
   const [editingId, setEditingId]   = useState<string | null>(null);
   const [editLabel, setEditLabel]   = useState('');
+  const [confirmTab, setConfirmTab] = useState<POSTab | null>(null);
 
   const startEdit = (tab: POSTab) => {
     setEditingId(tab.id);
@@ -35,16 +36,17 @@ export const POSTabs: React.FC<Props> = ({
     setEditLabel('');
   };
 
-  const handleCloseConfirm = (tab: POSTab) => {
-    const itemCount = tab.cartItems.length;
-    if (itemCount > 0) {
-      const ok = confirm(
-        `La pestaña "${tab.label}" tiene ${itemCount} producto${itemCount === 1 ? '' : 's'} en el carrito.\n\n` +
-        '¿Cerrar y descartar la venta en espera?'
-      );
-      if (!ok) return;
+  const requestClose = (tab: POSTab) => {
+    if (tab.cartItems.length > 0) {
+      setConfirmTab(tab);    // abre el modal de confirmación
+    } else {
+      onClose(tab.id);       // cerrar sin items: directo
     }
-    onClose(tab.id);
+  };
+
+  const confirmClose = () => {
+    if (confirmTab) onClose(confirmTab.id);
+    setConfirmTab(null);
   };
 
   return (
@@ -130,7 +132,7 @@ export const POSTabs: React.FC<Props> = ({
               )}
               <button
                 type="button"
-                onClick={e => { e.stopPropagation(); handleCloseConfirm(tab); }}
+                onClick={e => { e.stopPropagation(); requestClose(tab); }}
                 title="Cerrar pestaña"
                 className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-500 hover:bg-red-100"
               >
@@ -154,6 +156,124 @@ export const POSTabs: React.FC<Props> = ({
 
       <div className="ml-auto text-[10px] text-gray-400 hidden lg:block px-2">
         Doble clic en una pestaña para renombrar
+      </div>
+
+      {confirmTab && (
+        <CloseTabModal
+          tab={confirmTab}
+          total={computeTotal ? computeTotal(confirmTab) : confirmTab.cartItems.reduce((s, i) => s + (i.subtotal ?? 0), 0)}
+          onConfirm={confirmClose}
+          onCancel={() => setConfirmTab(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+// ── Modal de confirmación para cerrar pestaña con venta en espera ──────────
+const CloseTabModal: React.FC<{
+  tab: POSTab;
+  total: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}> = ({ tab, total, onConfirm, onCancel }) => {
+  // Cerrar con Escape, confirmar con Enter.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Enter')  onConfirm();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel, onConfirm]);
+
+  const itemCount = tab.cartItems.length;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="bg-linear-to-r from-red-500 to-rose-600 text-white px-5 py-3 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
+            <AlertTriangle size={20} className="text-white" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-black text-lg leading-tight">Cerrar venta en espera</h3>
+            <p className="text-xs text-red-100">Esta acción no se puede deshacer</p>
+          </div>
+          <button
+            onClick={onCancel}
+            className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center transition"
+          >
+            <X size={16} className="text-white" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-gray-700">
+            La pestaña <span className="font-black text-gray-900">"{tab.label}"</span> tiene una venta en progreso que vas a descartar:
+          </p>
+
+          {/* Resumen */}
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-gray-700">
+                <ShoppingBag size={14} className="text-gray-500" />
+                {itemCount} producto{itemCount === 1 ? '' : 's'}
+              </span>
+              <span className="text-lg font-black text-gray-900 tabular-nums">
+                ₡{Math.round(total).toLocaleString('es-CR')}
+              </span>
+            </div>
+
+            {/* Lista compacta de items (máx 5) */}
+            <ul className="text-xs text-gray-500 space-y-0.5 pt-2 border-t border-gray-200">
+              {tab.cartItems.slice(0, 5).map(it => (
+                <li key={it.product_id} className="flex justify-between gap-2">
+                  <span className="truncate">{it.quantity}× {it.product?.name ?? 'Producto'}</span>
+                  <span className="tabular-nums shrink-0">₡{Math.round(it.subtotal).toLocaleString('es-CR')}</span>
+                </li>
+              ))}
+              {tab.cartItems.length > 5 && (
+                <li className="italic text-gray-400">…y {tab.cartItems.length - 5} más</li>
+              )}
+            </ul>
+
+            {tab.customerName && (
+              <p className="text-xs text-gray-500 pt-2 border-t border-gray-200">
+                Cliente: <span className="font-semibold text-gray-700">{tab.customerName}</span>
+              </p>
+            )}
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+            <p className="font-bold">¿Querés guardar la venta antes de cerrar?</p>
+            <p className="mt-1 text-amber-700">
+              Tocá <span className="font-bold">Cancelar</span>, cambiá a esa pestaña y cobrala. Si la cerrás, los productos se descartan.
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="bg-gray-50 border-t border-gray-100 px-5 py-3 flex gap-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-700 font-bold text-sm transition"
+            autoFocus
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-black text-sm transition shadow-sm"
+          >
+            <Trash2 size={14} /> Sí, cerrar venta
+          </button>
+        </div>
       </div>
     </div>
   );
