@@ -5,6 +5,37 @@ import {
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
 
+// ── Encoder CP437 single-byte para impresoras térmicas en modo Latin ───────
+// Las impresoras ESC/POS NO entienden UTF-8. Cada caracter latino debe ir
+// como UN byte equivalente en CP437. Si va en UTF-8, una "ó" (C3 B3) se
+// interpreta como 2 caracteres y, en Xprinter chinas, como 1 ideograma.
+const CP437_MAP: Record<string, number> = {
+  'Ç': 0x80, 'ü': 0x81, 'é': 0x82, 'â': 0x83, 'ä': 0x84, 'à': 0x85, 'å': 0x86,
+  'ç': 0x87, 'ê': 0x88, 'ë': 0x89, 'è': 0x8A, 'ï': 0x8B, 'î': 0x8C, 'ì': 0x8D,
+  'Ä': 0x8E, 'Å': 0x8F, 'É': 0x90, 'æ': 0x91, 'Æ': 0x92, 'ô': 0x93, 'ö': 0x94,
+  'ò': 0x95, 'û': 0x96, 'ù': 0x97, 'ÿ': 0x98, 'Ö': 0x99, 'Ü': 0x9A, '¢': 0x9B,
+  '£': 0x9C, '¥': 0x9D, 'ƒ': 0x9F, 'á': 0xA0, 'í': 0xA1, 'ó': 0xA2, 'ú': 0xA3,
+  'ñ': 0xA4, 'Ñ': 0xA5, 'ª': 0xA6, 'º': 0xA7, '¿': 0xA8, '¬': 0xAA, '½': 0xAB,
+  '¼': 0xAC, '¡': 0xAD, '«': 0xAE, '»': 0xAF,
+  '°': 0xF8, '·': 0xFA, '²': 0xFD,
+  // Sustituciones para caracteres no representables en CP437:
+  '₡': 'C'.charCodeAt(0),    // colón → 'C' (el símbolo no está en CP437)
+  '€': 'E'.charCodeAt(0),
+  'Á': 'A'.charCodeAt(0), 'Í': 'I'.charCodeAt(0), 'Ó': 'O'.charCodeAt(0),
+  'Ú': 'U'.charCodeAt(0),
+};
+
+function encodeCP437(text: string): number[] {
+  const out: number[] = [];
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    if (code < 0x80) out.push(code);              // ASCII directo
+    else if (CP437_MAP[ch] != null) out.push(CP437_MAP[ch]);
+    else out.push(0x3F);                          // '?' para caracteres no soportados
+  }
+  return out;
+}
+
 export interface PrinterConfig {
   width?: number;
   name?: string;
@@ -194,24 +225,26 @@ export class POSPrinterService {
 
     await qzConnect();
 
-    // For Xprinter XP-80C and similar models that don't support ESC/POS,
-    // use HTML printing directly via QZ Tray (no dialog)
-    const html = this.generateHTML(receiptData, config);
+    // ── Modo RAW ESC/POS para Xprinter (Cancela GB18030 + CP437) ──────────
+    // Antes mandábamos HTML, que requería que la impresora tuviera un driver
+    // que renderice HTML (no aplica a térmicas). Ahora generamos los bytes
+    // ESC/POS directos — incluye `FS .` para cancelar modo chino, ESC t 0
+    // para CP437, encoder single-byte y corte automático al final.
+    const escposBytes = this.generateESCPOS(receiptData, config);
     const receiptPrinters = (config.printers ?? []).filter(
       p => p.type === 'receipt' && p.is_active,
     );
 
     if (receiptPrinters.length > 0) {
-      // Send HTML directly to each printer without dialog
-      const qz = (window as any).qz;
+      // Manda bytes raw vía qzPrintToPrinter (usa base64 internamente — el fix
+      // del sandbox de antes). Funciona tanto USB como network (TCP:9100).
       for (const printer of receiptPrinters) {
-        const printerConfig = printer.connection === 'network'
-          ? qz.configs.create({ host: printer.ip, port: printer.port ?? 9100 })
-          : qz.configs.create(printer.printer_name);
-        await qz.print(printerConfig, [{ type: 'html', format: 'plain', data: html }]);
+        await qzPrintToPrinter(printer, escposBytes);
       }
     } else {
-      // Fallback: use browser print
+      // Sin printers configurados en la config del tenant → fallback HTML
+      // (probablemente abre el diálogo del navegador).
+      const html = this.generateHTML(receiptData, config);
       await this.printHTMLContent(html);
     }
   }
@@ -939,13 +972,8 @@ export class POSPrinterService {
     const cmds: number[] = [];
 
     const push = (...bytes: number[]) => cmds.push(...bytes);
-    const text = (s: string) => {
-      // Xprinter: only ASCII, no UTF-8
-      for (let i = 0; i < s.length; i++) {
-        const code = s.charCodeAt(i);
-        cmds.push(code > 127 ? 63 : code); // Replace non-ASCII with '?'
-      }
-    };
+    // Encoder CP437 single-byte (NO UTF-8) — soporta acentos, ñ, ¡¿ correctamente.
+    const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
     const nl = () => push(0x0a);
     const sep = () => { text('-'.repeat(charWidth)); nl(); };
     const centerText = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
@@ -954,8 +982,12 @@ export class POSPrinterService {
       text(label + ' '.repeat(sp) + val); nl();
     };
 
-    // Change codepage to ASCII/CP437 (Xprinter fix for GB18030 issue)
-    push(0x1b, 0x74, 0x00); // ESC t 0 — CP437
+    // ── Init: preset "Xprinter chino que cancela GB18030 + CP437" ────────
+    push(0x1B, 0x40);               // ESC @ — reset
+    push(0x1C, 0x2E);               // FS . — CANCELAR modo chino (Xprinter)
+    push(0x1B, 0x52, 0x00);         // ESC R 0 — charset internacional: USA
+    push(0x1B, 0x74, 0x00);         // ESC t 0 — code page: CP437
+    push(0x1B, 0x21, 0x00);         // ESC ! 0 — modo normal (sin negrita ni doble)
 
     // Header
     centerText('=== TICKET DE VENTA ===');
@@ -1007,8 +1039,9 @@ export class POSPrinterService {
     centerText(cfg.footerMessage);
     centerText('Vuelva pronto');
 
-    // Feed (sin comando de corte por ahora)
-    nl(); nl(); nl(); nl();
+    // Feed + corte automático
+    nl(); nl(); nl();
+    push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
 
     return new Uint8Array(cmds);
   }
