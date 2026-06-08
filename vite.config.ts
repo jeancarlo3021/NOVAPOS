@@ -123,12 +123,16 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // Chunking manual: separa libs grandes para mejor caching.
-        manualChunks: {
-          react:     ['react', 'react-dom', 'react-router-dom'],
-          recharts:  ['recharts'],
-          konva:     ['konva', 'react-konva'],
-          supabase:  ['@supabase/supabase-js'],
-          sentry:    ['@sentry/react'],
+        // Rolldown (Vite 8) solo acepta la forma de FUNCIÓN para manualChunks.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('@sentry'))                                                   return 'sentry';
+          if (id.includes('@supabase'))                                                 return 'supabase';
+          if (id.includes('/recharts/') || id.includes('/d3-'))                         return 'recharts';
+          if (id.includes('/konva') || id.includes('/react-konva'))                     return 'konva';
+          if (id.includes('/react-router'))                                             return 'react';
+          if (id.includes('/react-dom/') || id.match(/\/node_modules\/react\//))        return 'react';
+          return undefined;
         },
       },
     },
