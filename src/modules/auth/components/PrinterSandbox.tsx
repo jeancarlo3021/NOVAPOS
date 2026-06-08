@@ -19,6 +19,10 @@ interface RawCommand {
 // ── Secuencias ESC/POS típicas ─────────────────────────────────────────────
 const ESCPOS: RawCommand[] = [
   { id: 'init',         label: 'Init impresora',         bytes: [0x1B, 0x40], notes: 'Resetea estado' },
+  { id: 'cancelChinese',label: 'Cancelar modo chino',    bytes: [0x1C, 0x2E], notes: 'FS . — clave para Xprinter en chino GB18030' },
+  { id: 'cp437',        label: 'Code page CP437 (ASCII)',bytes: [0x1B, 0x74, 0x00], notes: 'ESC t 0 — set ASCII básico' },
+  { id: 'cp858',        label: 'Code page CP858 (Latin)',bytes: [0x1B, 0x74, 0x13], notes: 'ESC t 19 — set Latin con €, ñ, tildes' },
+  { id: 'intlEs',       label: 'Set idioma España',      bytes: [0x1B, 0x52, 0x07], notes: 'ESC R 7 — caracteres internacionales: español' },
   { id: 'feed3',        label: 'Avanzar 3 líneas',       bytes: [0x1B, 0x64, 0x03] },
   { id: 'cut',          label: 'Cortar papel (full)',    bytes: [0x1D, 0x56, 0x00] },
   { id: 'cutPartial',   label: 'Cortar parcial',         bytes: [0x1D, 0x56, 0x01] },

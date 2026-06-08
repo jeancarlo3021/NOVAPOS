@@ -46,6 +46,39 @@ export const PRINTER_LANGUAGES: PrinterLanguage[] = [
     ),
   },
   {
+    id: 'xprinter-cn',
+    label: 'Xprinter chino (cancela GB18030)',
+    family: 'thermal',
+    vendors: 'Xprinter XP-58 · XP-80 · XP-T80 en modo chino de fábrica',
+    description: 'Para Xprinter configuradas con firmware en chino GB18030/GBK. Manda FS . para CANCELAR el modo chino y deja imprimir Latin-1 normal.',
+    wrap: (text) => bytes(
+      [0x1B, 0x40],                  // ESC @ — init
+      [0x1C, 0x2E],                  // FS . — CANCELAR modo chino (clave!)
+      [0x1B, 0x52, 0x00],            // ESC R 0 — international charset: USA
+      [0x1B, 0x74, 0x00],            // ESC t 0 — code page: CP437 (ASCII)
+      [0x1B, 0x21, 0x00],            // ESC ! 0 — modo normal (sin negrita ni doble)
+      text + '\n',
+      [0x0A, 0x0A, 0x0A],
+      [0x1D, 0x56, 0x00],            // GS V 0 — full cut
+    ),
+  },
+  {
+    id: 'xprinter-cn-cp858',
+    label: 'Xprinter chino + CP858 (acentos €ñáé)',
+    family: 'thermal',
+    vendors: 'Xprinter chinas + textos con tildes y €',
+    description: 'Como "Xprinter chino" pero usa code page CP858 — soporta acentos españoles, ñ y €. Probá esta si la anterior imprime pero pierde tildes.',
+    wrap: (text) => bytes(
+      [0x1B, 0x40],
+      [0x1C, 0x2E],                  // FS . — cancel Chinese mode
+      [0x1B, 0x52, 0x07],            // ESC R 7 — international: Spain
+      [0x1B, 0x74, 0x13],            // ESC t 19 — CP858 (Latin con €, ñ, tildes)
+      text + '\n',
+      [0x0A, 0x0A, 0x0A],
+      [0x1D, 0x56, 0x00],
+    ),
+  },
+  {
     id: 'escpos-partial',
     label: 'ESC/POS (corte parcial)',
     family: 'thermal',
