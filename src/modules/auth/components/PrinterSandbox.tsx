@@ -7,9 +7,7 @@ import {
   qzConnect, qzIsAvailable, qzIsConnected, qzGetPrinters,
   qzPrintUSB, qzPrintNetwork,
 } from '@/services/pos/qzTrayService';
-
-// ── Lenguajes de impresora soportados ──────────────────────────────────────
-type PrinterLang = 'escpos' | 'star' | 'plain';
+import { PRINTER_LANGUAGES, LANGUAGE_BY_ID, type PrinterFamily } from './printerLanguages';
 
 interface RawCommand {
   id: string;
@@ -123,8 +121,8 @@ export function PrinterSandbox() {
   const [netIp,     setNetIp]     = useState('192.168.1.100');
   const [netPort,   setNetPort]   = useState('9100');
 
-  // Texto plano + lenguaje
-  const [lang,      setLang]      = useState<PrinterLang>('escpos');
+  // Texto plano + lenguaje seleccionado
+  const [lang,      setLang]      = useState<string>('escpos');
   const [text,      setText]      = useState('PRUEBA DE IMPRESIÓN\nColónClick - Sandbox\n--- línea ---');
 
   // Bytes raw en hex
@@ -216,18 +214,9 @@ export function PrinterSandbox() {
   };
 
   const handleSendText = () => {
-    let bytes: Uint8Array;
-    const init = [0x1B, 0x40];
-    const cut  = [0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x00];
-    if (lang === 'escpos') {
-      bytes = buildBytes([init, text + '\n', cut]);
-    } else if (lang === 'star') {
-      // Star Line: ESC GS reset, texto, ESC d 3 cut + feed
-      bytes = buildBytes([[0x1B, 0x40], text + '\n', [0x1B, 0x64, 0x03]]);
-    } else {
-      bytes = buildBytes([text + '\n']);
-    }
-    sendBytes(bytes, `Texto plano (${lang})`);
+    const def = LANGUAGE_BY_ID[lang];
+    if (!def) { flash(false, `Lenguaje desconocido: ${lang}`); return; }
+    sendBytes(def.wrap(text), `Texto plano (${def.label})`);
   };
 
   const handleSendRawHex = () => {
@@ -359,22 +348,86 @@ export function PrinterSandbox() {
       {/* ── Texto plano con selector de lenguaje ───────────────────────── */}
       <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
         <h3 className="text-sm font-black text-gray-700 uppercase tracking-wide flex items-center gap-2">
-          <Type size={14} className="text-blue-600" /> Texto plano
+          <Type size={14} className="text-blue-600" /> Texto plano · selector de lenguaje
         </h3>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {(['escpos', 'star', 'plain'] as PrinterLang[]).map(l => (
-            <button key={l} onClick={() => setLang(l)}
-              className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                lang === l
-                  ? 'bg-blue-500 border-blue-500 text-white'
-                  : 'bg-white border-gray-200 text-gray-600 hover:border-blue-300'
-              }`}>
-              {l === 'escpos' ? 'ESC/POS (Epson, Xprinter)' : l === 'star' ? 'Star Line Mode' : 'Texto plano (sin códigos)'}
-            </button>
-          ))}
+        <p className="text-xs text-gray-500">
+          Cada lenguaje envuelve el texto en su protocolo nativo (init, formato, cut/feed).
+          Si tu impresora muestra basura con uno, probá el siguiente — así identificás qué habla.
+        </p>
+
+        {/* Selector agrupado por familia */}
+        <div className="space-y-3">
+          {(['thermal', 'matrix', 'label', 'portable', 'raw'] as PrinterFamily[]).map(family => {
+            const items = PRINTER_LANGUAGES.filter(l => l.family === family);
+            if (items.length === 0) return null;
+            const familyLabel = {
+              thermal:  'Térmicos de recibo',
+              matrix:   'Matriciales / impacto',
+              label:    'Etiquetas',
+              portable: 'Portátiles / móviles',
+              raw:      'Texto sin códigos',
+            }[family];
+            const familyColor = {
+              thermal:  'text-blue-700 bg-blue-50',
+              matrix:   'text-amber-700 bg-amber-50',
+              label:    'text-violet-700 bg-violet-50',
+              portable: 'text-rose-700 bg-rose-50',
+              raw:      'text-gray-700 bg-gray-50',
+            }[family];
+            return (
+              <div key={family}>
+                <p className={`inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded mb-1.5 ${familyColor}`}>
+                  {familyLabel}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                  {items.map(l => {
+                    const active = lang === l.id;
+                    return (
+                      <button
+                        key={l.id}
+                        onClick={() => setLang(l.id)}
+                        title={l.description}
+                        className={`text-left p-2 rounded-lg border text-xs transition ${
+                          active
+                            ? 'bg-blue-500 border-blue-500 text-white shadow-sm'
+                            : 'bg-white border-gray-200 text-gray-700 hover:border-blue-300 hover:bg-blue-50'
+                        }`}
+                      >
+                        <p className="font-bold leading-tight">{l.label}</p>
+                        <p className={`text-[10px] mt-0.5 truncate ${active ? 'text-blue-100' : 'text-gray-400'}`}>
+                          {l.vendors}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={4}
-          className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-300" />
+
+        {/* Detalle del lenguaje seleccionado */}
+        {LANGUAGE_BY_ID[lang] && (
+          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs">
+            <p className="font-bold text-blue-900">{LANGUAGE_BY_ID[lang].label}</p>
+            <p className="text-blue-700/80 mt-0.5">{LANGUAGE_BY_ID[lang].description}</p>
+            <p className="text-blue-600/60 mt-1">
+              <span className="font-bold">Bytes generados (preview):</span>{' '}
+              <code className="font-mono">
+                {hexPreview(LANGUAGE_BY_ID[lang].wrap(text), 24)}
+              </code>{' '}
+              <span className="text-blue-500/60">({LANGUAGE_BY_ID[lang].wrap(text).length} bytes total)</span>
+            </p>
+          </div>
+        )}
+
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          rows={4}
+          placeholder="Escribí lo que quieras imprimir…"
+          className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-300"
+        />
         <button onClick={handleSendText} disabled={!!busy}
           className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl transition">
           <Send size={14} /> {busy?.startsWith('Texto') ? 'Enviando…' : 'Imprimir texto'}

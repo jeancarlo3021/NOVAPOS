@@ -165,7 +165,22 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
       onDone();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : JSON.stringify(err));
+      // Mensaje específico para los casos comunes para que el usuario sepa
+      // qué pasó sin tener que abrir DevTools.
+      const raw = err instanceof Error ? err.message : JSON.stringify(err);
+      let friendly = raw;
+      if (raw.includes('404') || raw.toLowerCase().includes('not found')) {
+        friendly = 'El endpoint de renovación no responde (HTTP 404). '
+          + 'Probablemente el backend no tiene desplegada la última versión, o el dominio del API está mal configurado en Vercel. '
+          + 'Revisá VITE_API_URL o forzá un redeploy del backend.';
+      } else if (raw.includes('403') || raw.includes('tenant')) {
+        friendly = 'El backend rechazó la operación. Es posible que el middleware de admin no esté desplegado en su versión más reciente. '
+          + 'Redepleyá el backend en Vercel.';
+      } else if (raw.toLowerCase().includes('admin_renew_subscription')) {
+        friendly = 'La función SQL `admin_renew_subscription` no existe en tu Supabase. '
+          + 'Ejecutá la migration que la crea (Supabase → SQL Editor).';
+      }
+      setError(friendly);
     } finally {
       setSaving(false);
     }
