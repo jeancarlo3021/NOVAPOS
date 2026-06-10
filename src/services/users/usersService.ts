@@ -18,11 +18,11 @@ export const emailToUsername = (email?: string | null): string => {
 };
 
 export const usersService = {
-  async getAllUsers(_tenantId: string): Promise<User[]> {
-    return apiFetch<User[]>('/users');
+  async getAllUsers(_tenantId: string, scope: 'tenant' | 'group' = 'tenant'): Promise<User[]> {
+    return apiFetch<User[]>(`/users?scope=${scope}`);
   },
 
-  async createUser(_tenantId: string, form: CreateUserFormData): Promise<User> {
+  async createUser(_tenantId: string, form: CreateUserFormData & { target_tenant_id?: string | null }): Promise<User> {
     return apiFetch<User>('/users', {
       method: 'POST',
       body: JSON.stringify({
@@ -31,6 +31,7 @@ export const usersService = {
         full_name: form.full_name,
         role: form.role,
         phone: form.phone || null,
+        target_tenant_id: form.target_tenant_id ?? null,
       }),
     });
   },
@@ -53,6 +54,24 @@ export const usersService = {
     await apiFetch(`/users/${userId}/password`, {
       method: 'PATCH',
       body: JSON.stringify({ password: newPassword }),
+    });
+  },
+
+  /** Quick-switch del POS: valida un PIN contra los users del tenant y
+   *  devuelve quién es. NO reemplaza la sesión — solo cambia el cashier
+   *  activo del POS. */
+  async pinLogin(pin: string): Promise<{ id: string; full_name: string; role: string; email: string }> {
+    return apiFetch('/users/pin-login', {
+      method: 'POST',
+      body: JSON.stringify({ pin }),
+    });
+  },
+
+  async setPin(userId: string, pin: string | null): Promise<void> {
+    validateUUID(userId, 'userId');
+    await apiFetch(`/users/${userId}/pin`, {
+      method: 'PATCH',
+      body: JSON.stringify({ pin }),
     });
   },
 

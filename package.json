@@ -13,7 +13,12 @@
     "clean": "./cleanup.sh",
     "clean:all": "node cleanup-db.js",
     "clean:db": "node cleanup-db.js --db",
-    "clean:reset": "node cleanup-db.js --reset"
+    "clean:reset": "node cleanup-db.js --reset",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:head": "playwright test --headed",
+    "test:e2e:install": "playwright install chromium",
+    "test:e2e:install:deps": "echo 'Fedora: instalá deps con: sudo dnf install -y nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr mesa-libgbm libxshmfence alsa-lib pango cairo'"
   },
   "dependencies": {
     "@sentry/react": "^8.55.2",
@@ -31,12 +36,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.49.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/w3c-web-serial": "^1.0.8",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.5.0",
+    "dotenv": "^17.4.2",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",

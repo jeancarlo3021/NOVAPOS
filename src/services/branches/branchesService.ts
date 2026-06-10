@@ -90,4 +90,14 @@ export const transfersService = {
   send:    (id: string) => apiFetch(`/transfers/${id}/send`,    { method: 'POST' }),
   receive: (id: string) => apiFetch(`/transfers/${id}/receive`, { method: 'POST' }),
   cancel:  (id: string) => apiFetch(`/transfers/${id}/cancel`,  { method: 'POST' }),
+  /** Transferencia cross-sucursal: bodega del tenant actual → inventario de otra sucursal del grupo. */
+  crossTenant: (payload: {
+    from_warehouse: string;
+    to_tenant_id:   string;
+    notes?:         string;
+    items:          { product_id: string; quantity: number }[];
+  }) => apiFetch<{ moved: number; errors: string[]; transfer_id?: string }>('/transfers/cross-tenant', {
+    method: 'POST',
+    body:   JSON.stringify(payload),
+  }),
 };

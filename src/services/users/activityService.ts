@@ -12,7 +12,11 @@ export interface LogActivityData {
 export const activityService = {
   async getActivityLogs(
     _tenantId: string,
-    filters?: { user_id?: string; from?: string; to?: string; action?: string; limit?: number }
+    filters?: {
+      user_id?: string; from?: string; to?: string; action?: string; limit?: number;
+      scope?: 'tenant' | 'group';
+      tenant_id?: string;
+    }
   ): Promise<ActivityLog[]> {
     const params = new URLSearchParams();
     if (filters?.user_id) params.set('user_id', filters.user_id);
@@ -20,6 +24,8 @@ export const activityService = {
     if (filters?.to) params.set('to', filters.to);
     if (filters?.action) params.set('action', filters.action);
     if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.scope) params.set('scope', filters.scope);
+    if (filters?.tenant_id) params.set('tenant_id', filters.tenant_id);
     const qs = params.toString();
     return apiFetch<ActivityLog[]>(`/activity${qs ? '?' + qs : ''}`);
   },

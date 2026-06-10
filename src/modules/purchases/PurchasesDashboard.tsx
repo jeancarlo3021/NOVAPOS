@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { getAllProducts } from '@/services/Inventory/InventoryProductsService';
@@ -27,6 +28,8 @@ import { Status, fmt, fmtDate } from './components/types';
 export const PurchasesDashboard: React.FC = () => {
   const { user, planFeatures } = useAuth();
   const { tenantId }           = useTenantId();
+  const { canDo } = useRolePermissions();
+  const canCreate = canDo('purchases', 'create');
 
   const canUpdateStock = planFeatures.inventory === true && !(planFeatures as any).inventory_products_only;
 
@@ -251,10 +254,12 @@ export const PurchasesDashboard: React.FC = () => {
               </p>
             </div>
           </div>
-          <button onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-sm">
-            <Plus size={18} /> Nueva Orden
-          </button>
+          {canCreate && (
+            <button onClick={() => setShowForm(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-sm">
+              <Plus size={18} /> Nueva Orden
+            </button>
+          )}
         </div>
       </div>
 

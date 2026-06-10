@@ -78,7 +78,10 @@ export const invoicesService = {
     amountReceived?: number,
     changeAmount?: number,
     voucherNumber?: string,
-    invoiceNumber?: string
+    invoiceNumber?: string,
+    /** Cajero activo (kiosk mode). Si se omite, el backend usa el del JWT. */
+    cashierId?: string | null,
+    cashierName?: string | null,
   ) {
     // Validaciones según método de pago
     if (paymentMethod === 'cash') {
@@ -109,6 +112,8 @@ export const invoicesService = {
         voucher_number: (paymentMethod === 'card' || paymentMethod === 'sinpe') ? voucherNumber : null,
         notes,
         invoice_number: invoiceNumber, // Preserve offline invoice number if provided
+        cashier_id: cashierId ?? null,
+        cashier_name: cashierName ?? null,
       }),
     });
 

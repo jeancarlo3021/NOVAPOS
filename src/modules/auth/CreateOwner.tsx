@@ -7,13 +7,15 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search, Sparkles,
+  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers,
 } from 'lucide-react';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
 import { PrinterSandbox } from './components/PrinterSandbox';
+import { TenantGroupView } from './components/TenantGroupView';
+import { AdminFeKioskView } from './components/AdminFeKioskView';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +53,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'receipts' | 'sandbox';
+type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'receipts' | 'sandbox';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -65,6 +67,9 @@ export const CreateOwner: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  // Por defecto ocultamos las sucursales (group_role='branch') — la matriz
+  // del grupo ya las representa. Toggle para mostrarlas si hace falta.
+  const [showBranches, setShowBranches] = useState(false);
 
   const [formData, setFormData] = useState({
     email: '', password: '', businessName: '', planId: '', withDemo: false,
@@ -154,6 +159,10 @@ export const CreateOwner: React.FC = () => {
           plan_price:          plan?.price ?? 0,
           plan_billing_cycle:  plan?.billing_cycle ?? 'monthly',
           is_admin_plan:       ((plan?.features as any)?.admin_dashboard === true),
+          group_id:            row.group_id ?? null,
+          group_name:          row.group_name ?? null,
+          group_role:          row.group_role ?? null,
+          group_billing:       row.group_billing ?? null,
           subscription_id:     row.sub_id ?? null,
           subscription_status: row.sub_status ?? '—',
           started_at:          row.started_at ?? null,
@@ -331,6 +340,8 @@ export const CreateOwner: React.FC = () => {
         <div className="max-w-7xl mx-auto px-6 flex">
           {[
             { id: 'businesses' as AdminTab, label: 'Negocios',     icon: Building2 },
+            { id: 'groups'     as AdminTab, label: 'Grupos',       icon: Layers },
+            { id: 'fe_kiosk'   as AdminTab, label: 'FE & Kiosk',   icon: FileText },
             { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
             { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
           ].map(t => {
@@ -357,6 +368,18 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'sandbox' && (
         <div className="max-w-5xl mx-auto p-6">
           <PrinterSandbox />
+        </div>
+      )}
+
+      {activeTab === 'groups' && (
+        <div className="max-w-7xl mx-auto p-6">
+          <TenantGroupView />
+        </div>
+      )}
+
+      {activeTab === 'fe_kiosk' && (
+        <div className="max-w-7xl mx-auto p-6">
+          <AdminFeKioskView />
         </div>
       )}
 
@@ -548,6 +571,22 @@ export const CreateOwner: React.FC = () => {
               )}
             </div>
 
+            {/* Toggle para mostrar/ocultar sucursales (branches) */}
+            {owners.some(o => o.group_role === 'branch') && (
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 cursor-pointer transition">
+                <input
+                  type="checkbox"
+                  checked={showBranches}
+                  onChange={e => setShowBranches(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded"
+                />
+                Mostrar sucursales
+                <span className="text-[10px] font-bold text-gray-400">
+                  ({owners.filter(o => o.group_role === 'branch').length})
+                </span>
+              </label>
+            )}
+
             <button onClick={fetchOwners} disabled={loading}
               className="p-2 border border-gray-200 rounded-xl hover:border-gray-300 text-gray-500 transition"
               title="Recargar">
@@ -570,6 +609,9 @@ export const CreateOwner: React.FC = () => {
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Negocio</th>
+                    <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">
+                      <span className="inline-flex items-center gap-1"><Layers size={11} /> Grupo · Cuota mes</span>
+                    </th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Plan · Precio</th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase"><span className="flex items-center gap-1"><Calendar size={11} /> Activación</span></th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Próximo cobro</th>
@@ -584,9 +626,14 @@ export const CreateOwner: React.FC = () => {
                 <tbody className="divide-y divide-gray-50">
                   {(() => {
                     const t = searchTerm.trim().toLowerCase();
-                    const filtered = !t
+                    // Filtrá las sucursales (branches) por defecto: la matriz
+                    // del grupo ya las representa en la vista consolidada.
+                    const baseList = showBranches
                       ? owners
-                      : owners.filter(o =>
+                      : owners.filter(o => o.group_role !== 'branch');
+                    const filtered = !t
+                      ? baseList
+                      : baseList.filter(o =>
                           o.name?.toLowerCase().includes(t)
                           || o.plan_name?.toLowerCase().includes(t)
                           || o.subscription_status?.toLowerCase().includes(t),
@@ -594,7 +641,7 @@ export const CreateOwner: React.FC = () => {
                     if (filtered.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={8} className="px-5 py-10 text-center text-gray-400 text-sm">
+                          <td colSpan={9} className="px-5 py-10 text-center text-gray-400 text-sm">
                             No se encontraron negocios con "{searchTerm}"
                           </td>
                         </tr>
@@ -622,6 +669,29 @@ export const CreateOwner: React.FC = () => {
                               </span>
                             )}
                           </div>
+                        </td>
+                        {/* Grupo · Cuota mensual */}
+                        <td className="px-5 py-4">
+                          {o.group_name ? (
+                            <>
+                              <p className="inline-flex items-center gap-1 text-xs font-bold text-cyan-700">
+                                <Layers size={11} />
+                                <span className="truncate max-w-32">{o.group_name}</span>
+                                {o.group_role === 'main' && (
+                                  <span className="text-[9px] font-black px-1 py-0.5 rounded bg-amber-100 text-amber-800 uppercase">
+                                    Matriz
+                                  </span>
+                                )}
+                              </p>
+                              {o.group_billing != null && o.group_billing > 0 && (
+                                <p className="text-sm font-black text-emerald-700 tabular-nums mt-0.5">
+                                  {fmt(o.group_billing)}/mes
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-xs text-gray-300">Sin grupo</span>
+                          )}
                         </td>
                         {/* Plan */}
                         <td className="px-5 py-4">

@@ -23,6 +23,12 @@ export interface OwnerData {
   plan_billing_cycle?: string;
   /** True si el plan asignado tiene `admin_dashboard=true` (cuenta del super-admin). */
   is_admin_plan?: boolean;
+  /** Grupo al que pertenece este tenant (si pertenece). */
+  group_id?: string | null;
+  group_name?: string | null;
+  group_role?: 'main' | 'branch' | null;
+  /** Cuota mensual TOTAL del grupo (₡): saas × #sucursales + suma planes FE. */
+  group_billing?: number | null;
 }
 
 export interface RenewModalProps {

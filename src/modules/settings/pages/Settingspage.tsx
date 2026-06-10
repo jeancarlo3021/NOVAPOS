@@ -10,15 +10,18 @@ import {
   ChevronRight,
   X,
   MonitorSmartphone,
+  FileText,
 } from 'lucide-react';
 import { GeneralSettings } from '../components/General/GeneralSettings';
 import { PaymentSettings } from '../components/Payments/PaymentSettings';
 import { NotificationSettings } from '../components/Notifications/NotificationsSettings';
 import { ReceiptSettings } from '../components/Receipt/ReceiptSettings';
 import { POSViewSettings } from '../components/POSView/POSViewSettings';
+import { ElectronicInvoiceSettings } from '../components/ElectronicInvoice/ElectronicInvoiceSettings';
 import { useAuth } from '@/context/AuthContext';
+import { MANAGER_ROLES } from '@/types/Types_Users';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice';
 
 const SETTINGS_TABS = [
   {
@@ -40,6 +43,12 @@ const SETTINGS_TABS = [
     description: 'Personalización de factura',
   },
   {
+    id: 'electronic_invoice' as SettingTab,
+    label: 'Facturación Electrónica',
+    icon: FileText,
+    description: 'Hacienda CR, certificado, ATV',
+  },
+  {
     id: 'pos_view' as SettingTab,
     label: 'Vista del POS',
     icon: MonitorSmartphone,
@@ -56,13 +65,20 @@ const SETTINGS_TABS = [
 export const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingTab>('general');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-const { planFeatures } = useAuth();
+const { planFeatures, user } = useAuth();
+const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
 
   // Filtrar tabs según si es products_only
   const visibleTabs = SETTINGS_TABS.filter((tab) => {
     // Ocultar notificaciones si es inventory_products_only
     if (planFeatures?.inventory_products_only && tab.id === 'notifications' || tab.id === 'payments') {
       return false;
+    }
+    // Facturación Electrónica: requiere feature de plan Y rol manager
+    // (owner, admin, gerente). Un cajero nunca debería ver la config de FE.
+    if (tab.id === 'electronic_invoice') {
+      if (!planFeatures?.electronic_invoice) return false;
+      if (!isManager) return false;
     }
     return true;
   });
@@ -86,6 +102,8 @@ const { planFeatures } = useAuth();
         return <POSViewSettings />;
       case 'notifications':
         return <NotificationSettings />;
+      case 'electronic_invoice':
+        return <ElectronicInvoiceSettings />;
       default:
         return null;
     }

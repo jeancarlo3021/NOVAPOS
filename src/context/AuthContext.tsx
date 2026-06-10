@@ -159,6 +159,12 @@ export interface PlanFeatures {
   hr?: boolean;
   promotions?: boolean;
   tables?: boolean;
+  /** Facturación Electrónica (Hacienda CR) — habilita tab en Settings,
+   *  dropdown de tipo doc en el POS, y emisión a Hacienda. */
+  electronic_invoice?: boolean;
+  /** Modo Kiosk con PIN — habilita el toggle en Settings + modal de PIN
+   *  en el POS para alternar entre cajeros sin re-loguearse. */
+  pos_kiosk?: boolean;
   // Admin features
   admin_dashboard?: boolean;
   webhooks?: boolean;
@@ -226,6 +232,8 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   hr: false,
   promotions: false,
   tables: false,
+  electronic_invoice: false,
+  pos_kiosk: false,
 };
 
 export const FULL_FEATURES: PlanFeatures = {
@@ -275,6 +283,8 @@ export const FULL_FEATURES: PlanFeatures = {
   hr: true,
   promotions: true,
   tables: true,
+  electronic_invoice: true,
+  pos_kiosk: true,
 };
 
 interface PlanData {
@@ -453,23 +463,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     planData: PlanData;
   }> => {
     try {
-
-      const { data: ownedTenants } = await supabase
-        .from('tenants')
-        .select(TENANT_SELECT)
-        .eq('owner_id', userId);
-
-      let resolvedTenant: Tenant | null = null;
-
       const toTenant = (raw: any): Tenant => ({
         ...raw,
-        // Supabase returns FK-joined rows as single objects but types them as arrays
         subscription: Array.isArray(raw.subscription) ? raw.subscription[0] ?? null : raw.subscription ?? null,
       });
 
-      if (ownedTenants && ownedTenants.length > 0) {
-        const mapped = ownedTenants.map(toTenant);
-        resolvedTenant = mapped.find(t => t.id === userTenantId) ?? mapped[0];
+      // ── 1. Intento usar la nueva RPC `my_tenants` (multi-empresa real
+      //    vía user_tenants). Devuelve todos los tenants accesibles para el
+      //    user actual, sin importar si es owner directo o staff invitado.
+      let allTenants: Tenant[] = [];
+      try {
+        const { data: mt, error: mtErr } = await supabase.rpc('my_tenants');
+        if (!mtErr && Array.isArray(mt) && mt.length > 0) {
+          // Hidratar con la info completa (subscription + plan)
+          const ids = mt.map((r: any) => r.tenant_id);
+          const { data: full } = await supabase
+            .from('tenants')
+            .select(TENANT_SELECT)
+            .in('id', ids);
+          allTenants = (full ?? []).map(toTenant);
+        }
+      } catch { /* RPC no existe aún o falló — sigo al fallback */ }
+
+      // ── 2. Fallback al método viejo (owner_id) si la RPC no respondió.
+      if (allTenants.length === 0) {
+        const { data: ownedTenants } = await supabase
+          .from('tenants')
+          .select(TENANT_SELECT)
+          .eq('owner_id', userId);
+        allTenants = (ownedTenants ?? []).map(toTenant);
+      }
+
+      // ── 3. Si tampoco hay nada como owner pero el user tiene tenant_id
+      //    (staff/cajero invitado), traer ese tenant individual.
+      let resolvedTenant: Tenant | null = null;
+      if (allTenants.length > 0) {
+        resolvedTenant = allTenants.find(t => t.id === userTenantId) ?? allTenants[0];
       } else if (userTenantId) {
         const { data: staffTenant } = await supabase
           .from('tenants')
@@ -479,18 +508,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resolvedTenant = staffTenant ? toTenant(staffTenant) : null;
       }
 
-      if (resolvedTenant) {
-      } else {
-      }
-
       const planData = extractPlanData(resolvedTenant, DEFAULT_FEATURES);
-
-      return {
-        tenants: (ownedTenants ?? []).map(toTenant),
-        selectedTenant: resolvedTenant,
-        planData,
-      };
-    } catch (err) {
+      return { tenants: allTenants, selectedTenant: resolvedTenant, planData };
+    } catch {
       return { tenants: [], selectedTenant: null, planData: { features: DEFAULT_FEATURES, name: 'demo' } };
     }
   };

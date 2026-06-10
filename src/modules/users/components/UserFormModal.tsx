@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, RefreshCw, Check } from 'lucide-react';
+import { X, RefreshCw, Check, Building2 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
 import { usersService } from '@/services/users/usersService';
-import { USER_ROLES, ROLE_META } from '@/types/Types_Users';
+import { tenantGroupsService } from '@/services/admin/tenantGroupsService';
+import type { MyTenant } from '@/services/admin/tenantGroupsService';
+import { USER_ROLES, ROLE_META, ROLE_REQUIRED_FEATURES } from '@/types/Types_Users';
 import type { User, CreateUserFormData, UpdateUserFormData, UserRole } from '@/types/Types_Users';
 
 interface UserFormModalProps {
@@ -24,9 +27,33 @@ const EMPTY_FORM: CreateUserFormData = {
 
 export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSuccess, user }) => {
   const { tenantId } = useTenantId();
+  const { planFeatures } = useAuth();
   const [form, setForm] = useState<CreateUserFormData | UpdateUserFormData>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Sucursal destino (solo al crear). Default = tenant actual.
+  const [targetTenantId, setTargetTenantId] = useState<string>('');
+  const [myTenants, setMyTenants] = useState<MyTenant[]>([]);
+
+  // Solo el dueño de un grupo multi-empresa puede asignar el usuario a otra
+  // sucursal. Lo detectamos así: tiene acceso a >1 tenant Y al menos uno con
+  // role='owner' (en user_tenants). Super-admin siempre puede. Un cajero o
+  // gerente normal (sin role='owner' en ningún tenant) no ve el selector.
+  const isSuperAdmin = planFeatures?.admin_dashboard === true;
+  const isGroupOwner = myTenants.some(t => t.role === 'owner');
+  const canPickTenant = (isSuperAdmin || isGroupOwner) && myTenants.length > 1;
+
+  // Cargar tenants accesibles al abrir el modal (solo en modo crear).
+  // Necesitamos el array para derivar `canPickTenant` (busca role='owner').
+  useEffect(() => {
+    if (!isOpen || user) return;
+    (async () => {
+      try {
+        const list = await tenantGroupsService.myTenants();
+        setMyTenants(Array.isArray(list) ? list : []);
+      } catch { /* ignore */ }
+    })();
+  }, [isOpen, user]);
 
   useEffect(() => {
     if (user) {
@@ -98,7 +125,10 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
         };
         await usersService.updateUser(user.id, updateForm);
       } else {
-        await usersService.createUser(tenantId, form as CreateUserFormData);
+        await usersService.createUser(tenantId, {
+          ...(form as CreateUserFormData),
+          target_tenant_id: targetTenantId || null,
+        });
       }
 
       onSuccess();
@@ -147,6 +177,29 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
             />
           </div>
 
+          {!isEditing && canPickTenant && (
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 mb-1">
+                <Building2 size={11} /> Sucursal destino *
+              </label>
+              <select
+                value={targetTenantId}
+                onChange={(e) => setTargetTenantId(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="">— Sucursal actual —</option>
+                {myTenants.map(t => (
+                  <option key={t.tenant_id} value={t.tenant_id}>
+                    {t.tenant_name} {t.group_name ? `(${t.group_name})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Elegí en qué sucursal querés crear este usuario.
+              </p>
+            </div>
+          )}
+
           {!isEditing && (
             <>
               <div>
@@ -189,6 +242,16 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
             <div className="grid grid-cols-2 gap-2">
               {(Object.keys(USER_ROLES) as UserRole[])
                 .filter(r => r !== 'owner')  // No permitir crear owners
+                .filter(r => {
+                  // Si el rol requiere features que el plan no incluye, ocultarlo.
+                  // Si la lista está vacía → siempre disponible (admin, etc.).
+                  const required = ROLE_REQUIRED_FEATURES[r] ?? [];
+                  if (required.length === 0) return true;
+                  // Al menos una de las features requeridas debe estar activa
+                  // (no exigimos todas — un cocinero tiene sentido con `tables`,
+                  // un contador con `reports` aunque no haya `accounts_payable`).
+                  return required.some(f => (planFeatures as any)?.[f] === true);
+                })
                 .sort((a, b) => ROLE_META[b].level - ROLE_META[a].level)
                 .map((roleKey) => {
                   const meta = ROLE_META[roleKey];
@@ -232,6 +295,11 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
             />
           </div>
 
+          {/* PIN para modo Kiosk del POS — solo al editar */}
+          {isEditing && user && (
+            <PinField userId={user.id} />
+          )}
+
           <div className="flex gap-2 pt-2">
             <button
               type="button"
@@ -263,5 +331,57 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
     </div>
   );
 };
+
+// ── Sub-componente: PIN para modo Kiosk ──────────────────────────────────────
+function PinField({ userId }: { userId: string }) {
+  const [pin, setPin] = useState('');
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    setStatus('saving'); setError('');
+    try {
+      await usersService.setPin(userId, pin || null);
+      setStatus('saved');
+      setPin('');
+      setTimeout(() => setStatus('idle'), 2000);
+    } catch (e) {
+      setStatus('error');
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  };
+
+  return (
+    <div className="border-t border-gray-100 pt-3">
+      <label className="block text-xs font-semibold text-gray-600 mb-1">
+        🔐 PIN del Punto de Venta <span className="text-gray-400 font-normal">(modo kiosk)</span>
+      </label>
+      <div className="flex gap-2">
+        <input
+          type="password"
+          inputMode="numeric"
+          pattern="\d*"
+          maxLength={8}
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+          placeholder="4-8 dígitos numéricos"
+          className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={status === 'saving' || (pin !== '' && pin.length < 3)}
+          className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50"
+        >
+          {status === 'saving' ? '...' : status === 'saved' ? '✓' : 'Guardar PIN'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      <p className="text-[11px] text-gray-400 mt-1">
+        Dejá vacío y guardá para quitarlo. Único por sucursal.
+      </p>
+    </div>
+  );
+}
 
 export default UserFormModal;

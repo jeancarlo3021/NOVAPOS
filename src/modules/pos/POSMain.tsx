@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useCashSession } from '@/hooks/useCashSession';
 import { useTenantId } from '@/hooks/useTenant';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
 import { usePOSViewMode } from '@/hooks/usePOSViewMode';
@@ -20,6 +21,7 @@ import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from 
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
+import { POSPinLockModal } from './POSPinLockModal';
 import { POSDesktopBar } from './POSDesktopBar';
 import { CashMovementModal } from './cashManagement/CashMovementModal';
 import { POSProductsPanel } from './POSProducts';
@@ -43,6 +45,10 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 export const POSMain = () => {
   const { user, planFeatures } = useAuth();
   const { tenantId, loading: tenantLoading, error: tenantError } = useTenantId();
+  const { canDo } = useRolePermissions();
+  // can_delete en el módulo 'pos' habilita anulación de facturas (acción
+  // destructiva). Si el owner no lo permite, el botón Anular queda oculto.
+  const canVoidInvoice = canDo('pos', 'delete');
   const { mode: posViewMode } = usePOSViewMode();
   const { assisted } = useAssistedMode();
   const { layout: posLayout } = usePOSLayout();
@@ -94,6 +100,72 @@ export const POSMain = () => {
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
   const [showReprintModal, setShowReprintModal] = useState(false);
+  // Cliente formal seleccionado (desde el buscador) — persiste en el tab activo.
+  const [selectedCustomer, setSelectedCustomer] =
+    useState<import('@/services/customers/customersService').Customer | null>(null);
+  // ── Kiosk mode: cajero activo ─────────────────────────────────────────────
+  // El terminal del POS se queda con un user base. Cada cajero entra con su
+  // PIN y queda como "cajero activo" — todas las acciones que haga (facturas,
+  // anular, mov. de caja) se atribuyen a él hasta que otro entre con su PIN.
+  const KIOSK_KEY = 'novapos_pos_kiosk_cashier';
+  type ActiveCashier = { id: string; full_name: string; role: string };
+  const [activeCashier, setActiveCashier] = useState<ActiveCashier | null>(() => {
+    try { const raw = localStorage.getItem(KIOSK_KEY); return raw ? JSON.parse(raw) : null; }
+    catch { return null; }
+  });
+  // Kiosk: requiere feature de plan `pos_kiosk` Y toggle de Settings.
+  // Si el plan no lo incluye, queda OFF aunque haya quedado encendido localmente.
+  const planAllowsKiosk = !!(planFeatures as any)?.pos_kiosk;
+  const [kioskUserPref, setKioskUserPref] = useState<boolean>(() => {
+    try { return localStorage.getItem('novapos_pos_kiosk_enabled') === '1'; }
+    catch { return false; }
+  });
+  const kioskEnabled = planAllowsKiosk && kioskUserPref;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { apiFetch } = await import('@/lib/api');
+        const cfg = await apiFetch<{ enabled?: boolean } | null>('/settings/pos-kiosk');
+        if (cancelled || !cfg) return;
+        if (typeof cfg.enabled === 'boolean') setKioskUserPref(cfg.enabled);
+      } catch { /* sin config → respeta localStorage */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const [showPinModal, setShowPinModal] = useState<'forced' | 'switch' | null>(
+    kioskEnabled && !activeCashier ? 'forced' : null
+  );
+
+  useEffect(() => {
+    try {
+      if (activeCashier) localStorage.setItem(KIOSK_KEY, JSON.stringify(activeCashier));
+      else               localStorage.removeItem(KIOSK_KEY);
+    } catch { /* SSR */ }
+  }, [activeCashier]);
+
+  // Tipo de documento elegido por venta. Inicialmente lee el default de la
+  // config de FE (Settings → Facturación Electrónica). Si no hay config, ticket.
+  const [documentType, setDocumentType] =
+    useState<import('./POSDesktopBar').DocumentType>('ticket');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { apiFetch } = await import('@/lib/api');
+        const cfg = await apiFetch<{ default_document_type?: string } | null>('/settings/electronic-invoice');
+        if (cancelled || !cfg?.default_document_type) return;
+        const allowed = ['ticket', 'tiquete_electronico', 'factura_electronica'];
+        if (allowed.includes(cfg.default_document_type)) {
+          setDocumentType(cfg.default_document_type as any);
+        }
+      } catch { /* sin config aún, dejamos ticket */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Cliente para la factura en curso — reusamos el del tab activo así viaja
   // junto con la pestaña cuando el cajero cambia entre ventas en espera.
   const customerName    = tabCustomerName;
@@ -187,6 +259,8 @@ export const POSMain = () => {
           inv.changeAmount ?? 0,
           voucherNumber,
           inv.invoiceNumber, // Pass offline invoice number to preserve it
+          inv.cashierId ?? null,
+          inv.cashierName ?? null,
         );
       });
 
@@ -343,11 +417,29 @@ export const POSMain = () => {
     }
   };
 
+  // Cargar config general (cacheada) para leer maxDiscountPercent.
+  const generalCfgCached = (() => {
+    try {
+      const cached = cacheGet<any>(cacheKey(tenantId ?? '', 'settings_general'))
+                  ?? cacheGet<any>(cacheKey(tenantId ?? '', 'general_settings'));
+      return cached?.config ?? cached;
+    } catch { return null; }
+  })();
+  const maxDiscountPercent: number = generalCfgCached?.maxDiscountPercent ?? 100;
+  // Manager (owner/admin/gerente) puede superar el tope siempre.
+  const userRoleRaw = (user as any)?.role ?? '';
+  const isManagerRole = ['owner', 'admin', 'gerente'].includes(userRoleRaw);
+
   const handleApplyDiscount = (productId: string, discount_percent: number) => {
+    let pct = Math.max(0, Math.min(100, discount_percent));
+    if (!isManagerRole && pct > maxDiscountPercent) {
+      pct = maxDiscountPercent;
+      setError(`Descuento limitado al ${maxDiscountPercent}% por configuración del negocio.`);
+    }
     setCartItems(prev =>
       prev.map(item =>
         item.product_id === productId
-          ? { ...item, discount_percent, subtotal: Math.round(item.quantity * item.unit_price * (1 - discount_percent / 100)) }
+          ? { ...item, discount_percent: pct, subtotal: Math.round(item.quantity * item.unit_price * (1 - pct / 100)) }
           : item
       )
     );
@@ -368,6 +460,13 @@ export const POSMain = () => {
       const cachedGeneral = cacheGet<any>(cacheKey(tenantId, 'settings_general'))
                           ?? cacheGet<any>(cacheKey(tenantId, 'general_settings'));
       const general = cachedGeneral?.config ?? cachedGeneral;
+      // Config de Facturación Electrónica (cacheada) — para el régimen simplificado
+      const cachedFe = cacheGet<any>(cacheKey(tenantId, 'settings_electronic-invoice'))
+                      ?? cacheGet<any>(cacheKey(tenantId, 'electronic-invoice'));
+      const feConfig = cachedFe?.config ?? cachedFe;
+      // Régimen simplificado puede setearse desde el Admin (settings.electronic-invoice)
+      // o desde Settings Generales (general.simplificado). Cualquiera vale.
+      const simplificadoFooter = !!(feConfig?.simplificado || general?.simplificado);
       const now = new Date();
 
       // Receipt
@@ -393,8 +492,9 @@ export const POSMain = () => {
           storeAddress: general?.address,
           storeCity: general?.city,
           storePhone: general?.phone,
-          cashierName: user?.email ?? undefined,
+          cashierName: activeCashier?.full_name ?? user?.email ?? undefined,
           customerName,
+          simplificadoFooter,
         },
         tenantId,
       );
@@ -409,7 +509,7 @@ export const POSMain = () => {
 
     } catch (err) {
     }
-  }, [tenantId, user]);
+  }, [tenantId, user, activeCashier]);
 
   const handlePaymentConfirm = async (data: PaymentData) => {
     if (!tenantId || !currentSession) {
@@ -452,7 +552,9 @@ export const POSMain = () => {
           data.amountReceived,
           data.change,
           data.voucherNumber,
-          invNum
+          invNum,
+          activeCashier?.id ?? null,
+          activeCashier?.full_name ?? null,
         );
 
         // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
@@ -490,6 +592,8 @@ export const POSMain = () => {
           voucherNumber: data.voucherNumber,
           notes,
           customerName: customerName.trim() || undefined,
+          cashierId: activeCashier?.id ?? null,
+          cashierName: activeCashier?.full_name ?? null,
         });
 
         // Snapshot del cliente antes del reset (lo necesitamos para impresión).
@@ -557,23 +661,26 @@ export const POSMain = () => {
         onClearSuccess={() => setSuccess('')}
         onOpenCash={() => setShowOpenModal(true)}
         onCloseCash={() => setShowCloseModal(true)}
-        onVoidInvoice={currentSession ? () => setShowVoidModal(true) : undefined}
+        onVoidInvoice={(currentSession && canVoidInvoice) ? () => setShowVoidModal(true) : undefined}
         onReprintInvoice={() => setShowReprintModal(true)}
         onCashIn={currentSession?.status === 'open' ? () => setCashMovement('in') : undefined}
         onCashOut={currentSession?.status === 'open' ? () => setCashMovement('out') : undefined}
         onSync={isOnline ? syncOfflineInvoices : undefined}
       />
 
-      {posViewMode === 'desktop' &&
-        ((planFeatures as any).pos_invoice_preview || (planFeatures as any).pos_customer_field) && (
-        <POSDesktopBar
-          showInvoicePreview={!!(planFeatures as any).pos_invoice_preview}
-          showCustomerField={!!(planFeatures as any).pos_customer_field}
-          customerName={customerName}
-          onCustomerNameChange={setCustomerName}
-          invoiceNumberRefreshKey={invoiceCounterKey}
-        />
-      )}
+      <POSDesktopBar
+        showInvoicePreview={!!(planFeatures as any).pos_invoice_preview && posViewMode === 'desktop'}
+        showCustomerField={true}
+        customerName={customerName}
+        onCustomerNameChange={setCustomerName}
+        invoiceNumberRefreshKey={invoiceCounterKey}
+        selectedCustomer={selectedCustomer}
+        onCustomerPick={setSelectedCustomer}
+        documentType={documentType}
+        onDocumentTypeChange={(planFeatures as any)?.electronic_invoice ? setDocumentType : undefined}
+        activeCashierName={activeCashier?.full_name ?? null}
+        onChangeCashier={kioskEnabled ? () => setShowPinModal('switch') : undefined}
+      />
 
       {/* ── Tabs de ventas en espera ──────────────────────────────────────── */}
       <POSTabs
@@ -661,7 +768,7 @@ export const POSMain = () => {
           taxRate={taxRate}
           currentSession={currentSession}
           loading={paymentLoading}
-          canDiscount={planFeatures.pos_discount}
+          canDiscount={planFeatures.pos_discount && (isManagerRole || maxDiscountPercent > 0)}
           onRemoveFromCart={handleRemoveFromCart}
           onChangeQuantity={handleChangeQuantity}
           onApplyDiscount={handleApplyDiscount}
@@ -768,6 +875,18 @@ export const POSMain = () => {
             setShowVoidModal(false);
             setSuccess(`Factura ${invoiceNumber} anulada correctamente`);
           }}
+        />
+      )}
+
+      {showPinModal && (
+        <POSPinLockModal
+          forced={showPinModal === 'forced'}
+          onSuccess={(c) => {
+            setActiveCashier(c);
+            setShowPinModal(null);
+            setSuccess(`Cajero activo: ${c.full_name}`);
+          }}
+          onClose={() => setShowPinModal(null)}
         />
       )}
 

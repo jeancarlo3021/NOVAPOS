@@ -27,6 +27,8 @@ interface FormData {
   stock_quantity: string;
   min_stock_level: string;
   max_stock_level: string;
+  cabys_code: string;
+  iva_rate: string;
 }
 
 export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, onCancel }) => {
@@ -47,6 +49,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     stock_quantity: '0',
     min_stock_level: '10',
     max_stock_level: '100',
+    cabys_code: '',
+    iva_rate: '13',
   });
 
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
@@ -117,6 +121,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           stock_quantity: product.stock_quantity?.toString() || '0',
           min_stock_level: product.min_stock_level?.toString() || '10',
           max_stock_level: product.max_stock_level?.toString() || '100',
+          cabys_code: (product as any).cabys_code ?? '',
+          iva_rate: (product as any).iva_rate?.toString() ?? '13',
         });
         setImageUrl((product as any).image_url || undefined);
         // Si el plan no permite mezclar, siempre true. Si permite, usa el del producto.
@@ -252,6 +258,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
         image_url: imageUrl ? imageUrl.split('?')[0] : null,
         tracks_stock: finalTracksStock,
+        // Facturación Electrónica — CABYS opcional, IVA por producto (default 13%)
+        cabys_code: formData.cabys_code.trim() || null,
+        iva_rate:   formData.iva_rate ? parseFloat(formData.iva_rate) : 13,
       };
 
       // Si NO es products_only, agrega los campos de stock, categoría y tipo de unidad
@@ -422,6 +431,40 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                           className="w-full pl-8 pr-4 py-2.5 text-lg font-black border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 tabular-nums"
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  {/* ── Facturación Electrónica ────────────────────────────────── */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                        CABYS <span className="text-xs text-gray-400 font-normal">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        name="cabys_code"
+                        value={formData.cabys_code}
+                        onChange={handleChange}
+                        placeholder="Código CABYS de Hacienda"
+                        disabled={submitting}
+                        className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">IVA %</label>
+                      <select
+                        name="iva_rate"
+                        value={formData.iva_rate}
+                        onChange={handleChange}
+                        disabled={submitting}
+                        className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                      >
+                        <option value="13">13% (General)</option>
+                        <option value="4">4% (Servicios médicos)</option>
+                        <option value="2">2% (Medicamentos/educación)</option>
+                        <option value="1">1% (Canasta básica)</option>
+                        <option value="0">Exento</option>
+                      </select>
                     </div>
                   </div>
                 </div>

@@ -7,8 +7,10 @@ import {
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { qzConnect, qzIsConnected } from '@/services/pos/qzTrayService';
+import { GroupBranchesPanel } from './components/GroupBranchesPanel';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -173,10 +175,17 @@ export const Dashboard = () => {
   })();
   const showSubBanner = subDaysLeft !== null && subDaysLeft <= 15;
 
-  // Solo mostrar tiles habilitados por plan (Configuración siempre).
-  const tiles = ALL_TILES.filter(t =>
-    t.feature === 'settings' || (pf[t.feature as keyof PlanFeatures] ?? false),
-  );
+  const { canAccess } = useRolePermissions();
+  // Solo mostrar tiles habilitados por plan Y por el rol del user.
+  // Settings/Configuración pasa por plan + rol (si el owner lo cerró, gerente no la ve).
+  const tiles = ALL_TILES.filter(t => {
+    const planHas = t.feature === 'settings' || (pf[t.feature as keyof PlanFeatures] ?? false);
+    if (!planHas) return false;
+    // Mapear feature → módulo de role_permissions. Si no hay mapeo, no se gatea.
+    const moduleKey = t.feature === 'settings' ? null : t.feature;
+    if (!moduleKey) return true;
+    return canAccess(moduleKey as string);
+  });
 
   // Alertas compactas (chips inline en la cabecera, no banner gigante)
   const alertChips: Array<{ icon: any; text: string; path: string; color: string }> = [];
@@ -264,6 +273,9 @@ export const Dashboard = () => {
           </p>
         </button>
       )}
+
+      {/* ── Panel multi-empresa: stats por sucursal del grupo ────────────── */}
+      <GroupBranchesPanel />
 
       {/* ── Alertas en chips inline ──────────────────────────────────────── */}
       {alertChips.length > 0 && (

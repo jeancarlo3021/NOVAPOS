@@ -5,6 +5,7 @@ import {
   Bell, RotateCw, Power, AlertCircle, Check,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import {
   expensesService,
@@ -55,6 +56,10 @@ type TabId = 'expenses' | 'recurring' | 'categories';
 
 export const ExpensesDashboard: React.FC = () => {
   const { tenantId } = useTenantId();
+  const { canDo } = useRolePermissions();
+  const canCreate = canDo('expenses', 'create');
+  const canEdit   = canDo('expenses', 'edit');
+  const canDelete = canDo('expenses', 'delete');
   const [tab, setTab] = useState<TabId>('expenses');
   const pendingCount = tenantId ? getPendingExpenses(tenantId).length : 0;
 
@@ -237,12 +242,14 @@ export const ExpensesDashboard: React.FC = () => {
               {expenses.length} registro{expenses.length !== 1 ? 's' : ''} · Total: {fmt(totalFiltered)}
             </p>
           </div>
-          <button
-            onClick={() => { setEditingExpense(null); setShowExpenseModal(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition"
-          >
-            <Plus size={16} /> Nuevo Gasto
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => { setEditingExpense(null); setShowExpenseModal(true); }}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition"
+            >
+              <Plus size={16} /> Nuevo Gasto
+            </button>
+          )}
         </div>
 
         <div className="flex gap-1 mt-4 flex-wrap">
@@ -399,19 +406,23 @@ export const ExpensesDashboard: React.FC = () => {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1 justify-end">
-                              <button
-                                onClick={() => { setEditingExpense(exp); setShowExpenseModal(true); }}
-                                className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteExpense(exp.id)}
-                                disabled={deletingId === exp.id}
-                                className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition disabled:opacity-40"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              {canEdit && (
+                                <button
+                                  onClick={() => { setEditingExpense(exp); setShowExpenseModal(true); }}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                              )}
+                              {canDelete && (
+                                <button
+                                  onClick={() => handleDeleteExpense(exp.id)}
+                                  disabled={deletingId === exp.id}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition disabled:opacity-40"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>

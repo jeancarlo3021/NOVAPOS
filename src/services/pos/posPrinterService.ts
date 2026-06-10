@@ -69,6 +69,10 @@ export interface ReceiptData {
   cashierName?: string;
   footerMessage?: string;
   logoUrl?: string;
+  /** Si el negocio está en régimen simplificado (Hacienda CR), imprime la
+   *  leyenda obligatoria "Autorizado mediante oficio 1197 régimen simplificado"
+   *  al pie de cada factura/tiquete. */
+  simplificadoFooter?: boolean;
 }
 
 export interface ReceiptConfig {
@@ -958,6 +962,7 @@ export class POSPrinterService {
   <div class="footer">
     ${receiptData.footerMessage ?? cfg.footerMessage}<br>
     <span style="font-weight:normal;font-size:10px;">Vuelva pronto</span>
+    ${receiptData.simplificadoFooter ? '<br><br><span style="font-weight:normal;font-size:10px;">Autorizado mediante oficio 1197<br>r&eacute;gimen simplificado</span>' : ''}
   </div>
 
 </div>
@@ -1038,6 +1043,13 @@ export class POSPrinterService {
     sep();
     centerText(cfg.footerMessage);
     centerText('Vuelva pronto');
+
+    // Régimen simplificado — leyenda obligatoria de Hacienda CR
+    if (receiptData.simplificadoFooter) {
+      nl();
+      centerText('Autorizado mediante oficio 1197');
+      centerText('regimen simplificado');
+    }
 
     // Feed + corte automático
     nl(); nl(); nl();

@@ -11,6 +11,7 @@ import { activityService } from '@/services/users/activityService';
 import { cacheGet, cacheSet, cacheKey } from '@/utils/offlineCache';
 import type { ActivityLog as ActivityLogType, User } from '@/types/Types_Users';
 import { usersService } from '@/services/users/usersService';
+import { tenantGroupsService, type MyTenant } from '@/services/admin/tenantGroupsService';
 
 interface ActionMeta {
   label: string;
@@ -48,6 +49,10 @@ export const ActivityLog: React.FC = () => {
   const [dateTo, setDateTo] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
   const [actionSearch, setActionSearch] = useState('');
+  // Scope: 'tenant' = sólo sucursal actual; 'group' = todas las del grupo.
+  const [scope, setScope] = useState<'tenant' | 'group'>('tenant');
+  const [tenantFilter, setTenantFilter] = useState<string>('all');
+  const [myTenants, setMyTenants] = useState<MyTenant[]>([]);
 
   const cacheKey_ = cacheKey(tenantId, 'activity_logs');
   const usersCacheKey_ = cacheKey(tenantId, 'users_list');
@@ -86,11 +91,12 @@ export const ActivityLog: React.FC = () => {
         setActivities(cacheGet<ActivityLogType[]>(cacheKey_) ?? []);
         return;
       }
-      const filters: any = { limit: 500 };
+      const filters: any = { limit: 500, scope };
       if (dateFrom) filters.from = dateFrom;
       if (dateTo) filters.to = dateTo;
       if (selectedUserId) filters.user_id = selectedUserId;
       if (actionSearch) filters.action = actionSearch;
+      if (scope === 'group' && tenantFilter !== 'all') filters.tenant_id = tenantFilter;
 
       const data = await activityService.getActivityLogs(tenantId, filters);
       setActivities(data);
@@ -102,7 +108,14 @@ export const ActivityLog: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [tenantId, dateFrom, dateTo, selectedUserId, actionSearch, cacheKey_]);
+  }, [tenantId, dateFrom, dateTo, selectedUserId, actionSearch, scope, tenantFilter, cacheKey_]);
+
+  // Cargar tenants accesibles para el filtro por sucursal
+  useEffect(() => {
+    tenantGroupsService.myTenants()
+      .then(list => setMyTenants(Array.isArray(list) ? list : []))
+      .catch(() => setMyTenants([]));
+  }, []);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
   useEffect(() => { loadLogs(); }, [loadLogs]);
@@ -148,6 +161,36 @@ export const ActivityLog: React.FC = () => {
         <StatCard icon={LogIn}    label="Inicios sesión"  value={String(stats.logins)} color="bg-violet-500" />
         <StatCard icon={UserPlus} label="Usuarios activos" value={String(stats.usersActive)} color="bg-amber-500" />
       </div>
+
+      {/* Scope toggle: general (grupo) vs por sucursal */}
+      {myTenants.length > 1 && (
+        <div className="bg-white border-2 border-gray-100 rounded-2xl p-3 flex items-center gap-3 flex-wrap">
+          <span className="text-xs font-black text-gray-700 uppercase tracking-wider">Vista:</span>
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <button onClick={() => { setScope('tenant'); setTenantFilter('all'); }}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${
+                scope === 'tenant' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              Sucursal actual
+            </button>
+            <button onClick={() => setScope('group')}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${
+                scope === 'group' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              Todas las sucursales
+            </button>
+          </div>
+          {scope === 'group' && (
+            <select value={tenantFilter} onChange={e => setTenantFilter(e.target.value)}
+              className="ml-auto px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-bold bg-white">
+              <option value="all">— Filtrar sucursal —</option>
+              {myTenants.map(t => (
+                <option key={t.tenant_id} value={t.tenant_id}>{t.tenant_name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="bg-white border-2 border-gray-100 rounded-2xl p-4">
@@ -233,6 +276,11 @@ export const ActivityLog: React.FC = () => {
                       <span className={`text-xs font-black px-2 py-0.5 rounded-md bg-${meta.color}-50 text-${meta.color}-700`}>
                         {meta.label}
                       </span>
+                      {scope === 'group' && (a as any).tenant_id && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 border border-cyan-100">
+                          {myTenants.find(t => t.tenant_id === (a as any).tenant_id)?.tenant_name ?? '—'}
+                        </span>
+                      )}
                       {a.entity_type && (
                         <span className="text-[10px] text-gray-400 font-mono uppercase">
                           {a.entity_type}

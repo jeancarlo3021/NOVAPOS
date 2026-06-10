@@ -34,6 +34,7 @@ const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashb
 const BillingDashboard         = lazy(() => import('./modules/billing/BillingDashboard').then(m => ({ default: m.BillingDashboard })));
 const BranchesAdmin            = lazy(() => import('./modules/branches/BranchesAdmin').then(m => ({ default: m.BranchesAdmin })));
 const TransfersDashboard       = lazy(() => import('./modules/branches/TransfersDashboard').then(m => ({ default: m.TransfersDashboard })));
+const CustomersList            = lazy(() => import('./modules/customers/CustomersList').then(m => ({ default: m.CustomersList })));
 
 function RouteFallback() {
   return (
@@ -111,6 +112,7 @@ function AppContent() {
                   <PromotionsDashboard />
                 </PlanGuard>
               } />
+              <Route path="/customers" element={<CustomersList />} />
               <Route path="/accounts-payable" element={
                 <PlanGuard feature="accounts_payable">
                   <AccountsPayableDashboard />

@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import { ROLE_META, USER_ROLES } from '@/types/Types_Users';
+import { useAuth } from '@/context/AuthContext';
+import { clearRolePermissionsCache } from '@/hooks/useRolePermissions';
 import type { UserRole, UserModule, UserPermissionMatrix } from '@/types/Types_Users';
 
 interface ModuleMeta {
@@ -65,6 +67,11 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
 }
 
 export const RoleSettings: React.FC = () => {
+  const { planFeatures } = useAuth();
+  // Solo módulos que el plan actual incluye — si no hay HR en el plan, no
+  // tiene sentido configurar permisos de HR para los roles.
+  const visibleModules = MODULES.filter(m => (planFeatures as any)?.[m.key] === true);
+
   const [matrices, setMatrices] = useState<Record<string, UserPermissionMatrix>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -100,14 +107,14 @@ export const RoleSettings: React.FC = () => {
   const moduleCount = (role: UserRole) => {
     const m = matrices[role];
     if (!m) return 0;
-    return MODULES.filter(mod => m[mod.key]?.can_access).length;
+    return visibleModules.filter(mod => m[mod.key]?.can_access).length;
   };
 
   const openEditor = (role: UserRole) => {
     const stored = matrices[role];
     const seeded = emptyMatrix(true);
     if (stored && Object.keys(stored).length > 0) {
-      MODULES.forEach(mod => {
+      visibleModules.forEach(mod => {
         const s = stored[mod.key];
         seeded[mod.key] = {
           can_access: s?.can_access ?? false,
@@ -130,12 +137,17 @@ export const RoleSettings: React.FC = () => {
 
   const handleSave = async () => {
     if (!editingRole) return;
+    if (visibleModules.length === 0) {
+      setError('No hay módulos disponibles en tu plan. Verificá que el plan tenga features activas.');
+      return;
+    }
     setSaving(true);
     setError('');
+    console.log('[RoleSettings] saving', { role: editingRole, modules: visibleModules.length, draft });
     try {
       // Si no hay acceso al módulo, fuerza CRUD a false
       const clean: UserPermissionMatrix = {};
-      MODULES.forEach(mod => {
+      visibleModules.forEach(mod => {
         const d = draft[mod.key];
         clean[mod.key] = {
           can_access: d?.can_access ?? false,
@@ -144,8 +156,13 @@ export const RoleSettings: React.FC = () => {
           can_delete: !!d?.can_access && !!d?.can_delete,
         };
       });
-      await rolePermissionsService.updateRolePermissions(editingRole, clean);
+      console.log('[RoleSettings] sending to backend:', { role: editingRole, clean });
+      const resp = await rolePermissionsService.updateRolePermissions(editingRole, clean);
+      console.log('[RoleSettings] backend response:', resp);
       setMatrices(prev => ({ ...prev, [editingRole]: clean }));
+      // Invalidar el cache del hook para que la próxima vez que un user
+      // con este rol entre, refetchee los permisos actualizados.
+      clearRolePermissionsCache();
       setEditingRole(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al guardar permisos');
@@ -215,7 +232,7 @@ export const RoleSettings: React.FC = () => {
 
                 <div className="flex items-center justify-between mb-4 border-t border-gray-100 pt-3">
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Módulos con acceso</span>
-                  <span className="text-sm font-black text-gray-900">{count} / {MODULES.length}</span>
+                  <span className="text-sm font-black text-gray-900">{count} / {visibleModules.length}</span>
                 </div>
 
                 <button
@@ -248,7 +265,7 @@ export const RoleSettings: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3">
-              {MODULES.map(mod => {
+              {visibleModules.map(mod => {
                 const Icon = mod.icon;
                 const row = draft[mod.key] ?? { can_access: false, can_create: false, can_edit: false, can_delete: false };
                 return (

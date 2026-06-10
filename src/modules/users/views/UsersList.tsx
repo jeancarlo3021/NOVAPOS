@@ -3,11 +3,13 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Plus, Pencil, Trash2, AlertCircle, Lock, Loader2,
-  Users, Search, Crown, Filter, Mail, Phone, Calendar,
+  Users, Search, Crown, Filter, Mail, Phone, Calendar, Clock,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { usersService, emailToUsername } from '@/services/users/usersService';
+import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import { activityService } from '@/services/users/activityService';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import type { User, UserRole } from '@/types/Types_Users';
@@ -18,12 +20,26 @@ import { PasswordResetModal } from '../components/PasswordResetModal';
 export const UsersList: React.FC = () => {
   const { tenantId } = useTenantId();
   const { user: currentUser } = useAuth();
+  const { canDo } = useRolePermissions();
+  const canCreate = canDo('users', 'create');
+  const canEdit   = canDo('users', 'edit');
+  const canDelete = canDo('users', 'delete');
 
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState<UserRole | 'all'>('all');
+  // Scope: 'tenant' = solo el actual; 'group' = todas las sucursales accesibles.
+  const [scope, setScope] = useState<'tenant' | 'group'>('tenant');
+  // Filtro por sucursal cuando scope='group'.
+  const [filterTenant, setFilterTenant] = useState<string>('all');
+  // Modo de vista: 'flat' (lista plana) | 'grouped' (agrupada por sucursal).
+  const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('flat');
+  // Mapa de tenant_id → nombre, para mostrar el nombre de la sucursal.
+  const [tenantNames, setTenantNames] = useState<Record<string, string>>({});
+  // Cache role → módulos accesibles, para chips por usuario.
+  const [roleModules, setRoleModules] = useState<Record<string, string[]>>({});
 
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -44,7 +60,7 @@ export const UsersList: React.FC = () => {
         if (!cached) setError('Sin conexión — sin datos en caché');
         return;
       }
-      const data = await usersService.getAllUsers(tenantId);
+      const data = await usersService.getAllUsers(tenantId, scope);
       setUsers(data);
       cacheSet(cacheKey_, data);
     } catch (err: unknown) {
@@ -54,9 +70,49 @@ export const UsersList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [tenantId, cacheKey_]);
+  }, [tenantId, cacheKey_, scope]);
+
+  // Resolver nombres de sucursales — una vez por sesión de la lista.
+  // Evitamos depender de `tenantNames` para que setTenantNames no re-dispare
+  // el efecto (causaba loop infinito si algún user tenía tenant_id que
+  // myTenants() no devolvía).
+  const resolvedRef = React.useRef(false);
+  useEffect(() => {
+    if (resolvedRef.current) return;
+    if (users.length === 0)   return;
+    resolvedRef.current = true;
+    (async () => {
+      try {
+        const { tenantGroupsService } = await import('@/services/admin/tenantGroupsService');
+        const myTenants = await tenantGroupsService.myTenants().catch(() => []);
+        if (Array.isArray(myTenants)) {
+          const map: Record<string, string> = {};
+          for (const t of myTenants) map[t.tenant_id] = t.tenant_name;
+          setTenantNames(map);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [users.length]);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
+
+  // Carga lazy de role_permissions para los roles únicos visibles en la lista.
+  // Resultado: roleModules['cajero'] = ['pos', 'inventory', ...]
+  useEffect(() => {
+    const uniqueRoles = Array.from(new Set(users.map(u => u.role).filter(Boolean)));
+    const pending = uniqueRoles.filter(r => !(r in roleModules) && r !== 'owner' && r !== 'admin');
+    if (pending.length === 0) return;
+    (async () => {
+      const entries = await Promise.all(pending.map(async (r) => {
+        try {
+          const m = await rolePermissionsService.getRolePermissions(r);
+          const mods = Object.keys(m).filter(k => m[k]?.can_access);
+          return [r, mods] as const;
+        } catch { return [r, []] as const; }
+      }));
+      setRoleModules(prev => ({ ...prev, ...Object.fromEntries(entries) }));
+    })();
+  }, [users, roleModules]);
 
   const handleCreate = () => { setEditingUser(null); setShowFormModal(true); };
   const handleEdit = (user: User) => { setEditingUser(user); setShowFormModal(true); };
@@ -110,16 +166,23 @@ export const UsersList: React.FC = () => {
   };
 
   // ── Filtros y stats ──
+  // Lista de tenants únicos presentes en los users cargados (para el filtro).
+  const availableTenants = useMemo(() => {
+    const ids = Array.from(new Set(users.map(u => (u as any).tenant_id).filter(Boolean)));
+    return ids.map(id => ({ id, name: tenantNames[id] ?? id.slice(0, 8) }));
+  }, [users, tenantNames]);
+
   const filteredUsers = useMemo(() => {
     return users.filter(u => {
       const matchSearch = !search ||
         (u.full_name?.toLowerCase() ?? '').includes(search.toLowerCase()) ||
         (u.email?.toLowerCase() ?? '').includes(search.toLowerCase()) ||
         (u.phone?.toLowerCase() ?? '').includes(search.toLowerCase());
-      const matchRole = filterRole === 'all' || u.role === filterRole;
-      return matchSearch && matchRole;
+      const matchRole   = filterRole   === 'all' || u.role === filterRole;
+      const matchTenant = filterTenant === 'all' || (u as any).tenant_id === filterTenant;
+      return matchSearch && matchRole && matchTenant;
     });
-  }, [users, search, filterRole]);
+  }, [users, search, filterRole, filterTenant]);
 
   const roleCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -132,6 +195,150 @@ export const UsersList: React.FC = () => {
 
   const initials = (name: string) =>
     name.split(' ').slice(0, 2).map(p => p[0] ?? '').join('').toUpperCase();
+
+  // ── Última conexión: formato relativo ("hace 5 min", "ayer", "hace 3 días")
+  const formatLastSeen = (iso?: string | null): { label: string; color: string } => {
+    if (!iso) return { label: 'Nunca', color: 'text-gray-300' };
+    const then = new Date(iso).getTime();
+    const diffMs = Date.now() - then;
+    if (diffMs < 0)            return { label: 'En el futuro',  color: 'text-gray-400' };
+    const m = Math.floor(diffMs / 60000);
+    if (m < 1)                 return { label: 'Ahora mismo',   color: 'text-emerald-600' };
+    if (m < 60)                return { label: `Hace ${m} min`, color: 'text-emerald-600' };
+    const h = Math.floor(m / 60);
+    if (h < 24)                return { label: `Hace ${h} h`,   color: 'text-emerald-600' };
+    const d = Math.floor(h / 24);
+    if (d === 1)               return { label: 'Ayer',          color: 'text-gray-500' };
+    if (d < 7)                 return { label: `Hace ${d} días`,color: 'text-gray-500' };
+    if (d < 30)                return { label: `Hace ${Math.floor(d / 7)} sem`, color: 'text-amber-600' };
+    if (d < 365)               return { label: `Hace ${Math.floor(d / 30)} meses`, color: 'text-amber-700' };
+    return { label: 'Hace > 1 año', color: 'text-red-500' };
+  };
+
+  // ── Card de usuario (reutilizada por flat + grouped) ─────────────────────
+  const renderUserCard = (
+    user: User,
+    meta: typeof ROLE_META[UserRole],
+    isMe: boolean,
+    isOwner: boolean,
+  ) => (
+    <div key={user.id}
+      className={`bg-white p-5 rounded-2xl border-2 transition group ${
+        isMe ? 'border-blue-300 bg-blue-50/30' : 'border-gray-100 hover:border-blue-200'
+      }`}>
+      <div className="flex items-start gap-3 mb-3">
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-base shrink-0 bg-${meta.color}-100 text-${meta.color}-700`}>
+          {initials(user.full_name ?? '?')}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <h3 className="font-black text-gray-900 truncate">{user.full_name}</h3>
+            {isMe && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">TÚ</span>
+            )}
+          </div>
+          <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-${meta.color}-100 text-${meta.color}-700`}>
+            <span>{meta.emoji}</span> {meta.label}
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-1 text-xs text-gray-500 border-t border-gray-100 pt-3 mb-3">
+        {user.email && (
+          <div className="flex items-center gap-2 truncate">
+            <Mail size={12} className="shrink-0" />
+            <span className="truncate">{emailToUsername(user.email)}</span>
+          </div>
+        )}
+        {user.phone && (
+          <div className="flex items-center gap-2">
+            <Phone size={12} className="shrink-0" /> {user.phone}
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <Calendar size={12} className="shrink-0" />
+          Creado: {new Date(user.created_at).toLocaleDateString('es-CR')}
+        </div>
+        {(() => {
+          const ls = formatLastSeen(user.last_login_at);
+          return (
+            <div className={`flex items-center gap-2 font-semibold ${ls.color}`}>
+              <Clock size={12} className="shrink-0" />
+              Última conexión: <span>{ls.label}</span>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Chips: módulos a los que este usuario tiene acceso */}
+      {(() => {
+        const isAdminRole = user.role === 'owner' || user.role === 'admin';
+        const modules = isAdminRole
+          ? ['Acceso total']
+          : (roleModules[user.role] ?? null);
+        if (!modules) return (
+          <div className="text-[10px] text-gray-300 italic mb-3">Cargando permisos…</div>
+        );
+        if (modules.length === 0) return (
+          <div className="text-[10px] text-amber-600 mb-3 flex items-center gap-1">
+            <AlertCircle size={11} /> Sin módulos asignados — configurá en Roles
+          </div>
+        );
+        const MODULE_LABELS: Record<string, string> = {
+          pos: 'POS', inventory: 'Inventario', reports: 'Reportes',
+          expenses: 'Gastos', purchases: 'Compras',
+          accounts_payable: 'Cuentas x Pagar', promotions: 'Promociones',
+          users: 'Usuarios', hr: 'RRHH',
+        };
+        return (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {modules.map(m => (
+              <span key={m} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                {MODULE_LABELS[m] ?? m}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
+
+      {!isOwner && (canEdit || canDelete) && (
+        <div className="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition">
+          {canEdit && (
+            <button onClick={() => handleEdit(user)}
+              className="flex-1 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
+              <Pencil size={12} /> Editar
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={() => handleResetPassword(user.id)}
+              title="Restablecer contraseña"
+              className="px-3 py-1.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-100">
+              <Lock size={12} />
+            </button>
+          )}
+          {canDelete && !isMe && (
+            <button onClick={() => handleDelete(user.id)}
+              disabled={deletingId === user.id}
+              className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 disabled:opacity-50">
+              {deletingId === user.id
+                ? <Loader2 size={12} className="animate-spin" />
+                : <Trash2 size={12} />}
+            </button>
+          )}
+        </div>
+      )}
+      {!isOwner && !canEdit && !canDelete && (
+        <div className="text-center text-xs text-gray-400 italic">
+          Solo lectura
+        </div>
+      )}
+      {isOwner && (
+        <div className="text-center text-xs text-gray-400 italic">
+          El propietario no se puede modificar
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -161,10 +368,12 @@ export const UsersList: React.FC = () => {
               className="pl-9 pr-3 py-2 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-400 w-52"
             />
           </div>
-          <button onClick={handleCreate}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition">
-            <Plus size={16} /> Crear usuario
-          </button>
+          {canCreate && (
+            <button onClick={handleCreate}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition">
+              <Plus size={16} /> Crear usuario
+            </button>
+          )}
         </div>
       </div>
 
@@ -203,6 +412,65 @@ export const UsersList: React.FC = () => {
           })}
       </div>
 
+      {/* ── Toggles: scope + view mode + filtro sucursal ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Scope: tenant actual vs todas las sucursales del grupo */}
+        <div className="inline-flex bg-gray-100 rounded-lg p-1">
+          <button
+            onClick={() => setScope('tenant')}
+            className={`px-3 py-1 rounded text-xs font-bold transition ${
+              scope === 'tenant' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'
+            }`}
+          >
+            Solo esta sucursal
+          </button>
+          <button
+            onClick={() => setScope('group')}
+            className={`px-3 py-1 rounded text-xs font-bold transition ${
+              scope === 'group' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'
+            }`}
+          >
+            Todas mis sucursales
+          </button>
+        </div>
+
+        {/* View mode (solo si scope='group') */}
+        {scope === 'group' && (
+          <div className="inline-flex bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('flat')}
+              className={`px-3 py-1 rounded text-xs font-bold transition ${
+                viewMode === 'flat' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'
+              }`}
+            >
+              Lista plana
+            </button>
+            <button
+              onClick={() => setViewMode('grouped')}
+              className={`px-3 py-1 rounded text-xs font-bold transition ${
+                viewMode === 'grouped' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'
+              }`}
+            >
+              Agrupar por sucursal
+            </button>
+          </div>
+        )}
+
+        {/* Filtro de tenant (solo si scope='group' y hay >1) */}
+        {scope === 'group' && availableTenants.length > 1 && (
+          <select
+            value={filterTenant}
+            onChange={e => setFilterTenant(e.target.value)}
+            className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-bold bg-white text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          >
+            <option value="all">Todas las sucursales</option>
+            {availableTenants.map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
       {/* ── Errores ── */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-3">
@@ -234,82 +502,44 @@ export const UsersList: React.FC = () => {
         </div>
       )}
 
-      {/* ── Cards de usuarios ── */}
-      {!loading && filteredUsers.length > 0 && (
+      {/* ── Cards de usuarios — agrupado por sucursal ── */}
+      {!loading && filteredUsers.length > 0 && viewMode === 'grouped' && scope === 'group' && (
+        <div className="space-y-5">
+          {availableTenants
+            .filter(t => filteredUsers.some(u => (u as any).tenant_id === t.id))
+            .map(t => {
+              const usersOfTenant = filteredUsers.filter(u => (u as any).tenant_id === t.id);
+              return (
+                <div key={t.id} className="bg-gray-50 rounded-2xl border border-gray-200 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-cyan-500 flex items-center justify-center font-black text-xs text-white">
+                      {t.name.charAt(0).toUpperCase()}
+                    </div>
+                    <h3 className="font-black text-gray-800 text-sm">{t.name}</h3>
+                    <span className="text-xs text-gray-400 font-bold">({usersOfTenant.length})</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {usersOfTenant.map(user => {
+                      const meta = ROLE_META[user.role as UserRole] ?? ROLE_META.asistente_1;
+                      const isMe = user.id === currentUser?.id;
+                      const isOwner = user.role === 'owner';
+                      return renderUserCard(user, meta, isMe, isOwner);
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      )}
+
+      {/* ── Cards de usuarios — lista plana ── */}
+      {!loading && filteredUsers.length > 0 && !(viewMode === 'grouped' && scope === 'group') && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredUsers.map(user => {
             const meta = ROLE_META[user.role as UserRole] ?? ROLE_META.asistente_1;
             const isMe = user.id === currentUser?.id;
             const isOwner = user.role === 'owner';
-            return (
-              <div key={user.id}
-                className={`bg-white p-5 rounded-2xl border-2 transition group ${
-                  isMe ? 'border-blue-300 bg-blue-50/30' : 'border-gray-100 hover:border-blue-200'
-                }`}>
-                <div className="flex items-start gap-3 mb-3">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-base shrink-0 bg-${meta.color}-100 text-${meta.color}-700`}>
-                    {initials(user.full_name ?? '?')}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <h3 className="font-black text-gray-900 truncate">{user.full_name}</h3>
-                      {isMe && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">TÚ</span>
-                      )}
-                    </div>
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-${meta.color}-100 text-${meta.color}-700`}>
-                      <span>{meta.emoji}</span> {meta.label}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-1 text-xs text-gray-500 border-t border-gray-100 pt-3 mb-3">
-                  {user.email && (
-                    <div className="flex items-center gap-2 truncate">
-                      <Mail size={12} className="shrink-0" />
-                      <span className="truncate">{emailToUsername(user.email)}</span>
-                    </div>
-                  )}
-                  {user.phone && (
-                    <div className="flex items-center gap-2">
-                      <Phone size={12} className="shrink-0" /> {user.phone}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Calendar size={12} className="shrink-0" />
-                    Creado: {new Date(user.created_at).toLocaleDateString('es-CR')}
-                  </div>
-                </div>
-
-                {!isOwner && (
-                  <div className="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition">
-                    <button onClick={() => handleEdit(user)}
-                      className="flex-1 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
-                      <Pencil size={12} /> Editar
-                    </button>
-                    <button onClick={() => handleResetPassword(user.id)}
-                      title="Restablecer contraseña"
-                      className="px-3 py-1.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-100">
-                      <Lock size={12} />
-                    </button>
-                    {!isMe && (
-                      <button onClick={() => handleDelete(user.id)}
-                        disabled={deletingId === user.id}
-                        className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 disabled:opacity-50">
-                        {deletingId === user.id
-                          ? <Loader2 size={12} className="animate-spin" />
-                          : <Trash2 size={12} />}
-                      </button>
-                    )}
-                  </div>
-                )}
-                {isOwner && (
-                  <div className="text-center text-xs text-gray-400 italic">
-                    El propietario no se puede modificar
-                  </div>
-                )}
-              </div>
-            );
+            return renderUserCard(user, meta, isMe, isOwner);
           })}
         </div>
       )}

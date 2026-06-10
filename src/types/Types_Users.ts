@@ -8,6 +8,10 @@ export interface User {
   full_name: string;
   phone?: string;
   created_at: string;
+  /** Última vez que el usuario inició sesión. Viene de auth.users.last_sign_in_at
+   *  o de un trigger que actualiza public.users.last_login_at. Opcional para
+   *  retro-compatibilidad: si la columna no existe aún, la UI muestra "—". */
+  last_login_at?: string | null;
 }
 
 export type UserRole =
@@ -120,6 +124,26 @@ export const ROLE_META: Record<UserRole, RoleMeta> = {
 
 // Roles considerados "managers" para temas de permisos en otros módulos
 export const MANAGER_ROLES: UserRole[] = ['owner', 'admin', 'gerente'];
+
+// Módulos del plan SaaS que cada rol *necesita* para tener sentido.
+// Si el plan del owner no incluye ninguno de estos, el rol queda oculto al
+// crear usuarios (no servirá para nada).
+//
+// Ejemplo: si el plan no incluye `hr`, el rol "contador" sólo se ofrece si
+// reports también está activo (sigue sirviendo para revisar finanzas).
+export const ROLE_REQUIRED_FEATURES: Record<UserRole, string[]> = {
+  owner:       [],                          // siempre disponible
+  admin:       [],                          // siempre disponible
+  gerente:     ['pos', 'inventory', 'reports'],
+  asistente_1: ['pos', 'inventory'],
+  asistente_2: ['pos', 'inventory'],
+  asistente_3: ['pos'],
+  cocinero:    ['tables'],                  // solo si hay mapa de mesas
+  mesero:      ['tables'],                  // solo si hay mapa de mesas
+  cajero:      ['pos'],
+  almacenero:  ['inventory', 'purchases'],
+  contador:    ['reports', 'expenses', 'accounts_payable'],
+};
 
 export type UserModule =
   | 'pos' | 'inventory' | 'reports' | 'expenses'

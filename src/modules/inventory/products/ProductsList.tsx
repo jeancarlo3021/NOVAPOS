@@ -3,6 +3,7 @@ import { Plus, Search, RotateCw } from 'lucide-react';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { ProductForm } from './ProductsForm';
@@ -12,6 +13,10 @@ import { Alert, LoadingState, Badge, Button, Card, CardContent } from '@/compone
 export const ProductsList: React.FC = () => {
   const { tenantId } = useTenantId();
   const { planFeatures, isReadOnly } = useAuth();
+  const { canDo } = useRolePermissions();
+  const canCreate = canDo('inventory', 'create');
+  const canEdit   = canDo('inventory', 'edit');
+  const canDelete = canDo('inventory', 'delete');
   const { isOnline } = useOfflineSync();
   const hasStockAlerts = planFeatures.inventory && !(planFeatures as any).inventory_products_only;
   const [showForm, setShowForm] = useState(false);
@@ -66,7 +71,7 @@ export const ProductsList: React.FC = () => {
           <h1 className="text-3xl font-bold">Productos</h1>
           <p className="text-gray-600">Administra tu inventario de productos</p>
         </div>
-        {!isReadOnly && (
+        {!isReadOnly && canCreate && (
           <Button
             onClick={() => { setEditingId(null); setShowForm(true); }}
             size="lg"
@@ -166,8 +171,8 @@ export const ProductsList: React.FC = () => {
               <ProductCard
                 key={product.id}
                 product={product}
-                onEdit={isReadOnly ? undefined : () => { setEditingId(product.id); setShowForm(true); }}
-                onDelete={isReadOnly ? undefined : () => handleDelete(product.id)}
+                onEdit={(isReadOnly || !canEdit) ? undefined : () => { setEditingId(product.id); setShowForm(true); }}
+                onDelete={(isReadOnly || !canDelete) ? undefined : () => handleDelete(product.id)}
                 onUpdated={() => retry()}
               />
             ))}
@@ -179,7 +184,7 @@ export const ProductsList: React.FC = () => {
             <p className="text-gray-500 text-lg">
               {searchTerm ? 'No hay productos que coincidan con tu búsqueda' : 'No hay productos registrados'}
             </p>
-            {!searchTerm && !isReadOnly && (
+            {!searchTerm && !isReadOnly && canCreate && (
               <Button
                 onClick={() => { setEditingId(null); setShowForm(true); }}
                 className="mt-4 bg-blue-600 hover:bg-blue-700"

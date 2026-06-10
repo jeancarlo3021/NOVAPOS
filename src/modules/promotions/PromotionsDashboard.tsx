@@ -6,6 +6,7 @@ import {
   Tag, Calendar, Zap,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { notifyPromotionsUpdated } from '@/hooks/POS/usePOSPromotions';
 import {
@@ -44,6 +45,10 @@ function clearPromoQueue(tid: string) {
 
 export const PromotionsDashboard: React.FC = () => {
   const { tenantId } = useTenantId();
+  const { canDo } = useRolePermissions();
+  const canCreate = canDo('promotions', 'create');
+  const canEdit   = canDo('promotions', 'edit');
+  const canDelete = canDo('promotions', 'delete');
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState('');
@@ -201,10 +206,12 @@ export const PromotionsDashboard: React.FC = () => {
               </p>
             </div>
           </div>
-          <button onClick={() => { setEditing(null); setShowForm(true); }}
-            className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl transition shadow-sm text-sm">
-            <Plus size={16} /> Nueva Promoción
-          </button>
+          {canCreate && (
+            <button onClick={() => { setEditing(null); setShowForm(true); }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl transition shadow-sm text-sm">
+              <Plus size={16} /> Nueva Promoción
+            </button>
+          )}
         </div>
       </div>
 
@@ -341,14 +348,18 @@ export const PromotionsDashboard: React.FC = () => {
                       }`} title={p.is_active ? 'Desactivar' : 'Activar'}>
                       {isToggling ? <RefreshCw size={16} className="animate-spin" /> : <Power size={16} />}
                     </button>
-                    <button onClick={() => { setEditing(p); setShowForm(true); }}
-                      className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition" title="Editar">
-                      <Pencil size={16} />
-                    </button>
-                    <button onClick={() => handleDelete(p.id)} disabled={isDeleting}
-                      className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition disabled:opacity-40" title="Eliminar">
-                      {isDeleting ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                    </button>
+                    {canEdit && (
+                      <button onClick={() => { setEditing(p); setShowForm(true); }}
+                        className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition" title="Editar">
+                        <Pencil size={16} />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button onClick={() => handleDelete(p.id)} disabled={isDeleting}
+                        className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition disabled:opacity-40" title="Eliminar">
+                        {isDeleting ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                      </button>
+                    )}
                   </div>
                 </div>
               );

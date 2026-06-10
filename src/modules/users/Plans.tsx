@@ -7,7 +7,7 @@ import {
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Activity, Shield, CalendarDays, History,
-  FileText, User, Search, Building,
+  FileText, User, Search, Building, KeyRound,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
@@ -138,6 +138,34 @@ export default function Plans() {
     setShowModal(true);
   };
 
+  const handleNewPlan = () => {
+    setSelectedPlan(null);
+    setFormData({
+      name: '',
+      description: '',
+      price: 0,
+      billing_cycle: 'monthly',
+      max_users: 5,
+      max_products: 100,
+      max_orders: 1000,
+      features: { ...DEFAULT_FEATURES, pos: true, inventory: true, settings: true },
+      is_active: true,
+    });
+    setShowModal(true);
+  };
+
+  const handleDeletePlan = async (plan: SubscriptionPlan) => {
+    if (isAdminPlan(plan)) {
+      setError('El plan Admin no se puede eliminar.');
+      return;
+    }
+    if (!confirm(`¿Eliminar el plan "${plan.name}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      await subscriptionPlansService.deletePlan(plan.id);
+      setPlans(plans.filter(p => p.id !== plan.id));
+    } catch (err: any) { setError(err.message); }
+  };
+
   const handleOpenFeatures = (plan: SubscriptionPlan) => {
     setSelectedPlan(plan);
     setFeatures({ ...DEFAULT_FEATURES, ...(plan.features as Partial<PlanFeatures> || {}) });
@@ -145,12 +173,16 @@ export default function Plans() {
   };
 
   const handleSave = async () => {
-    if (!selectedPlan) return;
     setSaving(true);
     try {
-      await subscriptionPlansService.updatePlan(selectedPlan.id, formData);
+      if (selectedPlan) {
+        await subscriptionPlansService.updatePlan(selectedPlan.id, formData);
+        setPlans(plans.map(p => p.id === selectedPlan.id ? { ...p, ...formData } as SubscriptionPlan : p));
+      } else {
+        const created = await subscriptionPlansService.createPlan(formData);
+        setPlans([...plans, created]);
+      }
       setShowModal(false);
-      setPlans(plans.map(p => p.id === selectedPlan.id ? { ...p, ...formData } as SubscriptionPlan : p));
     } catch (err: any) { setError(err.message); }
     finally { setSaving(false); }
   };
@@ -246,7 +278,10 @@ export default function Plans() {
           <h1 className="text-2xl font-black text-gray-900">Gestión de Planes</h1>
           <p className="text-gray-400 text-sm mt-0.5">{plans.length} planes configurados</p>
         </div>
-        <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl transition">
+        <button
+          onClick={handleNewPlan}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl transition"
+        >
           <Plus size={18} /> Nuevo Plan
         </button>
       </div>
@@ -338,16 +373,24 @@ export default function Plans() {
                     🔒 No se puede desactivar
                   </div>
                 ) : (
-                  <button
-                    onClick={() => handleToggleStatus(plan)}
-                    className={`w-full text-xs font-bold px-3 py-2 rounded-lg transition ${
-                      plan.is_active
-                        ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                        : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                    }`}
-                  >
-                    {plan.is_active ? 'Desactivar plan' : 'Activar plan'}
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleToggleStatus(plan)}
+                      className={`text-xs font-bold px-3 py-2 rounded-lg transition ${
+                        plan.is_active
+                          ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                          : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {plan.is_active ? 'Desactivar' : 'Activar'}
+                    </button>
+                    <button
+                      onClick={() => handleDeletePlan(plan)}
+                      className="text-xs font-bold px-3 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-red-100 hover:text-red-700 transition"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -355,14 +398,14 @@ export default function Plans() {
         })}
       </div>
 
-      {/* ── MODAL: Editar plan ── */}
-      {showModal && selectedPlan && (
+      {/* ── MODAL: Crear / Editar plan ── */}
+      {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl">
               <div>
-                <h2 className="text-lg font-black text-gray-900">Editar Plan</h2>
-                <p className="text-xs text-gray-400">{selectedPlan.name}</p>
+                <h2 className="text-lg font-black text-gray-900">{selectedPlan ? 'Editar Plan' : 'Nuevo Plan'}</h2>
+                <p className="text-xs text-gray-400">{selectedPlan?.name ?? 'Definí los datos del nuevo plan'}</p>
               </div>
               <button onClick={() => setShowModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 transition">
                 <X size={20} />
@@ -417,7 +460,7 @@ export default function Plans() {
             <div className="flex gap-3 px-6 pb-6">
               <button onClick={handleSave} disabled={saving}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white font-bold py-2.5 rounded-xl transition text-sm">
-                {saving ? 'Guardando...' : 'Guardar Cambios'}
+                {saving ? 'Guardando...' : (selectedPlan ? 'Guardar Cambios' : 'Crear Plan')}
               </button>
               <button onClick={() => setShowModal(false)}
                 className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl transition text-sm">
@@ -482,6 +525,16 @@ export default function Plans() {
 
                   <FeatureRow icon={BookOpen} color="bg-lime-500" title="Recetas"
                     description="Recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />
+
+                  <FeatureRow icon={FileText} color="bg-blue-600" title="Facturación Electrónica"
+                    description="Emisión a Hacienda CR (tiquetes/facturas electrónicas) — Régimen simplificado y tipo de documento en POS"
+                    checked={(features as any).electronic_invoice ?? false}
+                    onChange={v => set({ electronic_invoice: v } as any)} />
+
+                  <FeatureRow icon={KeyRound} color="bg-amber-600" title="Modo Kiosk POS"
+                    description="Terminal compartido: cajeros entran y salen con PIN sin re-loguearse"
+                    checked={(features as any).pos_kiosk ?? false}
+                    onChange={v => set({ pos_kiosk: v } as any)} />
                 </section>
 
                 {/* ── Columna 2: Inventario y Operaciones ─────────────── */}

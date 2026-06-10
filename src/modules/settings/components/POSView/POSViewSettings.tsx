@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import {
   Hand, Mouse, Sparkles, Check, MonitorSmartphone,
-  LayoutGrid, List, Accessibility,
+  LayoutGrid, List, Accessibility, KeyRound,
 } from 'lucide-react';
 import { usePOSViewMode, type POSViewPreference } from '@/hooks/usePOSViewMode';
 import { usePOSLayout, type POSLayout } from '@/hooks/usePOSLayout';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
+import { useAuth } from '@/context/AuthContext';
 
 interface Option {
   value: POSViewPreference;
@@ -32,9 +34,24 @@ const LAYOUT_OPTIONS: { value: POSLayout; title: string; description: string; ic
   },
 ];
 
+const KIOSK_KEY = 'novapos_pos_kiosk_enabled';
+
 export function POSViewSettings() {
   const { layout, setLayout } = usePOSLayout();
   const { assisted, setAssisted } = useAssistedMode();
+  const { planFeatures } = useAuth();
+  const planAllowsKiosk = !!planFeatures?.pos_kiosk;
+  const [kioskEnabled, setKioskEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem(KIOSK_KEY) === '1'; } catch { return false; }
+  });
+  const toggleKiosk = () => {
+    const next = !kioskEnabled;
+    setKioskEnabled(next);
+    try {
+      if (next) localStorage.setItem(KIOSK_KEY, '1');
+      else      localStorage.removeItem(KIOSK_KEY);
+    } catch { /* SSR */ }
+  };
 
   return (
     <div className="space-y-8">
@@ -79,6 +96,50 @@ export function POSViewSettings() {
           );
         })}
       </div>
+
+      {/* ── Modo Kiosk POS (PIN por cajero) ─ solo si el plan lo incluye ── */}
+      {planAllowsKiosk && (
+      <>
+      <div className="border-t border-gray-200 pt-6">
+        <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+          <KeyRound size={24} className="text-amber-600" />
+          Modo Kiosk con PIN
+        </h2>
+        <p className="text-gray-500 text-sm mt-1">
+          Mantiene el POS abierto con un único usuario base y permite que los cajeros entren
+          y salgan con un PIN propio. Útil cuando varios cajeros comparten el mismo terminal.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={toggleKiosk}
+        className={`w-full text-left rounded-2xl border-2 p-5 transition flex items-start gap-4 ${
+          kioskEnabled
+            ? 'border-amber-500 bg-amber-50/50 shadow-md'
+            : 'border-gray-200 bg-white hover:border-gray-300'
+        }`}
+      >
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${kioskEnabled ? 'bg-amber-100' : 'bg-gray-100'}`}>
+          <KeyRound size={22} className={kioskEnabled ? 'text-amber-600' : 'text-gray-400'} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-black text-gray-900 text-base mb-1">
+            {kioskEnabled ? 'Modo Kiosk ACTIVO' : 'Modo Kiosk (desactivado)'}
+          </h3>
+          <ul className="text-xs text-gray-600 space-y-0.5 mt-1">
+            <li>• Al abrir el POS, pide PIN del cajero antes de operar</li>
+            <li>• Botón "Cambiar cajero" arriba para alternar entre cajeros</li>
+            <li>• Cada factura queda atribuida al cajero que estaba activo</li>
+            <li>• El PIN de cada usuario se configura en <strong>Usuarios → Editar → 🔐 PIN del POS</strong></li>
+          </ul>
+        </div>
+        <span className={`shrink-0 w-12 h-7 rounded-full p-0.5 transition ${kioskEnabled ? 'bg-amber-500' : 'bg-gray-300'}`}>
+          <span className={`block w-6 h-6 bg-white rounded-full shadow transition-transform ${kioskEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+        </span>
+      </button>
+      </>
+      )}
 
       {/* ── Sección 3: Modo Asistido ───────────────────────────────────── */}
       <div className="border-t border-gray-200 pt-6">

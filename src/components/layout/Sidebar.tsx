@@ -27,6 +27,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { CashRegisterIcon } from '@/components/icons/CashRegisterIcon';
 
 interface NavItem {
@@ -61,6 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'operations',
     label: 'Operaciones',
     items: [
+      { name: 'Clientes',          to: '/customers',  icon: User2,         feature: 'always'     },
       { name: 'Recetas',           to: '/recipes',    icon: BookOpen,      feature: 'recipes'    },
       { name: 'Promociones',       to: '/promotions', icon: Tag,           feature: 'promotions' },
       { name: 'Mapa de Mesas',     to: '/tables',     icon: LayoutGrid,    feature: 'tables'     },
@@ -128,6 +130,7 @@ function loadOpenGroups(): Record<string, boolean> {
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, setIsCompact }) => {
   const { user, logout, planFeatures } = useAuth();
   const { assisted } = useAssistedMode();
+  const { canAccess } = useRolePermissions();
   const [showMore, setShowMore] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(loadOpenGroups);
   const location = useLocation();
@@ -142,11 +145,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
 
   const isSystemAdmin = () => planFeatures?.admin_dashboard === true;
 
+  // Mapeo de feature del nav → módulo de role_permissions. Usamos esto para
+  // que cuando el owner configure que "cajero no entra a Reportes", el sidebar
+  // del cajero realmente lo oculte aunque el plan tenga reports=true.
+  const featureToModule: Partial<Record<keyof PlanFeatures, string>> = {
+    pos: 'pos',
+    inventory: 'inventory',
+    reports: 'reports',
+    expenses: 'expenses',
+    purchases: 'purchases',
+    accounts_payable: 'accounts_payable',
+    promotions: 'promotions',
+    users: 'users',
+    hr: 'hr',
+  };
+
   const isAllowed = (feature: NavItem['feature']) => {
     if (feature === 'always') return true;
     if (feature === 'admin_only') return isSystemAdmin();
     if (feature === 'owner_only') return user?.role === 'owner';
-    return (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
+    // 1. El plan debe incluir la feature
+    const planHas = (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
+    if (!planHas) return false;
+    // 2. Y el rol del user debe tener acceso al módulo (si está mapeado)
+    const mod = featureToModule[feature as keyof PlanFeatures];
+    if (mod) return canAccess(mod);
+    return true;
   };
 
   // Aplana todas las rutas visibles según permisos (para asistido y compacto).

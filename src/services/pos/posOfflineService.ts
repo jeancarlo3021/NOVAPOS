@@ -23,6 +23,9 @@ export interface OfflineInvoicePayload {
   voucherNumber?: string;
   notes?: string;
   customerName?: string;
+  /** Cajero activo (kiosk mode) al momento de generar la factura. */
+  cashierId?: string | null;
+  cashierName?: string | null;
   timestamp: number;
   synced: 0 | 1;
   retries: number;

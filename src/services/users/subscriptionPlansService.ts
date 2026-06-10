@@ -24,6 +24,19 @@ export const subscriptionPlansService = {
     return apiFetch<SubscriptionPlan>('/plans/' + planId);
   },
 
+  async createPlan(plan: Partial<SubscriptionPlan>) {
+    return apiFetch<SubscriptionPlan>('/plans', {
+      method: 'POST',
+      body: JSON.stringify(plan),
+    });
+  },
+
+  async deletePlan(planId: string) {
+    return apiFetch<{ deleted: boolean }>('/plans/' + planId, {
+      method: 'DELETE',
+    });
+  },
+
   async updatePlan(planId: string, updates: Partial<SubscriptionPlan>) {
     return apiFetch<SubscriptionPlan>('/plans/' + planId, {
       method: 'PUT',

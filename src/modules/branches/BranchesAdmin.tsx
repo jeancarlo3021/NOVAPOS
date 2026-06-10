@@ -7,6 +7,7 @@ import {
   branchesService, warehousesService,
   type Branch, type Warehouse,
 } from '@/services/branches/branchesService';
+import { GroupBranchesPanel } from '@/modules/dashboard/components/GroupBranchesPanel';
 
 export function BranchesAdmin() {
   const { reloadBranches } = useAuth();
@@ -73,16 +74,13 @@ export function BranchesAdmin() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Building size={22} className="text-blue-600" />
-          <h1 className="text-2xl font-black text-gray-900">Sucursales y Bodegas</h1>
-        </div>
-        <button onClick={() => setCreatingBranch(true)}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition">
-          <Plus size={14} /> Nueva sucursal
-        </button>
+      <div className="flex items-center gap-2">
+        <Building size={22} className="text-blue-600" />
+        <h1 className="text-2xl font-black text-gray-900">Sucursales y Bodegas</h1>
       </div>
+
+      {/* Panel multi-empresa con stats por sucursal del grupo */}
+      <GroupBranchesPanel />
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm flex items-start gap-2">
