@@ -122,7 +122,7 @@ function AppContent() {
                 <PlanGuard feature="tables"><TablesDashboard /></PlanGuard>
               } />
               <Route path="/billing" element={
-                <PlanGuard feature="tables"><BillingDashboard /></PlanGuard>
+                <PlanGuard feature="restaurant"><BillingDashboard /></PlanGuard>
               } />
               <Route path="/branches"  element={
                 <PlanGuard feature="multi_branch"><BranchesAdmin /></PlanGuard>

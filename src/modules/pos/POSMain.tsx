@@ -453,17 +453,31 @@ export const POSMain = () => {
     tot: number,
     paymentMethod: string,
     customerName?: string,
+    payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[],
   ) => {
     if (!tenantId) return;
     try {
       // Cache de settings — sin esperar API (mismo key que useSettings)
       const cachedGeneral = cacheGet<any>(cacheKey(tenantId, 'settings_general'))
                           ?? cacheGet<any>(cacheKey(tenantId, 'general_settings'));
-      const general = cachedGeneral?.config ?? cachedGeneral;
+      let general = cachedGeneral?.config ?? cachedGeneral;
       // Config de Facturación Electrónica (cacheada) — para el régimen simplificado
       const cachedFe = cacheGet<any>(cacheKey(tenantId, 'settings_electronic-invoice'))
                       ?? cacheGet<any>(cacheKey(tenantId, 'electronic-invoice'));
-      const feConfig = cachedFe?.config ?? cachedFe;
+      let feConfig = cachedFe?.config ?? cachedFe;
+
+      // Fetch fresco de los settings (el cache puede estar viejo). Si online,
+      // sobrescribe; si falla, usamos lo cacheado.
+      try {
+        const { apiFetch } = await import('@/lib/api');
+        const [g, fe] = await Promise.all([
+          apiFetch<any>('/settings/general').catch(() => null),
+          apiFetch<any>('/settings/electronic-invoice').catch(() => null),
+        ]);
+        if (g)  general  = g.config ?? g ?? general;
+        if (fe) feConfig = fe.config ?? fe ?? feConfig;
+      } catch { /* offline → cache */ }
+
       // Régimen simplificado puede setearse desde el Admin (settings.electronic-invoice)
       // o desde Settings Generales (general.simplificado). Cualquiera vale.
       const simplificadoFooter = !!(feConfig?.simplificado || general?.simplificado);
@@ -495,6 +509,7 @@ export const POSMain = () => {
           cashierName: activeCashier?.full_name ?? user?.email ?? undefined,
           customerName,
           simplificadoFooter,
+          payments,
         },
         tenantId,
       );
@@ -555,6 +570,7 @@ export const POSMain = () => {
           invNum,
           activeCashier?.id ?? null,
           activeCashier?.full_name ?? null,
+          data.payments ?? null,
         );
 
         // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
@@ -574,7 +590,7 @@ export const POSMain = () => {
           total: invoice.total,
           payment_method: invoice.payment_method,
         });
-        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined);
+        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined);
         setInvoiceCounterKey(k => k + 1);
         return;
       } else {
@@ -614,7 +630,7 @@ export const POSMain = () => {
           payment_method: data.paymentMethod,
         });
         refreshPendingCount();
-        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer);
+        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined);
         setInvoiceCounterKey(k => k + 1);
         return;
       }

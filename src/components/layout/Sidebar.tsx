@@ -66,7 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Recetas',           to: '/recipes',    icon: BookOpen,      feature: 'recipes'    },
       { name: 'Promociones',       to: '/promotions', icon: Tag,           feature: 'promotions' },
       { name: 'Mapa de Mesas',     to: '/tables',     icon: LayoutGrid,    feature: 'tables'     },
-      { name: 'Cobro por Mesas',   to: '/billing',    icon: Receipt,       feature: 'tables'     },
+      { name: 'Restaurante',       to: '/billing',    icon: Receipt,       feature: 'restaurant' },
     ],
   },
   {

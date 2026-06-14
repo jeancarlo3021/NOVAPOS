@@ -11,12 +11,26 @@ export interface SpotRef {
   kind: CobrableKind;
 }
 
+export interface BillItemModifier {
+  group: string;        // nombre del grupo (ej. "Salsas")
+  name: string;         // opción elegida (ej. "Extra queso")
+  price_delta: number;  // monto que suma al precio base
+}
+
 export interface BillItem {
   id: string;
   product_id?: string;
   name: string;
-  unit_price: number;
+  unit_price: number;       // precio base del producto
   quantity: number;
+  modifiers?: BillItemModifier[];  // adicionales elegidos
+  notes?: string;                  // solicitud especial ("sin cebolla")
+}
+
+/** Precio total de un item = (base + suma de modifiers) × cantidad. */
+export function billItemTotal(it: BillItem): number {
+  const mods = (it.modifiers ?? []).reduce((s, m) => s + m.price_delta, 0);
+  return (it.unit_price + mods) * it.quantity;
 }
 
 export type BillStatus = 'open' | 'paid' | 'cancelled';
@@ -47,5 +61,5 @@ export function nextBillColor(taken: string[]): string {
 }
 
 export function billSubtotal(b: Bill): number {
-  return b.items.reduce((s, it) => s + it.unit_price * it.quantity, 0);
+  return b.items.reduce((s, it) => s + billItemTotal(it), 0);
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, RotateCw } from 'lucide-react';
+import { Plus, Search, RotateCw, FileSpreadsheet } from 'lucide-react';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
@@ -8,6 +8,7 @@ import { inventoryProductsService } from '@/services/Inventory/InventoryProducts
 import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { ProductForm } from './ProductsForm';
 import { ProductCard } from './ProductCard';
+import { BulkProductImportModal } from './BulkProductImportModal';
 import { Alert, LoadingState, Badge, Button, Card, CardContent } from '@/components/ui/uiComponents';
 
 export const ProductsList: React.FC = () => {
@@ -20,6 +21,7 @@ export const ProductsList: React.FC = () => {
   const { isOnline } = useOfflineSync();
   const hasStockAlerts = planFeatures.inventory && !(planFeatures as any).inventory_products_only;
   const [showForm, setShowForm] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -72,14 +74,25 @@ export const ProductsList: React.FC = () => {
           <p className="text-gray-600">Administra tu inventario de productos</p>
         </div>
         {!isReadOnly && canCreate && (
-          <Button
-            onClick={() => { setEditingId(null); setShowForm(true); }}
-            size="lg"
-            className="bg-blue-600 hover:bg-blue-700"
-            disabled={loading}
-          >
-            <Plus className="w-5 h-5 mr-2" /> Nuevo Producto
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setShowBulk(true)}
+              size="lg"
+              variant="secondary"
+              className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+              disabled={loading}
+            >
+              <FileSpreadsheet className="w-5 h-5 mr-2" /> Importar Excel
+            </Button>
+            <Button
+              onClick={() => { setEditingId(null); setShowForm(true); }}
+              size="lg"
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={loading}
+            >
+              <Plus className="w-5 h-5 mr-2" /> Nuevo Producto
+            </Button>
+          </div>
         )}
       </div>
 
@@ -98,6 +111,18 @@ export const ProductsList: React.FC = () => {
             retry();
           }}
           onCancel={() => { setShowForm(false); setEditingId(null); }}
+        />
+      )}
+
+      {/* Modal de importación masiva */}
+      {showBulk && tenantId && (
+        <BulkProductImportModal
+          tenantId={tenantId}
+          onClose={() => setShowBulk(false)}
+          onDone={(count) => {
+            setShowBulk(false);
+            if (count > 0) retry();
+          }}
         />
       )}
 

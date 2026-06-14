@@ -82,16 +82,22 @@ export const invoicesService = {
     /** Cajero activo (kiosk mode). Si se omite, el backend usa el del JWT. */
     cashierId?: string | null,
     cashierName?: string | null,
+    /** Pagos mixtos: array de splits. Si llega, la columna `payments` se
+     *  llena y el `payment_method` queda como el dominante. */
+    payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[] | null,
   ) {
-    // Validaciones según método de pago
-    if (paymentMethod === 'cash') {
-      if (!amountReceived || amountReceived < total) {
-        throw new Error('Monto recibido inválido para pago en efectivo');
+    // Validaciones según método de pago. En pago mixto (payments con 2+
+    // splits) la validación ya la hizo el modal: la suma cuadra con el total y
+    // cada split de tarjeta/SINPE tiene comprobante. No revalidamos aquí
+    // porque amountReceived es solo la porción efectivo (menor al total).
+    const isMixed = !!payments && payments.length > 1;
+    if (!isMixed) {
+      if (paymentMethod === 'cash') {
+        if (!amountReceived || amountReceived < total) {
+          throw new Error('Monto recibido inválido para pago en efectivo');
+        }
       }
-    } else if (paymentMethod === 'card' || paymentMethod === 'sinpe') {
-      if (!voucherNumber || !voucherNumber.trim()) {
-        throw new Error(`Número de comprobante requerido para pago con ${paymentMethod}`);
-      }
+      // El número de comprobante de tarjeta/SINPE es opcional.
     }
 
     const invoice = await apiFetch<Invoice & { items: CartItem[] }>('/invoices', {
@@ -114,15 +120,21 @@ export const invoicesService = {
         invoice_number: invoiceNumber, // Preserve offline invoice number if provided
         cashier_id: cashierId ?? null,
         cashier_name: cashierName ?? null,
+        payments: payments && payments.length > 1 ? payments : null,
       }),
     });
 
-    // Registrar movimiento de caja
+    // Registrar movimiento de caja — en pago mixto solo entra la porción efectivo.
+    // Las porciones de tarjeta/SINPE no afectan el efectivo en caja.
+    const cashAmount = (payments && payments.length > 1)
+      ? (payments.find(p => p.method === 'cash')?.amount ?? 0)
+      : (paymentMethod === 'cash' ? total : total);  // mantiene comportamiento legacy
+
     await cashMovementsService.createMovement(
       sessionId,
       invoice.tenant_id,
       'sale',
-      total,
+      cashAmount,
       `Venta ${invoice.invoice_number}`,
       invoice.id
     );

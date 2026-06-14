@@ -13,6 +13,14 @@ import { identifySentryUser, clearSentryUser } from '@/lib/sentry';
 const AUTH_CACHE_KEY = 'novapos_auth_cache';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// ── Timeout de sesión por edad ──────────────────────────────────────────────
+// Forzamos re-login después de N horas desde el último login.
+// Si querés 18h, cambiá la constante.
+const SESSION_LOGIN_TS_KEY = 'novapos_session_login_ts';
+const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
+// Cada cuánto chequeamos si la sesión expiró.
+const SESSION_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5min
+
 interface AuthCache {
   userId: string;
   user: AuthUser;
@@ -159,6 +167,9 @@ export interface PlanFeatures {
   hr?: boolean;
   promotions?: boolean;
   tables?: boolean;
+  /** Módulo de restaurante: cobro por mesas, toma de pedido full-screen,
+   *  adicionales/modificadores, dividir cuenta y comandas. */
+  restaurant?: boolean;
   /** Facturación Electrónica (Hacienda CR) — habilita tab en Settings,
    *  dropdown de tipo doc en el POS, y emisión a Hacienda. */
   electronic_invoice?: boolean;
@@ -232,6 +243,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   hr: false,
   promotions: false,
   tables: false,
+  restaurant: false,
   electronic_invoice: false,
   pos_kiosk: false,
 };
@@ -283,6 +295,7 @@ export const FULL_FEATURES: PlanFeatures = {
   hr: true,
   promotions: true,
   tables: true,
+  restaurant: true,
   electronic_invoice: true,
   pos_kiosk: true,
 };
@@ -820,6 +833,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     clearAuthState();
 
+    // Reset del timestamp de login para el timeout de sesión por edad.
+    try { localStorage.setItem(SESSION_LOGIN_TS_KEY, String(Date.now())); }
+    catch { /* SSR */ }
+
     const email = emailOrUsername.includes('@')
       ? emailOrUsername
       : `${emailOrUsername}@nexoerp.local`;
@@ -852,6 +869,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Limpiamos cualquier rastro del modo solo-lectura antes de salir, así
       // el próximo usuario que entre desde este navegador no hereda el bloqueo.
       try { localStorage.removeItem('novapos_read_only'); } catch { /* ignore */ }
+      // Limpiamos el timestamp del login para el timeout de sesión por edad.
+      try { localStorage.removeItem(SESSION_LOGIN_TS_KEY); } catch { /* ignore */ }
 
       // Limpiamos también la identidad en Sentry para que errores post-logout
       // no queden taggeados con el usuario anterior.
@@ -982,6 +1001,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       else            localStorage.removeItem('novapos_read_only');
     } catch { /* SSR / privacidad — ignorar */ }
   }, [isReadOnly]);
+
+  // ── Timeout de sesión por edad ──────────────────────────────────────────
+  // Cada N minutos chequea si pasaron 24h desde el último login. Si sí,
+  // logout automático. Si el user nunca tuvo timestamp (ej. caché viejo de
+  // antes del feature), lo seteamos ahora para no echarlo de inmediato.
+  useEffect(() => {
+    if (!user) return;
+    try {
+      if (!localStorage.getItem(SESSION_LOGIN_TS_KEY)) {
+        localStorage.setItem(SESSION_LOGIN_TS_KEY, String(Date.now()));
+      }
+    } catch { /* SSR */ }
+
+    const check = () => {
+      try {
+        const raw = localStorage.getItem(SESSION_LOGIN_TS_KEY);
+        if (!raw) return;
+        const loginTs = Number(raw);
+        if (Number.isFinite(loginTs) && Date.now() - loginTs > SESSION_MAX_AGE_MS) {
+          console.log('[auth] sesión expirada por edad — cerrando');
+          logout().catch(() => {});
+        }
+      } catch { /* ignore */ }
+    };
+
+    // Chequear ya y cada SESSION_CHECK_INTERVAL_MS
+    check();
+    const id = window.setInterval(check, SESSION_CHECK_INTERVAL_MS);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   return (
     <AuthContext.Provider

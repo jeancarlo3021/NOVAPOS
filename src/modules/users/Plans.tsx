@@ -7,7 +7,7 @@ import {
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Activity, Shield, CalendarDays, History,
-  FileText, User, Search, Building, KeyRound,
+  FileText, User, Search, Building, KeyRound, UtensilsCrossed,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
@@ -521,7 +521,12 @@ export default function Plans() {
                     description="Descuentos y ofertas en el POS" checked={features.promotions ?? false} onChange={v => set({ promotions: v })} />
 
                   <FeatureRow icon={LayoutGrid} color="bg-blue-500" title="Mapa de Mesas"
-                    description="Canvas de mesas para restaurantes" checked={features.tables ?? false} onChange={v => set({ tables: v })} />
+                    description="Editor del plano: crear mesas, sillas y zonas del local" checked={features.tables ?? false} onChange={v => set({ tables: v })} />
+
+                  <FeatureRow icon={UtensilsCrossed} color="bg-orange-500" title="Módulo de Restaurante"
+                    description="Cobro por mesas, toma de pedido full-screen, adicionales, dividir cuenta y comandas"
+                    checked={(features as any).restaurant ?? false}
+                    onChange={v => set({ restaurant: v } as any)} />
 
                   <FeatureRow icon={BookOpen} color="bg-lime-500" title="Recetas"
                     description="Recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />

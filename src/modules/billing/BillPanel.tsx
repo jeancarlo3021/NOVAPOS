@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import {
   Receipt, User, Plus, Trash2, X, CreditCard, MapPin,
-  Minus, AlertCircle,
+  Minus, AlertCircle, UtensilsCrossed, SplitSquareHorizontal, ChefHat,
 } from 'lucide-react';
 import type { Bill } from './types';
-import { billSubtotal } from './types';
+import { billSubtotal, billItemTotal } from './types';
 import type { MapItem } from '@/modules/tables/types';
 
 const fmt = (n: number) =>
@@ -15,9 +15,14 @@ interface Props {
   spotsById: Map<string, MapItem>;
   /** Activa modo "selecciona otro spot para unir a esta cuenta" */
   addingSpot: boolean;
+  taxEnabled?: boolean;
+  taxRate?: number;          // ej. 0.13
   onStartBill?: () => void;             // crear cuenta para el spot seleccionado
   onUpdate: (patch: Partial<Bill>) => void;
   onAddItem: (name: string, price: number) => void;
+  onOpenCatalog?: () => void;
+  onSplit?: () => void;
+  onSendKitchen?: () => void;
   onUpdateItemQty: (itemId: string, qty: number) => void;
   onRemoveItem: (itemId: string) => void;
   onRemoveSpot: (spotId: string) => void;
@@ -36,8 +41,8 @@ function spotLabel(item: MapItem | undefined): string {
 }
 
 export function BillPanel({
-  bill, spotsById, addingSpot,
-  onStartBill, onUpdate, onAddItem, onUpdateItemQty, onRemoveItem,
+  bill, spotsById, addingSpot, taxEnabled = false, taxRate = 0,
+  onStartBill, onUpdate, onAddItem, onOpenCatalog, onSplit, onSendKitchen, onUpdateItemQty, onRemoveItem,
   onRemoveSpot, onStartAddSpot, onCancelAddSpot, onCharge, onCancelBill,
   emptyMessage = 'Selecciona una mesa o silla en el mapa',
 }: Props) {
@@ -60,6 +65,8 @@ export function BillPanel({
   }
 
   const subtotal = billSubtotal(bill);
+  const tax = taxEnabled ? Math.round(subtotal * taxRate) : 0;
+  const total = subtotal + tax;
 
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,62 +164,117 @@ export function BillPanel({
         ) : (
           <div className="space-y-2">
             {bill.items.map(it => (
-              <div key={it.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-2.5 py-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{it.name}</p>
-                  <p className="text-[11px] text-gray-500 font-mono">{fmt(it.unit_price)} c/u</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => onUpdateItemQty(it.id, Math.max(0, it.quantity - 1))}
-                    className="w-6 h-6 rounded bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center text-gray-600">
-                    <Minus size={11} />
+              <div key={it.id} className="bg-gray-50 rounded-lg px-2.5 py-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{it.name}</p>
+                    <p className="text-[11px] text-gray-500 font-mono">{fmt(it.unit_price)} c/u</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => onUpdateItemQty(it.id, Math.max(0, it.quantity - 1))}
+                      className="w-6 h-6 rounded bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center text-gray-600">
+                      <Minus size={11} />
+                    </button>
+                    <span className="text-xs font-bold w-6 text-center">{it.quantity}</span>
+                    <button onClick={() => onUpdateItemQty(it.id, it.quantity + 1)}
+                      className="w-6 h-6 rounded bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center text-gray-600">
+                      <Plus size={11} />
+                    </button>
+                  </div>
+                  <span className="text-xs font-black text-gray-900 w-16 text-right">{fmt(billItemTotal(it))}</span>
+                  <button onClick={() => onRemoveItem(it.id)} className="text-gray-300 hover:text-red-500 transition">
+                    <Trash2 size={12} />
                   </button>
-                  <span className="text-xs font-bold w-6 text-center">{it.quantity}</span>
-                  <button onClick={() => onUpdateItemQty(it.id, it.quantity + 1)}
-                    className="w-6 h-6 rounded bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center text-gray-600">
-                    <Plus size={11} />
-                  </button>
                 </div>
-                <span className="text-xs font-black text-gray-900 w-16 text-right">{fmt(it.unit_price * it.quantity)}</span>
-                <button onClick={() => onRemoveItem(it.id)} className="text-gray-300 hover:text-red-500 transition">
-                  <Trash2 size={12} />
-                </button>
+                {/* Adicionales + nota */}
+                {(it.modifiers && it.modifiers.length > 0) && (
+                  <div className="mt-1 ml-1 flex flex-wrap gap-1">
+                    {it.modifiers.map((m, i) => (
+                      <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
+                        {m.name}{m.price_delta ? ` +${fmt(m.price_delta)}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {it.notes && (
+                  <p className="mt-1 ml-1 text-[10px] text-amber-700 italic">📝 {it.notes}</p>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Quick add */}
-      <form onSubmit={handleAddItem}
-        className="px-5 py-3 border-t border-gray-100 shrink-0 space-y-2 bg-gray-50">
-        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Agregar item</p>
-        <div className="grid grid-cols-3 gap-2">
-          <input type="text" value={itemName} onChange={e => setItemName(e.target.value)}
-            placeholder="Nombre"
-            className="col-span-2 px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-emerald-400 bg-white" />
-          <input type="number" min="0" step="0.01" value={itemPrice}
-            onChange={e => setItemPrice(e.target.value)}
-            placeholder="Precio"
-            className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs font-mono focus:outline-none focus:border-emerald-400 bg-white" />
-        </div>
-        <button type="submit"
-          disabled={!itemName.trim() || !itemPrice || parseFloat(itemPrice) <= 0}
-          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-bold transition">
-          <Plus size={11} /> Añadir a la cuenta
-        </button>
-      </form>
+      {/* Agregar productos */}
+      <div className="px-5 py-3 border-t border-gray-100 shrink-0 space-y-2 bg-gray-50">
+        {onOpenCatalog && (
+          <button onClick={onOpenCatalog}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black transition">
+            <UtensilsCrossed size={15} /> Agregar del menú
+          </button>
+        )}
+        {/* Quick add manual (fallback) */}
+        <details className="group">
+          <summary className="text-[10px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600">
+            + Item manual rápido
+          </summary>
+          <form onSubmit={handleAddItem} className="mt-2 grid grid-cols-3 gap-2">
+            <input type="text" value={itemName} onChange={e => setItemName(e.target.value)}
+              placeholder="Nombre"
+              className="col-span-2 px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-emerald-400 bg-white" />
+            <input type="number" min="0" step="0.01" value={itemPrice}
+              onChange={e => setItemPrice(e.target.value)}
+              placeholder="Precio"
+              className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs font-mono focus:outline-none focus:border-emerald-400 bg-white" />
+            <button type="submit"
+              disabled={!itemName.trim() || !itemPrice || parseFloat(itemPrice) <= 0}
+              className="col-span-3 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-bold transition">
+              <Plus size={11} /> Añadir
+            </button>
+          </form>
+        </details>
+      </div>
 
       {/* Total + Cobrar */}
-      <div className="px-5 py-4 border-t border-gray-100 shrink-0 space-y-3">
-        <div className="flex items-center justify-between">
+      <div className="px-5 py-4 border-t border-gray-100 shrink-0 space-y-2">
+        {taxEnabled && tax > 0 && (
+          <>
+            <div className="flex items-center justify-between text-sm text-gray-500">
+              <span>Subtotal</span>
+              <span className="font-mono">{fmt(subtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm text-gray-500">
+              <span>IVA ({Math.round(taxRate * 100)}%)</span>
+              <span className="font-mono">{fmt(tax)}</span>
+            </div>
+          </>
+        )}
+        <div className="flex items-center justify-between pt-1">
           <span className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total</span>
-          <span className="text-2xl font-black text-gray-900 font-mono">{fmt(subtotal)}</span>
+          <span className="text-2xl font-black text-gray-900 font-mono">{fmt(total)}</span>
         </div>
+        {/* Fila: Comandas + Dividir */}
+        <div className="grid grid-cols-2 gap-2">
+          {onSendKitchen && (
+            <button onClick={onSendKitchen}
+              disabled={bill.items.length === 0}
+              className="flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border-2 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100 disabled:opacity-40 text-xs font-black transition">
+              <ChefHat size={14} /> Comandas
+            </button>
+          )}
+          {onSplit && (
+            <button onClick={onSplit}
+              disabled={bill.items.length === 0}
+              className="flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border-2 border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-40 text-xs font-black transition">
+              <SplitSquareHorizontal size={14} /> Dividir
+            </button>
+          )}
+        </div>
+        {/* Cobrar grande */}
         <button onClick={onCharge}
           disabled={bill.items.length === 0}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-black transition">
-          <CreditCard size={15} /> Cobrar {fmt(subtotal)}
+          className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-base font-black transition">
+          <CreditCard size={16} /> Cobrar {fmt(total)}
         </button>
       </div>
     </aside>

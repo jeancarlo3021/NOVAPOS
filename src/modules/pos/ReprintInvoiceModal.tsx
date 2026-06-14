@@ -13,6 +13,7 @@ interface InvoiceRow {
   issued_at: string;
   total: number;
   payment_method: string;
+  payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[] | null;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -122,6 +123,9 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
           tax: full.tax_amount,
           total: full.total,
           paymentMethod: PAYMENT_LABELS[full.payment_method] ?? full.payment_method,
+          payments: (full as any).payments && (full as any).payments.length > 1
+            ? (full as any).payments
+            : undefined,
           storeName: general?.businessName,
           storeRuc: general?.ruc,
           storeCedula: general?.cedula,
@@ -206,12 +210,21 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
                 >
                   <div>
                     <p className="font-mono font-black text-gray-900 text-sm">{inv.invoice_number}</p>
-                    <p className="text-gray-500 text-xs mt-0.5">
-                      {new Date(inv.issued_at).toLocaleString('es-CR', {
-                        day: '2-digit', month: '2-digit',
-                        hour: '2-digit', minute: '2-digit',
-                      })}
-                      {' · '}{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
+                    <p className="text-gray-500 text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span>
+                        {new Date(inv.issued_at).toLocaleString('es-CR', {
+                          day: '2-digit', month: '2-digit',
+                          hour: '2-digit', minute: '2-digit',
+                        })}
+                      </span>
+                      <span>·</span>
+                      {inv.payments && inv.payments.length > 1 ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 font-bold text-[10px]">
+                          MIXTO ({inv.payments.map(p => PAYMENT_LABELS[p.method]?.[0] ?? p.method[0].toUpperCase()).join('+')})
+                        </span>
+                      ) : (
+                        <span>{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}</span>
+                      )}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">

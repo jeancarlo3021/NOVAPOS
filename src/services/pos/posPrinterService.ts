@@ -73,6 +73,9 @@ export interface ReceiptData {
    *  leyenda obligatoria "Autorizado mediante oficio 1197 régimen simplificado"
    *  al pie de cada factura/tiquete. */
   simplificadoFooter?: boolean;
+  /** Desglose de pago mixto: si se setea, en el recibo se imprime cada
+   *  línea en vez del paymentMethod único. */
+  payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[];
 }
 
 export interface ReceiptConfig {
@@ -833,7 +836,7 @@ export class POSPrinterService {
     .large { font-size: 18px; font-weight: 900; text-align: center; }
     .divider {
       border: none;
-      border-top: 3px solid #000;
+      border-top: 1px solid #000;
       margin: 4px 0;
     }
     .header { text-align: center; margin-bottom: 5px; }
@@ -846,8 +849,8 @@ export class POSPrinterService {
     .section-label {
       font-weight: 900;
       font-size: 13px;
-      border-top: 3px solid #000;
-      border-bottom: 3px solid #000;
+      border-top: 1px solid #000;
+      border-bottom: 1px solid #000;
       margin: 5px 0 3px;
       padding: 2px 0;
       letter-spacing: 1px;
@@ -867,8 +870,8 @@ export class POSPrinterService {
       text-align: center;
       margin: 6px 0;
       padding: 4px 0;
-      border-top: 4px solid #000;
-      border-bottom: 4px solid #000;
+      border-top: 1px solid #000;
+      border-bottom: 1px solid #000;
       letter-spacing: 2px;
     }
     .payment-block { font-size: 14px; margin: 4px 0; font-weight: 900; }
@@ -953,7 +956,19 @@ export class POSPrinterService {
   <hr class="divider">
 
   <div class="section-label">MÉTODO DE PAGO</div>
-  <div class="payment-block">${receiptData.paymentMethod}</div>
+  ${receiptData.payments && receiptData.payments.length > 1
+    ? `<div class="payment-block">${receiptData.payments.map(p => {
+         const label = p.method === 'cash' ? 'Efectivo' : p.method === 'card' ? 'Tarjeta' : 'SINPE';
+         const v = p.voucher_number ? ` <span style="font-size:10px;color:#666">#${p.voucher_number}</span>` : '';
+         return `${label}: ₡${Number(p.amount).toLocaleString('es-CR')}${v}`;
+       }).join('<br>')}</div>`
+    : `<div class="payment-block">${receiptData.paymentMethod}</div>`}
+<hr class="divider">
+  <div style="text-align:center;font-size:11px;font-weight:bold;margin-top:4px;">
+    ${receiptData.simplificadoFooter
+      ? 'Autorizado mediante oficio 1197<br>r&eacute;gimen simplificado'
+      : 'R&eacute;gimen Tradicional'}
+  </div>
 
   ${cfg.showCashierName && receiptData.cashierName ? `<div class="cashier">Cajero: ${receiptData.cashierName}</div>` : ''}
 
@@ -962,7 +977,6 @@ export class POSPrinterService {
   <div class="footer">
     ${receiptData.footerMessage ?? cfg.footerMessage}<br>
     <span style="font-weight:normal;font-size:10px;">Vuelva pronto</span>
-    ${receiptData.simplificadoFooter ? '<br><br><span style="font-weight:normal;font-size:10px;">Autorizado mediante oficio 1197<br>r&eacute;gimen simplificado</span>' : ''}
   </div>
 
 </div>
@@ -980,7 +994,9 @@ export class POSPrinterService {
     // Encoder CP437 single-byte (NO UTF-8) — soporta acentos, ñ, ¡¿ correctamente.
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
     const nl = () => push(0x0a);
-    const sep = () => { text('-'.repeat(charWidth)); nl(); };
+    // Línea separadora: byte 0xC4 de CP437 = '─' (línea horizontal continua,
+    // 1px de grosor). Más fina y limpia que el guión ASCII '-'.
+    const sep = () => { for (let i = 0; i < charWidth; i++) push(0xC4); nl(); };
     const centerText = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
     const rightAlign = (label: string, val: string) => {
       const sp = Math.max(1, charWidth - label.length - val.length);
@@ -1034,8 +1050,25 @@ export class POSPrinterService {
 
     sep();
     text('PAGO:'); nl();
-    centerText(receiptData.paymentMethod);
-
+    if (receiptData.payments && receiptData.payments.length > 1) {
+      for (const p of receiptData.payments) {
+        const label = p.method === 'cash' ? 'Efectivo' : p.method === 'card' ? 'Tarjeta' : 'SINPE';
+        rightAlign(label + ':', fmt(p.amount));
+        if (p.voucher_number) centerText(`Ref: ${p.voucher_number}`);
+      }
+    } else {
+      centerText(receiptData.paymentMethod);
+    }
+    sep();
+    // Régimen fiscal — justo debajo del método de pago.
+    nl();
+    if (receiptData.simplificadoFooter) {
+      centerText('Autorizado mediante oficio 1197');
+      centerText('regimen simplificado');
+    } else {
+      centerText('Regimen Tradicional');
+    }
+    sep();
     if (cfg.showCashierName && receiptData.cashierName) {
       centerText(`Cajero: ${receiptData.cashierName}`);
     }
@@ -1043,13 +1076,6 @@ export class POSPrinterService {
     sep();
     centerText(cfg.footerMessage);
     centerText('Vuelva pronto');
-
-    // Régimen simplificado — leyenda obligatoria de Hacienda CR
-    if (receiptData.simplificadoFooter) {
-      nl();
-      centerText('Autorizado mediante oficio 1197');
-      centerText('regimen simplificado');
-    }
 
     // Feed + corte automático
     nl(); nl(); nl();

@@ -187,10 +187,17 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
                     <td className="px-5 py-3 text-gray-600 text-xs">{new Date(inv.issued_at).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' })}</td>
                     <td className="px-5 py-3 text-gray-600 max-w-[140px] truncate">{inv.customer_name ?? '—'}</td>
                     <td className="px-5 py-3">
-                      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
-                        style={{ background: (PAYMENT_COLORS[inv.payment_method] ?? '#94a3b8') + '22', color: PAYMENT_COLORS[inv.payment_method] ?? '#6b7280' }}>
-                        {PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
-                      </span>
+                      {(inv as any).payments && (inv as any).payments.length > 1 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700"
+                          title={(inv as any).payments.map((p: any) => `${PAYMENT_LABELS[p.method] ?? p.method}: ₡${Number(p.amount).toLocaleString('es-CR')}`).join(' · ')}>
+                          MIXTO ({(inv as any).payments.map((p: any) => (PAYMENT_LABELS[p.method] ?? p.method)[0]).join('+')})
+                        </span>
+                      ) : (
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
+                          style={{ background: (PAYMENT_COLORS[inv.payment_method] ?? '#94a3b8') + '22', color: PAYMENT_COLORS[inv.payment_method] ?? '#6b7280' }}>
+                          {PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-3 text-right font-black text-gray-900">{fmt(Number(inv.total))}</td>
                   </tr>

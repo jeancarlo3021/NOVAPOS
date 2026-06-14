@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { calcMargin, MARGIN_TEXT } from '@/utils/priceUtils';
 import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
@@ -56,6 +56,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [tracksStock, setTracksStock] = useState<boolean>(true);
+  // Modificadores / adicionales del producto (grupos con opciones)
+  const [modGroups, setModGroups] = useState<import('@/services/Inventory/modifiersService').ModifierGroup[]>([]);
+  const [showModifiers, setShowModifiers] = useState(false);
 
   // Feature de plan: solo bloqueamos el toggle cuando el plan tiene
   // `inventory_mixed_stock` EXPLÍCITAMENTE en false. Si está en true o
@@ -127,6 +130,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         setImageUrl((product as any).image_url || undefined);
         // Si el plan no permite mezclar, siempre true. Si permite, usa el del producto.
         setTracksStock(canMixStock ? ((product as any).tracks_stock ?? true) : true);
+        // Cargar modificadores existentes
+        import('@/services/Inventory/modifiersService').then(({ modifiersService }) => {
+          modifiersService.forProduct(productId)
+            .then(groups => { if (active && Array.isArray(groups)) { setModGroups(groups); if (groups.length > 0) setShowModifiers(true); } })
+            .catch(() => {});
+        });
       })
       .catch((err) => {
         if (!active) return;
@@ -272,10 +281,22 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         productData.max_stock_level = parseInt(formData.max_stock_level) || 100;
       }
 
+      let savedId = productId;
       if (productId) {
         await inventoryProductsService.updateProduct(productId, productData);
       } else {
-        await inventoryProductsService.createProduct(tid, productData);
+        const created = await inventoryProductsService.createProduct(tid, productData);
+        savedId = (created as any)?.id ?? null;
+      }
+
+      // Guardar modificadores (adicionales) del producto si hay grupos definidos
+      if (savedId) {
+        try {
+          const { modifiersService } = await import('@/services/Inventory/modifiersService');
+          await modifiersService.saveForProduct(savedId, modGroups);
+        } catch (e) {
+          console.warn('[ProductForm] no se pudieron guardar modificadores:', e);
+        }
       }
 
       setFormSuccess(productId ? 'Producto actualizado exitosamente' : 'Producto creado exitosamente');
@@ -468,6 +489,98 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* ── Adicionales / Modificadores (restaurante) ── */}
+              <div className="rounded-xl border-2 border-gray-200">
+                <button type="button"
+                  onClick={() => setShowModifiers(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-left">
+                  <span className="font-black text-gray-800 text-sm flex items-center gap-1.5">
+                    🍽️ Adicionales / Modificadores
+                    {modGroups.length > 0 && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">
+                        {modGroups.length} grupo{modGroups.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </span>
+                  {showModifiers ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+                {showModifiers && (
+                  <div className="px-3 pb-3 space-y-3 border-t border-gray-100 pt-3">
+                    <p className="text-xs text-gray-500">
+                      Definí grupos de opciones (ej. "Punto de cocción", "Salsas extra"). En el POS de restaurante
+                      se pedirán al agregar este plato.
+                    </p>
+                    {modGroups.map((g, gi) => (
+                      <div key={gi} className="border border-gray-200 rounded-lg p-3 space-y-2 bg-gray-50/60">
+                        <div className="flex items-center gap-2">
+                          <input value={g.name}
+                            onChange={e => setModGroups(prev => prev.map((x, i) => i === gi ? { ...x, name: e.target.value } : x))}
+                            placeholder="Nombre del grupo (ej. Salsas)"
+                            className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+                          <button type="button"
+                            onClick={() => setModGroups(prev => prev.filter((_, i) => i !== gi))}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-gray-600">
+                          <label className="flex items-center gap-1">
+                            Mín:
+                            <input type="number" min={0} value={g.min_select}
+                              onChange={e => setModGroups(prev => prev.map((x, i) => i === gi ? { ...x, min_select: parseInt(e.target.value) || 0 } : x))}
+                              className="w-14 px-1.5 py-1 border border-gray-200 rounded text-center" />
+                          </label>
+                          <label className="flex items-center gap-1">
+                            Máx:
+                            <input type="number" min={1} value={g.max_select}
+                              onChange={e => setModGroups(prev => prev.map((x, i) => i === gi ? { ...x, max_select: parseInt(e.target.value) || 1 } : x))}
+                              className="w-14 px-1.5 py-1 border border-gray-200 rounded text-center" />
+                          </label>
+                          <span className="text-gray-400">{g.min_select > 0 ? 'Obligatorio' : 'Opcional'}</span>
+                        </div>
+                        {/* Opciones del grupo */}
+                        <div className="space-y-1.5">
+                          {g.modifiers.map((m, mi) => (
+                            <div key={mi} className="flex items-center gap-2">
+                              <input value={m.name}
+                                onChange={e => setModGroups(prev => prev.map((x, i) => i === gi
+                                  ? { ...x, modifiers: x.modifiers.map((y, j) => j === mi ? { ...y, name: e.target.value } : y) } : x))}
+                                placeholder="Opción (ej. Extra queso)"
+                                className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm" />
+                              <div className="relative w-24">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+₡</span>
+                                <input type="number" value={m.price_delta || ''}
+                                  onChange={e => setModGroups(prev => prev.map((x, i) => i === gi
+                                    ? { ...x, modifiers: x.modifiers.map((y, j) => j === mi ? { ...y, price_delta: parseFloat(e.target.value) || 0 } : y) } : x))}
+                                  placeholder="0"
+                                  className="w-full pl-7 pr-1 py-1 border border-gray-200 rounded text-sm text-right" />
+                              </div>
+                              <button type="button"
+                                onClick={() => setModGroups(prev => prev.map((x, i) => i === gi
+                                  ? { ...x, modifiers: x.modifiers.filter((_, j) => j !== mi) } : x))}
+                                className="p-1 text-gray-400 hover:text-red-500">
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ))}
+                          <button type="button"
+                            onClick={() => setModGroups(prev => prev.map((x, i) => i === gi
+                              ? { ...x, modifiers: [...x.modifiers, { name: '', price_delta: 0 }] } : x))}
+                            className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                            <Plus size={12} /> Agregar opción
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button"
+                      onClick={() => setModGroups(prev => [...prev, { name: '', min_select: 0, max_select: 1, modifiers: [] }])}
+                      className="w-full py-2 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 text-sm font-bold hover:border-emerald-400 hover:text-emerald-700 flex items-center justify-center gap-1.5">
+                      <Plus size={14} /> Agregar grupo de adicionales
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* ── Stock infinito vs Stock actual — ESENCIAL, siempre visible ── */}

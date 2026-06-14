@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Receipt, Grid as GridIcon } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
 import { MapItemShape } from '@/modules/tables/MapShapes';
 import { migrateItems } from '@/modules/tables/types';
 import type { MapItem } from '@/modules/tables/types';
 import { BillPanel } from './BillPanel';
+import { OrderCatalogModal } from './OrderCatalogModal';
+import { SplitBillModal } from './SplitBillModal';
 import { billingService, findOpenBillForSpot } from './billingService';
-import type { Bill, CobrableKind, SpotRef } from './types';
+import { printBillTicket } from './printBill';
+import type { Bill, BillItem, CobrableKind, SpotRef } from './types';
+import { cacheGet, cacheKey } from '@/utils/offlineCache';
 
 const MAP_KEY    = (tenantId: string) => `novapos_tables_map_${tenantId}`;
 const CANVAS_W = 1600;
@@ -33,11 +38,28 @@ function isCobrable(it: MapItem): boolean {
 
 export function BillingDashboard() {
   const { tenantId } = useTenantId();
+  const { user } = useAuth();
 
   const [mapItems, setMapItems] = useState<MapItem[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
   const [addingSpot, setAddingSpot] = useState(false);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [showSplit, setShowSplit] = useState(false);
+
+  // Config de impuestos (cacheada desde Settings → General)
+  const taxCfg = useMemo(() => {
+    if (!tenantId) return { enabled: false, rate: 0 };
+    try {
+      const cached = cacheGet<any>(cacheKey(tenantId, 'settings_general'))
+                  ?? cacheGet<any>(cacheKey(tenantId, 'general_settings'));
+      const g = cached?.config ?? cached;
+      return {
+        enabled: g?.taxEnabled !== false,
+        rate: (g?.taxPercentage ?? 13) / 100,
+      };
+    } catch { return { enabled: false, rate: 0 }; }
+  }, [tenantId]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -97,6 +119,15 @@ export function BillingDashboard() {
     setBills(prev => prev.map(b => b.id === activeBill.id ? { ...b, ...patch } : b));
   };
 
+  // Agregar item desde el catálogo (con modifiers + notes ya resueltos)
+  const addCatalogItem = (item: Omit<BillItem, 'id'>) => {
+    if (!activeBill) return;
+    setBills(prev => prev.map(b => b.id === activeBill.id
+      ? { ...b, items: [...b.items, { ...item, id: uidItem() }] }
+      : b));
+  };
+
+  // Agregar item manual rápido (nombre + precio libre, sin modifiers)
   const addItem = (name: string, price: number) => {
     if (!activeBill) return;
     setBills(prev => prev.map(b => b.id === activeBill.id
@@ -136,10 +167,64 @@ export function BillingDashboard() {
   };
 
   const charge = () => {
-    if (!activeBill || activeBill.items.length === 0) return;
+    if (!activeBill || activeBill.items.length === 0 || !tenantId) return;
+    // Imprimir ticket con impuestos
+    printBillTicket(tenantId, activeBill, {
+      taxEnabled: taxCfg.enabled,
+      taxRate: taxCfg.rate,
+      cashierName: user?.email ?? undefined,
+    }).catch(err => console.warn('[billing] error imprimir ticket:', err));
+
     setBills(prev => prev.map(b => b.id === activeBill.id
       ? { ...b, status: 'paid', closed_at: new Date().toISOString() }
       : b));
+    setSelectedSpotId(null);
+  };
+
+  // Mandar a comandas: imprime las comandas de cocina con los items actuales
+  // (NO cobra). Marca el bill como "enviado" para feedback visual.
+  const sendKitchen = async () => {
+    if (!activeBill || activeBill.items.length === 0 || !tenantId) return;
+    try {
+      const { posPrinterService } = await import('@/services/pos/posPrinterService');
+      await posPrinterService.printComandas(
+        `Mesa ${activeBill.id.slice(-4)}`,
+        activeBill.items.map(it => ({
+          name: it.notes ? `${it.name} (${it.notes})` : it.name,
+          quantity: it.quantity,
+        })),
+        tenantId,
+        activeBill.customer_name ?? undefined,
+      );
+    } catch (e) {
+      console.warn('[billing] error comandas:', e);
+    }
+  };
+
+  // Dividir cuenta → genera N facturas (una por parte) y cierra la original.
+  const handleSplitConfirm = (parts: BillItem[][]) => {
+    if (!activeBill || !tenantId) return;
+    const now = new Date().toISOString();
+    // Imprimir un ticket por cada parte no vacía
+    parts.forEach((items, idx) => {
+      if (items.length === 0) return;
+      const partBill: Bill = {
+        ...activeBill,
+        id: `${activeBill.id}_p${idx + 1}`,
+        items,
+      };
+      printBillTicket(tenantId, partBill, {
+        taxEnabled: taxCfg.enabled,
+        taxRate: taxCfg.rate,
+        cashierName: user?.email ?? undefined,
+        partLabel: `Parte ${idx + 1} de ${parts.length}`,
+      }).catch(() => {});
+    });
+    // Cerrar la cuenta original como pagada
+    setBills(prev => prev.map(b => b.id === activeBill.id
+      ? { ...b, status: 'paid', closed_at: now }
+      : b));
+    setShowSplit(false);
     setSelectedSpotId(null);
   };
 
@@ -188,11 +273,85 @@ export function BillingDashboard() {
     return { open: open.length, totalOpen, occupiedSpots, freeSpots: cobrableSpots - occupiedSpots };
   }, [bills, mapItems]);
 
+  // Etiqueta de la mesa/spot del bill activo (para el header full-screen)
+  const activeSpotLabel = useMemo(() => {
+    if (!activeBill) return '';
+    const first = activeBill.spots[0];
+    const it = first ? spotsById.get(first.id) : null;
+    if (!it) return 'Mesa';
+    if (it.kind === 'table' || it.kind === 'freeTable') return it.label;
+    if (it.kind === 'seat') return 'Silla';
+    return 'Mesa';
+  }, [activeBill, spotsById]);
+
+  // ── Vista full-screen tipo POS (cuando hay cuenta activa) ─────────────────
+  if (activeBill && tenantId) {
+    return (
+      <div className="fixed inset-0 z-40 bg-white flex flex-col">
+        {/* Header */}
+        <div className="bg-slate-900 text-white px-4 py-2.5 flex items-center gap-3 shrink-0">
+          <button onClick={() => setSelectedSpotId(null)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-bold transition">
+            <GridIcon size={15} /> Mapa
+          </button>
+          <h1 className="font-black text-lg flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: activeBill.color }} />
+            {activeSpotLabel}
+            {activeBill.spots.length > 1 && (
+              <span className="text-xs font-normal text-white/60">+{activeBill.spots.length - 1} sitios</span>
+            )}
+          </h1>
+        </div>
+
+        {/* Body: catálogo embebido + panel cuenta */}
+        <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 overflow-hidden border-r border-gray-200">
+            <OrderCatalogModal
+              tenantId={tenantId}
+              embedded
+              onClose={() => {}}
+              onAdd={addCatalogItem}
+            />
+          </div>
+          <BillPanel
+            bill={activeBill}
+            spotsById={spotsById}
+            addingSpot={addingSpot}
+            taxEnabled={taxCfg.enabled}
+            taxRate={taxCfg.rate}
+            onUpdate={updateBill}
+            onAddItem={addItem}
+            onSplit={() => setShowSplit(true)}
+            onSendKitchen={sendKitchen}
+            onUpdateItemQty={updateItemQty}
+            onRemoveItem={removeItem}
+            onRemoveSpot={removeSpot}
+            onStartAddSpot={() => { /* unir spots se hace desde el mapa */ }}
+            onCancelAddSpot={() => setAddingSpot(false)}
+            onCharge={charge}
+            onCancelBill={cancelBill}
+          />
+        </div>
+
+        {/* Modal de dividir cuenta */}
+        {showSplit && (
+          <SplitBillModal
+            bill={activeBill}
+            taxEnabled={taxCfg.enabled}
+            taxRate={taxCfg.rate}
+            onClose={() => setShowSplit(false)}
+            onConfirm={handleSplitConfirm}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col bg-gray-100">
       <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3 shrink-0 flex-wrap">
         <Receipt size={20} className="text-emerald-500" />
-        <h1 className="font-black text-gray-900">Cobro por Mesas</h1>
+        <h1 className="font-black text-gray-900">Restaurante · Cobro por Mesas</h1>
         <div className="flex-1" />
         <div className="flex items-center gap-2 text-xs">
           <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
@@ -279,9 +438,13 @@ export function BillingDashboard() {
           bill={activeBill}
           spotsById={spotsById}
           addingSpot={addingSpot}
+          taxEnabled={taxCfg.enabled}
+          taxRate={taxCfg.rate}
           onStartBill={selectedSpotId && !activeBill && spotsById.get(selectedSpotId) && isCobrable(spotsById.get(selectedSpotId)!) ? handleStartBill : undefined}
           onUpdate={updateBill}
           onAddItem={addItem}
+          onOpenCatalog={() => setShowCatalog(true)}
+          onSplit={() => setShowSplit(true)}
           onUpdateItemQty={updateItemQty}
           onRemoveItem={removeItem}
           onRemoveSpot={removeSpot}
@@ -296,6 +459,26 @@ export function BillingDashboard() {
           }
         />
       </div>
+
+      {/* Modal de catálogo (toma de pedido) */}
+      {showCatalog && activeBill && tenantId && (
+        <OrderCatalogModal
+          tenantId={tenantId}
+          onClose={() => setShowCatalog(false)}
+          onAdd={addCatalogItem}
+        />
+      )}
+
+      {/* Modal de dividir cuenta */}
+      {showSplit && activeBill && (
+        <SplitBillModal
+          bill={activeBill}
+          taxEnabled={taxCfg.enabled}
+          taxRate={taxCfg.rate}
+          onClose={() => setShowSplit(false)}
+          onConfirm={handleSplitConfirm}
+        />
+      )}
 
       <div className="bg-white border-t border-gray-200 px-6 py-2 text-[11px] text-gray-500 shrink-0">
         Click sobre cualquier mesa/silla para abrir o ver su cuenta. Las sillas y mesas con cuenta abierta se ven en rojo y comparten un halo de color si están agrupadas.
