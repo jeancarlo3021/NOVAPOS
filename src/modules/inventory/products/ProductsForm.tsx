@@ -60,10 +60,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const [modGroups, setModGroups] = useState<import('@/services/Inventory/modifiersService').ModifierGroup[]>([]);
   const [showModifiers, setShowModifiers] = useState(false);
 
-  // Feature de plan: solo bloqueamos el toggle cuando el plan tiene
-  // `inventory_mixed_stock` EXPLÍCITAMENTE en false. Si está en true o
-  // ausente (undefined), permitimos elegir entre tracked/infinito.
-  const canMixStock = planFeatures?.inventory_mixed_stock !== false;
+  // El stock infinito (tracks_stock=false) está disponible en todas las
+  // cuentas con inventario, independiente del plan.
 
   const [submitting, setSubmitting] = useState(false);
   const [loadingProduct, setLoadingProduct] = useState(!!productId);
@@ -129,7 +127,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         });
         setImageUrl((product as any).image_url || undefined);
         // Si el plan no permite mezclar, siempre true. Si permite, usa el del producto.
-        setTracksStock(canMixStock ? ((product as any).tracks_stock ?? true) : true);
+        setTracksStock((product as any).tracks_stock ?? true);
         // Cargar modificadores existentes
         import('@/services/Inventory/modifiersService').then(({ modifiersService }) => {
           modifiersService.forProduct(productId)
@@ -256,8 +254,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         return;
       }
 
-      // Si el plan no permite mezclar stock, fuerza tracks_stock = true para todos
-      const finalTracksStock = canMixStock ? tracksStock : true;
+      // El stock infinito está disponible en todas las cuentas con inventario.
+      const finalTracksStock = tracksStock;
 
       const productData: any = {
         name: formData.name,
@@ -584,7 +582,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
               </div>
 
               {/* ── Stock infinito vs Stock actual — ESENCIAL, siempre visible ── */}
-              {!isProductsOnly && canMixStock && (
+              {!isProductsOnly && (
                 <div className={`rounded-xl border-2 p-3 transition ${
                   !tracksStock
                     ? 'border-blue-300 bg-blue-50'

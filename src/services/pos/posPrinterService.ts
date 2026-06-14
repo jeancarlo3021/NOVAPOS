@@ -29,6 +29,13 @@ function encodeCP437(text: string): number[] {
   const out: number[] = [];
   for (const ch of text) {
     const code = ch.codePointAt(0)!;
+    // Separadores Unicode de miles (narrow nbsp, nbsp, thin space, etc.) que
+    // toLocaleString puede usar y NO existen en CP437 -> convertir a '.'
+    if (code === 0x00A0 || code === 0x202F || code === 0x2009 ||
+        code === 0x2007 || code === 0x2060 || code === 0xFEFF) {
+      out.push(0x2E); // '.'
+      continue;
+    }
     if (code < 0x80) out.push(code);              // ASCII directo
     else if (CP437_MAP[ch] != null) out.push(CP437_MAP[ch]);
     else out.push(0x3F);                          // '?' para caracteres no soportados
@@ -1077,9 +1084,13 @@ export class POSPrinterService {
     centerText(cfg.footerMessage);
     centerText('Vuelva pronto');
 
-    // Feed + corte automático
-    nl(); nl(); nl();
+    // Feed extra antes del corte (más papel para despegar cómodo)
+    nl(); nl(); nl(); nl(); nl(); nl(); nl(); nl();
     push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
+
+    // Abrir cajón de dinero DESPUÉS de cortar (pulso al pin 2 del conector RJ11).
+    // ESC p m t1 t2 — m=0 (pin 2), t1=25, t2=250 (duración del pulso).
+    push(0x1B, 0x70, 0x00, 0x19, 0xFA);
 
     return new Uint8Array(cmds);
   }
