@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CreditCard, Banknote, Smartphone, X, ChevronRight, Plus, Trash2, Layers } from 'lucide-react';
+import { CreditCard, Banknote, Smartphone, X, ChevronRight, Layers } from 'lucide-react';
 import { CartItem } from '@/types/Types_POS';
 
 interface PaymentConfirmationModalProps {
@@ -84,17 +84,15 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const [received, setReceived] = useState('');
   const [voucherNumber, setVoucherNumber] = useState('');
   const [error, setError] = useState('');
-  // Modo mixto: lista de splits. Solo se usa cuando isMixed = true.
+  // Modo mixto estilo Eleventa: un monto por cada método disponible.
   const [isMixed, setIsMixed] = useState(false);
-  const [splits, setSplits] = useState<PaymentSplit[]>([
-    { method: 'cash', amount: 0 },
-    { method: availableMethods[1]?.id ?? 'card', amount: 0 },
-  ]);
+  const [mixed, setMixed] = useState<Record<string, string>>({});
 
-  const splitsTotal = splits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const splitsDiff  = Math.round((total - splitsTotal) * 100) / 100;
-  // Comprobante opcional: solo exigimos monto > 0 y que la suma cuadre.
-  const splitsValid = splits.every(s => s.amount > 0) && Math.abs(splitsDiff) < 0.5;
+  const mixedAmount = (id: string) => parseFloat(mixed[id] || '') || 0;
+  const mixedTotal = availableMethods.reduce((s, m) => s + mixedAmount(m.id), 0);
+  const mixedDiff  = Math.round((total - mixedTotal) * 100) / 100;  // >0 falta, <0 sobra (vuelto)
+  // Válido: la suma cubre el total (puede sobrar = vuelto en efectivo).
+  const mixedValid = mixedTotal >= total - 0.5;
 
   const receivedNum = parseFloat(received) || 0;
   const change = receivedNum - total;
@@ -107,25 +105,24 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
   const handleConfirm = () => {
     if (isMixed) {
-      if (!splitsValid) {
-        if (Math.abs(splitsDiff) >= 0.5) setError(`La suma de los pagos no iguala el total. Faltan ₡${splitsDiff.toLocaleString('es-CR')}`);
-        else setError('Cada pago debe tener un monto mayor a 0');
+      if (!mixedValid) {
+        setError(`Falta cubrir ₡${mixedDiff.toLocaleString('es-CR')}`);
         return;
       }
-      // El "paymentMethod" principal es el de mayor monto (para reportes legacy)
-      const sortedByAmount = [...splits].sort((a, b) => b.amount - a.amount);
-      const dominant = sortedByAmount[0];
-      const cashSplit = splits.find(s => s.method === 'cash');
+      // Solo métodos con monto > 0
+      const splits = availableMethods
+        .filter(m => mixedAmount(m.id) > 0)
+        .map(m => ({ method: m.id, amount: mixedAmount(m.id) }));
+
+      // El método dominante (mayor monto) para reportes legacy.
+      const dominant = [...splits].sort((a, b) => b.amount - a.amount)[0];
+      const cashAmt = mixedAmount('cash');
       onConfirm({
         paymentMethod: dominant.method,
-        amountReceived: cashSplit?.amount,
-        change: 0,  // el vuelto en mixto se asume 0 (el cliente trae el exacto)
-        voucherNumber: splits.filter(s => s.method !== 'cash').map(s => s.voucher_number).join(','),
-        payments: splits.map(s => ({
-          method: s.method,
-          amount: Number(s.amount),
-          voucher_number: s.voucher_number?.trim() || undefined,
-        })),
+        amountReceived: cashAmt > 0 ? cashAmt : undefined,
+        // Si sobra, el excedente se asume vuelto en efectivo.
+        change: mixedDiff < 0 ? Math.abs(mixedDiff) : 0,
+        payments: splits,
       });
       return;
     }
@@ -143,16 +140,12 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     });
   };
 
-  // Helpers para splits
-  const addSplit = () => setSplits(prev => [...prev, { method: availableMethods[0]?.id ?? 'cash', amount: 0 }]);
-  const removeSplit = (i: number) => setSplits(prev => prev.filter((_, idx) => idx !== i));
-  const updateSplit = (i: number, patch: Partial<PaymentSplit>) =>
-    setSplits(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
-  const autoBalance = (i: number) => {
-    // Setea el monto de este split para que la suma cierre con el total
-    const otherSum = splits.reduce((s, p, idx) => idx === i ? s : s + (Number(p.amount) || 0), 0);
-    const diff = total - otherSum;
-    updateSplit(i, { amount: Math.max(0, Math.round(diff * 100) / 100) });
+  // Autocompleta el método con el saldo restante (botón "resto").
+  const fillRest = (id: string) => {
+    const others = availableMethods.reduce((s, m) => m.id === id ? s : s + mixedAmount(m.id), 0);
+    const rest = Math.max(0, Math.round((total - others) * 100) / 100);
+    setMixed(prev => ({ ...prev, [id]: String(rest) }));
+    setError('');
   };
 
   const showTax = taxEnabled && taxAmount > 0;
@@ -270,69 +263,52 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             </div>
             )}
 
-            {/* ── Modo MIXTO ── */}
+            {/* ── Modo MIXTO (estilo Eleventa: un campo por método) ── */}
             {isMixed && (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <p className="text-gray-500 text-xs font-black uppercase tracking-wider px-1">
-                  Pagos parciales — deben sumar ₡{total.toLocaleString('es-CR')}
+                  ¿Con cuánto paga en cada uno?
                 </p>
-                {splits.map((s, i) => {
-                  const meta = METHODS.find(m => m.id === s.method)!;
-                  const Icon = meta.icon;
+                {availableMethods.map((m) => {
+                  const Icon = m.icon;
                   return (
-                    <div key={i} className="bg-white border-2 border-gray-200 rounded-2xl p-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Icon size={18} className={meta.iconIdleClass} />
-                        <select value={s.method} onChange={e => updateSplit(i, { method: e.target.value as any, voucher_number: '' })}
-                          className="font-bold text-sm bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none">
-                          {availableMethods.map(m => (
-                            <option key={m.id} value={m.id}>{m.label}</option>
-                          ))}
-                        </select>
-                        <input type="number" inputMode="decimal" min={0} value={s.amount || ''}
-                          onChange={e => updateSplit(i, { amount: parseFloat(e.target.value) || 0 })}
-                          placeholder="Monto"
-                          className="flex-1 text-right text-lg font-black bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-violet-400 tabular-nums" />
-                        <button type="button" onPointerDown={() => autoBalance(i)}
-                          title="Llenar con el saldo restante"
-                          className="px-2 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-xs font-bold hover:bg-violet-100">
-                          =
-                        </button>
-                        {splits.length > 1 && (
-                          <button type="button" onPointerDown={() => removeSplit(i)}
-                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-50">
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+                    <div key={m.id} className="flex items-center gap-3 bg-white border-2 border-gray-200 rounded-2xl px-3 py-2.5">
+                      <Icon size={22} className={m.iconIdleClass} />
+                      <span className="font-black text-gray-700 w-20">{m.label}</span>
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₡</span>
+                        <input type="number" inputMode="decimal" min={0}
+                          value={mixed[m.id] ?? ''}
+                          onChange={e => { setMixed(prev => ({ ...prev, [m.id]: e.target.value })); setError(''); }}
+                          placeholder="0"
+                          className="w-full text-right text-xl font-black bg-gray-50 border border-gray-200 rounded-lg pl-7 pr-3 py-2 focus:outline-none focus:border-violet-400 tabular-nums" />
                       </div>
-                      {(s.method === 'card' || s.method === 'sinpe') && (
-                        <input type="text" inputMode="numeric" value={s.voucher_number ?? ''}
-                          onChange={e => updateSplit(i, { voucher_number: e.target.value })}
-                          placeholder="N° de comprobante (opcional)"
-                          className="w-full text-sm font-mono bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-violet-400" />
-                      )}
+                      <button type="button" onPointerDown={() => fillRest(m.id)}
+                        title="Poner el resto aquí"
+                        className="px-2.5 py-2 rounded-lg bg-violet-50 text-violet-700 text-xs font-black hover:bg-violet-100">
+                        Resto
+                      </button>
                     </div>
                   );
                 })}
 
-                <button type="button" onPointerDown={addSplit}
-                  className="w-full py-2 rounded-xl border-2 border-dashed border-gray-300 text-gray-500 text-sm font-bold hover:border-violet-400 hover:text-violet-700 flex items-center justify-center gap-1.5">
-                  <Plus size={14} /> Agregar pago
-                </button>
-
-                {/* Resumen suma vs total */}
-                <div className={`rounded-xl px-4 py-3 text-sm font-black ${
-                  Math.abs(splitsDiff) < 0.5 ? 'bg-emerald-50 text-emerald-800 border-2 border-emerald-300' :
-                  splitsDiff > 0           ? 'bg-amber-50 text-amber-800 border-2 border-amber-300'   :
-                                              'bg-red-50 text-red-800 border-2 border-red-300'
+                {/* Resumen pagado / falta / vuelto */}
+                <div className={`rounded-2xl px-4 py-3 ${
+                  mixedTotal === 0    ? 'bg-gray-50 border-2 border-gray-200' :
+                  mixedDiff > 0.5     ? 'bg-amber-50 border-2 border-amber-300' :
+                                        'bg-emerald-50 border-2 border-emerald-300'
                 }`}>
-                  <div className="flex justify-between">
-                    <span>Suma de pagos:</span>
-                    <span className="tabular-nums">₡{splitsTotal.toLocaleString('es-CR')}</span>
+                  <div className="flex justify-between text-sm font-bold text-gray-600">
+                    <span>Pagado</span>
+                    <span className="tabular-nums">₡{mixedTotal.toLocaleString('es-CR')}</span>
                   </div>
-                  <div className="flex justify-between text-xs font-bold mt-0.5 opacity-80">
-                    <span>{Math.abs(splitsDiff) < 0.5 ? '✓ Cuadra' : splitsDiff > 0 ? `Falta ₡${splitsDiff.toLocaleString('es-CR')}` : `Sobra ₡${Math.abs(splitsDiff).toLocaleString('es-CR')}`}</span>
-                    <span>Total: ₡{total.toLocaleString('es-CR')}</span>
+                  <div className="flex justify-between items-center mt-1">
+                    <span className={`text-sm font-black uppercase tracking-wider ${mixedDiff > 0.5 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                      {mixedDiff > 0.5 ? 'Falta' : mixedDiff < -0.5 ? 'Vuelto' : '✓ Exacto'}
+                    </span>
+                    <span className={`text-2xl font-black tabular-nums ${mixedDiff > 0.5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      ₡{Math.abs(mixedDiff).toLocaleString('es-CR')}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -438,7 +414,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             <button
               type="button"
               onPointerDown={handleConfirm}
-              disabled={loading || (isMixed ? !splitsValid : !cashOk)}
+              disabled={loading || (isMixed ? !mixedValid : !cashOk)}
               className="col-span-2 h-16 rounded-2xl bg-blue-500 hover:bg-blue-600 active:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-xl transition flex items-center justify-center gap-2 shadow-sm"
             >
               {loading ? 'Procesando...' : (

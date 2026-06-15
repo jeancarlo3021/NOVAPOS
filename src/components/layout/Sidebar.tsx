@@ -77,6 +77,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Cuentas por Pagar', to: '/accounts-payable',  icon: Wallet,        feature: 'accounts_payable' },
       { name: 'Gastos',            to: '/expenses',          icon: TrendingDown,  feature: 'expenses'         },
       { name: 'Reportes',          to: '/reports',           icon: FileText,      feature: 'reports'          },
+      { name: 'Reportes Sucursales', to: '/branch-reports',  icon: Building,      feature: 'multi_branch'     },
     ],
   },
   {

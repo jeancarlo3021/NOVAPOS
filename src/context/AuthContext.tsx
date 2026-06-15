@@ -17,7 +17,7 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Forzamos re-login después de N horas desde el último login.
 // Si querés 18h, cambiá la constante.
 const SESSION_LOGIN_TS_KEY = 'novapos_session_login_ts';
-const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
+const SESSION_MAX_AGE_MS = 18 * 60 * 60 * 1000; // 18h
 // Cada cuánto chequeamos si la sesión expiró.
 const SESSION_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5min
 
@@ -54,6 +54,25 @@ function writeAuthCache(data: Omit<AuthCache, 'cachedAt'>) {
 
 function clearAuthCache() {
   localStorage.removeItem(AUTH_CACHE_KEY);
+}
+
+// Borra TODO el cache local de la app (datos pre-cacheados de todos los
+// tenants, settings, colas, etc.). Se usa al expirar la sesión por edad para
+// que el próximo login arranque con datos frescos.
+function clearAllAppCache() {
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (
+        k.startsWith('novapos_cache_') ||   // datos pre-cacheados por tenant
+        k.startsWith('receipt_cfg_') ||      // config de recibo
+        k === AUTH_CACHE_KEY
+      ) toRemove.push(k);
+    }
+    toRemove.forEach(k => localStorage.removeItem(k));
+  } catch { /* SSR / acceso denegado */ }
 }
 
 function isNetworkError(err: unknown): boolean {
@@ -1020,7 +1039,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!raw) return;
         const loginTs = Number(raw);
         if (Number.isFinite(loginTs) && Date.now() - loginTs > SESSION_MAX_AGE_MS) {
-          console.log('[auth] sesión expirada por edad — cerrando');
+          console.log('[auth] sesión expirada por edad — cerrando y limpiando cache');
+          clearAllAppCache();
           logout().catch(() => {});
         }
       } catch { /* ignore */ }

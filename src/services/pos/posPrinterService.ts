@@ -438,20 +438,16 @@ export class POSPrinterService {
       }
     } catch {}
 
-    const html = this.generatePurchaseOrderHTML(order, cfg, general);
-
+    // Modo ESC/POS raw para impresoras térmicas — igual que el ticket de venta.
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       try {
         if (!(await qzIsAvailable())) throw new Error('QZ Tray no disponible');
         await qzConnect();
         const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
         if (receiptPrinters.length > 0) {
-          const qz = (window as any).qz;
+          const escposBytes = this.generatePurchaseOrderESCPOS(order, cfg, general);
           for (const printer of receiptPrinters) {
-            const printerCfg = printer.connection === 'network'
-              ? qz.configs.create({ host: printer.ip, port: printer.port ?? 9100 })
-              : qz.configs.create(printer.printer_name);
-            await qz.print(printerCfg, [{ type: 'html', format: 'plain', data: html }]);
+            await qzPrintToPrinter(printer, escposBytes);
           }
           return;
         }
@@ -460,6 +456,8 @@ export class POSPrinterService {
       }
     }
 
+    // Fallback: navegador (HTML)
+    const html = this.generatePurchaseOrderHTML(order, cfg, general);
     await this.printHTMLContent(html);
   }
 
@@ -626,6 +624,85 @@ export class POSPrinterService {
 </div>
 </body>
 </html>`;
+  }
+
+  // ESC/POS raw para orden de compra — mismo motor que el ticket de venta,
+  // pero SIN comando de cajón (es una compra, no una venta).
+  private generatePurchaseOrderESCPOS(order: {
+    purchase_number: string;
+    purchase_date: string;
+    expected_delivery_date?: string | null;
+    supplier_name: string;
+    supplier_phone?: string | null;
+    items: Array<{ product_name: string; quantity: number; unit_price: number; subtotal: number }>;
+    total_amount: number;
+    notes?: string | null;
+  }, cfg: ReceiptConfig, general?: any): Uint8Array {
+    const charWidth = cfg.paperWidth;
+    const cmds: number[] = [];
+    const push = (...bytes: number[]) => cmds.push(...bytes);
+    const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
+    const nl = () => push(0x0a);
+    const sep = () => { for (let i = 0; i < charWidth; i++) push(0xC4); nl(); };
+    const centerText = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
+    const rightAlign = (label: string, val: string) => {
+      const sp = Math.max(1, charWidth - label.length - val.length);
+      text(label + ' '.repeat(sp) + val); nl();
+    };
+    const fmt = (n: number) => `${n.toLocaleString('es-CR')}`;
+    const fmtDate = (s: string) => { try { return new Date(s).toLocaleDateString('es-CR'); } catch { return s; } };
+
+    // Init (igual que el ticket de venta)
+    push(0x1B, 0x40);               // ESC @ reset
+    push(0x1C, 0x2E);               // FS . cancelar modo chino
+    push(0x1B, 0x52, 0x00);         // charset USA
+    push(0x1B, 0x74, 0x00);         // CP437
+    push(0x1B, 0x21, 0x00);         // modo normal
+
+    centerText('=== ORDEN DE COMPRA ===');
+    centerText(`#${order.purchase_number}`);
+    centerText(`${fmtDate(order.purchase_date)}`);
+    if (order.expected_delivery_date) centerText(`Entrega: ${fmtDate(order.expected_delivery_date)}`);
+    sep();
+
+    if (general?.businessName) centerText(general.businessName);
+
+    sep();
+    text('PROVEEDOR:'); nl();
+    centerText(order.supplier_name);
+    if (order.supplier_phone) centerText(`Tel: ${order.supplier_phone}`);
+
+    sep();
+    text('PRODUCTOS:'); nl();
+    for (const it of order.items) {
+      const price = fmt(it.subtotal);
+      const name = it.product_name.substring(0, charWidth - price.length - 1);
+      const spaces = charWidth - name.length - price.length;
+      text(name + ' '.repeat(Math.max(1, spaces)) + price); nl();
+      text(`  ${it.quantity} x ${fmt(it.unit_price)}`); nl();
+    }
+
+    sep();
+    rightAlign('TOTAL:', fmt(order.total_amount));
+    sep();
+
+    if (order.notes) {
+      text('NOTAS:'); nl();
+      text(order.notes); nl();
+      sep();
+    }
+
+    nl();
+    centerText('FIRMA DE RECEPCION');
+    nl(); nl();
+    centerText('____________________');
+    nl();
+
+    // Feed + corte (SIN comando de cajón)
+    nl(); nl(); nl(); nl();
+    push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
+
+    return new Uint8Array(cmds);
   }
 
   private async printHTMLContent(html: string): Promise<void> {

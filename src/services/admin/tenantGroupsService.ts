@@ -201,6 +201,15 @@ export const tenantGroupsService = {
     return apiFetch<BranchStats[]>('/tenant-groups/my/branches-stats');
   },
 
+  // ── Reporte consolidado de todas las sucursales (rango de fechas) ──
+  myBranchesReport(from?: string, to?: string): Promise<{ rows: BranchReportRow[]; totals: BranchReportTotals | null }> {
+    const p = new URLSearchParams();
+    if (from) p.set('from', from);
+    if (to)   p.set('to', to);
+    const qs = p.toString();
+    return apiFetch(`/tenant-groups/my/branches-report${qs ? '?' + qs : ''}`);
+  },
+
   // ── FE + Kiosk config por tenant (admin) ──
   getFeConfig(tenantId: string): Promise<{ fe: any; kiosk: any }> {
     return apiFetch(`/admin/tenants/${tenantId}/fe-config`);
@@ -229,4 +238,25 @@ export interface BranchStats {
   invoices_month:   number;
   invoices_total:   number;
   warehouses_count: number;
+}
+
+export interface BranchReportRow {
+  tenant_id:    string;
+  tenant_name:  string;
+  is_demo:      boolean;
+  status:       string;
+  invoices:     number;
+  sales_total:  number;
+  tax_total:    number;
+  avg_ticket:   number;
+  expenses:     number;
+  gross_profit: number;
+}
+
+export interface BranchReportTotals {
+  invoices:     number;
+  sales_total:  number;
+  tax_total:    number;
+  expenses:     number;
+  gross_profit: number;
 }

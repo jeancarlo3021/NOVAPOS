@@ -58,6 +58,18 @@ const DRAWER_KICKS: RawCommand[] = [
     notes: 'ESC p 0 50 250 — más fuerza para cajones duros',
   },
   {
+    id: 'max-pulse-p2',
+    label: 'ESC/POS pulso máximo — pin 2',
+    bytes: [0x1B, 0x70, 0x00, 0xFF, 0xFF],
+    notes: 'ESC p 0 255 255 — pulso al máximo para cajones muy duros',
+  },
+  {
+    id: 'long-pulse-p5',
+    label: 'ESC/POS pulso largo — pin 5',
+    bytes: [0x1B, 0x70, 0x01, 0x32, 0xFA],
+    notes: 'ESC p 1 50 250 — pin 5 con más fuerza',
+  },
+  {
     id: 'epson-alt',
     label: 'Epson alternativa (DLE DC4)',
     bytes: [0x10, 0x14, 0x01, 0x00, 0x05],

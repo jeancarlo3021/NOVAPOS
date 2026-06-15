@@ -23,6 +23,7 @@ const UnitTypesManagement      = lazy(() => import('./modules/inventory/categori
 const Users                    = lazy(() => import('./modules/users/Users').then(m => ({ default: m.Users })));
 const Plans                    = lazy(() => import('./modules/users/Plans'));
 const ReportsDashboard         = lazy(() => import('./modules/reports/ReportsDashboard'));
+const BranchReportsDashboard   = lazy(() => import('./modules/reports/BranchReportsDashboard').then(m => ({ default: m.BranchReportsDashboard })));
 const Recipes                  = lazy(() => import('./modules/recipes/Recipes').then(m => ({ default: m.Recipes })));
 const ExpensesDashboard        = lazy(() => import('./modules/expenses/ExpensesDashboard').then(m => ({ default: m.ExpensesDashboard })));
 const PurchasesDashboard       = lazy(() => import('./modules/purchases/PurchasesDashboard').then(m => ({ default: m.PurchasesDashboard })));
@@ -94,6 +95,11 @@ function AppContent() {
               <Route path="/reports" element={
                 <PlanGuard feature="reports">
                   <ReportsDashboard />
+                </PlanGuard>
+              } />
+              <Route path="/branch-reports" element={
+                <PlanGuard feature="reports">
+                  <BranchReportsDashboard />
                 </PlanGuard>
               } />
               <Route path="/expenses" element={
