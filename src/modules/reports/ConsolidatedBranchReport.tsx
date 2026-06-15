@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, FileText, TrendingUp, TrendingDown, Receipt, Loader2, RefreshCw } from 'lucide-react';
+import { Building2, FileText, TrendingUp, TrendingDown, Receipt, Loader2, RefreshCw, FileCheck, FileSpreadsheet } from 'lucide-react';
 import { tenantGroupsService, type BranchReportRow, type BranchReportTotals } from '@/services/admin/tenantGroupsService';
 
 const fmt = (n: number) => `₡${Math.round(n).toLocaleString('es-CR')}`;
@@ -69,6 +69,15 @@ export function ConsolidatedBranchReport() {
         </div>
       )}
 
+      {/* Recuento por tipo de documento (grupo) */}
+      {totals && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Kpi icon={Receipt}         color="bg-slate-500"  label="Tiquetes corrientes"  value={String(totals.doc_ticket)} />
+          <Kpi icon={FileCheck}       color="bg-cyan-500"   label="Tiquetes electrónicos" value={String(totals.doc_tiquete_electronico)} />
+          <Kpi icon={FileSpreadsheet} color="bg-blue-600"   label="Facturas electrónicas" value={String(totals.doc_factura_electronica)} />
+        </div>
+      )}
+
       {/* Tabla por sucursal */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
@@ -88,9 +97,10 @@ export function ConsolidatedBranchReport() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-2 text-left font-bold text-gray-600">Sucursal</th>
-                  <th className="px-4 py-2 text-right font-bold text-gray-600">Facturas</th>
+                  <th className="px-4 py-2 text-right font-bold text-gray-600" title="Tiquete corriente">T. Corr.</th>
+                  <th className="px-4 py-2 text-right font-bold text-gray-600" title="Tiquete electrónico">T. Elec.</th>
+                  <th className="px-4 py-2 text-right font-bold text-gray-600" title="Factura electrónica">F. Elec.</th>
                   <th className="px-4 py-2 text-right font-bold text-gray-600">Ventas</th>
-                  <th className="px-4 py-2 text-right font-bold text-gray-600">IVA</th>
                   <th className="px-4 py-2 text-right font-bold text-gray-600">Ticket prom.</th>
                   <th className="px-4 py-2 text-right font-bold text-gray-600">Gastos</th>
                   <th className="px-4 py-2 text-right font-bold text-gray-600">Ganancia</th>
@@ -103,9 +113,10 @@ export function ConsolidatedBranchReport() {
                       {r.tenant_name}
                       {r.is_demo && <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">DEMO</span>}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{r.invoices}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{r.doc_ticket}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-cyan-700">{r.doc_tiquete_electronico}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-blue-700">{r.doc_factura_electronica}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-bold text-emerald-700">{fmt(r.sales_total)}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">{fmt(r.tax_total)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-gray-600">{fmt(r.avg_ticket)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-rose-600">{fmt(r.expenses)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-bold text-gray-900">{fmt(r.gross_profit)}</td>
@@ -116,9 +127,10 @@ export function ConsolidatedBranchReport() {
                 <tfoot className="bg-gray-900 text-white">
                   <tr>
                     <td className="px-4 py-3 font-black">TOTAL GRUPO</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-black">{totals.invoices}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-black">{totals.doc_ticket}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-black">{totals.doc_tiquete_electronico}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-black">{totals.doc_factura_electronica}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-black">{fmt(totals.sales_total)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{fmt(totals.tax_total)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">—</td>
                     <td className="px-4 py-3 text-right tabular-nums">{fmt(totals.expenses)}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-black">{fmt(totals.gross_profit)}</td>

@@ -8,6 +8,7 @@ import {
 } from '@/services/admin/tenantGroupsService';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { GroupDocCount } from './GroupDocCount';
 
 interface FeConfig {
   enabled?:               boolean;
@@ -149,6 +150,9 @@ export const AdminFeKioskView: React.FC = () => {
           <AlertCircle size={15} className="mt-0.5" />{error}
         </div>
       )}
+
+      {/* Recuento de documentos emitidos por el grupo */}
+      <GroupDocCount />
 
       {loading && branches.length === 0 ? (
         <div className="text-center py-12 text-gray-400">Cargando sucursales...</div>

@@ -238,6 +238,9 @@ export interface BranchStats {
   invoices_month:   number;
   invoices_total:   number;
   warehouses_count: number;
+  doc_ticket?:              number;
+  doc_tiquete_electronico?: number;
+  doc_factura_electronica?: number;
 }
 
 export interface BranchReportRow {
@@ -251,6 +254,9 @@ export interface BranchReportRow {
   avg_ticket:   number;
   expenses:     number;
   gross_profit: number;
+  doc_ticket:               number;
+  doc_tiquete_electronico:  number;
+  doc_factura_electronica:  number;
 }
 
 export interface BranchReportTotals {
@@ -259,4 +265,7 @@ export interface BranchReportTotals {
   tax_total:    number;
   expenses:     number;
   gross_profit: number;
+  doc_ticket:               number;
+  doc_tiquete_electronico:  number;
+  doc_factura_electronica:  number;
 }

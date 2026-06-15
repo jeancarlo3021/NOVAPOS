@@ -261,6 +261,8 @@ export const POSMain = () => {
           inv.invoiceNumber, // Pass offline invoice number to preserve it
           inv.cashierId ?? null,
           inv.cashierName ?? null,
+          (inv as any).payments ?? null,
+          (inv as any).documentType ?? 'ticket',
         );
       });
 
@@ -571,6 +573,7 @@ export const POSMain = () => {
           activeCashier?.id ?? null,
           activeCashier?.full_name ?? null,
           data.payments ?? null,
+          documentType,
         );
 
         // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
@@ -610,7 +613,8 @@ export const POSMain = () => {
           customerName: customerName.trim() || undefined,
           cashierId: activeCashier?.id ?? null,
           cashierName: activeCashier?.full_name ?? null,
-        });
+          documentType,
+        } as any);
 
         // Snapshot del cliente antes del reset (lo necesitamos para impresión).
         const offlineCustomer = customerName.trim() || undefined;

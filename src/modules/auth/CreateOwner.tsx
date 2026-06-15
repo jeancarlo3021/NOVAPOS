@@ -16,6 +16,7 @@ import { PaymentReceiptsView } from './components/PaymentReceiptsView';
 import { PrinterSandbox } from './components/PrinterSandbox';
 import { TenantGroupView } from './components/TenantGroupView';
 import { AdminFeKioskView } from './components/AdminFeKioskView';
+import { GroupDocCount } from './components/GroupDocCount';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -385,6 +386,9 @@ export const CreateOwner: React.FC = () => {
 
       {activeTab === 'businesses' && (
       <div className="max-w-7xl mx-auto p-6 space-y-6">
+
+        {/* Recuento de documentos emitidos por el grupo */}
+        <GroupDocCount />
 
         {/* Alerts */}
         {error   && <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm"><AlertCircle size={16} className="shrink-0 mt-0.5" /><span>{error}</span><button onClick={() => setError('')} className="ml-auto text-red-400 hover:text-red-600"><X size={14} /></button></div>}

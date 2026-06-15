@@ -98,7 +98,7 @@ export interface ReceiptConfig {
   showCustomerInfo: boolean;
   footerMessage: string;
   printerName?: string;
-  printerType: 'thermal' | 'browser' | 'qztray';
+  printerType: 'thermal' | 'browser' | 'qztray' | 'bluetooth';
   autoprint: boolean;
   printers?: PrinterEntry[];
 }
@@ -186,6 +186,18 @@ export class POSPrinterService {
   async printAuto(receiptData: ReceiptData, tenantId: string): Promise<void> {
     // Always reload config so we pick up latest settings changes
     const cfg = await this.loadReceiptConfig(tenantId);
+
+    // Bluetooth: enviar bytes ESC/POS por Web Bluetooth.
+    if (cfg.printerType === 'bluetooth') {
+      try {
+        const { btPrint } = await import('./bluetoothPrinterService');
+        await btPrint(this.generateESCPOS(receiptData, cfg));
+        return;
+      } catch (err) {
+        // Si falla la impresión BT, caemos al navegador como respaldo.
+        console.warn('[print] Bluetooth falló, usando navegador:', err);
+      }
+    }
 
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       try {

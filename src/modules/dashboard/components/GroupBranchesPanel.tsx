@@ -156,6 +156,15 @@ export const GroupBranchesPanel: React.FC = () => {
                       )}
                     </span>
                   </div>
+                  {/* Desglose por tipo de documento — control de cobro Hacienda */}
+                  <div className="flex items-center justify-end gap-1.5 -mt-1">
+                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-700"
+                      title="Tiquetes corrientes">{s.doc_ticket ?? 0}</span>
+                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-700"
+                      title="Tiquetes electrónicos">{s.doc_tiquete_electronico ?? 0}</span>
+                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-blue-100 text-blue-700"
+                      title="Facturas electrónicas">{s.doc_factura_electronica ?? 0}</span>
+                  </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-gray-500">
                       <Warehouse size={12} /> Bodegas

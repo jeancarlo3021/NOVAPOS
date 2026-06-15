@@ -85,6 +85,8 @@ export const invoicesService = {
     /** Pagos mixtos: array de splits. Si llega, la columna `payments` se
      *  llena y el `payment_method` queda como el dominante. */
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[] | null,
+    /** Tipo de documento fiscal elegido en el POS. */
+    documentType?: 'ticket' | 'tiquete_electronico' | 'factura_electronica',
   ) {
     // Validaciones según método de pago. En pago mixto (payments con 2+
     // splits) la validación ya la hizo el modal: la suma cuadra con el total y
@@ -121,6 +123,7 @@ export const invoicesService = {
         cashier_id: cashierId ?? null,
         cashier_name: cashierName ?? null,
         payments: payments && payments.length > 1 ? payments : null,
+        document_type: documentType ?? 'ticket',
       }),
     });
 

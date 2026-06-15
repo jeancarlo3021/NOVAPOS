@@ -20,7 +20,7 @@ export type { PrinterEntry };
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ReceiptConfig {
-  printerType: 'thermal' | 'browser' | 'qztray';
+  printerType: 'thermal' | 'browser' | 'qztray' | 'bluetooth';
   autoprint: boolean;
   qz_certificate?: string;
   printers?: PrinterEntry[];
@@ -144,10 +144,11 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
       {/* ── Tipo ── */}
       <div>
         <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Tipo de impresión</p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {[
-            { id: 'browser', label: 'Navegador', icon: '🌐' },
-            { id: 'qztray',  label: 'QZ Tray',  icon: '🖨️' },
+            { id: 'browser',   label: 'Navegador', icon: '🌐' },
+            { id: 'qztray',    label: 'QZ Tray',   icon: '🖨️' },
+            { id: 'bluetooth', label: 'Bluetooth', icon: '📶' },
           ].map(t => (
             <button key={t.id}
               onClick={() => setConfig({ ...config, printerType: t.id as any })}
@@ -163,11 +164,13 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
         </div>
       </div>
 
-      {!isQZMode && (
+      {config.printerType === 'browser' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
           Al imprimir se abrirá el diálogo del navegador. Funciona con cualquier impresora del equipo.
         </div>
       )}
+
+      {config.printerType === 'bluetooth' && <BluetoothPanel log={log} tenantId={tenantId} />}
 
       {isQZMode && (
         <>
@@ -410,4 +413,130 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
     </div>
   );
 };
+
+// ── Panel de impresora Bluetooth ─────────────────────────────────────────────
+function BluetoothPanel({ log, tenantId }: { log: (m: string) => void; tenantId: string }) {
+  const [hasBLE] = useState(() =>
+    typeof navigator !== 'undefined' && !!(navigator as any).bluetooth);
+  const [hasSerial] = useState(() =>
+    typeof navigator !== 'undefined' && !!(navigator as any).serial);
+  const [hasUSB] = useState(() =>
+    typeof navigator !== 'undefined' && !!(navigator as any).usb);
+  const [deviceName, setDeviceName] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'ble' | 'serial' | 'usb' | 'test' | null>(null);
+
+  const connectBLE = async () => {
+    setBusy('ble');
+    try {
+      const { btRequestDevice } = await import('@/services/pos/bluetoothPrinterService');
+      const name = await btRequestDevice();
+      setDeviceName(name);
+      log(`✅ Impresora conectada (Bluetooth BLE): ${name}`);
+    } catch (e) {
+      log(`❌ ${e instanceof Error ? e.message : 'No se pudo conectar'}`);
+    } finally { setBusy(null); }
+  };
+
+  const connectSerial = async () => {
+    setBusy('serial');
+    try {
+      const { serialRequestPort } = await import('@/services/pos/bluetoothPrinterService');
+      const name = await serialRequestPort();
+      setDeviceName(name);
+      log(`✅ Impresora conectada (puerto serie/COM): ${name}`);
+    } catch (e) {
+      log(`❌ ${e instanceof Error ? e.message : 'No se pudo conectar al puerto'}`);
+    } finally { setBusy(null); }
+  };
+
+  const connectUSB = async () => {
+    setBusy('usb');
+    try {
+      const { usbRequestDevice } = await import('@/services/pos/bluetoothPrinterService');
+      const name = await usbRequestDevice();
+      setDeviceName(name);
+      log(`✅ Impresora conectada (USB): ${name}`);
+    } catch (e) {
+      log(`❌ ${e instanceof Error ? e.message : 'No se pudo conectar por USB'}`);
+    } finally { setBusy(null); }
+  };
+
+  const test = async () => {
+    if (!tenantId) return;
+    setBusy('test');
+    try {
+      await posPrinterService.printTest(tenantId);
+      log('🖨️ Ticket de prueba enviado');
+    } catch (e) {
+      log(`❌ ${e instanceof Error ? e.message : 'Error al imprimir'}`);
+    } finally { setBusy(null); }
+  };
+
+  if (!hasBLE && !hasSerial && !hasUSB) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+        Este navegador no soporta Bluetooth, USB ni puerto serie web. Usá <strong>Chrome</strong> o
+        <strong> Edge</strong> sobre HTTPS. En iPhone/Safari no está disponible.
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-bold text-blue-900 text-sm">Impresora Bluetooth</p>
+          <p className="text-xs text-blue-600">
+            {deviceName ? `Conectada: ${deviceName}` : 'Sin impresora conectada'}
+          </p>
+        </div>
+        <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+          deviceName ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+        }`}>
+          {deviceName ? '● Conectada' : '○ Sin conectar'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {/* Móvil / impresoras BLE */}
+        {hasBLE && (
+          <button onClick={connectBLE} disabled={busy === 'ble'}
+            className="px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50">
+            {busy === 'ble' ? 'Buscando…' : '📶 Conectar (celular/BLE)'}
+          </button>
+        )}
+        {/* Computadora — impresora BT emparejada en el SO (puerto COM) */}
+        {hasSerial && (
+          <button onClick={connectSerial} disabled={busy === 'serial'}
+            className="px-3 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold disabled:opacity-50">
+            {busy === 'serial' ? 'Buscando…' : '💻 Conectar (computadora/COM)'}
+          </button>
+        )}
+        {/* Respaldo: USB por cable en computadora */}
+        {hasUSB && (
+          <button onClick={connectUSB} disabled={busy === 'usb'}
+            className="px-3 py-2.5 rounded-xl border-2 border-indigo-300 bg-white text-indigo-700 text-sm font-bold hover:bg-indigo-50 disabled:opacity-50">
+            {busy === 'usb' ? 'Buscando…' : '🔌 Conectar por USB'}
+          </button>
+        )}
+        <button onClick={test} disabled={busy === 'test' || !deviceName}
+          className="col-span-2 px-3 py-2.5 rounded-xl border-2 border-blue-300 bg-white text-blue-700 text-sm font-bold hover:bg-blue-50 disabled:opacity-50">
+          {busy === 'test' ? 'Imprimiendo…' : 'Imprimir prueba'}
+        </button>
+      </div>
+
+      <div className="text-[11px] text-blue-700 space-y-1">
+        <p className="font-bold">📱 En celular/tablet (Android):</p>
+        <p className="pl-3">Encendé la impresora → "Conectar (celular/BLE)" → elegila de la lista.</p>
+        <p className="font-bold mt-1.5">💻 Bluetooth en computadora (Windows/Mac):</p>
+        <p className="pl-3">
+          1. Emparejá la impresora Bluetooth desde la configuración del sistema operativo
+          (Windows: Configuración → Bluetooth → Agregar dispositivo).<br />
+          2. Eso crea un <strong>puerto COM</strong>. Tocá "Conectar (computadora/COM)" y elegí ese puerto
+          (probá los COM disponibles si hay varios).
+        </p>
+      </div>
+    </div>
+  );
+}
 
