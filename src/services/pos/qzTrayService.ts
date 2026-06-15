@@ -208,6 +208,26 @@ export async function qzPrintNetwork(ip: string, port: number, data: Uint8Array)
 }
 
 /**
+ * Print raw ESC/POS bytes to the system's DEFAULT printer via QZ Tray.
+ * Se usa cuando el tenant no configuró una impresora específica: en vez de
+ * abrir el diálogo del navegador, imprimimos raw a la default del sistema.
+ */
+export async function qzPrintDefault(data: Uint8Array): Promise<void> {
+  const q = getQZ();
+  // q.printers.getDefault() devuelve el nombre de la impresora por defecto.
+  let printerName: string | null = null;
+  try { printerName = await q.printers.getDefault(); } catch { /* sin default */ }
+  if (!printerName) {
+    // Si no hay default, tomamos la primera que encuentre.
+    const list = await qzGetPrinters();
+    printerName = list[0] ?? null;
+  }
+  if (!printerName) throw new Error('No hay impresoras disponibles en QZ Tray');
+  const config = q.configs.create(printerName);
+  await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
+}
+
+/**
  * Print to a PrinterEntry — handles USB vs network automatically.
  */
 export async function qzPrintToPrinter(printer: PrinterEntry, data: Uint8Array): Promise<void> {

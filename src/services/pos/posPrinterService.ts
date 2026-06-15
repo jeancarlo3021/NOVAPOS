@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api';
 import {
-  qzConnect, qzIsAvailable, qzPrintToPrinter,
+  qzConnect, qzIsAvailable, qzPrintToPrinter, qzPrintDefault,
   type PrinterEntry,
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
@@ -268,10 +268,9 @@ export class POSPrinterService {
         await qzPrintToPrinter(printer, escposBytes);
       }
     } else {
-      // Sin printers configurados en la config del tenant → fallback HTML
-      // (probablemente abre el diálogo del navegador).
-      const html = this.generateHTML(receiptData, config);
-      await this.printHTMLContent(html);
+      // Sin printers configurados en la config del tenant → imprimir RAW a la
+      // impresora por defecto del sistema vía QZ (NO abrir el diálogo de Chrome).
+      await qzPrintDefault(escposBytes);
     }
   }
 
