@@ -35,6 +35,9 @@ interface NavItem {
   to: string;
   icon: React.ElementType;
   feature: keyof PlanFeatures | 'always' | 'owner_only' | 'admin_only';
+  /** Módulo de role_permissions que gobierna este ítem. Si se define, el ítem
+   *  solo aparece si el rol del usuario tiene can_access en ese módulo. */
+  module?: string;
 }
 
 interface NavGroup {
@@ -54,46 +57,46 @@ const NAV_GROUPS: NavGroup[] = [
     defaultOpen: true,
     items: [
       { name: 'Dashboard',      to: '/',          icon: LayoutDashboard, feature: 'always' },
-      { name: 'Punto de Venta', to: '/pos',       icon: ShoppingCart,    feature: 'pos'    },
-      { name: 'Inventario',     to: '/inventory', icon: Package,         feature: 'always' },
+      { name: 'Punto de Venta', to: '/pos',       icon: ShoppingCart,    feature: 'pos',       module: 'pos'       },
+      { name: 'Inventario',     to: '/inventory', icon: Package,         feature: 'always',    module: 'inventory' },
     ],
   },
   {
     id: 'operations',
     label: 'Operaciones',
     items: [
-      { name: 'Clientes',          to: '/customers',  icon: User2,         feature: 'always'     },
-      { name: 'Recetas',           to: '/recipes',    icon: BookOpen,      feature: 'recipes'    },
-      { name: 'Promociones',       to: '/promotions', icon: Tag,           feature: 'promotions' },
-      { name: 'Mapa de Mesas',     to: '/tables',     icon: LayoutGrid,    feature: 'tables'     },
-      { name: 'Restaurante',       to: '/billing',    icon: Receipt,       feature: 'restaurant' },
+      { name: 'Clientes',          to: '/customers',  icon: User2,         feature: 'always',     module: 'customers'  },
+      { name: 'Recetas',           to: '/recipes',    icon: BookOpen,      feature: 'recipes',    module: 'recipes'    },
+      { name: 'Promociones',       to: '/promotions', icon: Tag,           feature: 'promotions', module: 'promotions' },
+      { name: 'Mapa de Mesas',     to: '/tables',     icon: LayoutGrid,    feature: 'tables',     module: 'restaurant' },
+      { name: 'Restaurante',       to: '/billing',    icon: Receipt,       feature: 'restaurant', module: 'restaurant' },
     ],
   },
   {
     id: 'finances',
     label: 'Compras y finanzas',
     items: [
-      { name: 'Órdenes de Compra', to: '/purchases',         icon: ClipboardList, feature: 'purchases'        },
-      { name: 'Cuentas por Pagar', to: '/accounts-payable',  icon: Wallet,        feature: 'accounts_payable' },
-      { name: 'Gastos',            to: '/expenses',          icon: TrendingDown,  feature: 'expenses'         },
-      { name: 'Reportes',          to: '/reports',           icon: FileText,      feature: 'reports'          },
-      { name: 'Reportes Sucursales', to: '/branch-reports',  icon: Building,      feature: 'multi_branch'     },
+      { name: 'Órdenes de Compra', to: '/purchases',         icon: ClipboardList, feature: 'purchases',        module: 'purchases'        },
+      { name: 'Cuentas por Pagar', to: '/accounts-payable',  icon: Wallet,        feature: 'accounts_payable', module: 'accounts_payable' },
+      { name: 'Gastos',            to: '/expenses',          icon: TrendingDown,  feature: 'expenses',         module: 'expenses'         },
+      { name: 'Reportes',          to: '/reports',           icon: FileText,      feature: 'reports',          module: 'reports'          },
+      { name: 'Reportes Sucursales', to: '/branch-reports',  icon: Building,      feature: 'multi_branch',     module: 'reports'          },
     ],
   },
   {
     id: 'multi-branch',
     label: 'Sucursales',
     items: [
-      { name: 'Sucursales y Bodegas', to: '/branches',  icon: Building, feature: 'multi_branch'            },
-      { name: 'Transferencias',       to: '/transfers', icon: Truck,    feature: 'multi_branch_transfers' },
+      { name: 'Sucursales y Bodegas', to: '/branches',  icon: Building, feature: 'multi_branch',            module: 'inventory' },
+      { name: 'Transferencias',       to: '/transfers', icon: Truck,    feature: 'multi_branch_transfers',  module: 'inventory' },
     ],
   },
   {
     id: 'team',
     label: 'Equipo',
     items: [
-      { name: 'Recursos Humanos', to: '/hr',    icon: UserCog, feature: 'hr'    },
-      { name: 'Usuarios',         to: '/users', icon: Users,   feature: 'users' },
+      { name: 'Recursos Humanos', to: '/hr',    icon: UserCog, feature: 'hr',    module: 'hr'    },
+      { name: 'Usuarios',         to: '/users', icon: Users,   feature: 'users', module: 'users' },
     ],
   },
   {
@@ -146,36 +149,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
 
   const isSystemAdmin = () => planFeatures?.admin_dashboard === true;
 
-  // Mapeo de feature del nav → módulo de role_permissions. Usamos esto para
-  // que cuando el owner configure que "cajero no entra a Reportes", el sidebar
-  // del cajero realmente lo oculte aunque el plan tenga reports=true.
-  const featureToModule: Partial<Record<keyof PlanFeatures, string>> = {
-    pos: 'pos',
-    inventory: 'inventory',
-    reports: 'reports',
-    expenses: 'expenses',
-    purchases: 'purchases',
-    accounts_payable: 'accounts_payable',
-    promotions: 'promotions',
-    users: 'users',
-    hr: 'hr',
-  };
-
-  const isAllowed = (feature: NavItem['feature']) => {
-    if (feature === 'always') return true;
+  const isAllowed = (item: NavItem) => {
+    const { feature, module } = item;
+    // Admin / owner gates primero
     if (feature === 'admin_only') return isSystemAdmin();
     if (feature === 'owner_only') return user?.role === 'owner';
-    // 1. El plan debe incluir la feature
-    const planHas = (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
-    if (!planHas) return false;
-    // 2. Y el rol del user debe tener acceso al módulo (si está mapeado)
-    const mod = featureToModule[feature as keyof PlanFeatures];
-    if (mod) return canAccess(mod);
+    // 1. El plan debe incluir la feature (salvo 'always')
+    if (feature !== 'always') {
+      const planHas = (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
+      if (!planHas) return false;
+    }
+    // 2. El rol del usuario debe tener acceso al módulo (si está declarado)
+    if (module) return canAccess(module);
     return true;
   };
 
   // Aplana todas las rutas visibles según permisos (para asistido y compacto).
-  const allVisibleFlat: NavItem[] = NAV_GROUPS.flatMap(g => g.items).filter(item => isAllowed(item.feature));
+  const allVisibleFlat: NavItem[] = NAV_GROUPS.flatMap(g => g.items).filter(item => isAllowed(item));
 
   // Filtro adicional para modo asistido
   const assistedItems = (assisted && !showMore)
@@ -279,7 +269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
           /* Modo normal: grupos colapsables */
           <nav className="px-2 space-y-1">
             {NAV_GROUPS.map((group) => {
-              const visibleItems = group.items.filter(item => isAllowed(item.feature));
+              const visibleItems = group.items.filter(item => isAllowed(item));
               if (visibleItems.length === 0) return null;
               const isOpenG = !!openGroups[group.id];
               const hasActive = visibleItems.some(i => i.to === location.pathname);

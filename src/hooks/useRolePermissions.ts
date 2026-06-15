@@ -51,12 +51,17 @@ export function useRolePermissions() {
   const canAccess = (module: string): boolean => {
     if (isOwnerOrAdmin) return true;
     if (!hasMatrix) return true;
+    // Si el módulo no está en la matriz (ej. uno nuevo que el owner aún no
+    // configuró), lo dejamos visible. Solo se oculta si está explícitamente
+    // con can_access=false.
+    if (!(module in matrix)) return true;
     return matrix[module]?.can_access === true;
   };
 
   const canDo = (module: string, action: 'create' | 'edit' | 'delete'): boolean => {
     if (isOwnerOrAdmin) return true;
     if (!hasMatrix) return true;
+    if (!(module in matrix)) return true;  // módulo no configurado → permitido
     const row = matrix[module];
     if (!row?.can_access) return false;
     return row[`can_${action}` as 'can_create' | 'can_edit' | 'can_delete'] === true;

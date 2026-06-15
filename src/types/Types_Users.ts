@@ -147,7 +147,8 @@ export const ROLE_REQUIRED_FEATURES: Record<UserRole, string[]> = {
 
 export type UserModule =
   | 'pos' | 'inventory' | 'reports' | 'expenses'
-  | 'purchases' | 'users' | 'promotions' | 'accounts_payable' | 'hr';
+  | 'purchases' | 'users' | 'promotions' | 'accounts_payable' | 'hr'
+  | 'customers' | 'restaurant' | 'recipes';
 
 export interface UserPermission {
   id: string;

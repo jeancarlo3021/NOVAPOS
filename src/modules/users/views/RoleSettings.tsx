@@ -30,6 +30,9 @@ const MODULES: ModuleMeta[] = [
   { key: 'promotions',       label: 'Promociones',       description: 'Descuentos y ofertas',           icon: Tag,           color: 'bg-violet-500' },
   { key: 'users',            label: 'Usuarios',          description: 'Gestión de usuarios y roles',    icon: Users,         color: 'bg-amber-500' },
   { key: 'hr',               label: 'Recursos Humanos',  description: 'Empleados y nómina',             icon: UserCog,       color: 'bg-fuchsia-500' },
+  { key: 'customers',        label: 'Clientes',          description: 'Gestión de clientes',            icon: Users,         color: 'bg-teal-500' },
+  { key: 'restaurant',       label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa',       icon: ShoppingCart,  color: 'bg-orange-500' },
+  { key: 'recipes',          label: 'Recetas',           description: 'Recetas e ingredientes',         icon: Package,       color: 'bg-lime-500' },
 ];
 
 // Roles configurables (owner siempre tiene acceso total → no editable)
