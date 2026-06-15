@@ -525,6 +525,8 @@ export const POSMain = () => {
       ).catch(err => console.warn('Error al imprimir comanda:', err));
 
     } catch (err) {
+      console.error('[printReceipt] error:', err);
+      setError(`Error al imprimir: ${err instanceof Error ? err.message : 'desconocido'}`);
     }
   }, [tenantId, user, activeCashier]);
 

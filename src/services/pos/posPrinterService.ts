@@ -200,11 +200,10 @@ export class POSPrinterService {
     }
 
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
-      try {
-        await this.printQZTray(receiptData, cfg);
-        return;
-      } catch (err) {
-      }
+      // En modo QZ NO caemos al diálogo del navegador: si falla, mostramos el
+      // error para diagnosticar (caer a Chrome confundía al usuario).
+      await this.printQZTray(receiptData, cfg);
+      return;
     }
 
     await this.printBrowser(receiptData, cfg);
