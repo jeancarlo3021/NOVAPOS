@@ -469,6 +469,17 @@ export const PurchasesDashboard: React.FC = () => {
             setReviewPurchase(null);
             await loadPurchases(tenantId);
             await refreshPendingCount(tenantId);
+            // Refrescar el cache del inventario: la recepción sumó stock en la
+            // BD; re-cacheamos para que el inventario y el POS muestren el nuevo.
+            try {
+              const fresh = await getAllProducts(tenantId);
+              const { cacheSet, cacheKey } = await import('@/utils/offlineCache');
+              cacheSet(cacheKey(tenantId, 'global_products'), fresh);
+              // Avisar a otras vistas (inventario/POS) que el stock cambió.
+              window.dispatchEvent(new CustomEvent('inventory-updated'));
+            } catch (e) {
+              console.warn('[purchases] no se pudo refrescar inventario:', e);
+            }
           }}
         />
       )}

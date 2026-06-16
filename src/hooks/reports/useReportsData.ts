@@ -171,8 +171,8 @@ export function useReportsData(tenantId: string | null) {
   const fetchInvoices = useCallback(async (from: string, to: string) => {
     if (!tenantId) return;
     try {
-      const data = await apiFetch<InvoiceRow[]>(`/reports/sales?from=${from}&to=${to}&detail=true`);
-      setInvoices(data);
+      const res = await apiFetch<{ invoices: InvoiceRow[] }>(`/reports/sales?from=${from}&to=${to}&detail=true`);
+      setInvoices(res?.invoices ?? []);
     } catch (e) {
     }
   }, [tenantId]);

@@ -19,7 +19,9 @@ import { PasswordResetModal } from '../components/PasswordResetModal';
 
 export const UsersList: React.FC = () => {
   const { tenantId } = useTenantId();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, tenant } = useAuth();
+  // Límite de usuarios según el plan (null = ilimitado).
+  const maxUsers = tenant?.subscription?.plan?.max_users ?? null;
   const { canDo } = useRolePermissions();
   const canCreate = canDo('users', 'create');
   const canEdit   = canDo('users', 'edit');
@@ -114,7 +116,14 @@ export const UsersList: React.FC = () => {
     })();
   }, [users, roleModules]);
 
-  const handleCreate = () => { setEditingUser(null); setShowFormModal(true); };
+  const handleCreate = () => {
+    if (atUserLimit) {
+      setError(`Tu plan permite hasta ${maxUsers} usuario${maxUsers === 1 ? '' : 's'}. Ya tenés ${currentTenantUserCount}. Mejorá tu plan para agregar más.`);
+      return;
+    }
+    setEditingUser(null);
+    setShowFormModal(true);
+  };
   const handleEdit = (user: User) => { setEditingUser(user); setShowFormModal(true); };
 
   const handleFormSuccess = async () => {
@@ -192,6 +201,13 @@ export const UsersList: React.FC = () => {
 
   const totalManagers = (roleCounts.owner ?? 0) + (roleCounts.admin ?? 0) + (roleCounts.gerente ?? 0);
   const totalOperators = users.length - totalManagers;
+
+  // Usuarios de la sucursal actual (el límite del plan es por tenant).
+  const currentTenantUserCount = useMemo(
+    () => users.filter(u => !(u as any).tenant_id || (u as any).tenant_id === tenantId).length,
+    [users, tenantId]
+  );
+  const atUserLimit = maxUsers != null && currentTenantUserCount >= maxUsers;
 
   const initials = (name: string) =>
     name.split(' ').slice(0, 2).map(p => p[0] ?? '').join('').toUpperCase();
@@ -369,10 +385,18 @@ export const UsersList: React.FC = () => {
             />
           </div>
           {canCreate && (
-            <button onClick={handleCreate}
-              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition">
-              <Plus size={16} /> Crear usuario
-            </button>
+            <div className="flex items-center gap-2">
+              {maxUsers != null && (
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-lg ${atUserLimit ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                  {currentTenantUserCount}/{maxUsers} usuarios
+                </span>
+              )}
+              <button onClick={handleCreate} disabled={atUserLimit}
+                title={atUserLimit ? `Tu plan permite hasta ${maxUsers} usuarios` : 'Crear usuario'}
+                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl text-sm font-bold transition">
+                <Plus size={16} /> Crear usuario
+              </button>
+            </div>
           )}
         </div>
       </div>

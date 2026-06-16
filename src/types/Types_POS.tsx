@@ -19,6 +19,9 @@ export interface CashSession {
   opening_date: string;
   closing_amount?: number;
   closing_date?: string;
+  /** Timestamps que devuelve el backend (alias de opening_date/closing_date). */
+  opened_at?: string;
+  closed_at?: string;
   status: 'open' | 'closed';
   notes?: string;
   created_at: string;

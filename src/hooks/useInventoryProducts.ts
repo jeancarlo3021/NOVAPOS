@@ -79,6 +79,13 @@ export function useInventoryProducts(tenantId?: string | null): UseInventoryProd
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
+  // Recargar cuando otra vista (ej. recepción de compra) actualiza el stock.
+  useEffect(() => {
+    const onInventoryUpdated = () => { if (tenantId) refresh(); };
+    window.addEventListener('inventory-updated', onInventoryUpdated);
+    return () => window.removeEventListener('inventory-updated', onInventoryUpdated);
+  }, [tenantId, refresh]);
+
   return {
     products,
     loading,

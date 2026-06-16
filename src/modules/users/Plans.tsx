@@ -6,7 +6,7 @@ import {
   BookOpen, UserCog, Tag, LayoutGrid,
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
-  Activity, Shield, CalendarDays, History,
+  Shield, CalendarDays, History,
   FileText, User, Search, Building, KeyRound, UtensilsCrossed,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
@@ -85,9 +85,93 @@ function SubFeatureRow({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+// ── Planes de Facturación Electrónica (estado local; sin backend por ahora) ──
+interface FePlan {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  docsPerMonth: number | null;   // null = ilimitado
+  extraDocPrice: number;
+  features: string[];
+  is_active: boolean;
+}
+
+// Detalles predefinidos desde un principio.
+const FE_PLANS_DEFAULT: FePlan[] = [
+  { id: 'fe-inicial',   name: 'FE Inicial',   description: 'Para negocios que arrancan con FE', price: 5000,  docsPerMonth: 50,   extraDocPrice: 80, features: ['Tiquete electrónico', 'Factura electrónica'], is_active: true },
+  { id: 'fe-pyme',      name: 'FE Pyme',      description: 'Volumen medio de comprobantes',     price: 12000, docsPerMonth: 300,  extraDocPrice: 60, features: ['Tiquete', 'Factura', 'Nota de crédito'], is_active: true },
+  { id: 'fe-pro',       name: 'FE Pro',       description: 'Alto volumen mensual',              price: 25000, docsPerMonth: 1000, extraDocPrice: 40, features: ['Todos los documentos', 'Reportes Hacienda'], is_active: true },
+  { id: 'fe-ilimitado', name: 'FE Ilimitado', description: 'Comprobantes sin límite',            price: 45000, docsPerMonth: null, extraDocPrice: 0,  features: ['Comprobantes ilimitados', 'Soporte prioritario'], is_active: true },
+];
+
+const emptyFePlan = (): FePlan => ({
+  id: `fe-${Date.now()}`, name: '', description: '', price: 0,
+  docsPerMonth: null, extraDocPrice: 0, features: [], is_active: true,
+});
+
+// Costo del proveedor de facturación electrónica por tramo de documentos/mes.
+//   0–500     → ₡4.140 fijo al mes
+//   501–1500  → ₡10,17 por documento
+//   1501–3000 → ₡9,04 por documento
+//   3001–5000 → ₡6,78 por documento
+//   5001–10000→ ₡5,65 por documento
+//   10001+    → ₡5,085 por documento
+function feProviderCost(docs: number | null): number | null {
+  if (docs == null) return null;          // ilimitado: sin estimación
+  if (docs <= 500)   return 4140;
+  if (docs <= 1500)  return docs * 10.17;
+  if (docs <= 3000)  return docs * 9.04;
+  if (docs <= 5000)  return docs * 6.78;
+  if (docs <= 10000) return docs * 5.65;
+  return docs * 5.085;
+}
+
+const fmtCRC = (n: number) => `₡${Math.round(n).toLocaleString('es-CR')}`;
+
 export default function Plans() {
   const { tenant, refreshPlan } = useAuth();
+  const [viewTab, setViewTab] = useState<'system' | 'fe'>('system');
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+
+  // ── Estado de planes de Facturación Electrónica (local, sin backend aún) ──
+  const [fePlans, setFePlans] = useState<FePlan[]>(FE_PLANS_DEFAULT);
+  const [showFeModal, setShowFeModal] = useState(false);
+  const [feForm, setFeForm] = useState<FePlan>(emptyFePlan());
+  const [feIsNew, setFeIsNew] = useState(true);
+  const [feFeaturesText, setFeFeaturesText] = useState('');
+
+  const openNewFePlan = () => {
+    setFeForm(emptyFePlan());
+    setFeFeaturesText('');
+    setFeIsNew(true);
+    setShowFeModal(true);
+  };
+  const openEditFePlan = (plan: FePlan) => {
+    setFeForm({ ...plan });
+    setFeFeaturesText(plan.features.join(', '));
+    setFeIsNew(false);
+    setShowFeModal(true);
+  };
+  const saveFePlan = () => {
+    const features = feFeaturesText.split(',').map(s => s.trim()).filter(Boolean);
+    const plan: FePlan = { ...feForm, features };
+    setFePlans(prev => feIsNew ? [...prev, plan] : prev.map(p => p.id === plan.id ? plan : p));
+    setShowFeModal(false);
+  };
+  const toggleFePlan = (id: string) =>
+    setFePlans(prev => prev.map(p => p.id === id ? { ...p, is_active: !p.is_active } : p));
+  const deleteFePlan = (id: string) => {
+    if (!confirm('¿Eliminar este plan de facturación electrónica?')) return;
+    setFePlans(prev => prev.filter(p => p.id !== id));
+  };
+
+  // Totales de ingresos/costo/ganancia (solo planes activos).
+  const feActive       = fePlans.filter(p => p.is_active);
+  const feTotalRevenue = feActive.reduce((s, p) => s + (p.price || 0), 0);
+  const feTotalCost    = feActive.reduce((s, p) => s + (feProviderCost(p.docsPerMonth) ?? 0), 0);
+  const feTotalProfit  = feTotalRevenue - feTotalCost;
+  const feMargin       = feTotalRevenue > 0 ? (feTotalProfit / feTotalRevenue) * 100 : 0;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
@@ -272,18 +356,28 @@ export default function Plans() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
 
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900">Gestión de Planes</h1>
-          <p className="text-gray-400 text-sm mt-0.5">{plans.length} planes configurados</p>
-        </div>
-        <button
-          onClick={handleNewPlan}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl transition"
-        >
-          <Plus size={18} /> Nuevo Plan
-        </button>
+      {/* Título */}
+      <div>
+        <h1 className="text-2xl font-black text-gray-900">Gestión de Planes</h1>
+        <p className="text-gray-400 text-sm mt-0.5">Planes del sistema y de facturación electrónica</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-gray-200">
+        {[
+          { id: 'system' as const, label: 'Planes del Sistema',      icon: Package },
+          { id: 'fe' as const,     label: 'Facturación Electrónica', icon: FileText },
+        ].map(t => {
+          const active = viewTab === t.id;
+          return (
+            <button key={t.id} onClick={() => setViewTab(t.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 font-bold text-sm border-b-2 -mb-px transition ${
+                active ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}>
+              <t.icon size={16} /> {t.label}
+            </button>
+          );
+        })}
       </div>
 
       {error && (
@@ -292,6 +386,19 @@ export default function Plans() {
           <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
+
+      {/* ═══ TAB: Planes del Sistema ═══ */}
+      {viewTab === 'system' && (
+      <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-400 font-semibold">{plans.length} planes configurados</p>
+        <button
+          onClick={handleNewPlan}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl transition"
+        >
+          <Plus size={18} /> Nuevo Plan
+        </button>
+      </div>
 
       {/* Plan cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -397,6 +504,200 @@ export default function Plans() {
           );
         })}
       </div>
+      </div>
+      )}
+
+      {/* ═══ TAB: Facturación Electrónica ═══ */}
+      {viewTab === 'fe' && (
+        <div className="space-y-6">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800">
+              <strong>Edición local.</strong> Podés ajustar los detalles de cada plan de facturación electrónica.
+              Los cambios todavía no se guardan en el servidor (pendiente de conexión al backend).
+            </p>
+          </div>
+
+          {/* Totales: ingresos, costo del proveedor y ganancia (planes activos) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">
+                <DollarSign size={14} className="text-blue-500" /> Ingresos / mes
+              </div>
+              <p className="text-2xl font-black text-gray-900">{fmtCRC(feTotalRevenue)}</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">{feActive.length} planes activos</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">
+                <TrendingDown size={14} className="text-red-500" /> Costo proveedor / mes
+              </div>
+              <p className="text-2xl font-black text-gray-900">{fmtCRC(feTotalCost)}</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">según tramos de Hacienda</p>
+            </div>
+            <div className="bg-emerald-500 rounded-2xl shadow-sm p-5 text-white">
+              <div className="flex items-center gap-2 text-emerald-50 text-xs font-bold uppercase tracking-wide mb-1">
+                <TrendingUp size={14} /> Ganancia / mes
+              </div>
+              <p className="text-2xl font-black">{fmtCRC(feTotalProfit)}</p>
+              <p className="text-[11px] text-emerald-100 mt-0.5">margen {feMargin.toFixed(1)}%</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-400 font-semibold">{fePlans.length} planes de facturación electrónica</p>
+            <button
+              onClick={openNewFePlan}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl transition"
+            >
+              <Plus size={18} /> Nuevo Plan FE
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {fePlans.map(plan => (
+              <div key={plan.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+                <div className="px-5 pt-5 pb-4 border-b border-gray-50">
+                  <div className="flex items-start justify-between mb-2 gap-2">
+                    <h3 className="text-lg font-black text-gray-900">{plan.name}</h3>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${plan.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {plan.is_active ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400">{plan.description}</p>
+                  <div className="mt-3">
+                    <span className="text-3xl font-black text-blue-600">₡{plan.price.toLocaleString('es-CR')}</span>
+                    <span className="text-gray-400 text-sm ml-1">/mes</span>
+                  </div>
+                </div>
+                <div className="px-5 py-3 text-xs text-gray-500 space-y-1 border-b border-gray-50">
+                  <div className="flex justify-between"><span>Comprobantes/mes</span><span className="font-bold text-gray-700">{plan.docsPerMonth ?? '∞'}</span></div>
+                  <div className="flex justify-between"><span>Costo por doc. extra</span><span className="font-bold text-gray-700">₡{plan.extraDocPrice}</span></div>
+                  {(() => {
+                    const cost = feProviderCost(plan.docsPerMonth);
+                    if (cost == null) return (
+                      <div className="flex justify-between"><span>Costo proveedor</span><span className="font-bold text-gray-400">—</span></div>
+                    );
+                    const profit = plan.price - cost;
+                    return (
+                      <>
+                        <div className="flex justify-between"><span>Costo proveedor</span><span className="font-bold text-gray-700">{fmtCRC(cost)}</span></div>
+                        <div className="flex justify-between"><span>Ganancia</span><span className={`font-black ${profit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCRC(profit)}</span></div>
+                      </>
+                    );
+                  })()}
+                </div>
+                <div className="px-5 py-3 flex-1">
+                  {plan.features.length === 0 ? (
+                    <p className="text-xs text-gray-400 italic">Sin características</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {plan.features.map(f => (
+                        <span key={f} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 font-semibold px-2 py-0.5 rounded-full">
+                          <Check size={10} /> {f}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="px-5 pb-5 pt-3 border-t border-gray-50 space-y-2">
+                  <button onClick={() => openEditFePlan(plan)}
+                    className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition">
+                    <Edit2 size={13} /> Editar detalles
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => toggleFePlan(plan.id)}
+                      className={`text-xs font-bold px-3 py-2 rounded-lg transition ${plan.is_active ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>
+                      {plan.is_active ? 'Desactivar' : 'Activar'}
+                    </button>
+                    <button onClick={() => deleteFePlan(plan.id)}
+                      className="text-xs font-bold px-3 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-red-100 hover:text-red-700 transition">
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: Crear / Editar plan de Facturación Electrónica ── */}
+      {showFeModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl">
+              <div>
+                <h2 className="text-lg font-black text-gray-900">{feIsNew ? 'Nuevo Plan FE' : 'Editar Plan FE'}</h2>
+                <p className="text-xs text-gray-400">{feIsNew ? 'Definí los datos del plan de facturación electrónica' : feForm.name}</p>
+              </div>
+              <button onClick={() => setShowFeModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 transition">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Nombre del Plan</label>
+                <input type="text" value={feForm.name} onChange={e => setFeForm({ ...feForm, name: e.target.value })}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Descripción</label>
+                <textarea value={feForm.description} onChange={e => setFeForm({ ...feForm, description: e.target.value })}
+                  rows={2} className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm resize-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Precio mensual</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₡</span>
+                    <input type="number" value={feForm.price || ''} onChange={e => setFeForm({ ...feForm, price: parseFloat(e.target.value) || 0 })}
+                      className="w-full border border-gray-200 rounded-xl pl-7 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">₡ por doc. extra</label>
+                  <input type="number" value={feForm.extraDocPrice || ''} onChange={e => setFeForm({ ...feForm, extraDocPrice: parseFloat(e.target.value) || 0 })}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Comprobantes / mes</label>
+                  <input type="number" value={feForm.docsPerMonth ?? ''} placeholder="∞ (vacío = ilimitado)"
+                    onChange={e => setFeForm({ ...feForm, docsPerMonth: e.target.value === '' ? null : parseInt(e.target.value) })}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Estado</label>
+                  <select value={feForm.is_active ? '1' : '0'} onChange={e => setFeForm({ ...feForm, is_active: e.target.value === '1' })}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
+                    <option value="1">Activo</option>
+                    <option value="0">Inactivo</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Características <span className="text-gray-400 font-normal">(separadas por coma)</span></label>
+                <textarea value={feFeaturesText} onChange={e => setFeFeaturesText(e.target.value)}
+                  rows={2} placeholder="Tiquete electrónico, Factura electrónica, Nota de crédito"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm resize-none" />
+              </div>
+            </div>
+
+            <div className="flex gap-3 px-6 pb-6">
+              <button onClick={saveFePlan} disabled={!feForm.name.trim()}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white font-bold py-2.5 rounded-xl transition text-sm">
+                {feIsNew ? 'Crear Plan' : 'Guardar Cambios'}
+              </button>
+              <button onClick={() => setShowFeModal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl transition text-sm">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── MODAL: Crear / Editar plan ── */}
       {showModal && (

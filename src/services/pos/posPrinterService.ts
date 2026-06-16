@@ -281,12 +281,18 @@ export class POSPrinterService {
     closed_at: string;
     cashier_name?: string;
     opening_amount: number;
+    // Ventas registradas por el sistema, por método
+    system_cash?: number;
+    system_card?: number;
+    system_sinpe?: number;
+    system_other?: number;
+    // Montos contados por el cajero
     cash_total: number;
     card_total: number;
     sinpe_total: number;
     closing_amount: number;
-    expected_amount: number;     // = opening + ventas en efectivo
-    difference: number;
+    expected_amount: number;     // efectivo esperado = fondo + ventas efvo + entradas - salidas
+    difference: number;          // efectivo contado - esperado (faltante/sobrante)
     invoices_count: number;
     invoices_total: number;
     cash_movements?: Array<{ type: 'in' | 'out'; amount: number; reason: string }>;
@@ -303,28 +309,129 @@ export class POSPrinterService {
       }
     } catch {}
 
-    const html = this.generateCashCloseHTML(report, cfg, general);
-
-    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+    // Mismo ruteo que el cobro (printAuto): Bluetooth / QZ raw / navegador.
+    if (cfg.printerType === 'bluetooth') {
       try {
-        if (!(await qzIsAvailable())) throw new Error('QZ Tray no disponible');
-        await qzConnect();
-        const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
-        if (receiptPrinters.length > 0) {
-          const qz = (window as any).qz;
-          for (const printer of receiptPrinters) {
-            const printerCfg = printer.connection === 'network'
-              ? qz.configs.create({ host: printer.ip, port: printer.port ?? 9100 })
-              : qz.configs.create(printer.printer_name);
-            await qz.print(printerCfg, [{ type: 'html', format: 'plain', data: html }]);
-          }
-          return;
-        }
-      } catch {
-        // fall through to browser
+        const { btPrint } = await import('./bluetoothPrinterService');
+        await btPrint(this.generateCashCloseESCPOS(report, cfg, general));
+        return;
+      } catch (err) {
+        console.warn('[print] Bluetooth cierre falló, usando navegador:', err);
       }
     }
-    await this.printHTMLContent(html);
+
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      const escposBytes = this.generateCashCloseESCPOS(report, cfg, general);
+      if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
+      await qzConnect();
+      const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
+      if (receiptPrinters.length > 0) {
+        for (const printer of receiptPrinters) await qzPrintToPrinter(printer, escposBytes);
+      } else {
+        await qzPrintDefault(escposBytes);
+      }
+      return;
+    }
+
+    // Navegador: HTML como respaldo.
+    await this.printHTMLContent(this.generateCashCloseHTML(report, cfg, general));
+  }
+
+  // ESC/POS raw para el cierre de caja — mismo motor que el ticket de venta.
+  private generateCashCloseESCPOS(report: any, cfg: ReceiptConfig, general?: any): Uint8Array {
+    const charWidth = cfg.paperWidth;
+    const cmds: number[] = [];
+    const push = (...bytes: number[]) => cmds.push(...bytes);
+    const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
+    const nl = () => push(0x0a);
+    const sep = () => { for (let i = 0; i < charWidth; i++) push(0xC4); nl(); };
+    const centerText = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
+    const row = (label: string, val: string) => {
+      const sp = Math.max(1, charWidth - label.length - val.length);
+      text(label + ' '.repeat(sp) + val); nl();
+    };
+    const fmt = (n: number) => `${Number(n || 0).toLocaleString('es-CR')}`;
+    const fmtDateTime = (s: string) => { try { return new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; } };
+
+    const sCash = Number(report.system_cash ?? 0);
+    const sCard = Number(report.system_card ?? 0);
+    const sSinpe = Number(report.system_sinpe ?? 0);
+    const sOther = Number(report.system_other ?? 0);
+    const systemTotal = sCash + sCard + sSinpe + sOther;
+
+    // Init (igual que el ticket de venta)
+    push(0x1B, 0x40);               // ESC @ reset
+    push(0x1C, 0x2E);               // FS . cancelar modo chino
+    push(0x1B, 0x52, 0x00);         // charset USA
+    push(0x1B, 0x74, 0x00);         // CP437
+    push(0x1B, 0x21, 0x00);         // modo normal
+
+    centerText('=== CIERRE DE CAJA ===');
+    if (general?.businessName) centerText(general.businessName);
+    sep();
+    row('Apertura:', fmtDateTime(report.opened_at));
+    row('Cierre:', fmtDateTime(report.closed_at));
+    if (report.cashier_name) row('Cajero:', String(report.cashier_name));
+    sep();
+
+    // Ventas del sistema por método
+    centerText('VENTAS DEL SISTEMA');
+    row('Efectivo:', fmt(sCash));
+    row('Datafono:', fmt(sCard));
+    row('SINPE:', fmt(sSinpe));
+    if (sOther > 0) row('Otros:', fmt(sOther));
+    sep();
+    row('Total ventas:', fmt(systemTotal));
+    row('Facturas:', String(report.invoices_count ?? 0));
+    sep();
+
+    // Movimientos de efectivo
+    const movs = (report.cash_movements ?? []) as Array<{ type: 'in' | 'out'; amount: number; reason: string }>;
+    if (movs.length > 0) {
+      centerText('MOVIMIENTOS DE EFECTIVO');
+      for (const m of movs) {
+        row(m.type === 'in' ? '+ Entrada:' : '- Salida:', fmt(m.amount));
+        if (m.reason) { text(`  ${m.reason}`.substring(0, charWidth)); nl(); }
+      }
+      sep();
+    }
+
+    // Arqueo (sobre el total: fondo + ventas del día)
+    centerText('ARQUEO');
+    row('Fondo de caja:', fmt(report.opening_amount));
+    row('+ Total ventas:', fmt(systemTotal));
+    if (report.cash_movements?.some((m: any) => m.type === 'in')) row('+ Entradas:', fmt(movs.filter(m => m.type === 'in').reduce((s, m) => s + m.amount, 0)));
+    if (report.cash_movements?.some((m: any) => m.type === 'out')) row('- Salidas:', fmt(movs.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0)));
+    row('ESPERADO:', fmt(report.expected_amount));
+    sep();
+
+    // Contado por método
+    centerText('CONTADO');
+    row('Efectivo:', fmt(report.cash_total));
+    row('Datafono:', fmt(report.card_total));
+    row('SINPE:', fmt(report.sinpe_total));
+    row('TOTAL CONTADO:', fmt(report.closing_amount));
+    sep();
+
+    // Faltante / sobrante (sobre el total)
+    push(0x1B, 0x21, 0x10);         // ESC ! — doble alto
+    const diff = Number(report.difference ?? 0);
+    const diffLabel = diff === 0 ? 'CUADRADO' : diff > 0 ? 'SOBRANTE' : 'FALTANTE';
+    centerText(`${diffLabel}: ${fmt(Math.abs(diff))}`);
+    push(0x1B, 0x21, 0x00);         // modo normal
+    sep();
+
+    nl();
+    centerText('FIRMA');
+    nl(); nl();
+    centerText('____________________');
+    nl();
+
+    // Feed + corte (SIN cajón — el cierre no abre caja)
+    nl(); nl(); nl(); nl();
+    push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
+
+    return new Uint8Array(cmds);
   }
 
   private generateCashCloseHTML(report: any, cfg: ReceiptConfig, general?: any): string {
@@ -382,18 +489,14 @@ export class POSPrinterService {
   <div class="meta"><strong>Cierre:</strong> ${fmtDateTime(report.closed_at)}</div>
   ${report.cashier_name ? `<div class="meta"><strong>Cajero:</strong> ${report.cashier_name}</div>` : ''}
 
-  <div class="section">RESUMEN DE VENTAS</div>
+  <div class="section">VENTAS DEL SISTEMA</div>
   <table>
-    <tr><td>Facturas emitidas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
-    <tr><td>Total ventas:</td><td style="text-align:right">${fmt(report.invoices_total)}</td></tr>
-  </table>
-
-  <div class="section">DESGLOSE</div>
-  <table>
-    <tr><td>Fondo inicial:</td><td style="text-align:right">${fmt(report.opening_amount)}</td></tr>
-    <tr><td>Efectivo contado:</td><td style="text-align:right">${fmt(report.cash_total)}</td></tr>
-    <tr><td>Tarjeta:</td><td style="text-align:right">${fmt(report.card_total)}</td></tr>
-    <tr><td>SINPE:</td><td style="text-align:right">${fmt(report.sinpe_total)}</td></tr>
+    <tr><td>Efectivo:</td><td style="text-align:right">${fmt(report.system_cash ?? 0)}</td></tr>
+    <tr><td>Datáfono:</td><td style="text-align:right">${fmt(report.system_card ?? 0)}</td></tr>
+    <tr><td>SINPE:</td><td style="text-align:right">${fmt(report.system_sinpe ?? 0)}</td></tr>
+    ${(report.system_other ?? 0) > 0 ? `<tr><td>Otros:</td><td style="text-align:right">${fmt(report.system_other)}</td></tr>` : ''}
+    <tr><td><strong>Total ventas:</strong></td><td style="text-align:right"><strong>${fmt((report.system_cash ?? 0) + (report.system_card ?? 0) + (report.system_sinpe ?? 0) + (report.system_other ?? 0))}</strong></td></tr>
+    <tr><td>Facturas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
   </table>
 
   ${report.cash_movements && report.cash_movements.length > 0 ? `
@@ -401,8 +504,20 @@ export class POSPrinterService {
     <table>${movementsRows}</table>
   ` : ''}
 
-  <div class="total-line">CONTADO: ${fmt(report.closing_amount)}</div>
-  <div class="meta" style="text-align:center"><strong>Esperado:</strong> ${fmt(report.expected_amount)}</div>
+  <div class="section">ARQUEO</div>
+  <table>
+    <tr><td>Fondo de caja:</td><td style="text-align:right">${fmt(report.opening_amount)}</td></tr>
+    <tr><td>+ Total ventas:</td><td style="text-align:right">${fmt((report.system_cash ?? 0) + (report.system_card ?? 0) + (report.system_sinpe ?? 0) + (report.system_other ?? 0))}</td></tr>
+    <tr><td><strong>Esperado:</strong></td><td style="text-align:right"><strong>${fmt(report.expected_amount)}</strong></td></tr>
+  </table>
+
+  <div class="section">CONTADO</div>
+  <table>
+    <tr><td>Efectivo:</td><td style="text-align:right">${fmt(report.cash_total)}</td></tr>
+    <tr><td>Datáfono:</td><td style="text-align:right">${fmt(report.card_total)}</td></tr>
+    <tr><td>SINPE:</td><td style="text-align:right">${fmt(report.sinpe_total)}</td></tr>
+    <tr><td><strong>Total contado:</strong></td><td style="text-align:right"><strong>${fmt(report.closing_amount)}</strong></td></tr>
+  </table>
 
   <div class="diff-line" style="color:${diffColor};border-color:${diffColor};">
     ${diffLabel}<br>${fmt(Math.abs(report.difference))}
