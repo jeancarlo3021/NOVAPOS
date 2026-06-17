@@ -231,6 +231,13 @@ export class POSPrinterService {
       footerMessage: cfg.footerMessage,
     };
 
+    // Bluetooth: enviar bytes ESC/POS por Web Bluetooth (igual que printAuto).
+    if (cfg.printerType === 'bluetooth') {
+      const { btPrint } = await import('./bluetoothPrinterService');
+      await btPrint(this.generateESCPOS(testData, cfg));
+      return;
+    }
+
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       try {
         await this.printQZTray(testData, cfg);
@@ -240,6 +247,30 @@ export class POSPrinterService {
       }
     }
     await this.printBrowser(testData, cfg);
+  }
+
+  /** Imprime un ticket de prueba SIEMPRE por Bluetooth/Serial/USB, sin importar
+   *  el tipo de impresora guardado. Lo usa el botón "Imprimir prueba" del panel
+   *  Bluetooth para garantizar que vaya a la impresora conectada y NO al
+   *  diálogo del navegador. */
+  async printTestBluetooth(tenantId: string): Promise<void> {
+    const cfg = await this.loadReceiptConfig(tenantId);
+    const now = new Date();
+    const testData: ReceiptData = {
+      invoiceNumber: 'TEST-001',
+      date: now.toLocaleDateString('es-CR'),
+      time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+      items: [
+        { name: 'Producto de prueba', quantity: 2, unitPrice: 1500, subtotal: 3000 },
+        { name: 'Otro artículo', quantity: 1, unitPrice: 2000, subtotal: 2000 },
+      ],
+      subtotal: 5000, tax: 650, total: 5650,
+      paymentMethod: 'Efectivo',
+      storeName: cfg.showStoreName ? 'MI NEGOCIO' : undefined,
+      footerMessage: cfg.footerMessage,
+    };
+    const { btPrint } = await import('./bluetoothPrinterService');
+    await btPrint(this.generateESCPOS(testData, cfg));
   }
 
   // ─── QZ Tray ─────────────────────────────────────────────────────────────────

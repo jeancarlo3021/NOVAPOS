@@ -465,8 +465,9 @@ function BluetoothPanel({ log, tenantId }: { log: (m: string) => void; tenantId:
     if (!tenantId) return;
     setBusy('test');
     try {
-      await posPrinterService.printTest(tenantId);
-      log('🖨️ Ticket de prueba enviado');
+      // Imprime SIEMPRE por Bluetooth/Serial/USB (no por el diálogo del navegador).
+      await posPrinterService.printTestBluetooth(tenantId);
+      log('🖨️ Ticket de prueba enviado a la impresora');
     } catch (e) {
       log(`❌ ${e instanceof Error ? e.message : 'Error al imprimir'}`);
     } finally { setBusy(null); }
