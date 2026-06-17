@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { LockKeyhole, X, TrendingUp, TrendingDown, Plus, Trash2, CreditCard, Smartphone, Banknote } from 'lucide-react';
+import { LockKeyhole, X, Plus, Trash2, CreditCard, Smartphone, Banknote } from 'lucide-react';
 import { cashSessionService } from '@/services/cashManagement/cashSessionsService';
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -238,12 +238,6 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     }
   };
 
-  // ── Difference badge (efectivo) ──
-  const diffState = (grandTotal === 0 && expectedTotal === 0) ? null
-    : difference === 0 ? 'exact' : difference > 0 ? 'over' : 'under';
-
-  const fmtc = (n: number) => `₡${Number(n).toLocaleString('es-CR')}`;
-
   const DenomCard = ({ d }: { d: typeof DENOMINATIONS[0] }) => {
     const qty = quantities[d.value] ?? 0;
     const active = qty > 0;
@@ -448,48 +442,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
         {/* ── Footer ── */}
         <div className="bg-white border-t border-gray-200 px-4 sm:px-6 py-3 sm:py-5 shrink-0 space-y-3">
-          {/* Ventas registradas por el sistema (por método) */}
-          <div className="bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-black uppercase tracking-wider text-gray-500">Ventas del sistema</p>
-              <p className="text-xs text-gray-400">{sys.loaded ? `${sys.invoicesCount} factura${sys.invoicesCount !== 1 ? 's' : ''}` : 'Cargando…'}</p>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div>
-                <p className="text-[11px] font-bold text-emerald-600 uppercase">Efectivo</p>
-                <p className="text-sm font-black text-gray-800">{fmtc(sys.cash)}</p>
-              </div>
-              <div>
-                <p className="text-[11px] font-bold text-blue-600 uppercase">Datáfono</p>
-                <p className="text-sm font-black text-gray-800">{fmtc(sys.card)}</p>
-              </div>
-              <div>
-                <p className="text-[11px] font-bold text-violet-600 uppercase">SINPE</p>
-                <p className="text-sm font-black text-gray-800">{fmtc(sys.sinpe)}</p>
-              </div>
-            </div>
-            <div className="mt-2 pt-2 border-t border-gray-200 flex items-center justify-between text-xs">
-              <span className="text-gray-500">Esperado <span className="text-gray-400">(fondo ₡{openingAmount.toLocaleString()} + ventas {fmtc(systemSalesTotal)}{sys.cashIn ? ' + entradas' : ''}{sys.cashOut ? ' - salidas' : ''})</span></span>
-              <span className="font-black text-gray-800">{fmtc(expectedTotal)}</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-500">Total contado (efvo + tarjeta + SINPE)</span>
-              <span className="font-black text-gray-800">{fmtc(grandTotal)}</span>
-            </div>
-          </div>
-
-          {/* Difference (efectivo) */}
-          {diffState && diffState !== 'exact' && (
-            <div className={`flex items-center gap-3 rounded-2xl px-5 py-3 border-2 ${diffState === 'over' ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-amber-50 border-amber-300 text-amber-700'}`}>
-              {diffState === 'over' ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
-              <span className="font-black">{diffState === 'over' ? `Sobrante: ₡${difference.toLocaleString()}` : `Faltante: ₡${Math.abs(difference).toLocaleString()}`}</span>
-            </div>
-          )}
-          {diffState === 'exact' && (
-            <div className="flex items-center gap-3 rounded-2xl px-5 py-3 border-2 bg-emerald-50 border-emerald-300 text-emerald-700">
-              <span className="text-lg">✓</span><span className="font-black">Monto exacto</span>
-            </div>
-          )}
+          {/* Las ventas del sistema y el faltante/sobrante NO se muestran en pantalla:
+              solo aparecen en el ticket impreso del cierre. */}
 
           {/* Grand total */}
           <div className="flex items-center justify-between bg-rose-500 rounded-2xl px-6 py-4">

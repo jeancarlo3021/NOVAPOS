@@ -4,6 +4,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { PlanGuard } from '@/components/PlanGuard';
 import { Login } from '@/modules/auth/Login';
+import { ResetPassword } from '@/modules/auth/ResetPassword';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/modules/dashboard/Dasboard';
 import { SyncIndicator } from '@/components/SyncIndicator';
@@ -58,6 +59,7 @@ function AppContent() {
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/auth/reset-password" element={<ResetPassword />} />
 
           <Route
               path="/"

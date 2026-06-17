@@ -134,10 +134,12 @@ export const TeamsView: React.FC = () => {
     }
   };
 
-  const totalMembers = teams.reduce((s, t) => s + (t.members?.length ?? 0), 0);
-  const unassignedUsers = users.filter(u =>
-    !teams.some(t => t.members?.some(m => m.user_id === u.id))
-  ).length;
+  // Personas distintas que pertenecen a al menos un equipo (sin contar duplicados
+  // si alguien está en varios equipos).
+  const memberUserIds = new Set<string>();
+  teams.forEach(t => t.members?.forEach(m => { if (m.user_id) memberUserIds.add(m.user_id); }));
+  const totalMembers = memberUserIds.size;
+  const unassignedUsers = users.filter(u => !memberUserIds.has(u.id)).length;
 
   return (
     <div className="space-y-5">

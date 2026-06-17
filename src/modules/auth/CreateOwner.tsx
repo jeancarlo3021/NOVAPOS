@@ -205,6 +205,47 @@ export const CreateOwner: React.FC = () => {
     }
   };
 
+  // ── Enviar correos del SaaS (comprobante de alta / recordatorio de pago) ─────
+  const [emailingId, setEmailingId] = useState<string | null>(null);
+  // Toast flotante de confirmación/error.
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+  // ── Enviar correo de cambio de contraseña (lo cambia el cliente vía Supabase) ─
+  const [pwdSendingId, setPwdSendingId] = useState<string | null>(null);
+  const sendPasswordReset = async (owner: OwnerData) => {
+    if (!confirm(`¿Enviar un correo de cambio de contraseña al dueño de "${owner.name}"?`)) return;
+    setPwdSendingId(owner.id);
+    try {
+      await apiFetch('/admin/send-password-reset', {
+        method: 'POST',
+        body: JSON.stringify({ ownerId: owner.owner_id, tenantId: owner.id }),
+      });
+      showToast(`Correo de cambio de contraseña enviado a "${owner.name}"`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'No se pudo enviar el correo', 'error');
+    } finally {
+      setPwdSendingId(null);
+    }
+  };
+
+  const sendAdminEmail = async (owner: OwnerData, kind: 'new-business' | 'payment-reminder') => {
+    setEmailingId(owner.id);
+    try {
+      await apiFetch(`/email/${kind}`, {
+        method: 'POST',
+        body: JSON.stringify({ tenant_id: owner.id }),
+      });
+      showToast(kind === 'new-business' ? 'Comprobante mandado' : 'Recordatorio mandado', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'No se pudo enviar el correo', 'error');
+    } finally {
+      setEmailingId(null);
+    }
+  };
+
   // ── Change plan ────────────────────────────────────────────────────────────
 
   const handleChangePlan = async (tenantId: string, newPlanId: string) => {
@@ -779,6 +820,24 @@ export const CreateOwner: React.FC = () => {
                               <option value="">Cambiar plan</option>
                               {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
+                            {/* Comprobante de alta */}
+                            <button onClick={() => sendAdminEmail(o, 'new-business')} disabled={emailingId === o.id}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 transition disabled:opacity-40"
+                              title="Enviar comprobante de alta por correo al dueño">
+                              {emailingId === o.id ? <RefreshCw size={11} className="animate-spin" /> : <Mail size={11} />} Comprobante
+                            </button>
+                            {/* Recordatorio de pago */}
+                            <button onClick={() => sendAdminEmail(o, 'payment-reminder')} disabled={emailingId === o.id}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-amber-50 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-100 transition disabled:opacity-40"
+                              title="Enviar recordatorio de pago por correo al dueño">
+                              {emailingId === o.id ? <RefreshCw size={11} className="animate-spin" /> : <Mail size={11} />} Recordatorio
+                            </button>
+                            {/* Enviar correo de cambio de contraseña */}
+                            <button onClick={() => sendPasswordReset(o)} disabled={pwdSendingId === o.id}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-violet-50 border border-violet-200 text-violet-700 rounded-lg hover:bg-violet-100 transition disabled:opacity-40"
+                              title="Enviar correo para que el dueño cambie su contraseña">
+                              {pwdSendingId === o.id ? <RefreshCw size={11} className="animate-spin" /> : <Lock size={11} />} Cambiar clave
+                            </button>
                             {/* Eliminar */}
                             <button
                               onClick={() => handleDeleteOwner(o.id, o.owner_id, o.name)}
@@ -808,6 +867,19 @@ export const CreateOwner: React.FC = () => {
           onClose={() => setRenewing(null)}
           onDone={fetchOwners}
         />
+      )}
+
+      {/* Toast flotante */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-[100] animate-[slideIn_.2s_ease-out]">
+          <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-bold text-white ${
+            toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'
+          }`}>
+            {toast.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+            <span>{toast.msg}</span>
+            <button onClick={() => setToast(null)} className="ml-1 opacity-80 hover:opacity-100"><X size={15} /></button>
+          </div>
+        </div>
       )}
     </div>
   );

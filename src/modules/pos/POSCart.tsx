@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 
@@ -14,6 +14,8 @@ interface POSCartPanelProps {
   onRemoveFromCart: (productId: string) => void;
   onChangeQuantity: (productId: string, quantity: number) => void;
   canDiscount?: boolean;
+  /** Tope máximo de descuento (%) según configuración del negocio. */
+  maxDiscountPercent?: number;
   onApplyDiscount?: (productId: string, discountPct: number) => void;
   onPayment: () => void;
   /** Cuando true, el carrito se expande para ocupar el área principal (modo lista). */
@@ -32,6 +34,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   onRemoveFromCart,
   onChangeQuantity,
   canDiscount,
+  maxDiscountPercent = 100,
   onApplyDiscount,
   onPayment,
   expanded = false,
@@ -54,8 +57,11 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   };
 
   const handleDiscountChange = (productId: string, value: string) => {
-    setDiscountInputs(prev => ({ ...prev, [productId]: value }));
-    const pct = Math.min(100, Math.max(0, parseFloat(value) || 0));
+    // Topar al máximo configurado por el negocio.
+    const cap = Math.max(0, Math.min(100, maxDiscountPercent));
+    let pct = Math.max(0, parseFloat(value) || 0);
+    if (pct > cap) pct = cap;
+    setDiscountInputs(prev => ({ ...prev, [productId]: pct ? String(pct) : '' }));
     onApplyDiscount?.(productId, pct);
   };
 
@@ -190,11 +196,11 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                 {/* Discount input (only when canDiscount and no promo active) */}
                 {canDiscount && !hasPromo && (
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="text-sm text-gray-400 font-medium">Descuento %</span>
+                    <span className="text-sm text-gray-400 font-medium">Descuento % <span className="text-gray-300">(máx {Math.min(100, maxDiscountPercent)}%)</span></span>
                     <input
                       type="number"
                       min="0"
-                      max="100"
+                      max={Math.min(100, maxDiscountPercent)}
                       step="1"
                       value={discountInputs[item.product_id] ?? (item.discount_percent ? String(item.discount_percent) : '')}
                       onChange={e => handleDiscountChange(item.product_id, e.target.value)}

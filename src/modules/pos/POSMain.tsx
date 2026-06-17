@@ -427,16 +427,16 @@ export const POSMain = () => {
       return cached?.config ?? cached;
     } catch { return null; }
   })();
+  // Tope de descuento del negocio. Se respeta para todos los roles.
   const maxDiscountPercent: number = generalCfgCached?.maxDiscountPercent ?? 100;
-  // Manager (owner/admin/gerente) puede superar el tope siempre.
-  const userRoleRaw = (user as any)?.role ?? '';
-  const isManagerRole = ['owner', 'admin', 'gerente'].includes(userRoleRaw);
 
   const handleApplyDiscount = (productId: string, discount_percent: number) => {
+    const cap = Math.max(0, Math.min(100, maxDiscountPercent));
     let pct = Math.max(0, Math.min(100, discount_percent));
-    if (!isManagerRole && pct > maxDiscountPercent) {
-      pct = maxDiscountPercent;
-      setError(`Descuento limitado al ${maxDiscountPercent}% por configuración del negocio.`);
+    // El tope configurado se respeta para TODOS los roles (incluido el dueño).
+    if (pct > cap) {
+      pct = cap;
+      setError(`Descuento limitado al ${cap}% por configuración del negocio.`);
     }
     setCartItems(prev =>
       prev.map(item =>
@@ -790,7 +790,8 @@ export const POSMain = () => {
           taxRate={taxRate}
           currentSession={currentSession}
           loading={paymentLoading}
-          canDiscount={planFeatures.pos_discount && (isManagerRole || maxDiscountPercent > 0)}
+          canDiscount={planFeatures.pos_discount && maxDiscountPercent > 0}
+          maxDiscountPercent={maxDiscountPercent}
           onRemoveFromCart={handleRemoveFromCart}
           onChangeQuantity={handleChangeQuantity}
           onApplyDiscount={handleApplyDiscount}
