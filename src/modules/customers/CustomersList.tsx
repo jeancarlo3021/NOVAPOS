@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power } from 'lucide-react';
 import { customersService, ID_TYPES, type Customer, type CustomerInput } from '@/services/customers/customersService';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
+import { CustomerPricesModal } from './CustomerPricesModal';
 
 export const CustomersList: React.FC = () => {
   const { canDo } = useRolePermissions();
@@ -15,6 +16,7 @@ export const CustomersList: React.FC = () => {
   const [search, setSearch]       = useState('');
   const [showForm, setShowForm]   = useState(false);
   const [editing, setEditing]     = useState<Customer | null>(null);
+  const [pricesFor, setPricesFor] = useState<Customer | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -28,9 +30,14 @@ export const CustomersList: React.FC = () => {
     return () => clearTimeout(t);
   }, [load]);
 
+  const handleToggleActive = async (c: Customer) => {
+    try { await customersService.setActive(c.id, !c.is_active); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
+  };
+
   const handleDelete = async (c: Customer) => {
-    if (!confirm(`¿Desactivar a "${c.name}"?`)) return;
-    try { await customersService.remove(c.id); await load(); }
+    if (!confirm(`¿Eliminar definitivamente a "${c.name}"? Esta acción no se puede deshacer.`)) return;
+    try { await customersService.remove(c.id, true); await load(); }
     catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
   };
 
@@ -126,9 +133,27 @@ export const CustomersList: React.FC = () => {
                       <Edit2 size={11} /> Editar
                     </button>
                   )}
-                  {canDelete && c.is_active && (
+                  {canEdit && (
+                    <button onClick={() => setPricesFor(c)}
+                      className="flex-1 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-100 flex items-center justify-center gap-1">
+                      <Tag size={11} /> Precios
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button onClick={() => handleToggleActive(c)}
+                      title={c.is_active ? 'Desactivar cliente' : 'Activar cliente'}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1 ${
+                        c.is_active
+                          ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                          : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      }`}>
+                      <Power size={11} /> {c.is_active ? 'Desactivar' : 'Activar'}
+                    </button>
+                  )}
+                  {canDelete && (
                     <button onClick={() => handleDelete(c)}
-                      className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100">
+                      title="Eliminar definitivamente"
+                      className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-600 hover:text-white">
                       <Trash2 size={11} />
                     </button>
                   )}
@@ -144,6 +169,13 @@ export const CustomersList: React.FC = () => {
           customer={editing}
           onClose={() => setShowForm(false)}
           onSaved={async () => { setShowForm(false); await load(); }}
+        />
+      )}
+
+      {pricesFor && (
+        <CustomerPricesModal
+          customer={pricesFor}
+          onClose={() => setPricesFor(null)}
         />
       )}
     </div>

@@ -46,6 +46,8 @@ interface POSProductsPanelProps {
   viewMode?: 'touch' | 'desktop';
   /** Habilita las pestañas de búsqueda código/nombre (controlado por el plan). */
   searchTabsEnabled?: boolean;
+  /** Precios especiales del cliente seleccionado (product_id → precio). */
+  customerPrices?: Record<string, number>;
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
@@ -60,6 +62,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   activePromotions = [],
   viewMode: _viewMode = 'touch',
   searchTabsEnabled: _searchTabsEnabled = false,
+  customerPrices = {},
 }) => {
   const { tenantId } = useTenantId();
   const { layout } = usePOSLayout();
@@ -268,7 +271,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
     <div className={`flex flex-col bg-gray-100 overflow-hidden flex-1`}>
 
       {/* ── Scanner input + search ── */}
-      <div className="bg-white border-b border-gray-200 px-3 pt-3 pb-0 shrink-0">
+      <div className="bg-white border-b border-gray-200 px-2 sm:px-3 pt-2 sm:pt-3 pb-0 shrink-0">
 
         {/* Tabs de código/nombre eliminadas: el SKU ahora se captura sólo por
             pistola (input oculto). La barra de nombre queda siempre visible. */}
@@ -326,13 +329,13 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
         {/* Búsqueda por nombre — siempre visible. */}
         <div className="relative mb-2">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={16} className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
             placeholder="Buscar producto..."
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400 text-sm font-medium transition"
+            className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-9 sm:pl-10 pr-3 py-2 sm:py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400 text-sm font-medium transition"
           />
         </div>
 
@@ -344,7 +347,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                 <button
                   key={cat.id}
                   onPointerDown={() => setActiveCategory(cat.id)}
-                  className={`shrink-0 h-9 px-4 rounded-lg text-sm font-bold transition border active:scale-95 ${
+                  className={`shrink-0 h-8 sm:h-9 px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-bold transition border active:scale-95 ${
                     active
                       ? 'bg-emerald-500 text-white border-emerald-500'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
@@ -471,14 +474,30 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                   )}
 
                   {/* Price */}
-                  <span className="text-emerald-600 font-black text-2xl mt-auto leading-none">
-                    ₡{product.unit_price?.toLocaleString()}
-                    {isWeight && (
-                      <span className="text-sm font-bold text-gray-400">
-                        /{product.unit_type?.abbreviation ?? 'kg'}
+                  {(() => {
+                    const special = customerPrices[product.id];
+                    const hasSpecial = special != null && special !== product.unit_price;
+                    return (
+                      <span className="mt-auto leading-none">
+                        {hasSpecial && (
+                          <span className="block text-sm font-bold text-gray-400 line-through">
+                            ₡{product.unit_price?.toLocaleString()}
+                          </span>
+                        )}
+                        <span className={`font-black text-2xl leading-none ${hasSpecial ? 'text-violet-600' : 'text-emerald-600'}`}>
+                          ₡{(hasSpecial ? special : product.unit_price)?.toLocaleString()}
+                          {isWeight && (
+                            <span className="text-sm font-bold text-gray-400">
+                              /{product.unit_type?.abbreviation ?? 'kg'}
+                            </span>
+                          )}
+                        </span>
+                        {hasSpecial && (
+                          <span className="block text-[10px] font-bold text-violet-600 uppercase tracking-wide">Precio cliente</span>
+                        )}
                       </span>
-                    )}
-                  </span>
+                    );
+                  })()}
 
                   {!inStock && (
                     <span className="absolute inset-0 flex items-center justify-center bg-white/70 rounded-lg text-xs text-gray-400 font-black">

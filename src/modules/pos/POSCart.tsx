@@ -66,7 +66,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   };
 
   return (
-    <div className={`flex flex-col bg-white ${expanded ? 'flex-1' : 'w-96 shrink-0 border-l-2 border-gray-200'}`}>
+    <div className={`flex flex-col bg-white ${expanded ? 'flex-1' : 'w-60 sm:w-72 lg:w-96 shrink-0 border-l-2 border-gray-200'}`}>
 
       {/* ── Header ── */}
       <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2 bg-white shrink-0">
@@ -163,7 +163,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
             </tbody>
           </table>
         ) : (
-          <ul className="divide-y divide-gray-100 px-5 py-2">
+          <ul className="divide-y divide-gray-100 px-3 py-1.5">
             {cartItems.map((item) => {
               const hasDiscount = (item.discount_percent ?? 0) > 0;
               const hasPromo    = !!item.promo;
@@ -171,7 +171,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               const showOriginal = hasDiscount || hasPromo;
 
               return (
-              <li key={item.product_id} className="py-3">
+              <li key={item.product_id} className="py-2.5">
                 {/* Name row */}
                 <div className="flex items-start gap-2 mb-2">
                   <div className="flex-1 min-w-0">
@@ -195,8 +195,8 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
 
                 {/* Discount input (only when canDiscount and no promo active) */}
                 {canDiscount && !hasPromo && (
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-sm text-gray-400 font-medium">Descuento % <span className="text-gray-300">(máx {Math.min(100, maxDiscountPercent)}%)</span></span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs text-gray-400 font-medium" title={`Máximo ${Math.min(100, maxDiscountPercent)}%`}>Desc. %</span>
                     <input
                       type="number"
                       min="0"
@@ -205,12 +205,10 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                       value={discountInputs[item.product_id] ?? (item.discount_percent ? String(item.discount_percent) : '')}
                       onChange={e => handleDiscountChange(item.product_id, e.target.value)}
                       placeholder="0"
-                      className="w-24 text-center border border-gray-200 rounded-lg px-2 py-2 text-base focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                      className="w-16 text-center border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
                     />
                     {hasDiscount && (
-                      <span className="text-sm text-emerald-600 font-semibold">
-                        -{item.discount_percent}%
-                      </span>
+                      <span className="text-xs text-emerald-600 font-semibold">-{item.discount_percent}%</span>
                     )}
                   </div>
                 )}
@@ -221,24 +219,24 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                   <div className="flex items-center gap-1">
                     <button
                       onPointerDown={() => onChangeQuantity(item.product_id, item.quantity - 1)}
-                      className="w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 active:bg-gray-300 active:scale-90 text-gray-700 flex items-center justify-center transition"
+                      className="w-9 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 active:bg-gray-300 active:scale-90 text-gray-700 flex items-center justify-center transition shrink-0"
                     >
-                      <Minus size={18} />
+                      <Minus size={16} />
                     </button>
-                    <span className="w-10 text-center text-gray-900 font-black text-xl select-none">
+                    <span className="w-8 text-center text-gray-900 font-black text-lg select-none">
                       {item.quantity}
                     </span>
                     <button
                       onPointerDown={() => onChangeQuantity(item.product_id, item.quantity + 1)}
-                      className="w-10 h-10 rounded-lg bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 active:scale-90 text-white flex items-center justify-center transition"
+                      className="w-9 h-9 rounded-lg bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 active:scale-90 text-white flex items-center justify-center transition shrink-0"
                     >
-                      <Plus size={18} />
+                      <Plus size={16} />
                     </button>
                   </div>
 
                   {/* Price */}
-                  <div className="text-right">
-                    <p className="text-gray-400 text-xs font-medium">
+                  <div className="text-right min-w-0">
+                    <p className="text-gray-400 text-[11px] font-medium truncate">
                       ₡{item.unit_price.toLocaleString()} c/u
                     </p>
                     {showOriginal && (

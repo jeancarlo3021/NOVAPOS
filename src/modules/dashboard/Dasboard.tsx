@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
-  TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff,
+  TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -32,7 +32,7 @@ interface QuickStats {
 
 // ── Tiles del menú principal — estilo Eleventa ─────────────────────────────
 interface Tile {
-  feature: keyof PlanFeatures | 'settings';
+  feature: keyof PlanFeatures | 'settings' | 'customers';
   label: string;
   icon: React.ElementType;
   path: string;
@@ -47,6 +47,7 @@ const ALL_TILES: Tile[] = [
   { feature: 'accounts_payable', label: 'Cuentas',         icon: Wallet,        path: '/accounts-payable', bg: 'from-orange-500 to-amber-600'     },
   { feature: 'purchases',        label: 'Compras',         icon: ClipboardList, path: '/purchases',        bg: 'from-cyan-500 to-sky-600'         },
   { feature: 'promotions',       label: 'Promociones',     icon: Tag,           path: '/promotions',       bg: 'from-violet-500 to-purple-600'    },
+  { feature: 'customers',        label: 'Clientes',        icon: UserCircle,    path: '/customers',        bg: 'from-teal-500 to-cyan-600'        },
   { feature: 'users',            label: 'Usuarios',        icon: Users,         path: '/users',            bg: 'from-fuchsia-500 to-pink-500'     },
   { feature: 'settings',         label: 'Configuración',   icon: Settings,      path: '/settings',         bg: 'from-slate-600 to-slate-700'      },
 ];
@@ -179,7 +180,8 @@ export const Dashboard = () => {
   // Solo mostrar tiles habilitados por plan Y por el rol del user.
   // Settings/Configuración pasa por plan + rol (si el owner lo cerró, gerente no la ve).
   const tiles = ALL_TILES.filter(t => {
-    const planHas = t.feature === 'settings' || (pf[t.feature as keyof PlanFeatures] ?? false);
+    // 'settings' y 'customers' no dependen de un flag del plan (siempre disponibles).
+    const planHas = t.feature === 'settings' || t.feature === 'customers' || (pf[t.feature as keyof PlanFeatures] ?? false);
     if (!planHas) return false;
     // Mapear feature → módulo de role_permissions. Si no hay mapeo, no se gatea.
     const moduleKey = t.feature === 'settings' ? null : t.feature;

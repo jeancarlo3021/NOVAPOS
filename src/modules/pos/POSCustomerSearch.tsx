@@ -28,13 +28,13 @@ export function POSCustomerSearch({ onPick, selected, onClose }: Props) {
   }, [q]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-4 pt-20">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 shrink-0">
-          <Search size={18} className="text-gray-400" />
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-3 sm:p-4 pt-14 sm:pt-20">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[82vh] flex flex-col">
+        <div className="px-3 sm:px-4 py-2.5 sm:py-3 border-b border-gray-100 flex items-center gap-2 shrink-0">
+          <Search size={16} className="text-gray-400 shrink-0" />
           <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
-            placeholder="Buscar cliente por nombre, cédula o email..."
-            className="flex-1 text-sm focus:outline-none" />
+            placeholder="Buscar cliente…"
+            className="flex-1 min-w-0 text-sm focus:outline-none" />
           <button
             onClick={() => setShowCreate(true)}
             title="Crear cliente nuevo"

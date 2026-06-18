@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { ShoppingBag, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useCashSession } from '@/hooks/useCashSession';
 import { useTenantId } from '@/hooks/useTenant';
@@ -103,6 +104,10 @@ export const POSMain = () => {
   // Cliente formal seleccionado (desde el buscador) — persiste en el tab activo.
   const [selectedCustomer, setSelectedCustomer] =
     useState<import('@/services/customers/customersService').Customer | null>(null);
+  // Precios especiales del cliente seleccionado (product_id → precio).
+  const [customerPrices, setCustomerPrices] = useState<Record<string, number>>({});
+  // Carrito como panel deslizable en pantallas chicas (teléfono).
+  const [cartOpen, setCartOpen] = useState(false);
   // ── Kiosk mode: cajero activo ─────────────────────────────────────────────
   // El terminal del POS se queda con un user base. Cada cajero entra con su
   // PIN y queda como "cajero activo" — todas las acciones que haga (facturas,
@@ -362,12 +367,44 @@ export const POSMain = () => {
     });
   }, [tenantId]);
 
+  // Al seleccionar/cambiar el cliente, cargar sus precios especiales.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (!selectedCustomer) { setCustomerPrices({}); return; }
+      try {
+        const { customerPricesService } = await import('@/services/customers/customerPricesService');
+        const map = await customerPricesService.mapForCustomer(selectedCustomer.id);
+        if (active) setCustomerPrices(map);
+      } catch { if (active) setCustomerPrices({}); }
+    })();
+    return () => { active = false; };
+  }, [selectedCustomer]);
+
+  // Precio efectivo de un producto según el cliente (especial o normal).
+  const priceFor = (product: Product): number =>
+    customerPrices[product.id] ?? product.unit_price;
+
+  // Re-precificar el carrito cuando cambian los precios del cliente.
+  useEffect(() => {
+    setCartItems(prev => prev.map(item => {
+      const base = customerPrices[item.product_id] ?? item.product?.unit_price ?? item.unit_price;
+      if (Math.round(base) === item.unit_price) return item;
+      const subtotal = Math.round(item.promo
+        ? calcPromoSubtotal(base, item.quantity, item.promo as any)
+        : item.quantity * base * (1 - (item.discount_percent ?? 0) / 100));
+      return { ...item, unit_price: Math.round(base), subtotal };
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerPrices]);
+
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     const promo = getProductPromotion(
       product.id,
       (product as any).category_id ?? (product as any).category?.id ?? null,
       activePromotions,
     );
+    const base = priceFor(product);   // precio especial del cliente o normal
     setCartItems(prev => {
       const existing = prev.find(item => item.product_id === product.id);
       if (existing) {
@@ -382,13 +419,13 @@ export const POSMain = () => {
         );
       }
       const subtotal = Math.round(promo
-        ? calcPromoSubtotal(product.unit_price, quantity, promo)
-        : product.unit_price * quantity);
+        ? calcPromoSubtotal(base, quantity, promo)
+        : base * quantity);
       return [...prev, {
         product_id: product.id,
         product,
         quantity,
-        unit_price: Math.round(product.unit_price),
+        unit_price: Math.round(base),
         subtotal,
         promo: promo
           ? { id: promo.id, name: promo.name, type: promo.type, value: promo.value }
@@ -582,6 +619,7 @@ export const POSMain = () => {
         // actual de una sola llamada (más limpio que setCartItems([]) + setCustomerName('')).
         resetActive();
         setShowPaymentModal(false);
+        setCartOpen(false);
         setPaymentLoading(false);
         setLastInvoice(invoice);
         setPaymentData(data);
@@ -624,6 +662,7 @@ export const POSMain = () => {
         // Limpiar UI del tab activo INMEDIATAMENTE
         resetActive();
         setShowPaymentModal(false);
+        setCartOpen(false);
         setPaymentLoading(false);
         setSuccess(`Venta guardada sin conexión (${invoiceNumber}) — se sincronizará al reconectar`);
 
@@ -774,6 +813,7 @@ export const POSMain = () => {
           allProducts={products}
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
+          customerPrices={customerPrices}
           onAddToCart={handleAddToCart}
           currentSession={currentSession}
           productsError={productsError}
@@ -781,24 +821,71 @@ export const POSMain = () => {
           activePromotions={activePromotions}
         />
 
-        <POSCartPanel
-          cartItems={cartItems}
-          subtotal={subtotal}
-          taxAmount={taxAmount}
-          total={total}
-          taxEnabled={taxEnabled}
-          taxRate={taxRate}
-          currentSession={currentSession}
-          loading={paymentLoading}
-          canDiscount={planFeatures.pos_discount && maxDiscountPercent > 0}
-          maxDiscountPercent={maxDiscountPercent}
-          onRemoveFromCart={handleRemoveFromCart}
-          onChangeQuantity={handleChangeQuantity}
-          onApplyDiscount={handleApplyDiscount}
-          onPayment={() => setShowPaymentModal(true)}
-          expanded={isListLayout}
-        />
+        {/* Carrito inline — solo en pantallas grandes (lg+) */}
+        <div className="hidden lg:flex">
+          <POSCartPanel
+            cartItems={cartItems}
+            subtotal={subtotal}
+            taxAmount={taxAmount}
+            total={total}
+            taxEnabled={taxEnabled}
+            taxRate={taxRate}
+            currentSession={currentSession}
+            loading={paymentLoading}
+            canDiscount={planFeatures.pos_discount && maxDiscountPercent > 0}
+            maxDiscountPercent={maxDiscountPercent}
+            onRemoveFromCart={handleRemoveFromCart}
+            onChangeQuantity={handleChangeQuantity}
+            onApplyDiscount={handleApplyDiscount}
+            onPayment={() => setShowPaymentModal(true)}
+            expanded={isListLayout}
+          />
+        </div>
       </div>
+
+      {/* Carrito como panel deslizable — teléfono/tablet (< lg) */}
+      <div className={`lg:hidden fixed inset-0 z-40 ${cartOpen ? '' : 'pointer-events-none'}`}>
+        <div className={`absolute inset-0 bg-black/40 transition-opacity ${cartOpen ? 'opacity-100' : 'opacity-0'}`}
+          onClick={() => setCartOpen(false)} />
+        <div className={`absolute right-0 top-0 bottom-0 w-[90%] max-w-sm bg-white shadow-2xl flex flex-col transition-transform duration-200 ${cartOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+          <button onClick={() => setCartOpen(false)}
+            className="absolute -left-12 top-3 w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center text-gray-600 z-10">
+            <X size={20} />
+          </button>
+          <POSCartPanel
+            cartItems={cartItems}
+            subtotal={subtotal}
+            taxAmount={taxAmount}
+            total={total}
+            taxEnabled={taxEnabled}
+            taxRate={taxRate}
+            currentSession={currentSession}
+            loading={paymentLoading}
+            canDiscount={planFeatures.pos_discount && maxDiscountPercent > 0}
+            maxDiscountPercent={maxDiscountPercent}
+            onRemoveFromCart={handleRemoveFromCart}
+            onChangeQuantity={handleChangeQuantity}
+            onApplyDiscount={handleApplyDiscount}
+            onPayment={() => setShowPaymentModal(true)}
+            expanded
+          />
+        </div>
+      </div>
+
+      {/* Botón flotante "Ver carrito" — teléfono/tablet, oculto cuando el panel está abierto */}
+      {!cartOpen && (
+        <button onClick={() => setCartOpen(true)}
+          className="lg:hidden fixed bottom-4 right-4 z-30 flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-black px-5 py-3.5 rounded-full shadow-xl">
+          <ShoppingBag size={20} />
+          <span>Ver carrito</span>
+          {cartItems.length > 0 && (
+            <span className="bg-white text-emerald-700 text-sm font-black rounded-full min-w-6 h-6 px-1.5 flex items-center justify-center">
+              {cartItems.length}
+            </span>
+          )}
+          <span className="font-black">₡{total.toLocaleString()}</span>
+        </button>
+      )}
 
       {/* Cintillo de atajos F-keys estilo Eleventa — solo en modo escritorio */}
       {posViewMode === 'desktop' && (

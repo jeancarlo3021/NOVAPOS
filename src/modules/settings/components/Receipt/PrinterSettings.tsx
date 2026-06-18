@@ -3,9 +3,9 @@
 import React, { useState, useCallback } from 'react';
 import {
   Printer, CheckCircle2, Play,
-  Settings, PlusCircle, Wifi, WifiOff,
+  PlusCircle, Wifi, WifiOff,
   KeyRound, FileText, Info, ChevronDown,
-  RefreshCw,
+  RefreshCw, Trash2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -170,7 +170,9 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
         </div>
       )}
 
-      {config.printerType === 'bluetooth' && <BluetoothPanel log={log} tenantId={tenantId} />}
+      {config.printerType === 'bluetooth' && (
+        <BluetoothStations config={config} setConfig={setConfig} tenantId={tenantId} />
+      )}
 
       {isQZMode && (
         <>
@@ -180,47 +182,22 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
             {/* ── Left 2/3 ── */}
             <div className="lg:col-span-2 space-y-5">
 
-              {/* Estaciones card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
-                  <h2 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
-                    <Settings size={16} className="text-slate-400" />
-                    Estaciones Configuradas
-                  </h2>
-                  <div className="flex gap-2">
-                    <button onClick={() => addPrinter('receipt')}
-                      className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
-                      <PlusCircle size={14} /> Recibo
-                    </button>
-                    <span className="text-slate-300">|</span>
-                    <button onClick={() => addPrinter('comanda')}
-                      className="text-orange-500 hover:text-orange-600 text-xs font-bold flex items-center gap-1">
-                      <PlusCircle size={14} /> Comanda
-                    </button>
-                  </div>
-                </div>
-
-                {printers.length === 0 ? (
-                  <div className="py-12 text-center text-slate-400 text-sm">
-                    <Printer size={32} className="mx-auto mb-2 opacity-20" />
-                    Sin estaciones configuradas.<br />Añade un recibo o una comanda.
-                  </div>
-                ) : (
-                  <div className="divide-y divide-slate-100">
-                    {printers.map(printer => (
-                      <PrinterRow
-                        key={printer.id}
-                        printer={printer}
-                        qzPrinters={qzPrinters}
-                        onChange={patch => updatePrinter(printer.id, patch)}
-                        onRemove={() => removePrinter(printer.id, printer.label)}
-                        onTest={() => handleTestPrint(printer)}
-                        testLoading={testLoading === printer.id}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* Caja principal */}
+              <QzStationGroup
+                title="Caja principal" subtitle="Tickets de venta" color="emerald"
+                stations={printers.filter(p => p.type === 'receipt' && p.connection !== 'bluetooth')}
+                qzPrinters={qzPrinters} testLoading={testLoading}
+                onAdd={() => addPrinter('receipt')} onUpdate={updatePrinter}
+                onRemove={removePrinter} onTest={handleTestPrint}
+              />
+              {/* Comanderas */}
+              <QzStationGroup
+                title="Comanderas" subtitle="Cocina / barra" color="orange"
+                stations={printers.filter(p => p.type === 'comanda' && p.connection !== 'bluetooth')}
+                qzPrinters={qzPrinters} testLoading={testLoading}
+                onAdd={() => addPrinter('comanda')} onUpdate={updatePrinter}
+                onRemove={removePrinter} onTest={handleTestPrint}
+              />
 
               {/* Simulate order CTA */}
               <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-lg shadow-indigo-200 flex flex-col sm:flex-row items-center justify-between gap-5 relative overflow-hidden">
@@ -414,64 +391,96 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
   );
 };
 
-// ── Panel de impresora Bluetooth ─────────────────────────────────────────────
-function BluetoothPanel({ log, tenantId }: { log: (m: string) => void; tenantId: string }) {
-  const [hasBLE] = useState(() =>
-    typeof navigator !== 'undefined' && !!(navigator as any).bluetooth);
-  const [hasSerial] = useState(() =>
-    typeof navigator !== 'undefined' && !!(navigator as any).serial);
-  const [hasUSB] = useState(() =>
-    typeof navigator !== 'undefined' && !!(navigator as any).usb);
-  const [deviceName, setDeviceName] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'ble' | 'serial' | 'usb' | 'test' | null>(null);
+// ── Grupo de estaciones QZ Tray (caja principal / comanderas) ────────────────
+function QzStationGroup({ title, subtitle, color, stations, qzPrinters, testLoading, onAdd, onUpdate, onRemove, onTest }: {
+  title: string; subtitle: string; color: 'emerald' | 'orange';
+  stations: PrinterEntry[]; qzPrinters: string[]; testLoading: string | null;
+  onAdd: () => void;
+  onUpdate: (id: string, patch: Partial<PrinterEntry>) => void;
+  onRemove: (id: string, label: string) => void;
+  onTest: (p: PrinterEntry) => void;
+}) {
+  const accent = color === 'emerald' ? 'text-emerald-600' : 'text-orange-500';
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="px-4 sm:px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
+        <div>
+          <h3 className="font-bold text-slate-800 text-sm">{title}</h3>
+          <p className="text-[11px] text-slate-400">{subtitle}</p>
+        </div>
+        <button onClick={onAdd} className={`${accent} text-xs font-bold flex items-center gap-1 shrink-0`}>
+          <PlusCircle size={15} /> Agregar
+        </button>
+      </div>
+      {stations.length === 0 ? (
+        <div className="py-8 text-center text-slate-400 text-xs">
+          <Printer size={26} className="mx-auto mb-2 opacity-20" />
+          Sin impresoras. Tocá "Agregar".
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-100">
+          {stations.map(printer => (
+            <PrinterRow
+              key={printer.id}
+              printer={printer}
+              qzPrinters={qzPrinters}
+              onChange={patch => onUpdate(printer.id, patch)}
+              onRemove={() => onRemove(printer.id, printer.label)}
+              onTest={() => onTest(printer)}
+              testLoading={testLoading === printer.id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
-  const connectBLE = async () => {
-    setBusy('ble');
+// ── Estaciones Bluetooth (caja principal + comanderas) ───────────────────────
+function newBtPrinter(type: 'receipt' | 'comanda'): PrinterEntry {
+  return {
+    id: `${Date.now()}`, label: '', type, connection: 'bluetooth',
+    bt_mode: 'ble', bt_name: '', is_active: true,
+  };
+}
+
+function BluetoothStations({ config, setConfig, tenantId }: {
+  config: ReceiptConfig; setConfig: (c: ReceiptConfig) => void; tenantId: string;
+}) {
+  const hasBLE = typeof navigator !== 'undefined' && !!(navigator as any).bluetooth;
+  const hasSerial = typeof navigator !== 'undefined' && !!(navigator as any).serial;
+  const hasUSB = typeof navigator !== 'undefined' && !!(navigator as any).usb;
+
+  const printers = (config.printers ?? []).filter(p => p.connection === 'bluetooth');
+  const receipts = printers.filter(p => p.type === 'receipt');
+  const comandas = printers.filter(p => p.type === 'comanda');
+
+  const [reconnecting, setReconnecting] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [reconnectMsg, setReconnectMsg] = useState('');
+
+  const reconnectAll = async () => {
+    if (printers.length === 0) return;
+    setReconnecting(true); setReconnectMsg('');
     try {
-      const { btRequestDevice } = await import('@/services/pos/bluetoothPrinterService');
-      const name = await btRequestDevice();
-      setDeviceName(name);
-      log(`✅ Impresora conectada (Bluetooth BLE): ${name}`);
-    } catch (e) {
-      log(`❌ ${e instanceof Error ? e.message : 'No se pudo conectar'}`);
-    } finally { setBusy(null); }
+      const svc = await import('@/services/pos/bluetoothPrinterService');
+      let okCount = 0;
+      for (const p of printers) {
+        if (svc.btIsConnectedFor(p.id)) { okCount++; continue; }
+        try { await svc.btReconnectFor(p.id, p.bt_mode ?? 'ble', p.bt_device_id); okCount++; }
+        catch { /* requiere conexión manual */ }
+      }
+      setRefreshKey(k => k + 1);   // re-monta las filas para reflejar el estado
+      setReconnectMsg(`${okCount}/${printers.length} conectadas`);
+    } finally { setReconnecting(false); }
   };
 
-  const connectSerial = async () => {
-    setBusy('serial');
-    try {
-      const { serialRequestPort } = await import('@/services/pos/bluetoothPrinterService');
-      const name = await serialRequestPort();
-      setDeviceName(name);
-      log(`✅ Impresora conectada (puerto serie/COM): ${name}`);
-    } catch (e) {
-      log(`❌ ${e instanceof Error ? e.message : 'No se pudo conectar al puerto'}`);
-    } finally { setBusy(null); }
-  };
-
-  const connectUSB = async () => {
-    setBusy('usb');
-    try {
-      const { usbRequestDevice } = await import('@/services/pos/bluetoothPrinterService');
-      const name = await usbRequestDevice();
-      setDeviceName(name);
-      log(`✅ Impresora conectada (USB): ${name}`);
-    } catch (e) {
-      log(`❌ ${e instanceof Error ? e.message : 'No se pudo conectar por USB'}`);
-    } finally { setBusy(null); }
-  };
-
-  const test = async () => {
-    if (!tenantId) return;
-    setBusy('test');
-    try {
-      // Imprime SIEMPRE por Bluetooth/Serial/USB (no por el diálogo del navegador).
-      await posPrinterService.printTestBluetooth(tenantId);
-      log('🖨️ Ticket de prueba enviado a la impresora');
-    } catch (e) {
-      log(`❌ ${e instanceof Error ? e.message : 'Error al imprimir'}`);
-    } finally { setBusy(null); }
-  };
+  const add = (type: 'receipt' | 'comanda') =>
+    setConfig({ ...config, printers: [...(config.printers ?? []), newBtPrinter(type)] });
+  const update = (id: string, patch: Partial<PrinterEntry>) =>
+    setConfig({ ...config, printers: (config.printers ?? []).map(p => p.id === id ? { ...p, ...patch } : p) });
+  const remove = (id: string) =>
+    setConfig({ ...config, printers: (config.printers ?? []).filter(p => p.id !== id) });
 
   if (!hasBLE && !hasSerial && !hasUSB) {
     return (
@@ -483,59 +492,181 @@ function BluetoothPanel({ log, tenantId }: { log: (m: string) => void; tenantId:
   }
 
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="font-bold text-blue-900 text-sm">Impresora Bluetooth</p>
-          <p className="text-xs text-blue-600">
-            {deviceName ? `Conectada: ${deviceName}` : 'Sin impresora conectada'}
-          </p>
+    <div className="space-y-4">
+      {/* Barra superior: reconectar todas */}
+      {printers.length > 0 && (
+        <div className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
+          <p className="text-sm font-bold text-slate-700">{printers.length} impresora{printers.length !== 1 ? 's' : ''} Bluetooth</p>
+          <div className="flex items-center gap-2">
+            {reconnectMsg && <span className="text-xs text-slate-500">{reconnectMsg}</span>}
+            <button onClick={reconnectAll} disabled={reconnecting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50">
+              <RefreshCw size={15} className={reconnecting ? 'animate-spin' : ''} />
+              {reconnecting ? 'Reconectando…' : 'Reconectar todas'}
+            </button>
+          </div>
         </div>
-        <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-          deviceName ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-        }`}>
-          {deviceName ? '● Conectada' : '○ Sin conectar'}
-        </span>
-      </div>
+      )}
 
-      <div className="grid grid-cols-2 gap-2">
-        {/* Móvil / impresoras BLE */}
-        {hasBLE && (
-          <button onClick={connectBLE} disabled={busy === 'ble'}
-            className="px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50">
-            {busy === 'ble' ? 'Buscando…' : '📶 Conectar (celular/BLE)'}
-          </button>
-        )}
-        {/* Computadora — impresora BT emparejada en el SO (puerto COM) */}
-        {hasSerial && (
-          <button onClick={connectSerial} disabled={busy === 'serial'}
-            className="px-3 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold disabled:opacity-50">
-            {busy === 'serial' ? 'Buscando…' : '💻 Conectar (computadora/COM)'}
-          </button>
-        )}
-        {/* Respaldo: USB por cable en computadora */}
-        {hasUSB && (
-          <button onClick={connectUSB} disabled={busy === 'usb'}
-            className="px-3 py-2.5 rounded-xl border-2 border-indigo-300 bg-white text-indigo-700 text-sm font-bold hover:bg-indigo-50 disabled:opacity-50">
-            {busy === 'usb' ? 'Buscando…' : '🔌 Conectar por USB'}
-          </button>
-        )}
-        <button onClick={test} disabled={busy === 'test' || !deviceName}
-          className="col-span-2 px-3 py-2.5 rounded-xl border-2 border-blue-300 bg-white text-blue-700 text-sm font-bold hover:bg-blue-50 disabled:opacity-50">
-          {busy === 'test' ? 'Imprimiendo…' : 'Imprimir prueba'}
+      {/* Caja principal */}
+      <StationGroup
+        key={`receipt-${refreshKey}`}
+        title="Caja principal" subtitle="Tickets de venta" color="emerald"
+        stations={receipts} tenantId={tenantId} onAdd={() => add('receipt')}
+        onUpdate={update} onRemove={remove}
+      />
+      {/* Comanderas */}
+      <StationGroup
+        key={`comanda-${refreshKey}`}
+        title="Comanderas" subtitle="Cocina / barra" color="orange"
+        stations={comandas} tenantId={tenantId} onAdd={() => add('comanda')}
+        onUpdate={update} onRemove={remove}
+      />
+
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-[11px] text-blue-700 space-y-1">
+        <p><strong>📱 Celular/tablet:</strong> encendé la impresora → "Conectar BLE" → elegila.</p>
+        <p><strong>💻 Computadora:</strong> emparejá la impresora en el sistema (crea un puerto COM) → "Conectar COM". O conectá por cable → "USB".</p>
+      </div>
+    </div>
+  );
+}
+
+function StationGroup({ title, subtitle, color, stations, tenantId, onAdd, onUpdate, onRemove }: {
+  title: string; subtitle: string; color: 'emerald' | 'orange';
+  stations: PrinterEntry[]; tenantId: string;
+  onAdd: () => void; onUpdate: (id: string, patch: Partial<PrinterEntry>) => void; onRemove: (id: string) => void;
+}) {
+  const accent = color === 'emerald' ? 'text-emerald-600' : 'text-orange-500';
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
+        <div>
+          <h3 className="font-bold text-slate-800 text-sm">{title}</h3>
+          <p className="text-[11px] text-slate-400">{subtitle}</p>
+        </div>
+        <button onClick={onAdd} className={`${accent} text-xs font-bold flex items-center gap-1 shrink-0`}>
+          <PlusCircle size={15} /> Agregar
+        </button>
+      </div>
+      {stations.length === 0 ? (
+        <div className="py-8 text-center text-slate-400 text-xs">
+          <Printer size={26} className="mx-auto mb-2 opacity-20" />
+          Sin impresoras. Tocá "Agregar".
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-100">
+          {stations.map(p => (
+            <BluetoothStationRow key={p.id} printer={p} tenantId={tenantId}
+              onChange={patch => onUpdate(p.id, patch)} onRemove={() => onRemove(p.id)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BluetoothStationRow({ printer, tenantId, onChange, onRemove }: {
+  printer: PrinterEntry; tenantId: string;
+  onChange: (patch: Partial<PrinterEntry>) => void; onRemove: () => void;
+}) {
+  const [busy, setBusy] = useState<'connect' | 'test' | null>(null);
+  const [connectedName, setConnectedName] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string>('');
+
+  // Reconexión rápida silenciosa al abrir (sin selector), si ya fue autorizada.
+  React.useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const svc = await import('@/services/pos/bluetoothPrinterService');
+        if (svc.btIsConnectedFor(printer.id)) { setConnectedName(svc.btDeviceNameFor(printer.id)); return; }
+        const name = await svc.btReconnectFor(printer.id, printer.bt_mode ?? 'ble', printer.bt_device_id);
+        if (active) { setConnectedName(name); setMsg('🔁 Reconectada'); }
+      } catch { /* requiere conexión manual la primera vez */ }
+    })();
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const connect = async () => {
+    setBusy('connect'); setMsg('');
+    try {
+      const svc = await import('@/services/pos/bluetoothPrinterService');
+      const mode = printer.bt_mode ?? 'ble';
+      // 1) Intentar reconexión rápida (sin selector). 2) Si falla, abrir selector.
+      let name: string;
+      try {
+        name = await svc.btReconnectFor(printer.id, mode, printer.bt_device_id);
+      } catch {
+        name = await svc.btConnectFor(printer.id, mode);
+      }
+      setConnectedName(name);
+      onChange({ bt_name: name, bt_device_id: svc.btDeviceIdFor(printer.id) ?? printer.bt_device_id });
+      setMsg(`✅ ${name}`);
+    } catch (e) {
+      setMsg(`❌ ${e instanceof Error ? e.message : 'No se pudo conectar'}`);
+    } finally { setBusy(null); }
+  };
+
+  const test = async () => {
+    if (!tenantId) return;
+    setBusy('test'); setMsg('');
+    try {
+      await posPrinterService.printTestBluetooth(tenantId, printer.id);
+      setMsg('🖨️ Prueba enviada');
+    } catch (e) {
+      setMsg(`❌ ${e instanceof Error ? e.message : 'Error al imprimir'}`);
+    } finally { setBusy(null); }
+  };
+
+  const isConnected = !!connectedName || !!printer.bt_name;
+
+  return (
+    <div className="p-3 space-y-2.5">
+      {/* Fila 1: nombre + activo + eliminar */}
+      <div className="flex items-center gap-2">
+        <input
+          value={printer.label}
+          onChange={e => onChange({ label: e.target.value })}
+          placeholder={printer.type === 'receipt' ? 'Ej: Caja' : 'Ej: Cocina'}
+          className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+        />
+        <label className="flex items-center gap-1 text-xs text-slate-500 shrink-0">
+          <input type="checkbox" checked={printer.is_active}
+            onChange={e => onChange({ is_active: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300 text-blue-600" />
+          Activa
+        </label>
+        <button onClick={onRemove} title="Eliminar"
+          className="w-9 h-9 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center shrink-0">
+          <Trash2 size={15} />
         </button>
       </div>
 
-      <div className="text-[11px] text-blue-700 space-y-1">
-        <p className="font-bold">📱 En celular/tablet (Android):</p>
-        <p className="pl-3">Encendé la impresora → "Conectar (celular/BLE)" → elegila de la lista.</p>
-        <p className="font-bold mt-1.5">💻 Bluetooth en computadora (Windows/Mac):</p>
-        <p className="pl-3">
-          1. Emparejá la impresora Bluetooth desde la configuración del sistema operativo
-          (Windows: Configuración → Bluetooth → Agregar dispositivo).<br />
-          2. Eso crea un <strong>puerto COM</strong>. Tocá "Conectar (computadora/COM)" y elegí ese puerto
-          (probá los COM disponibles si hay varios).
-        </p>
+      {/* Fila 2: modo + conectar */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <select value={printer.bt_mode ?? 'ble'} onChange={e => onChange({ bt_mode: e.target.value as any })}
+          className="border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white">
+          <option value="ble">📶 BLE (celular)</option>
+          <option value="serial">💻 COM (PC)</option>
+          <option value="usb">🔌 USB</option>
+        </select>
+        <button onClick={connect} disabled={busy === 'connect'}
+          className="flex-1 min-w-28 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50">
+          {busy === 'connect' ? 'Buscando…' : isConnected ? 'Reconectar' : 'Conectar'}
+        </button>
+        <button onClick={test} disabled={busy === 'test' || !isConnected}
+          className="px-3 py-2 rounded-lg border-2 border-blue-300 bg-white text-blue-700 text-sm font-bold hover:bg-blue-50 disabled:opacity-40">
+          {busy === 'test' ? '…' : 'Prueba'}
+        </button>
+      </div>
+
+      {/* Estado */}
+      <div className="flex items-center justify-between text-[11px]">
+        <span className={isConnected ? 'text-emerald-600 font-bold' : 'text-slate-400'}>
+          {isConnected ? `● Conectada${connectedName || printer.bt_name ? `: ${connectedName || printer.bt_name}` : ''}` : '○ Sin conectar'}
+        </span>
+        {msg && <span className="text-slate-500 truncate ml-2">{msg}</span>}
       </div>
     </div>
   );

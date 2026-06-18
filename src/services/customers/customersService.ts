@@ -27,7 +27,12 @@ export const customersService = {
   create: (c: CustomerInput) => apiFetch<Customer>('/customers', { method: 'POST', body: JSON.stringify(c) }),
   update: (id: string, c: CustomerInput) =>
     apiFetch<Customer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(c) }),
-  remove: (id: string) => apiFetch(`/customers/${id}`, { method: 'DELETE' }),
+  /** Desactivar (soft) por defecto; con hard=true elimina de verdad. */
+  remove: (id: string, hard = false) =>
+    apiFetch(`/customers/${id}${hard ? '?hard=true' : ''}`, { method: 'DELETE' }),
+  /** Activar / desactivar un cliente. */
+  setActive: (id: string, is_active: boolean) =>
+    apiFetch<Customer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify({ is_active }) }),
 };
 
 // Catálogo de tipos de identificación Hacienda CR

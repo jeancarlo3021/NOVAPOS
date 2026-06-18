@@ -187,16 +187,19 @@ export class POSPrinterService {
     // Always reload config so we pick up latest settings changes
     const cfg = await this.loadReceiptConfig(tenantId);
 
-    // Bluetooth: enviar bytes ESC/POS por Web Bluetooth.
+    // Bluetooth: enviar bytes ESC/POS a las estaciones de recibo (caja principal).
     if (cfg.printerType === 'bluetooth') {
-      try {
-        const { btPrint } = await import('./bluetoothPrinterService');
-        await btPrint(this.generateESCPOS(receiptData, cfg));
-        return;
-      } catch (err) {
-        // Si falla la impresión BT, caemos al navegador como respaldo.
-        console.warn('[print] Bluetooth falló, usando navegador:', err);
+      const bytes = this.generateESCPOS(receiptData, cfg);
+      const { btPrint, btPrintTo } = await import('./bluetoothPrinterService');
+      const receiptStations = (cfg.printers ?? []).filter(
+        (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
+      );
+      if (receiptStations.length > 0) {
+        for (const st of receiptStations) await btPrintTo(st.id, bytes);
+      } else {
+        await btPrint(bytes);   // modo simple (una sola impresora)
       }
+      return;
     }
 
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
@@ -253,7 +256,7 @@ export class POSPrinterService {
    *  el tipo de impresora guardado. Lo usa el botón "Imprimir prueba" del panel
    *  Bluetooth para garantizar que vaya a la impresora conectada y NO al
    *  diálogo del navegador. */
-  async printTestBluetooth(tenantId: string): Promise<void> {
+  async printTestBluetooth(tenantId: string, printerId?: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
     const now = new Date();
     const testData: ReceiptData = {
@@ -269,8 +272,10 @@ export class POSPrinterService {
       storeName: cfg.showStoreName ? 'MI NEGOCIO' : undefined,
       footerMessage: cfg.footerMessage,
     };
-    const { btPrint } = await import('./bluetoothPrinterService');
-    await btPrint(this.generateESCPOS(testData, cfg));
+    const bytes = this.generateESCPOS(testData, cfg);
+    const { btPrint, btPrintTo } = await import('./bluetoothPrinterService');
+    if (printerId) await btPrintTo(printerId, bytes);
+    else await btPrint(bytes);
   }
 
   // ─── QZ Tray ─────────────────────────────────────────────────────────────────
@@ -915,28 +920,32 @@ export class POSPrinterService {
     tenantId: string,
     customerName?: string,
   ): Promise<void> {
-    if (!(await qzIsAvailable())) return;
-
     const cfg = await this.loadReceiptConfig(tenantId);
     const comandaPrinters = (cfg.printers ?? []).filter(
       p => p.type === 'comanda' && p.is_active,
     );
     if (comandaPrinters.length === 0) return;
 
-    await qzConnect();
-
     const now = new Date();
     const time = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' });
+    const buildData = (printer: any) =>
+      formatComanda({ invoiceNumber, time, label: printer.label, items, customerName }, 42);
 
-    await Promise.all(
-      comandaPrinters.map(printer => {
-        const data = formatComanda(
-          { invoiceNumber, time, label: printer.label, items, customerName },
-          42,
-        );
-        return qzPrintToPrinter(printer, data);
-      }),
-    );
+    // Bluetooth: enviar a cada estación de comanda conectada por BT.
+    if (cfg.printerType === 'bluetooth') {
+      const { btPrintTo } = await import('./bluetoothPrinterService');
+      const btStations = comandaPrinters.filter((p: any) => p.connection === 'bluetooth');
+      for (const printer of btStations) {
+        try { await btPrintTo(printer.id, buildData(printer)); }
+        catch (e) { console.warn('[comanda BT] falló:', e); }
+      }
+      return;
+    }
+
+    // QZ Tray / térmica.
+    if (!(await qzIsAvailable())) return;
+    await qzConnect();
+    await Promise.all(comandaPrinters.map(printer => qzPrintToPrinter(printer, buildData(printer))));
   }
 
   // ─── Browser print ────────────────────────────────────────────────────────────

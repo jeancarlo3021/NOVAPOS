@@ -30,11 +30,17 @@ export interface PrinterEntry {
   id: string;
   label: string;           // "Principal", "Cocina", "Barra"
   type: 'receipt' | 'comanda';
-  connection: 'usb' | 'network';
+  connection: 'usb' | 'network' | 'bluetooth';
   printer_name?: string;   // USB: nombre en el SO
   ip?: string;             // Network: dirección IP
   port?: number;           // Network: puerto (default 9100)
   is_active: boolean;
+  /** Bluetooth: sub-modo de conexión (BLE / Serial-COM / USB). */
+  bt_mode?: 'ble' | 'serial' | 'usb';
+  /** Bluetooth: nombre del dispositivo conectado (para mostrar). */
+  bt_name?: string;
+  /** Bluetooth BLE: id del dispositivo, para reconectar sin abrir el selector. */
+  bt_device_id?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

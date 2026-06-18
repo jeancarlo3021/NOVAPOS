@@ -45,8 +45,8 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white border-b border-gray-200 px-4 py-3 shrink-0 shadow-sm">
-      <div className="flex items-center gap-3">
+    <div className="bg-white border-b border-gray-200 px-3 sm:px-4 py-2 sm:py-3 shrink-0 shadow-sm">
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         {/* Back - siempre habilitado */}
         <button
           onClick={() => navigate('/')}
@@ -82,50 +82,50 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
         )}
 
         {/* Cash session */}
-        <div className="flex-1 flex justify-center">
+        <div className="flex-1 flex justify-center min-w-full sm:min-w-0 mt-2 sm:mt-0">
           {currentSession && currentSession.status === 'open' ? (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center">
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 min-h-10">
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                 <span className="text-emerald-700 text-sm font-semibold">Caja abierta</span>
-                <span className="text-emerald-600 text-sm font-medium">
+                <span className="text-emerald-600 text-sm font-medium hidden sm:inline">
                   ₡{currentSession.opening_amount?.toLocaleString()}
                 </span>
               </div>
               {onCashIn && (
                 <button
                   onClick={onCashIn}
-                  className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+                  className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
                   title="Entrada de efectivo"
                 >
-                  <ArrowDownCircle size={15} />
-                  <span className="hidden lg:inline">Entrada</span>
+                  <ArrowDownCircle size={17} />
+                  <span className="hidden sm:inline">Entrada</span>
                 </button>
               )}
               {onCashOut && (
                 <button
                   onClick={onCashOut}
-                  className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+                  className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
                   title="Salida de efectivo"
                 >
-                  <ArrowUpCircle size={15} />
-                  <span className="hidden lg:inline">Salida</span>
+                  <ArrowUpCircle size={17} />
+                  <span className="hidden sm:inline">Salida</span>
                 </button>
               )}
               <button
                 onClick={onCloseCash}
-                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 active:bg-red-200 border border-red-200 text-red-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
               >
-                <LockKeyhole size={15} />
+                <LockKeyhole size={17} />
                 <span className="hidden sm:inline">Cerrar caja</span>
               </button>
               {onVoidInvoice && (
                 <button
                   onClick={onVoidInvoice}
-                  className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+                  className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 border border-orange-200 text-orange-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
                   title="Anular factura"
                 >
-                  <Ban size={15} />
+                  <Ban size={17} />
                   <span className="hidden sm:inline">Anular</span>
                 </button>
               )}
