@@ -22,6 +22,9 @@ const DEFAULTS = {
   // Régimen simplificado: imprime "Autorizado mediante oficio 1197" al pie.
   // Solo aplica si NO se emite Facturación Electrónica.
   simplificado: false,
+  // Régimen tradicional: imprime "Régimen Tradicional" al pie. Mutuamente
+  // excluyente con el simplificado.
+  tradicional: false,
   // Límite máximo de descuento (%) que los cajeros pueden aplicar en el POS.
   // Owner/admin/gerente pueden superarlo siempre.
   maxDiscountPercent: 100,
@@ -153,14 +156,15 @@ export const GeneralSettings: React.FC = () => {
         <div className="border border-gray-200 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-semibold text-gray-800">Impuesto de Ventas (IVA) — POS</p>
+              <p className="text-sm font-semibold text-gray-800">Impuesto de Ventas (IVA) — guía</p>
               <p className="text-xs text-gray-400 mt-0.5">
                 {formData.taxEnabled
-                  ? `Activo — se aplica ${formData.taxPercentage}% en las ventas del POS`
-                  : 'Desactivado — las ventas del POS no incluyen impuesto'}
+                  ? `Activo — ${formData.taxPercentage}% es el valor sugerido al crear productos`
+                  : 'Desactivado — los productos nuevos no sugieren IVA'}
               </p>
               <p className="text-[11px] text-blue-600 mt-1">
-                ℹ El IVA específico por producto se define en el formulario del producto (default 13%).
+                ℹ Este porcentaje es solo la <strong>guía</strong> que se propone en el formulario del producto.
+                No hay un IVA fijo: el impuesto real se define en cada producto.
               </p>
             </div>
             <button
@@ -215,7 +219,7 @@ export const GeneralSettings: React.FC = () => {
               <input
                 type="checkbox"
                 checked={!!formData.simplificado}
-                onChange={e => setFormData(prev => ({ ...prev, simplificado: e.target.checked }))}
+                onChange={e => setFormData(prev => ({ ...prev, simplificado: e.target.checked, tradicional: e.target.checked ? false : prev.tradicional }))}
                 className="mt-1 w-5 h-5 rounded text-amber-600 focus:ring-2 focus:ring-amber-400"
                 id="cfg-simplificado"
                 disabled={!isManager}
@@ -224,6 +228,25 @@ export const GeneralSettings: React.FC = () => {
                 <p className="font-bold text-amber-900 text-sm">Régimen Simplificado</p>
                 <p className="text-xs text-amber-700 mt-0.5">
                   Imprime al pie de cada tiquete: <em>"Autorizado mediante oficio 1197 régimen simplificado"</em>.
+                  Solo aplica a negocios que NO emiten Facturación Electrónica.
+                </p>
+              </label>
+            </div>
+
+            {/* Régimen Tradicional (mutuamente excluyente con el simplificado) */}
+            <div className="flex items-start gap-3 p-4 rounded-xl border border-sky-200 bg-sky-50/50 mt-3">
+              <input
+                type="checkbox"
+                checked={!!formData.tradicional}
+                onChange={e => setFormData(prev => ({ ...prev, tradicional: e.target.checked, simplificado: e.target.checked ? false : prev.simplificado }))}
+                className="mt-1 w-5 h-5 rounded text-sky-600 focus:ring-2 focus:ring-sky-400"
+                id="cfg-tradicional"
+                disabled={!isManager}
+              />
+              <label htmlFor="cfg-tradicional" className="flex-1 cursor-pointer">
+                <p className="font-bold text-sky-900 text-sm">Régimen Tradicional</p>
+                <p className="text-xs text-sky-700 mt-0.5">
+                  Imprime al pie de cada tiquete: <em>"Régimen Tradicional"</em>.
                   Solo aplica a negocios que NO emiten Facturación Electrónica.
                 </p>
               </label>

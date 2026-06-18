@@ -164,6 +164,21 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
         </div>
       </div>
 
+      {/* Abrir cajón al cobrar (aplica a QZ Tray y Bluetooth) */}
+      {config.printerType !== 'browser' && (
+        <label className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer shadow-sm">
+          <div>
+            <p className="font-semibold text-slate-800 text-sm">Abrir cajón al cobrar</p>
+            <p className="text-xs text-slate-400 mt-0.5">Envía el pulso de apertura tras imprimir el ticket de venta</p>
+          </div>
+          <input type="checkbox"
+            checked={config.openDrawer !== false}
+            onChange={e => setConfig({ ...config, openDrawer: e.target.checked })}
+            className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          />
+        </label>
+      )}
+
       {config.printerType === 'browser' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
           Al imprimir se abrirá el diálogo del navegador. Funciona con cualquier impresora del equipo.

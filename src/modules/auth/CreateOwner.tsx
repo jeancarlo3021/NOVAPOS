@@ -157,7 +157,8 @@ export const CreateOwner: React.FC = () => {
           created_at:          row.created_at,
           plan_id:             planId ?? null,
           plan_name:           plan?.name ?? 'Sin plan',
-          plan_price:          plan?.price ?? 0,
+          plan_price:          row.custom_price ?? plan?.price ?? 0,
+          custom_price:        row.custom_price ?? null,
           plan_billing_cycle:  plan?.billing_cycle ?? 'monthly',
           is_admin_plan:       ((plan?.features as any)?.admin_dashboard === true),
           group_id:            row.group_id ?? null,
@@ -260,6 +261,29 @@ export const CreateOwner: React.FC = () => {
       fetchOwners();
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  // ── Ajustar monto de venta del plan por negocio ─────────────────────────────
+  const handleEditPrice = async (o: OwnerData) => {
+    const current = o.custom_price ?? o.plan_price ?? 0;
+    const input = window.prompt(
+      `Monto de venta del plan para "${o.name}" (₡/mes).\nDejá vacío para volver al precio del plan.`,
+      String(current),
+    );
+    if (input === null) return;   // canceló
+    const trimmed = input.trim();
+    const price = trimmed === '' ? null : Number(trimmed);
+    if (price != null && (isNaN(price) || price < 0)) { showToast('Monto inválido', 'error'); return; }
+    try {
+      await apiFetch('/admin/set-subscription-price', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId: o.id, price }),
+      });
+      showToast(price == null ? 'Monto restablecido al del plan' : `Monto actualizado: ₡${price.toLocaleString('es-CR')}`, 'success');
+      fetchOwners();
+    } catch (err: any) {
+      showToast(err?.message || 'No se pudo actualizar el monto', 'error');
     }
   };
 
@@ -820,6 +844,16 @@ export const CreateOwner: React.FC = () => {
                               <option value="">Cambiar plan</option>
                               {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
+                            {/* Ajustar monto de venta */}
+                            <button onClick={() => handleEditPrice(o)}
+                              title="Ajustar monto de venta del plan"
+                              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg border transition ${
+                                o.custom_price != null
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                              }`}>
+                              ₡ {(o.plan_price ?? 0).toLocaleString('es-CR')}{o.custom_price != null && ' ✎'}
+                            </button>
                             {/* Comprobante de alta */}
                             <button onClick={() => sendAdminEmail(o, 'new-business')} disabled={emailingId === o.id}
                               className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 transition disabled:opacity-40"

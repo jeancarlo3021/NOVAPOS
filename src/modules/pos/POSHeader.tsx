@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle, Printer } from 'lucide-react';
+import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle, Printer, Inbox } from 'lucide-react';
 import { CashSession } from '@/types/Types_POS';
 
 interface POSHeaderProps {
@@ -21,6 +21,7 @@ interface POSHeaderProps {
   onSync?: () => void;
   onCashIn?: () => void;
   onCashOut?: () => void;
+  onOpenDrawer?: () => void;
 }
 
 export const POSHeader: React.FC<POSHeaderProps> = ({
@@ -41,6 +42,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   onSync,
   onCashIn,
   onCashOut,
+  onOpenDrawer,
 }) => {
   const navigate = useNavigate();
 
@@ -110,6 +112,16 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
                 >
                   <ArrowUpCircle size={17} />
                   <span className="hidden sm:inline">Salida</span>
+                </button>
+              )}
+              {onOpenDrawer && (
+                <button
+                  onClick={onOpenDrawer}
+                  className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
+                  title="Abrir cajón de dinero"
+                >
+                  <Inbox size={17} />
+                  <span className="hidden sm:inline">Cajón</span>
                 </button>
               )}
               <button

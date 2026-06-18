@@ -467,6 +467,24 @@ export const POSMain = () => {
   // Tope de descuento del negocio. Se respeta para todos los roles.
   const maxDiscountPercent: number = generalCfgCached?.maxDiscountPercent ?? 100;
 
+  // Tipo de impresora (para el botón de abrir cajón, solo en Bluetooth).
+  const printerTypeCached: string | undefined = (() => {
+    try {
+      const cached = cacheGet<any>(cacheKey(tenantId ?? '', 'settings_receipt'));
+      return (cached?.config ?? cached)?.printerType;
+    } catch { return undefined; }
+  })();
+  const isBluetoothPrinter = printerTypeCached === 'bluetooth';
+
+  const handleOpenDrawer = async () => {
+    if (!tenantId) return;
+    try {
+      await posPrinterService.openCashDrawer(tenantId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo abrir el cajón');
+    }
+  };
+
   const handleApplyDiscount = (productId: string, discount_percent: number) => {
     const cap = Math.max(0, Math.min(100, maxDiscountPercent));
     let pct = Math.max(0, Math.min(100, discount_percent));
@@ -726,6 +744,7 @@ export const POSMain = () => {
         onReprintInvoice={() => setShowReprintModal(true)}
         onCashIn={currentSession?.status === 'open' ? () => setCashMovement('in') : undefined}
         onCashOut={currentSession?.status === 'open' ? () => setCashMovement('out') : undefined}
+        onOpenDrawer={(isBluetoothPrinter && currentSession?.status === 'open') ? handleOpenDrawer : undefined}
         onSync={isOnline ? syncOfflineInvoices : undefined}
       />
 

@@ -1332,9 +1332,27 @@ export class POSPrinterService {
 
     // Abrir cajón de dinero DESPUÉS de cortar (pulso al pin 2 del conector RJ11).
     // ESC p m t1 t2 — m=0 (pin 2), t1=25, t2=250 (duración del pulso).
-    push(0x1B, 0x70, 0x00, 0x19, 0xFA);
+    // Se omite si el negocio desactivó la apertura de cajón (cfg.openDrawer === false).
+    if ((cfg as any).openDrawer !== false) {
+      push(0x1B, 0x70, 0x00, 0x19, 0xFA);
+    }
 
     return new Uint8Array(cmds);
+  }
+
+  /** Envía solo el pulso de apertura de cajón por Bluetooth (botón manual en POS). */
+  async openCashDrawer(tenantId: string): Promise<void> {
+    const cfg = await this.loadReceiptConfig(tenantId);
+    const bytes = new Uint8Array([0x1B, 0x70, 0x00, 0x19, 0xFA]);
+    const { btPrint, btPrintTo } = await import('./bluetoothPrinterService');
+    const stations = (cfg.printers ?? []).filter(
+      (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
+    );
+    if (stations.length > 0) {
+      for (const st of stations) await btPrintTo(st.id, bytes);
+    } else {
+      await btPrint(bytes);
+    }
   }
 }
 

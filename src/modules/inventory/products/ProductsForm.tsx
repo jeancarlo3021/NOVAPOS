@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
 import { Card, CardHeader, CardContent, CardFooter, Spinner } from '@/components/ui/uiComponents';
 import { storageService } from '@/services/storage/storageService';
+import { cacheGet, cacheKey } from '@/utils/offlineCache';
 
 // ── Form ───────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,16 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   // Resolved tenantId: works for both owners (user.tenant_id) and staff (via useTenantId lookup)
   const tid = tenantId ?? user?.tenant_id ?? '';
 
+  // IVA "guía" desde la configuración general (no es un default fijo: solo el
+  // valor sugerido al crear un producto). Si no hay guía, queda vacío.
+  const ivaGuide = (() => {
+    try {
+      const c = cacheGet<any>(cacheKey(tid, 'settings_general'));
+      const v = (c?.config ?? c)?.taxPercentage;
+      return v != null ? String(v) : '';
+    } catch { return ''; }
+  })();
+
   const [formData, setFormData] = useState<FormData>({
     name: '',
     sku: '',
@@ -50,7 +61,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     min_stock_level: '10',
     max_stock_level: '100',
     cabys_code: '',
-    iva_rate: '13',
+    iva_rate: ivaGuide,
   });
 
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
@@ -123,7 +134,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           min_stock_level: product.min_stock_level?.toString() || '10',
           max_stock_level: product.max_stock_level?.toString() || '100',
           cabys_code: (product as any).cabys_code ?? '',
-          iva_rate: (product as any).iva_rate?.toString() ?? '13',
+          iva_rate: (product as any).iva_rate?.toString() ?? ivaGuide,
         });
         setImageUrl((product as any).image_url || undefined);
         // Si el plan no permite mezclar, siempre true. Si permite, usa el del producto.
@@ -265,9 +276,10 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
         image_url: imageUrl ? imageUrl.split('?')[0] : null,
         tracks_stock: finalTracksStock,
-        // Facturación Electrónica — CABYS opcional, IVA por producto (default 13%)
+        // Facturación Electrónica — CABYS opcional. IVA por producto: el que se
+        // elija; si se deja vacío, se usa la guía de configuración (o 0).
         cabys_code: formData.cabys_code.trim() || null,
-        iva_rate:   formData.iva_rate ? parseFloat(formData.iva_rate) : 13,
+        iva_rate:   formData.iva_rate ? parseFloat(formData.iva_rate) : (ivaGuide ? parseFloat(ivaGuide) : 0),
       };
 
       // Si NO es products_only, agrega los campos de stock, categoría y tipo de unidad
@@ -478,12 +490,16 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                         disabled={submitting}
                         className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
                       >
+                        <option value="">— Elegir IVA —</option>
                         <option value="13">13% (General)</option>
                         <option value="4">4% (Servicios médicos)</option>
                         <option value="2">2% (Medicamentos/educación)</option>
                         <option value="1">1% (Canasta básica)</option>
                         <option value="0">Exento</option>
                       </select>
+                      {ivaGuide && !formData.iva_rate && (
+                        <p className="text-[11px] text-gray-400 mt-1">Sugerido por configuración: {ivaGuide}%</p>
+                      )}
                     </div>
                   </div>
                 </div>

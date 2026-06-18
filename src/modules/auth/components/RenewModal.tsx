@@ -13,6 +13,8 @@ export interface OwnerData {
   plan_id?: string;
   plan_name?: string;
   plan_price?: number;
+  /** Precio de venta personalizado del plan para este negocio (override). */
+  custom_price?: number | null;
   subscription_id?: string;
   subscription_status?: string;
   started_at?: string;
