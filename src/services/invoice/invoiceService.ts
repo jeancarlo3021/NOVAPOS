@@ -2,6 +2,14 @@ import { apiFetch } from '@/lib/api';
 import { CartItem } from '@/types/Types_POS';
 import { cashMovementsService } from '../cashManagement/cashManagementService';
 
+/** Fecha-hora LOCAL de la máquina en formato ISO SIN zona (wall clock).
+ *  Ej: 2026-06-16T21:32:05. Así la hora que se guarda y se muestra es la del
+ *  equipo donde se hace la venta, sin corrimiento por UTC. */
+export function localNowISO(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 export interface Invoice {
   id: string;
   tenant_id: string;
@@ -124,6 +132,9 @@ export const invoicesService = {
         cashier_name: cashierName ?? null,
         payments: payments && payments.length > 1 ? payments : null,
         document_type: documentType ?? 'ticket',
+        // Hora LOCAL de la máquina (la columna no guarda zona horaria, así el
+        // ticket y los reportes muestran la misma hora que el cajero ve).
+        issued_at: localNowISO(),
       }),
     });
 

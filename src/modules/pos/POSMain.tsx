@@ -17,7 +17,7 @@ import {
   getProductPromotion,
   calcPromoSubtotal,
 } from '@/services/promotions/promotionsService';
-import { invoicesService } from '@/services/invoice/invoiceService';
+import { invoicesService, localNowISO } from '@/services/invoice/invoiceService';
 import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from '@/services/pos/posOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
@@ -647,7 +647,7 @@ export const POSMain = () => {
         posOfflineService.addCachedInvoice({
           id: invoice.id,
           invoice_number: invoice.invoice_number,
-          issued_at: (invoice as any).issued_at ?? invoice.created_at ?? new Date().toISOString(),
+          issued_at: (invoice as any).issued_at ?? invoice.created_at ?? localNowISO(),
           total: invoice.total,
           payment_method: invoice.payment_method,
         });
@@ -688,7 +688,7 @@ export const POSMain = () => {
         posOfflineService.addCachedInvoice({
           id: invoiceNumber,
           invoice_number: invoiceNumber,
-          issued_at: new Date().toISOString(),
+          issued_at: localNowISO(),
           total: totSnapshot,
           payment_method: data.paymentMethod,
         });
