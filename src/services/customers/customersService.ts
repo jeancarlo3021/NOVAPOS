@@ -13,6 +13,7 @@ export interface Customer {
   canton_code?:        string | null;
   district_code?:      string | null;
   address?:            string | null;
+  zone?:               string | null;
   notes?:              string | null;
   is_active:           boolean;
   created_at:          string;

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Printer, CheckCircle2, Play,
   PlusCircle, Wifi, WifiOff,
@@ -11,6 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import {
   qzIsAvailable, qzConnect, qzGetPrinters, qzIsConnected,
+  qzEnableAutoReconnect, qzDisableAutoReconnect, onQzStatus,
 } from '@/services/pos/qzTrayService';
 import type { PrinterEntry } from '@/services/pos/qzTrayService';
 import { PrinterRow } from './components/PrinterRow';
@@ -70,6 +71,7 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
 
   const handleToggleConnection = useCallback(async () => {
     if (qzStatus === 'connected') {
+      qzDisableAutoReconnect();   // desconexión manual: no reintentar
       setQZStatus('idle');
       setQZPrinters([]);
       log('Desconectado de QZ Tray');
@@ -84,6 +86,7 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
     log('Conectando a QZ Tray...');
     try {
       await qzConnect(config.qz_certificate);
+      qzEnableAutoReconnect();          // reconectar solo si se cae
       const list = await qzGetPrinters();
       setQZPrinters(list);
       setQZStatus('connected');
@@ -93,6 +96,27 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
       log(`❌ ${err instanceof Error ? err.message : 'Error al conectar'}`);
     }
   }, [qzStatus, config.qz_certificate]);
+
+  // Reaccionar a la reconexión automática: refrescar impresoras y registrar estado.
+  useEffect(() => {
+    const off = onQzStatus((s, attempt) => {
+      if (s === 'reconnecting') {
+        setQZStatus('connecting');
+        log(`🔄 QZ Tray desconectado — reintentando (intento ${attempt})…`);
+      } else if (s === 'connected') {
+        setQZStatus('connected');
+        log('✅ QZ Tray reconectado');
+        qzGetPrinters().then(setQZPrinters).catch(() => {});
+      } else if (s === 'disconnected') {
+        setQZStatus('error');
+        log('⚠️ Se perdió la conexión con QZ Tray');
+      } else if (s === 'failed') {
+        setQZStatus('error');
+        log('❌ No se pudo reconectar a QZ Tray tras varios intentos');
+      }
+    });
+    return off;
+  }, []);
 
   // ── Printer CRUD ──────────────────────────────────────────────────────────────
 

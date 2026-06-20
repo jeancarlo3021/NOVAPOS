@@ -344,6 +344,8 @@ export default function Plans() {
     if (pf.tables)     a.push('Mapa de Mesas');
     if (pf.recipes) a.push('Recetas');
     if (pf.hr) a.push('Recursos Humanos');
+    if (pf.customers !== false) a.push('Clientes');
+    if (pf.distribution) a.push('Distribución');
     if (pf.settings) a.push('Configuración');
     if (pf.users) a.push('Usuarios');
     return a;
@@ -930,6 +932,12 @@ export default function Plans() {
 
                   <FeatureRow icon={UserCog} color="bg-violet-500" title="Recursos Humanos"
                     description="Empleados y nómina" checked={features.hr ?? false} onChange={v => set({ hr: v })} />
+
+                  <FeatureRow icon={UserCog} color="bg-teal-500" title="Clientes"
+                    description="Gestión de clientes y precios por cliente" checked={features.customers !== false} onChange={v => set({ customers: v })} />
+
+                  <FeatureRow icon={Truck} color="bg-cyan-500" title="Distribución"
+                    description="Rutas de reparto en camión + app de repartidor" checked={features.distribution ?? false} onChange={v => set({ distribution: v })} />
 
                   <FeatureRow icon={Settings} color="bg-gray-500" title="Configuración"
                     description="Ajustes del sistema" checked={features.settings} onChange={v => set({ settings: v })} />

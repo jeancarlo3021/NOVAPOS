@@ -26,6 +26,9 @@ const Plans                    = lazy(() => import('./modules/users/Plans'));
 const ReportsDashboard         = lazy(() => import('./modules/reports/ReportsDashboard'));
 const BranchReportsDashboard   = lazy(() => import('./modules/reports/BranchReportsDashboard').then(m => ({ default: m.BranchReportsDashboard })));
 const Recipes                  = lazy(() => import('./modules/recipes/Recipes').then(m => ({ default: m.Recipes })));
+const DistributionDashboard    = lazy(() => import('./modules/distribution/DistributionDashboard').then(m => ({ default: m.DistributionDashboard })));
+const RouteRun                 = lazy(() => import('./modules/distribution/RouteRun').then(m => ({ default: m.RouteRun })));
+const DriverView               = lazy(() => import('./modules/distribution/DriverView').then(m => ({ default: m.DriverView })));
 const ExpensesDashboard        = lazy(() => import('./modules/expenses/ExpensesDashboard').then(m => ({ default: m.ExpensesDashboard })));
 const PurchasesDashboard       = lazy(() => import('./modules/purchases/PurchasesDashboard').then(m => ({ default: m.PurchasesDashboard })));
 const HRDashboard              = lazy(() => import('./modules/hr/HRDashboard').then(m => ({ default: m.HRDashboard })));
@@ -121,6 +124,9 @@ function AppContent() {
                 </PlanGuard>
               } />
               <Route path="/customers" element={<CustomersList />} />
+              <Route path="/distribution" element={<DistributionDashboard />} />
+              <Route path="/distribution/:id" element={<RouteRun />} />
+              <Route path="/driver" element={<DriverView />} />
               <Route path="/accounts-payable" element={
                 <PlanGuard feature="accounts_payable">
                   <AccountsPayableDashboard />

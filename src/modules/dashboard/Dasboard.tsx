@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
-  TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle,
+  TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -32,7 +32,7 @@ interface QuickStats {
 
 // ── Tiles del menú principal — estilo Eleventa ─────────────────────────────
 interface Tile {
-  feature: keyof PlanFeatures | 'settings' | 'customers';
+  feature: keyof PlanFeatures | 'settings' | 'customers' | 'distribution';
   label: string;
   icon: React.ElementType;
   path: string;
@@ -48,6 +48,8 @@ const ALL_TILES: Tile[] = [
   { feature: 'purchases',        label: 'Compras',         icon: ClipboardList, path: '/purchases',        bg: 'from-cyan-500 to-sky-600'         },
   { feature: 'promotions',       label: 'Promociones',     icon: Tag,           path: '/promotions',       bg: 'from-violet-500 to-purple-600'    },
   { feature: 'customers',        label: 'Clientes',        icon: UserCircle,    path: '/customers',        bg: 'from-teal-500 to-cyan-600'        },
+  { feature: 'distribution',     label: 'Distribución',    icon: Truck,         path: '/distribution',     bg: 'from-cyan-500 to-blue-600'        },
+  { feature: 'distribution',     label: 'Repartidor',      icon: PackageCheck,  path: '/driver',           bg: 'from-blue-500 to-indigo-600'      },
   { feature: 'users',            label: 'Usuarios',        icon: Users,         path: '/users',            bg: 'from-fuchsia-500 to-pink-500'     },
   { feature: 'settings',         label: 'Configuración',   icon: Settings,      path: '/settings',         bg: 'from-slate-600 to-slate-700'      },
 ];
@@ -180,8 +182,10 @@ export const Dashboard = () => {
   // Solo mostrar tiles habilitados por plan Y por el rol del user.
   // Settings/Configuración pasa por plan + rol (si el owner lo cerró, gerente no la ve).
   const tiles = ALL_TILES.filter(t => {
-    // 'settings' y 'customers' no dependen de un flag del plan (siempre disponibles).
-    const planHas = t.feature === 'settings' || t.feature === 'customers' || (pf[t.feature as keyof PlanFeatures] ?? false);
+    // 'settings' siempre; 'customers' visible salvo que se desactive; el resto
+    // (incluida Distribución) depende del flag del plan.
+    const planHas = t.feature === 'settings'
+      || (t.feature === 'customers' ? (pf.customers !== false) : (pf[t.feature as keyof PlanFeatures] ?? false));
     if (!planHas) return false;
     // Mapear feature → módulo de role_permissions. Si no hay mapeo, no se gatea.
     const moduleKey = t.feature === 'settings' ? null : t.feature;

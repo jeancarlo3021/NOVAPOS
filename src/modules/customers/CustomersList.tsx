@@ -195,6 +195,7 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
     email:               customer?.email ?? '',
     phone:               customer?.phone ?? '',
     address:             customer?.address ?? '',
+    zone:                customer?.zone ?? '',
     notes:               customer?.notes ?? '',
     is_active:           customer?.is_active ?? true,
   });
@@ -272,6 +273,13 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
             <label className="block text-xs font-bold text-gray-600 mb-1">Dirección</label>
             <textarea value={form.address ?? ''} onChange={e => set('address', e.target.value)}
               rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Zona <span className="text-gray-400 font-normal">(para Distribución)</span></label>
+            <input value={form.zone ?? ''} onChange={e => set('zone', e.target.value)}
+              placeholder="Ej: Centro, Norte, San José…"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           </div>
 
           <div>

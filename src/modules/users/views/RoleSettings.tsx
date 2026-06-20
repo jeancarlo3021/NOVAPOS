@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Shield, AlertCircle, Loader2, X, Check, Lock, Settings2,
   ShoppingCart, Package, BarChart2, TrendingDown, ClipboardList,
-  Wallet, Tag, Users, UserCog,
+  Wallet, Tag, Users, UserCog, Truck,
 } from 'lucide-react';
 import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import { ROLE_META, USER_ROLES } from '@/types/Types_Users';
@@ -33,6 +33,7 @@ const MODULES: ModuleMeta[] = [
   { key: 'customers',        label: 'Clientes',          description: 'Gestión de clientes',            icon: Users,         color: 'bg-teal-500' },
   { key: 'restaurant',       label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa',       icon: ShoppingCart,  color: 'bg-orange-500' },
   { key: 'recipes',          label: 'Recetas',           description: 'Recetas e ingredientes',         icon: Package,       color: 'bg-lime-500' },
+  { key: 'distribution',     label: 'Distribución',      description: 'Rutas de reparto y repartidor',  icon: Truck,         color: 'bg-cyan-500' },
 ];
 
 // Roles configurables (owner siempre tiene acceso total → no editable)

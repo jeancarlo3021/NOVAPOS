@@ -271,6 +271,7 @@ function WarehouseFormModal({ branch, warehouse, onClose, onSaved }: {
   const [form, setForm] = useState({
     name: warehouse?.name ?? '',
     code: warehouse?.code ?? '',
+    type: ((warehouse as any)?.type === 'truck' ? 'truck' : 'central') as 'central' | 'truck',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -303,6 +304,15 @@ function WarehouseFormModal({ branch, warehouse, onClose, onSaved }: {
           {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{error}</div>}
           <Field label="Nombre *" value={form.name} onChange={v => setForm({ ...form, name: v })} />
           <Field label="Código *" value={form.code} onChange={v => setForm({ ...form, code: v.toUpperCase() })} placeholder="BOD01" />
+          <label className="flex items-start gap-3 p-3 rounded-xl border border-cyan-200 bg-cyan-50/50 cursor-pointer">
+            <input type="checkbox" checked={form.type === 'truck'}
+              onChange={e => setForm({ ...form, type: e.target.checked ? 'truck' : 'central' })}
+              className="mt-0.5 w-5 h-5 rounded text-cyan-600" />
+            <span>
+              <span className="block font-bold text-cyan-900 text-sm">Es un camión (Distribución)</span>
+              <span className="block text-xs text-cyan-700">Marcala para usarla como camión de reparto en el módulo Distribución.</span>
+            </span>
+          </label>
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-3 py-2 rounded-lg bg-gray-100 text-gray-700 font-bold text-sm">Cancelar</button>
             <button type="submit" disabled={saving} className="flex-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white font-bold text-sm flex items-center justify-center gap-1.5">

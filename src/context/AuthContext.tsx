@@ -185,6 +185,8 @@ export interface PlanFeatures {
   recipes?: boolean;
   hr?: boolean;
   promotions?: boolean;
+  customers?: boolean;        // Módulo de clientes
+  distribution?: boolean;     // Distribución (rutas de reparto en camión)
   tables?: boolean;
   /** Módulo de restaurante: cobro por mesas, toma de pedido full-screen,
    *  adicionales/modificadores, dividir cuenta y comandas. */
@@ -260,6 +262,8 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   accounts_payable: false,
   recipes: false,
   hr: false,
+  customers: true,
+  distribution: false,
   promotions: false,
   tables: false,
   restaurant: false,
@@ -312,6 +316,8 @@ export const FULL_FEATURES: PlanFeatures = {
   accounts_payable: true,
   recipes: true,
   hr: true,
+  customers: true,
+  distribution: true,
   promotions: true,
   tables: true,
   restaurant: true,

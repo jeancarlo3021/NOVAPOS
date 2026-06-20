@@ -88,14 +88,107 @@ function getQZ(): any {
   throw new Error('QZ Tray no está disponible — asegúrese de que esté instalado y corriendo');
 }
 
-export async function qzConnect(): Promise<void> {
+// ── Auto-reconnect ──────────────────────────────────────────────────────────
+// Cuando QZ Tray se cae (se cierra la app, se pierde la red, se reinicia el
+// servicio), intentamos reconectar varias veces con backoff exponencial.
+
+export type QzStatus = 'connected' | 'disconnected' | 'reconnecting' | 'failed';
+
+const RECONNECT_MAX_ATTEMPTS = 12;
+const RECONNECT_BASE_DELAY = 1000;   // 1s, sube hasta ~15s
+const RECONNECT_MAX_DELAY = 15000;
+
+let autoReconnectEnabled = false;
+let reconnecting = false;
+let callbacksRegistered = false;
+
+const statusListeners = new Set<(s: QzStatus, attempt?: number) => void>();
+
+/** Suscribirse a cambios de estado de la conexión QZ (para UI/toasts). */
+export function onQzStatus(cb: (s: QzStatus, attempt?: number) => void): () => void {
+  statusListeners.add(cb);
+  return () => statusListeners.delete(cb);
+}
+
+function emitStatus(s: QzStatus, attempt?: number) {
+  for (const cb of statusListeners) { try { cb(s, attempt); } catch { /* noop */ } }
+}
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/** Registra los callbacks de cierre/error de QZ para disparar la reconexión. */
+function registerCloseCallbacks() {
+  if (callbacksRegistered) return;
+  let q: any;
+  try { q = getQZ(); } catch { return; }
+  try {
+    q.websocket.setClosedCallbacks(() => {
+      emitStatus('disconnected');
+      if (autoReconnectEnabled) void attemptReconnect();
+    });
+  } catch { /* versión de QZ sin este API */ }
+  try {
+    q.websocket.setErrorCallbacks(() => {
+      // El error normalmente viene seguido de un close; no forzamos aquí.
+    });
+  } catch { /* noop */ }
+  callbacksRegistered = true;
+}
+
+/** Activa la reconexión automática (idempotente). */
+export function qzEnableAutoReconnect(): void {
+  autoReconnectEnabled = true;
+  registerCloseCallbacks();
+}
+
+export function qzDisableAutoReconnect(): void {
+  autoReconnectEnabled = false;
+}
+
+/** Reintenta conectar varias veces con backoff. Seguro de llamar en paralelo. */
+export async function attemptReconnect(): Promise<boolean> {
+  if (reconnecting) return false;
+  if (qzIsConnected()) { emitStatus('connected'); return true; }
+  reconnecting = true;
+  try {
+    for (let attempt = 1; attempt <= RECONNECT_MAX_ATTEMPTS; attempt++) {
+      if (qzIsConnected()) { emitStatus('connected'); return true; }
+      emitStatus('reconnecting', attempt);
+      try {
+        await qzConnect();
+        if (qzIsConnected()) { emitStatus('connected'); return true; }
+      } catch { /* sigue reintentando */ }
+      const delay = Math.min(RECONNECT_BASE_DELAY * 2 ** (attempt - 1), RECONNECT_MAX_DELAY);
+      await sleep(delay);
+    }
+    emitStatus('failed');
+    return false;
+  } finally {
+    reconnecting = false;
+  }
+}
+
+// Una sola conexión en curso a la vez. Si se llama qzConnect mientras otra
+// conexión está en progreso (p. ej. el clic manual + la reconexión automática),
+// ambas comparten la misma promesa en vez de crear dos WebSockets que se pisan
+// (causa típica del error "connection.sendData is not a function").
+let connectInFlight: Promise<void> | null = null;
+
+export function qzConnect(certificate?: string): Promise<void> {
+  if (connectInFlight) return connectInFlight;
+  connectInFlight = qzConnectOnce(certificate).finally(() => { connectInFlight = null; });
+  return connectInFlight;
+}
+
+async function qzConnectOnce(_certificate?: string): Promise<void> {
+  void _certificate; // firma compat: el firmado usa la private key de localStorage
   // Try to load script if not already loaded
   if (!(window as any).qz) {
     await loadQZTrayScript();
   }
 
   const q = getQZ();
-  if (q.websocket.isActive()) return;
+  if (q.websocket.isActive()) { qzEnableAutoReconnect(); return; }
 
   // Only configure signing if a private key is available and valid.
   // Without signing, QZ Tray uses community mode (user approves once, then remembers).
@@ -125,11 +218,13 @@ export async function qzConnect(): Promise<void> {
   for (const attempt of attempts) {
     try {
       await q.websocket.connect({ usingSecure: attempt.usingSecure, retries: 1, delay: 1 });
+      qzEnableAutoReconnect();
+      emitStatus('connected');
       return;
     } catch (err) {
       lastError = err;
       // Si ya quedó activo en algún reintento interno, salimos.
-      if (q.websocket.isActive()) return;
+      if (q.websocket.isActive()) { qzEnableAutoReconnect(); emitStatus('connected'); return; }
       // Continúa con el siguiente protocolo.
     }
   }
@@ -140,12 +235,14 @@ export async function qzConnect(): Promise<void> {
 }
 
 export async function qzDisconnect(): Promise<void> {
+  qzDisableAutoReconnect();   // no reintentar tras una desconexión manual
   try {
     const q = getQZ();
     if (q.websocket.isActive()) await q.websocket.disconnect();
   } catch {
     // ignore
   }
+  emitStatus('disconnected');
 }
 
 export function qzIsConnected(): boolean {

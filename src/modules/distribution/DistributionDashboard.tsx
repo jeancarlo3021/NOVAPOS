@@ -1,0 +1,495 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Truck, Plus, X, MapPin, Package, RefreshCw, LockKeyhole,
+  CheckCircle2, Search, Loader2, Users, Navigation, BarChart3,
+} from 'lucide-react';
+import { useTenantId } from '@/hooks/useTenant';
+import { distributionService, type DeliveryRoute, type Truck as TruckT } from '@/services/distribution/distributionService';
+import { customersService, type Customer } from '@/services/customers/customersService';
+import { usersService } from '@/services/users/usersService';
+import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
+import type { Product } from '@/types/Types_POS';
+
+const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+const today = () => new Date().toISOString().slice(0, 10);
+
+export const DistributionDashboard: React.FC = () => {
+  const navigate = useNavigate();
+  const { tenantId } = useTenantId();
+  const [routes, setRoutes] = useState<DeliveryRoute[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [loadFor, setLoadFor] = useState<DeliveryRoute | null>(null);
+  const [closeSummary, setCloseSummary] = useState<{ route: DeliveryRoute; sum: import('@/services/distribution/distributionService').RouteCloseSummary } | null>(null);
+  const [showReport, setShowReport] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try { setRoutes(await distributionService.list()); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const closeRoute = async (r: DeliveryRoute) => {
+    if (!confirm(`Cerrar la ruta del ${r.route_date}? Se devuelve el sobrante del camión a la bodega central.`)) return;
+    try {
+      const sum = await distributionService.close(r.id);
+      setCloseSummary({ route: r, sum });
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Error al cerrar'); }
+  };
+
+  const open = routes.filter(r => r.status === 'open').length;
+  const closed = routes.filter(r => r.status === 'closed').length;
+
+  return (
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
+      {/* Header con degradado */}
+      <div className="bg-linear-to-r from-cyan-600 to-blue-600 rounded-2xl p-5 text-white">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center"><Truck size={22} /></div>
+            <div>
+              <h1 className="text-2xl font-black">Distribución</h1>
+              <p className="text-cyan-100 text-sm">Rutas de reparto en camión</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={load} className="p-2 rounded-lg bg-white/15 hover:bg-white/25"><RefreshCw size={16} /></button>
+            <button onClick={() => setShowReport(true)}
+              className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-xl text-sm">
+              <BarChart3 size={16} /> Reporte
+            </button>
+            <button onClick={() => setShowCreate(true)}
+              className="flex items-center gap-2 bg-white text-cyan-700 font-black px-4 py-2 rounded-xl text-sm hover:bg-cyan-50">
+              <Plus size={16} /> Nueva ruta
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          <div className="bg-white/15 rounded-xl px-3 py-2"><p className="text-cyan-100 text-[11px]">Rutas</p><p className="text-xl font-black">{routes.length}</p></div>
+          <div className="bg-white/15 rounded-xl px-3 py-2"><p className="text-cyan-100 text-[11px]">Abiertas</p><p className="text-xl font-black">{open}</p></div>
+          <div className="bg-white/15 rounded-xl px-3 py-2"><p className="text-cyan-100 text-[11px]">Cerradas</p><p className="text-xl font-black">{closed}</p></div>
+        </div>
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>}
+
+      {loading ? (
+        <div className="flex items-center justify-center py-14 text-gray-400 gap-2"><Loader2 size={18} className="animate-spin" /> Cargando…</div>
+      ) : routes.length === 0 ? (
+        <div className="bg-white border border-gray-100 rounded-2xl text-center py-14">
+          <Truck size={36} className="text-gray-200 mx-auto mb-2" />
+          <p className="text-gray-500 font-semibold">Sin rutas</p>
+          <p className="text-gray-400 text-sm">Creá una ruta para asignar camión, carga y clientes.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {routes.map(r => (
+            <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-black text-gray-900">{r.warehouse?.name ?? 'Camión'}</p>
+                  <p className="text-xs text-gray-400">{r.route_date} · {r.modality === 'autoventa' ? 'Autoventa' : r.modality === 'preventa' ? 'Preventa' : 'Auto + Preventa'}</p>
+                </div>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.status === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {r.status === 'open' ? 'Abierta' : 'Cerrada'}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <span className="flex items-center gap-1"><MapPin size={12} /> {r.stops_done ?? 0}/{r.stops_total ?? 0} paradas</span>
+              </div>
+              <button onClick={() => navigate(`/distribution/${r.id}`)}
+                className="w-full flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-bold py-2 rounded-lg">
+                <Navigation size={14} /> Abrir ruta
+              </button>
+              {r.status === 'open' && (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button onClick={() => setLoadFor(r)}
+                    className="flex items-center justify-center gap-1 bg-blue-50 text-blue-700 text-xs font-bold py-2 rounded-lg hover:bg-blue-100">
+                    <Package size={13} /> Cargar
+                  </button>
+                  <button onClick={() => closeRoute(r)}
+                    className="flex items-center justify-center gap-1 bg-red-50 text-red-600 text-xs font-bold py-2 rounded-lg hover:bg-red-100">
+                    <LockKeyhole size={13} /> Cerrar
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showCreate && tenantId && (
+        <CreateRouteModal tenantId={tenantId} onClose={() => setShowCreate(false)} onCreated={async () => { setShowCreate(false); await load(); }} />
+      )}
+      {loadFor && tenantId && (
+        <LoadTruckModal tenantId={tenantId} route={loadFor} onClose={() => setLoadFor(null)} onDone={async () => { setLoadFor(null); await load(); }} />
+      )}
+
+      {showReport && <ReportModal onClose={() => setShowReport(false)} />}
+
+      {closeSummary && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setCloseSummary(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+              <div className="w-9 h-9 rounded-xl bg-cyan-500 flex items-center justify-center"><CheckCircle2 size={16} className="text-white" /></div>
+              <div>
+                <h2 className="font-black text-gray-900 text-sm">Cierre de ruta</h2>
+                <p className="text-xs text-gray-400">{closeSummary.route.warehouse?.name} · {closeSummary.route.route_date}</p>
+              </div>
+            </div>
+            <div className="p-5 space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-gray-500">Ventas</span><span className="font-bold">{closeSummary.sum.sales_count}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Total vendido</span><span className="font-black text-emerald-600">{fmt(closeSummary.sum.sales_total)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Anulaciones</span><span className="font-bold text-red-600">{closeSummary.sum.voids_count}</span></div>
+              <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-500">Productos devueltos a central</span><span className="font-bold">{closeSummary.sum.returned_items}</span></div>
+              <p className="text-[11px] text-gray-400 pt-1">El sobrante del camión se devolvió a la bodega central. Sin caja chica.</p>
+            </div>
+            <div className="px-5 pb-5">
+              <button onClick={() => setCloseSummary(null)} className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2.5 rounded-xl text-sm">Listo</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Modal: crear ruta ──────────────────────────────────────────────────────────
+function CreateRouteModal({ tenantId, onClose, onCreated }: { tenantId: string; onClose: () => void; onCreated: () => void }) {
+  const [trucks, setTrucks] = useState<TruckT[]>([]);
+  const [drivers, setDrivers] = useState<{ id: string; full_name: string }[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [warehouseId, setWarehouseId] = useState('');
+  const [driverId, setDriverId] = useState('');
+  const [modality, setModality] = useState<'autoventa' | 'preventa' | 'ambas'>('ambas');
+  const [date, setDate] = useState(today());
+  const [selected, setSelected] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
+  const [zone, setZone] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      setTrucks(await distributionService.trucks().catch(() => []));
+      setCustomers(await customersService.list().catch(() => []));
+      try {
+        const us = await usersService.getAllUsers(tenantId);
+        setDrivers((us ?? []).map((u: any) => ({ id: u.id, full_name: u.full_name || u.email })));
+      } catch { /* ignore */ }
+    })();
+  }, [tenantId]);
+
+  const toggle = (id: string) => setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  // Solo clientes ACTIVOS. Zonas disponibles (de los activos).
+  const activeCustomers = customers.filter(c => c.is_active);
+  const zones = Array.from(new Set(activeCustomers.map(c => (c.zone ?? '').trim()).filter(Boolean))).sort();
+  const filtered = activeCustomers.filter(c =>
+    (!zone || (c.zone ?? '').trim() === zone) &&
+    (!search || c.name.toLowerCase().includes(search.toLowerCase())),
+  );
+
+  const save = async () => {
+    if (!warehouseId) { setErr('Elegí un camión'); return; }
+    setSaving(true); setErr('');
+    try {
+      await distributionService.create({
+        warehouse_id: warehouseId,
+        driver_id: driverId || null,
+        modality, route_date: date,
+        stops: selected.map((cid, i) => ({ customer_id: cid, seq: i })),
+      });
+      onCreated();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Error al crear'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-3" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-black text-gray-900">Nueva ruta</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-3 overflow-y-auto">
+          {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+          {trucks.length === 0 && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+              No hay camiones. Creá una bodega tipo "camión" en Sucursales/Bodegas primero.
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Camión</label>
+              <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="">— Elegir —</option>
+                {trucks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Repartidor</label>
+              <select value={driverId} onChange={e => setDriverId(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="">— Sin asignar —</option>
+                {drivers.map(d => <option key={d.id} value={d.id}>{d.full_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Fecha</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Modalidad</label>
+              <select value={modality} onChange={e => setModality(e.target.value as any)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="ambas">Ambas (auto + preventa)</option>
+                <option value="autoventa">Autoventa</option>
+                <option value="preventa">Preventa</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-1 text-xs font-bold text-gray-600 mb-1">
+              <Users size={12} /> Clientes ({selected.length})
+            </label>
+            {zones.length > 0 && (
+              <div className="flex items-center gap-2 mb-2">
+                <select value={zone} onChange={e => setZone(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
+                  <option value="">Todas las zonas</option>
+                  {zones.map(z => <option key={z} value={z}>{z}</option>)}
+                </select>
+                <button type="button" onClick={() => setSelected(p => Array.from(new Set([...p, ...filtered.map(c => c.id)])))}
+                  className="px-3 py-2 rounded-lg bg-cyan-50 text-cyan-700 text-xs font-bold whitespace-nowrap">
+                  Seleccionar zona
+                </button>
+              </div>
+            )}
+            <div className="relative mb-2">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar cliente…"
+                className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            </div>
+            <div className="max-h-52 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-50">
+              {filtered.map(c => (
+                <label key={c.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                  <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggle(c.id)}
+                    className="w-4 h-4 rounded text-cyan-600" />
+                  <span className="flex-1">{c.name}</span>
+                  {c.address && <span className="text-xs text-gray-400 truncate max-w-[120px]">{c.address}</span>}
+                </label>
+              ))}
+              {filtered.length === 0 && <p className="text-center text-gray-400 text-xs py-4">Sin clientes</p>}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2 px-5 py-4 border-t border-gray-100">
+          <button onClick={save} disabled={saving || !warehouseId}
+            className="flex-1 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-200 text-white font-bold py-2.5 rounded-xl text-sm">
+            {saving ? 'Creando…' : 'Crear ruta'}
+          </button>
+          <button onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-sm">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: cargar camión ────────────────────────────────────────────────────────
+function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string; route: DeliveryRoute; onClose: () => void; onDone: () => void }) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [central, setCentral] = useState<Record<string, number>>({});
+  const [qty, setQty] = useState<Record<string, number>>({});
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      const [prods, cs] = await Promise.all([
+        inventoryProductsService.getAllProducts(tenantId).catch(() => []),
+        distributionService.centralStock().catch(() => ({})),
+      ]);
+      setProducts(prods ?? []); setCentral(cs ?? {});
+    })();
+  }, [tenantId]);
+
+  const filtered = products.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p as any).sku?.toLowerCase?.().includes(search.toLowerCase()));
+  const items = Object.entries(qty).filter(([, v]) => v > 0).map(([product_id, v]) => ({ product_id, quantity: v }));
+  const totalUnits = items.reduce((s, i) => s + i.quantity, 0);
+  const availOf = (id: string) => { const v = central[id]; return v === undefined ? 0 : v; }; // -1 = infinito
+
+  const setQ = (id: string, n: number) => {
+    const avail = availOf(id);
+    const cap = avail === -1 ? Infinity : avail;
+    setQty(prev => ({ ...prev, [id]: Math.max(0, Math.min(cap, Math.floor(n) || 0)) }));
+  };
+
+  const save = async () => {
+    if (items.length === 0) { setErr('Agregá cantidades'); return; }
+    setSaving(true); setErr('');
+    try { await distributionService.load(route.id, items); onDone(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Error al cargar'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-2xl h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="bg-linear-to-r from-blue-600 to-cyan-600 text-white px-5 py-4 flex items-center justify-between rounded-t-2xl">
+          <div>
+            <h2 className="font-black text-lg flex items-center gap-2"><Package size={18} /> Cargar camión</h2>
+            <p className="text-blue-100 text-xs">{route.warehouse?.name} · descuenta del inventario del sistema</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/15 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="px-4 py-3 border-b border-gray-100">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto…"
+              className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {err && <div className="mb-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {filtered.map(p => {
+              const avail = availOf(p.id);
+              const q = qty[p.id] ?? 0;
+              const inf = avail === -1;
+              const out = !inf && avail <= 0;
+              return (
+                <div key={p.id} className={`rounded-xl border-2 p-2.5 flex flex-col transition ${q > 0 ? 'border-blue-400 bg-blue-50/50' : out ? 'border-gray-100 opacity-60' : 'border-gray-100'}`}>
+                  <div className="flex items-start justify-between gap-1">
+                    <div className="w-9 h-9 rounded-lg bg-linear-to-br from-blue-100 to-cyan-100 text-blue-700 font-black flex items-center justify-center text-sm shrink-0">
+                      {p.name.charAt(0).toUpperCase()}
+                    </div>
+                    {q > 0 && <span className="text-[10px] font-black bg-blue-600 text-white rounded-full px-1.5 py-0.5">{q}</span>}
+                  </div>
+                  <p className="text-xs font-bold text-gray-800 leading-tight mt-1.5 line-clamp-2 min-h-8">{p.name}</p>
+                  <p className={`text-[10px] font-bold mt-0.5 ${out ? 'text-red-500' : 'text-emerald-600'}`}>
+                    Sistema: {inf ? '∞' : avail}
+                  </p>
+                  <div className="flex items-center gap-1 mt-2">
+                    <button onClick={() => setQ(p.id, q - 1)} disabled={q <= 0}
+                      className="w-7 h-7 rounded-lg bg-gray-100 text-gray-700 font-black disabled:opacity-30">−</button>
+                    <input type="number" inputMode="numeric" value={q || ''} onChange={e => setQ(p.id, parseInt(e.target.value) || 0)}
+                      placeholder="0" className="flex-1 w-full text-center border border-gray-200 rounded-lg py-1 text-sm min-w-0" />
+                    <button onClick={() => setQ(p.id, q + 1)} disabled={out || (!inf && q >= avail)}
+                      className="w-7 h-7 rounded-lg bg-blue-500 text-white font-black disabled:opacity-30">+</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {filtered.length === 0 && <p className="text-center text-gray-400 text-sm py-10">Sin productos</p>}
+        </div>
+        <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-3">
+          <div className="flex-1">
+            <p className="text-xs text-gray-400">A cargar</p>
+            <p className="font-black text-gray-900">{items.length} productos · {totalUnits} u.</p>
+          </div>
+          <button onClick={save} disabled={saving || items.length === 0}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white font-black px-6 py-3 rounded-xl text-sm flex items-center justify-center gap-2">
+            {saving ? 'Cargando…' : <><CheckCircle2 size={16} /> Cargar camión</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: reporte de rutas y camiones ──────────────────────────────────────────
+function ReportModal({ onClose }: { onClose: () => void }) {
+  const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); });
+  const [to, setTo] = useState(today());
+  const [data, setData] = useState<{ routes: any[]; trucks: any[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const run = useCallback(async () => {
+    setLoading(true);
+    try { setData(await distributionService.report(from, to)); }
+    finally { setLoading(false); }
+  }, [from, to]);
+  useEffect(() => { run(); }, [run]);
+
+  const totalSales = (data?.routes ?? []).reduce((s, r) => s + r.sales_total, 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-3" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-black text-gray-900 flex items-center gap-2"><BarChart3 size={18} className="text-cyan-600" /> Reporte de Distribución</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        </div>
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2 flex-wrap">
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+          <span className="text-gray-400">→</span>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+          <span className="ml-auto text-sm">Total vendido: <strong className="text-emerald-600">{fmt(totalSales)}</strong></span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {loading ? (
+            <div className="flex items-center justify-center py-10 text-gray-400 gap-2"><Loader2 size={18} className="animate-spin" /> Cargando…</div>
+          ) : (
+            <>
+              {/* Por camión */}
+              <div>
+                <h3 className="text-xs font-black text-gray-500 uppercase tracking-wide mb-2">Por camión</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(data?.trucks ?? []).map((t, i) => (
+                    <div key={i} className="bg-gray-50 rounded-xl p-3 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-gray-800 text-sm flex items-center gap-1"><Truck size={14} className="text-cyan-600" /> {t.truck}</p>
+                        <p className="text-xs text-gray-400">{t.routes} ruta{t.routes !== 1 ? 's' : ''} · {t.sales_count} ventas</p>
+                      </div>
+                      <span className="font-black text-gray-900">{fmt(t.sales_total)}</span>
+                    </div>
+                  ))}
+                  {(data?.trucks ?? []).length === 0 && <p className="text-gray-400 text-sm">Sin datos</p>}
+                </div>
+              </div>
+              {/* Por ruta */}
+              <div>
+                <h3 className="text-xs font-black text-gray-500 uppercase tracking-wide mb-2">Por ruta</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr className="text-left text-[11px] font-bold text-gray-400 uppercase">
+                        <th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Camión</th><th className="px-3 py-2">Repartidor</th>
+                        <th className="px-3 py-2 text-right">Ventas</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-center">Anul.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {(data?.routes ?? []).map(r => (
+                        <tr key={r.id} className="hover:bg-gray-50/60">
+                          <td className="px-3 py-2 text-gray-600">{r.route_date}</td>
+                          <td className="px-3 py-2 font-semibold text-gray-800">{r.truck}</td>
+                          <td className="px-3 py-2 text-gray-600">{r.driver}</td>
+                          <td className="px-3 py-2 text-right">{r.sales_count}</td>
+                          <td className="px-3 py-2 text-right font-bold">{fmt(r.sales_total)}</td>
+                          <td className="px-3 py-2 text-center text-red-600">{r.voids_count || ''}</td>
+                        </tr>
+                      ))}
+                      {(data?.routes ?? []).length === 0 && <tr><td colSpan={6} className="text-center text-gray-400 py-6">Sin rutas en el período</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default DistributionDashboard;
