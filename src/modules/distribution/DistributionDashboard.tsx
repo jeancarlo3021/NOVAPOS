@@ -1,12 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Truck, Plus, X, MapPin, Package, RefreshCw, LockKeyhole,
-  CheckCircle2, Search, Loader2, Users, Navigation, BarChart3,
+  Truck, Plus, X, Package, RefreshCw, LockKeyhole,
+  CheckCircle2, Search, Loader2, Navigation, BarChart3,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { distributionService, type DeliveryRoute, type Truck as TruckT } from '@/services/distribution/distributionService';
-import { customersService, type Customer } from '@/services/customers/customersService';
 import { usersService } from '@/services/users/usersService';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import type { Product } from '@/types/Types_POS';
@@ -99,9 +98,6 @@ export const DistributionDashboard: React.FC = () => {
                   {r.status === 'open' ? 'Abierta' : 'Cerrada'}
                 </span>
               </div>
-              <div className="flex items-center gap-3 text-xs text-gray-500">
-                <span className="flex items-center gap-1"><MapPin size={12} /> {r.stops_done ?? 0}/{r.stops_total ?? 0} paradas</span>
-              </div>
               <button onClick={() => navigate(`/distribution/${r.id}`)}
                 className="w-full flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-bold py-2 rounded-lg">
                 <Navigation size={14} /> Abrir ruta
@@ -163,36 +159,22 @@ export const DistributionDashboard: React.FC = () => {
 function CreateRouteModal({ tenantId, onClose, onCreated }: { tenantId: string; onClose: () => void; onCreated: () => void }) {
   const [trucks, setTrucks] = useState<TruckT[]>([]);
   const [drivers, setDrivers] = useState<{ id: string; full_name: string }[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [warehouseId, setWarehouseId] = useState('');
   const [driverId, setDriverId] = useState('');
   const [modality, setModality] = useState<'autoventa' | 'preventa' | 'ambas'>('ambas');
   const [date, setDate] = useState(today());
-  const [selected, setSelected] = useState<string[]>([]);
-  const [search, setSearch] = useState('');
-  const [zone, setZone] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
   useEffect(() => {
     (async () => {
       setTrucks(await distributionService.trucks().catch(() => []));
-      setCustomers(await customersService.list().catch(() => []));
       try {
         const us = await usersService.getAllUsers(tenantId);
         setDrivers((us ?? []).map((u: any) => ({ id: u.id, full_name: u.full_name || u.email })));
       } catch { /* ignore */ }
     })();
   }, [tenantId]);
-
-  const toggle = (id: string) => setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
-  // Solo clientes ACTIVOS. Zonas disponibles (de los activos).
-  const activeCustomers = customers.filter(c => c.is_active);
-  const zones = Array.from(new Set(activeCustomers.map(c => (c.zone ?? '').trim()).filter(Boolean))).sort();
-  const filtered = activeCustomers.filter(c =>
-    (!zone || (c.zone ?? '').trim() === zone) &&
-    (!search || c.name.toLowerCase().includes(search.toLowerCase())),
-  );
 
   const save = async () => {
     if (!warehouseId) { setErr('Elegí un camión'); return; }
@@ -202,7 +184,6 @@ function CreateRouteModal({ tenantId, onClose, onCreated }: { tenantId: string; 
         warehouse_id: warehouseId,
         driver_id: driverId || null,
         modality, route_date: date,
-        stops: selected.map((cid, i) => ({ customer_id: cid, seq: i })),
       });
       onCreated();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Error al crear'); }
@@ -256,40 +237,9 @@ function CreateRouteModal({ tenantId, onClose, onCreated }: { tenantId: string; 
             </div>
           </div>
 
-          <div>
-            <label className="flex items-center gap-1 text-xs font-bold text-gray-600 mb-1">
-              <Users size={12} /> Clientes ({selected.length})
-            </label>
-            {zones.length > 0 && (
-              <div className="flex items-center gap-2 mb-2">
-                <select value={zone} onChange={e => setZone(e.target.value)}
-                  className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
-                  <option value="">Todas las zonas</option>
-                  {zones.map(z => <option key={z} value={z}>{z}</option>)}
-                </select>
-                <button type="button" onClick={() => setSelected(p => Array.from(new Set([...p, ...filtered.map(c => c.id)])))}
-                  className="px-3 py-2 rounded-lg bg-cyan-50 text-cyan-700 text-xs font-bold whitespace-nowrap">
-                  Seleccionar zona
-                </button>
-              </div>
-            )}
-            <div className="relative mb-2">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar cliente…"
-                className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm" />
-            </div>
-            <div className="max-h-52 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-50">
-              {filtered.map(c => (
-                <label key={c.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
-                  <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggle(c.id)}
-                    className="w-4 h-4 rounded text-cyan-600" />
-                  <span className="flex-1">{c.name}</span>
-                  {c.address && <span className="text-xs text-gray-400 truncate max-w-[120px]">{c.address}</span>}
-                </label>
-              ))}
-              {filtered.length === 0 && <p className="text-center text-gray-400 text-xs py-4">Sin clientes</p>}
-            </div>
-          </div>
+          <p className="text-[11px] text-gray-400">
+            El repartidor vende en mostrador y entrega pedidos; no hace falta asignar paradas.
+          </p>
         </div>
         <div className="flex gap-2 px-5 py-4 border-t border-gray-100">
           <button onClick={save} disabled={saving || !warehouseId}
@@ -330,7 +280,8 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
   const setQ = (id: string, n: number) => {
     const avail = availOf(id);
     const cap = avail === -1 ? Infinity : avail;
-    setQty(prev => ({ ...prev, [id]: Math.max(0, Math.min(cap, Math.floor(n) || 0)) }));
+    // Permite decimales (ej. 1.5 kg), igual que el tipo de medida del producto.
+    setQty(prev => ({ ...prev, [id]: Math.max(0, Math.min(cap, Number(n) || 0)) }));
   };
 
   const save = async () => {
@@ -381,7 +332,7 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
                   <div className="flex items-center gap-1 mt-2">
                     <button onClick={() => setQ(p.id, q - 1)} disabled={q <= 0}
                       className="w-7 h-7 rounded-lg bg-gray-100 text-gray-700 font-black disabled:opacity-30">−</button>
-                    <input type="number" inputMode="numeric" value={q || ''} onChange={e => setQ(p.id, parseInt(e.target.value) || 0)}
+                    <input type="number" inputMode="decimal" step="any" value={q || ''} onChange={e => setQ(p.id, parseFloat(e.target.value) || 0)}
                       placeholder="0" className="flex-1 w-full text-center border border-gray-200 rounded-lg py-1 text-sm min-w-0" />
                     <button onClick={() => setQ(p.id, q + 1)} disabled={out || (!inf && q >= avail)}
                       className="w-7 h-7 rounded-lg bg-blue-500 text-white font-black disabled:opacity-30">+</button>

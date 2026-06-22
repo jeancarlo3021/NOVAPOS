@@ -16,6 +16,8 @@ export interface Customer {
   zone?:               string | null;
   notes?:              string | null;
   is_active:           boolean;
+  credit_enabled?:     boolean;
+  credit_limit?:       number;
   created_at:          string;
   updated_at:          string;
 }
@@ -34,7 +36,14 @@ export const customersService = {
   /** Activar / desactivar un cliente. */
   setActive: (id: string, is_active: boolean) =>
     apiFetch<Customer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify({ is_active }) }),
+
+  // ── Zonas ──
+  listZones: () => apiFetch<CustomerZone[]>('/customers/zones'),
+  createZone: (name: string) => apiFetch<CustomerZone>('/customers/zones', { method: 'POST', body: JSON.stringify({ name }) }),
+  removeZone: (id: string) => apiFetch(`/customers/zones/${id}`, { method: 'DELETE' }),
 };
+
+export interface CustomerZone { id: string; tenant_id: string; name: string; created_at: string; }
 
 // Catálogo de tipos de identificación Hacienda CR
 export const ID_TYPES: { value: string; label: string }[] = [

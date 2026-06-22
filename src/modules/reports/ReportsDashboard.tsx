@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, BarChart2, ShoppingCart, Package, Users,
   Lock, RefreshCw, ChevronDown, TrendingDown, Vault, Target, WifiOff, Clock,
-  FileText, ChevronRight, ChevronLeft,
+  FileText, ChevronRight, ChevronLeft, Truck, HandCoins,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -20,6 +20,8 @@ import { CashSessionsReport } from './views/CashSessionsReport';
 import { ProfitReport } from './views/ProfitReport';
 import { HourlySalesReport } from './views/HourlySalesReport';
 import { StockAdjustmentsReport } from './views/StockAdjustmentsReport';
+import { DistributionReport } from './views/DistributionReport';
+import { ReceivablesReport } from './views/ReceivablesReport';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -37,7 +39,7 @@ function getDateRange(days: number) {
 
 type TabId =
   | 'basic' | 'advanced' | 'hourly' | 'purchases' | 'stock' | 'stock_adjustments'
-  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit';
+  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit' | 'distribution' | 'receivables';
 
 interface Tab {
   id: TabId;
@@ -63,10 +65,12 @@ const TABS: Tab[] = [
   // Finanzas
   { id: 'expenses', label: 'Gastos',            description: 'Egresos del negocio',       icon: TrendingDown,  featureKey: 'report_expenses',     group: 'finanzas' },
   { id: 'profit',   label: 'Ganancias',         description: 'Margen y rentabilidad',     icon: Target,        featureKey: 'report_profit',       group: 'finanzas' },
+  { id: 'receivables', label: 'Cuentas por Cobrar', description: 'Créditos y saldos de clientes', icon: HandCoins, featureKey: 'accounts_receivable', group: 'finanzas' },
 
   // Operacional
   { id: 'sellers',  label: 'Por Vendedor',      description: 'Desempeño del equipo',      icon: Users,         featureKey: 'report_sellers',      group: 'operacional' },
   { id: 'cash',     label: 'Cierres de Caja',   description: 'Cuadres y arqueos',         icon: Vault,         featureKey: 'report_cash_sessions',group: 'operacional' },
+  { id: 'distribution', label: 'Distribución',  description: 'Rutas y camiones',          icon: Truck,         featureKey: 'distribution',        group: 'operacional' },
 ];
 
 const GROUP_LABELS: Record<string, string> = {
@@ -376,6 +380,8 @@ const ReportsDashboard: React.FC = () => {
               case 'products':          return <ProductDetailReport key={`prd-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'cash':              return <CashSessionsReport key={`cash-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'profit':            return <ProfitReport key={`profit-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'distribution':      return <DistributionReport key={`dist-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'receivables':       return <ReceivablesReport key={`rec-${refreshKey}`} />;
               default:                  return null;
             }
           })()}

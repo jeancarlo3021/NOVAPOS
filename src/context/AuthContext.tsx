@@ -142,6 +142,7 @@ export interface PlanFeatures {
   expenses: boolean;
   purchases: boolean;
   accounts_payable: boolean;
+  accounts_receivable?: boolean;
   // ── POS ────────────────────────────────────────────────────────────────────
   pos_card: boolean;
   pos_sinpe: boolean;
@@ -260,6 +261,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   expenses: false,
   purchases: false,
   accounts_payable: false,
+  accounts_receivable: false,
   recipes: false,
   hr: false,
   customers: true,
@@ -314,6 +316,7 @@ export const FULL_FEATURES: PlanFeatures = {
   expenses: true,
   purchases: true,
   accounts_payable: true,
+  accounts_receivable: true,
   recipes: true,
   hr: true,
   customers: true,
@@ -399,6 +402,7 @@ export const getRoleLabel = (role: string): string => {
     'cajero': 'Cajero',
     'almacenero': 'Almacenero',
     'contador': 'Contador',
+    'repartidor': 'Repartidor',
   };
   return roleMap[role] || role.charAt(0).toUpperCase() + role.slice(1);
 };

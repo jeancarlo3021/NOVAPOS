@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
-  TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck,
+  TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -45,6 +45,7 @@ const ALL_TILES: Tile[] = [
   { feature: 'reports',          label: 'Reportes',        icon: BarChart2,     path: '/reports',          bg: 'from-indigo-500 to-indigo-600'    },
   { feature: 'expenses',         label: 'Gastos',          icon: TrendingDown,  path: '/expenses',         bg: 'from-rose-500 to-pink-600'        },
   { feature: 'accounts_payable', label: 'Cuentas',         icon: Wallet,        path: '/accounts-payable', bg: 'from-orange-500 to-amber-600'     },
+  { feature: 'accounts_receivable', label: 'Por Cobrar',   icon: HandCoins,     path: '/accounts-receivable', bg: 'from-teal-500 to-emerald-600'  },
   { feature: 'purchases',        label: 'Compras',         icon: ClipboardList, path: '/purchases',        bg: 'from-cyan-500 to-sky-600'         },
   { feature: 'promotions',       label: 'Promociones',     icon: Tag,           path: '/promotions',       bg: 'from-violet-500 to-purple-600'    },
   { feature: 'customers',        label: 'Clientes',        icon: UserCircle,    path: '/customers',        bg: 'from-teal-500 to-cyan-600'        },
@@ -192,6 +193,12 @@ export const Dashboard = () => {
     if (!moduleKey) return true;
     return canAccess(moduleKey as string);
   });
+
+  // Si el POS está desactivado, Distribución y Repartidor van de primero.
+  if (pf.pos === false) {
+    const isDist = (t: Tile) => t.path === '/distribution' || t.path === '/driver';
+    tiles.sort((a, b) => Number(isDist(b)) - Number(isDist(a)));
+  }
 
   // Alertas compactas (chips inline en la cabecera, no banner gigante)
   const alertChips: Array<{ icon: any; text: string; path: string; color: string }> = [];

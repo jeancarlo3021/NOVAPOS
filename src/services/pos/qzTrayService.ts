@@ -101,6 +101,10 @@ const RECONNECT_MAX_DELAY = 15000;
 let autoReconnectEnabled = false;
 let reconnecting = false;
 let callbacksRegistered = false;
+// Flag REAL de conexión. No usamos qz.websocket.isActive() para esto porque QZ
+// considera "activo" un socket en estado CONNECTING (a medio abrir / colgado),
+// lo que hacía que Config mostrara "conectado" sin estarlo.
+let connected = false;
 
 const statusListeners = new Set<(s: QzStatus, attempt?: number) => void>();
 
@@ -123,6 +127,7 @@ function registerCloseCallbacks() {
   try { q = getQZ(); } catch { return; }
   try {
     q.websocket.setClosedCallbacks(() => {
+      connected = false;
       emitStatus('disconnected');
       if (autoReconnectEnabled) void attemptReconnect();
     });
@@ -135,14 +140,63 @@ function registerCloseCallbacks() {
   callbacksRegistered = true;
 }
 
-/** Activa la reconexión automática (idempotente). */
+// ── Watchdog ────────────────────────────────────────────────────────────────
+// A veces el socket muere sin disparar el evento de cierre (queda "half-open").
+// Este chequeo periódico detecta que la conexión ya no está viva y dispara la
+// reconexión aunque QZ nunca avisó.
+const WATCHDOG_INTERVAL = 20000;   // 20s
+let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+
+/** ¿El socket sigue realmente abierto? (consulta directa a QZ, sin nuestro flag) */
+function rawSocketActive(): boolean {
+  try { return getQZ().websocket.isActive(); } catch { return false; }
+}
+
+let visibilityHooked = false;
+function hookVisibility() {
+  if (visibilityHooked || typeof document === 'undefined') return;
+  visibilityHooked = true;
+  // Al volver al frente, los timers estaban estrangulados: chequeamos ya mismo.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!autoReconnectEnabled || reconnecting) return;
+    if (connected && !rawSocketActive()) {
+      connected = false;
+      emitStatus('disconnected');
+      void attemptReconnect();
+    }
+  });
+}
+
+function startWatchdog() {
+  hookVisibility();
+  if (watchdogTimer) return;
+  watchdogTimer = setInterval(() => {
+    if (!autoReconnectEnabled) return;
+    if (reconnecting) return;
+    // Creíamos estar conectados pero el socket ya no está vivo → reconectar.
+    if (connected && !rawSocketActive()) {
+      connected = false;
+      emitStatus('disconnected');
+      void attemptReconnect();
+    }
+  }, WATCHDOG_INTERVAL);
+}
+
+function stopWatchdog() {
+  if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+}
+
+/** Activa la reconexión automática + watchdog (idempotente). */
 export function qzEnableAutoReconnect(): void {
   autoReconnectEnabled = true;
   registerCloseCallbacks();
+  startWatchdog();
 }
 
 export function qzDisableAutoReconnect(): void {
   autoReconnectEnabled = false;
+  stopWatchdog();
 }
 
 /** Reintenta conectar varias veces con backoff. Seguro de llamar en paralelo. */
@@ -188,7 +242,12 @@ async function qzConnectOnce(_certificate?: string): Promise<void> {
   }
 
   const q = getQZ();
-  if (q.websocket.isActive()) { qzEnableAutoReconnect(); return; }
+  if (connected && q.websocket.isActive()) { qzEnableAutoReconnect(); return; }
+  // Si quedó un socket colgado en estado CONNECTING (isActive true pero nunca
+  // terminó de abrir), lo cerramos antes de reintentar para no chocar.
+  if (q.websocket.isActive()) {
+    try { await q.websocket.disconnect(); } catch { /* noop */ }
+  }
 
   // Only configure signing if a private key is available and valid.
   // Without signing, QZ Tray uses community mode (user approves once, then remembers).
@@ -206,29 +265,39 @@ async function qzConnectOnce(_certificate?: string): Promise<void> {
     }
   }
 
-  // Intentar primero WSS (puertos 8181/8282 por defecto) y, si falla,
-  // hacer fallback a WS sin TLS (puertos 8182/8283). Algunos navegadores
-  // o configuraciones de red bloquean uno u otro.
-  const attempts: Array<{ usingSecure: boolean; label: string }> = [
-    { usingSecure: true,  label: 'wss' },
-    { usingSecure: false, label: 'ws'  },
-  ];
+  // Si la página corre en HTTPS, el navegador BLOQUEA ws:// (sin TLS) por
+  // "mixed content". En ese caso solo sirve wss:// y NO intentamos el fallback
+  // inseguro (en Edge/Chrome simplemente fallaría sin mensaje claro).
+  const pageIsHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+
+  // wss primero (puertos 8181/8282). Si la página es HTTP, además probamos ws.
+  const attempts: Array<{ usingSecure: boolean; label: string }> = pageIsHttps
+    ? [{ usingSecure: true, label: 'wss' }]
+    : [{ usingSecure: true, label: 'wss' }, { usingSecure: false, label: 'ws' }];
 
   let lastError: unknown;
   for (const attempt of attempts) {
     try {
-      await q.websocket.connect({ usingSecure: attempt.usingSecure, retries: 1, delay: 1 });
+      // Más reintentos internos: Edge tarda más en el handshake del cert localhost.
+      await q.websocket.connect({ usingSecure: attempt.usingSecure, retries: 2, delay: 1 });
+      connected = true;
       qzEnableAutoReconnect();
       emitStatus('connected');
       return;
     } catch (err) {
       lastError = err;
-      // Si ya quedó activo en algún reintento interno, salimos.
-      if (q.websocket.isActive()) { qzEnableAutoReconnect(); emitStatus('connected'); return; }
+      // Si ya quedó activo (OPEN) en algún reintento interno, salimos.
+      if (q.websocket.isActive()) { connected = true; qzEnableAutoReconnect(); emitStatus('connected'); return; }
       // Continúa con el siguiente protocolo.
     }
   }
 
+  if (pageIsHttps) {
+    throw new Error(
+      'No se pudo conectar a QZ Tray. En Edge/Chrome abrí https://localhost:8181 ' +
+      'en una pestaña y aceptá el certificado (Avanzado → Continuar), luego reintentá.',
+    );
+  }
   throw lastError instanceof Error
     ? lastError
     : new Error('No se pudo conectar a QZ Tray (wss ni ws)');
@@ -236,6 +305,7 @@ async function qzConnectOnce(_certificate?: string): Promise<void> {
 
 export async function qzDisconnect(): Promise<void> {
   qzDisableAutoReconnect();   // no reintentar tras una desconexión manual
+  connected = false;
   try {
     const q = getQZ();
     if (q.websocket.isActive()) await q.websocket.disconnect();
@@ -246,8 +316,10 @@ export async function qzDisconnect(): Promise<void> {
 }
 
 export function qzIsConnected(): boolean {
+  // Conexión REAL: nuestro flag (puesto al resolver connect / quitado al cerrar)
+  // y que el socket siga abierto. Evita el falso positivo del estado CONNECTING.
   try {
-    return getQZ().websocket.isActive();
+    return connected && getQZ().websocket.isActive();
   } catch {
     return false;
   }

@@ -8,6 +8,7 @@ import { ResetPassword } from '@/modules/auth/ResetPassword';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/modules/dashboard/Dasboard';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { QzReconnectToast } from '@/components/QzReconnectToast';
 import { ClearCacheShortcut } from '@/components/ClearCacheShortcut';
 import { useTokenRefresh } from '@/hooks/useTokenRefresh';
 
@@ -33,6 +34,7 @@ const ExpensesDashboard        = lazy(() => import('./modules/expenses/ExpensesD
 const PurchasesDashboard       = lazy(() => import('./modules/purchases/PurchasesDashboard').then(m => ({ default: m.PurchasesDashboard })));
 const HRDashboard              = lazy(() => import('./modules/hr/HRDashboard').then(m => ({ default: m.HRDashboard })));
 const AccountsPayableDashboard = lazy(() => import('./modules/accountsPayable/AccountsPayableDashboard').then(m => ({ default: m.AccountsPayableDashboard })));
+const AccountsReceivableDashboard = lazy(() => import('./modules/accountsReceivable/AccountsReceivableDashboard').then(m => ({ default: m.AccountsReceivableDashboard })));
 const PromotionsDashboard      = lazy(() => import('./modules/promotions/PromotionsDashboard').then(m => ({ default: m.PromotionsDashboard })));
 const CreateOwner              = lazy(() => import('./modules/auth/CreateOwner').then(m => ({ default: m.CreateOwner })));
 const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashboard').then(m => ({ default: m.TablesDashboard })));
@@ -132,6 +134,11 @@ function AppContent() {
                   <AccountsPayableDashboard />
                 </PlanGuard>
               } />
+              <Route path="/accounts-receivable" element={
+                <PlanGuard feature="accounts_receivable">
+                  <AccountsReceivableDashboard />
+                </PlanGuard>
+              } />
               <Route path="/tables" element={
                 <PlanGuard feature="tables"><TablesDashboard /></PlanGuard>
               } />
@@ -154,6 +161,7 @@ function AppContent() {
           </Routes>
         </Suspense>
         <SyncIndicator />
+        <QzReconnectToast />
     </>
     );
 }

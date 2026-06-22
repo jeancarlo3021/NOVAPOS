@@ -1,27 +1,43 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, MapPin, Navigation, ShoppingCart, ClipboardList, X,
-  CheckCircle2, Search, Loader2, PackageCheck, Ban, Truck, User,
+  ArrowLeft, MapPin, ShoppingCart, ClipboardList, X,
+  CheckCircle2, Search, Loader2, PackageCheck, Truck, User,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
 import { distributionService, type DeliveryRoute, type RouteStop } from '@/services/distribution/distributionService';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
+import { unitTypesService } from '@/services/Inventory/unitTypesService';
 import { customerPricesService } from '@/services/customers/customerPricesService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import type { Product } from '@/types/Types_POS';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+const payLabel = (m: string) => m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : 'Crédito';
+
+// Imprime el ticket; en crédito saca doble factura (cliente + vendedor).
+async function printTicket(data: any, tenantId: string, credit: boolean) {
+  if (credit) {
+    await posPrinterService.printAuto({ ...data, copyLabel: 'ORIGINAL - CLIENTE' }, tenantId);
+    await posPrinterService.printAuto({ ...data, copyLabel: 'COPIA - VENDEDOR' }, tenantId);
+  } else {
+    await posPrinterService.printAuto(data, tenantId);
+  }
+}
 
 export const RouteRun: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { tenantId } = useTenantId();
+  const { user } = useAuth();
+  // Solo el gerente (o dueño/admin) toma pedidos (preventa). El repartidor solo vende.
+  const canTakeOrders = ['owner', 'admin', 'gerente'].includes(user?.role ?? '');
   const [route, setRoute] = useState<DeliveryRoute | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'stops' | 'deliver'>('stops');
+  const [deliverTarget, setDeliverTarget] = useState<any | null>(null);
   const [saleStop, setSaleStop] = useState<{ stop: RouteStop | null; mode: 'auto' | 'pre' } | null>(null);
 
   const load = useCallback(async () => {
@@ -37,25 +53,30 @@ export const RouteRun: React.FC = () => {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  const markNoSale = async (stop: RouteStop) => {
-    const reason = window.prompt('Motivo (opcional):', '') ?? undefined;
-    await distributionService.updateStop(stop.id, { status: 'no_sale', reason });
-    await load();
-  };
-
-  const deliver = async (orderId: string) => {
-    await distributionService.deliverOrder(orderId);
+  const deliver = async (order: any, paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit') => {
+    const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
+    const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    const inv: any = await distributionService.deliverOrder(order.id, { payment_method: paymentMethod, issued_at });
+    try {
+      const now = new Date();
+      await printTicket({
+        invoiceNumber: inv?.invoice_number ?? '',
+        date: now.toLocaleDateString('es-CR'),
+        time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+        items: (order.items ?? []).map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
+        subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
+        paymentMethod: payLabel(paymentMethod),
+        customerName: order.customer?.name ?? order.customer_name,
+      }, tenantId ?? '', paymentMethod === 'credit');
+    } catch { /* impresora no disponible */ }
+    setDeliverTarget(null);
     await load();
   };
 
   if (loading) return <div className="flex items-center justify-center py-20 text-gray-400 gap-2"><Loader2 className="animate-spin" size={18} /> Cargando ruta…</div>;
   if (!route) return <div className="p-6 text-center text-gray-400">Ruta no encontrada</div>;
 
-  const stops = route.stops ?? [];
   const pendingOrders = orders.filter(o => o.status === 'pending');
-
-  const doneStops = stops.filter(s => s.status !== 'pending').length;
-  const progress = stops.length > 0 ? Math.round((doneStops / stops.length) * 100) : 0;
   const modLabel = route.modality === 'autoventa' ? 'Autoventa' : route.modality === 'preventa' ? 'Preventa' : 'Auto + Preventa';
 
   return (
@@ -73,19 +94,6 @@ export const RouteRun: React.FC = () => {
           </span>
         </div>
 
-        {/* Progreso de paradas */}
-        {stops.length > 0 && (
-          <div className="mt-3">
-            <div className="flex justify-between text-[11px] text-cyan-100 mb-1">
-              <span>Paradas: {doneStops}/{stops.length}</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-              <div className="h-full bg-white rounded-full transition-all" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
-        )}
-
         {/* Acciones rápidas (mostrador) */}
         {route.status === 'open' && (
           <div className="flex items-center gap-2 mt-3">
@@ -95,7 +103,7 @@ export const RouteRun: React.FC = () => {
                 <ShoppingCart size={16} /> Vender
               </button>
             )}
-            {route.modality !== 'autoventa' && (
+            {route.modality !== 'autoventa' && canTakeOrders && (
               <button onClick={() => setSaleStop({ stop: null, mode: 'pre' })}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-black px-3 py-2.5 rounded-xl text-sm">
                 <ClipboardList size={16} /> Pedido
@@ -105,72 +113,11 @@ export const RouteRun: React.FC = () => {
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 px-4 pt-3">
-        <button onClick={() => setTab('stops')} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition ${tab === 'stops' ? 'bg-cyan-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600'}`}>
-          Paradas ({stops.length})
-        </button>
-        <button onClick={() => setTab('deliver')} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition ${tab === 'deliver' ? 'bg-cyan-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600'}`}>
-          Por entregar ({pendingOrders.length})
-        </button>
-      </div>
-
-      {/* Stops */}
-      {tab === 'stops' && (
-        <div className="p-4 space-y-3">
-          {stops.length === 0 && <p className="text-center text-gray-400 text-sm py-10">Sin paradas asignadas</p>}
-          {stops.map((s, i) => {
-            const cust = (s as any).customer;
-            const addr = cust?.address;
-            const mapUrl = s.lat && s.lng
-              ? `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`
-              : addr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}` : null;
-            const accent = s.status === 'visited' ? 'border-l-emerald-400' : s.status === 'no_sale' ? 'border-l-amber-400' : 'border-l-cyan-400';
-            return (
-              <div key={s.id} className={`bg-white rounded-2xl border border-gray-100 border-l-4 ${accent} shadow-sm p-4`}>
-                <div className="flex items-start gap-3">
-                  <span className={`w-8 h-8 rounded-full font-black text-sm flex items-center justify-center shrink-0 ${s.status === 'visited' ? 'bg-emerald-100 text-emerald-700' : s.status === 'no_sale' ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-black text-gray-900 truncate">{cust?.name ?? 'Cliente'}</p>
-                    {addr && <p className="text-xs text-gray-400 flex items-center gap-1"><MapPin size={11} className="shrink-0" /> <span className="truncate">{addr}</span></p>}
-                    {cust?.phone && <p className="text-xs text-gray-400">{cust.phone}</p>}
-                  </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${s.status === 'visited' ? 'bg-emerald-100 text-emerald-700' : s.status === 'no_sale' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-                    {s.status === 'visited' ? '✓ Visitado' : s.status === 'no_sale' ? 'No compró' : 'Pendiente'}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {mapUrl && (
-                    <a href={mapUrl} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-bold">
-                      <Navigation size={13} /> Cómo llegar
-                    </a>
-                  )}
-                  {route.modality !== 'preventa' && (
-                    <button onClick={() => setSaleStop({ stop: s, mode: 'auto' })}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold">
-                      <ShoppingCart size={13} /> Vender
-                    </button>
-                  )}
-                  {route.modality !== 'autoventa' && (
-                    <button onClick={() => setSaleStop({ stop: s, mode: 'pre' })}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-xs font-bold">
-                      <ClipboardList size={13} /> Tomar pedido
-                    </button>
-                  )}
-                  <button onClick={() => markNoSale(s)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-50 text-gray-500 text-xs font-bold">
-                    <Ban size={13} /> No compró
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {/* Por entregar */}
-      {tab === 'deliver' && (
+      <div className="px-4 pt-3">
+        <h2 className="text-sm font-black text-gray-500 uppercase tracking-wide">Por entregar ({pendingOrders.length})</h2>
+      </div>
+      {(
         <div className="p-4 space-y-3">
           {pendingOrders.length === 0 && <p className="text-center text-gray-400 text-sm py-10">Nada por entregar</p>}
           {pendingOrders.map(o => (
@@ -190,9 +137,9 @@ export const RouteRun: React.FC = () => {
                   </li>
                 ))}
               </ul>
-              <button onClick={() => deliver(o.id)}
+              <button onClick={() => setDeliverTarget(o)}
                 className="mt-3 w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold py-2 rounded-lg">
-                <PackageCheck size={15} /> Marcar entregado
+                <PackageCheck size={15} /> Entregar e imprimir
               </button>
             </div>
           ))}
@@ -205,9 +152,50 @@ export const RouteRun: React.FC = () => {
           onClose={() => setSaleStop(null)} onDone={async () => { setSaleStop(null); await load(); }}
         />
       )}
+
+      {deliverTarget && (
+        <DeliverModal order={deliverTarget} onClose={() => setDeliverTarget(null)} onConfirm={deliver} />
+      )}
     </div>
   );
 };
+
+// ── Modal: entregar pedido (método de pago + imprime factura) ────────────────────
+function DeliverModal({ order, onClose, onConfirm }: {
+  order: any; onClose: () => void; onConfirm: (order: any, pm: 'cash' | 'card' | 'sinpe' | 'credit') => Promise<void>;
+}) {
+  const [pm, setPm] = useState<'cash' | 'card' | 'sinpe' | 'credit'>('cash');
+  const [saving, setSaving] = useState(false);
+  const go = async () => { setSaving(true); try { await onConfirm(order, pm); } finally { setSaving(false); } };
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-black text-gray-900">Entregar pedido</h2>
+            <p className="text-xs text-gray-400">{order.customer?.name ?? order.customer_name ?? 'Cliente'} · {fmt(order.total)}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <p className="text-xs font-bold text-gray-500">¿Con qué pagó el cliente?</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(['cash', 'card', 'sinpe', 'credit'] as const).map(m => (
+              <button key={m} onClick={() => setPm(m)}
+                className={`py-2.5 rounded-lg text-sm font-bold ${pm === m ? (m === 'credit' ? 'bg-amber-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
+                {m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : 'Crédito'}
+              </button>
+            ))}
+          </div>
+          <button onClick={go} disabled={saving}
+            className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black py-3 rounded-xl text-sm">
+            {saving ? 'Entregando…' : <><PackageCheck size={16} /> Entregar e imprimir</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Modal de venta (autoventa) o pedido (preventa) ───────────────────────────────
 function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
@@ -223,10 +211,11 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
   const [custSearch, setCustSearch] = useState('');
 
   const [rows, setRows] = useState<Array<{ product_id: string; name: string; base: number; available: number }>>([]);
+  const [unitMap, setUnitMap] = useState<Record<string, { name: string; abbreviation: string; requires_weight: boolean }>>({});
   const [priceMap, setPriceMap] = useState<Record<string, number>>({});
   const [qty, setQty] = useState<Record<string, number>>({});
   const [search, setSearch] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>('cash');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -245,6 +234,29 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
       }
     })();
   }, [isAuto, route.id, tenantId]);
+
+  // Tipo de medida por producto (igual que el POS: peso vs unidad).
+  useEffect(() => {
+    (async () => {
+      try {
+        const [prods, units] = await Promise.all([
+          inventoryProductsService.getAllProducts(tenantId).catch(() => []),
+          unitTypesService.getAllUnitTypes(tenantId ?? '').catch(() => []),
+        ]);
+        const uById = new Map((units ?? []).map((u: any) => [u.id, u]));
+        const WEIGHT = new Set(['kg', 'g', 'lb', 'lbs', 'oz', 'gr', 'kilo', 'kilos']);
+        const map: Record<string, any> = {};
+        for (const p of (prods ?? []) as any[]) {
+          const ut = p.unit_type ?? (p.unit_type_id ? uById.get(p.unit_type_id) : null);
+          if (ut) {
+            const requires_weight = ut.requires_weight != null ? ut.requires_weight : WEIGHT.has((ut.abbreviation ?? '').toLowerCase());
+            map[p.id] = { name: ut.name ?? 'unidad', abbreviation: ut.abbreviation ?? 'u', requires_weight };
+          }
+        }
+        setUnitMap(map);
+      } catch { /* ignore */ }
+    })();
+  }, [tenantId]);
 
   // Precios especiales según el cliente seleccionado (se recalcula al cambiar).
   useEffect(() => {
@@ -266,7 +278,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
   const total = lines.reduce((s, l) => s + l.q * l.unit_price, 0);
 
   const setQ = (id: string, v: number, available: number) => {
-    let n = Math.max(0, Math.floor(v) || 0);
+    let n = Math.max(0, Number(v) || 0);   // permite decimales (tipo de medida)
     if (isAuto && n > available) n = available;   // bloqueante: nunca más de lo cargado
     setQty(prev => ({ ...prev, [id]: n }));
   };
@@ -285,20 +297,20 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
       const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
       if (isAuto) {
         const inv: any = await distributionService.sale(route.id, {
-          stop_id: stop?.id, customer_name: customer?.name, items,
+          stop_id: stop?.id, customer_id: customer?.id ?? null, customer_name: customer?.name, items,
           subtotal: total, tax_amount: 0, total, payment_method: paymentMethod, issued_at,
         });
         try {
           const now = new Date();
-          await posPrinterService.printAuto({
+          await printTicket({
             invoiceNumber: inv?.invoice_number ?? '',
             date: now.toLocaleDateString('es-CR'),
             time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
             items: lines.map(l => ({ name: l.name, quantity: l.q, unitPrice: l.unit_price, subtotal: Math.round(l.q * l.unit_price) })),
             subtotal: total, tax: 0, total,
-            paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : 'SINPE',
+            paymentMethod: payLabel(paymentMethod),
             customerName: customer?.name,
-          } as any, tenantId);
+          }, tenantId, paymentMethod === 'credit');
         } catch { /* impresora no disponible */ }
       } else {
         if (!customer?.id) { setErr('La preventa necesita un cliente'); setSaving(false); return; }
@@ -376,6 +388,8 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
               const special = priceMap[r.product_id] != null;
               const price = priceOf(r.product_id, r.base);
               const noStock = isAuto && r.available <= 0;
+              const unit = unitMap[r.product_id];
+              const byWeight = !!unit?.requires_weight;
               const accent = special ? 'from-violet-100 to-fuchsia-100 text-violet-700' : 'from-emerald-100 to-cyan-100 text-emerald-700';
               return (
                 <div key={r.product_id} className={`rounded-xl border-2 p-2.5 flex flex-col transition ${q > 0 ? (special ? 'border-violet-400 bg-violet-50/60' : 'border-emerald-400 bg-emerald-50/50') : 'border-gray-100'} ${noStock ? 'opacity-50' : ''}`}>
@@ -388,16 +402,18 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
                   <p className="text-xs font-bold text-gray-800 leading-tight mt-1.5 line-clamp-2 min-h-8">{r.name}</p>
                   <div className="mt-0.5">
                     <span className={`text-[11px] font-black ${special ? 'text-violet-600' : 'text-gray-700'}`}>{fmt(price)}</span>
+                    {unit && <span className="text-[10px] text-gray-400">/{unit.abbreviation}</span>}
                     {special && <span className="ml-1 text-[8px] font-black text-violet-600 bg-violet-100 px-1 rounded uppercase">cliente</span>}
-                    {isAuto && <p className={`text-[10px] font-bold ${r.available <= 0 ? 'text-red-500' : 'text-gray-400'}`}>camión: {r.available}</p>}
+                    {byWeight && <span className="ml-1 text-[8px] font-black text-amber-600 bg-amber-100 px-1 rounded uppercase">por {unit.name}</span>}
+                    {isAuto && <p className={`text-[10px] font-bold ${r.available <= 0 ? 'text-red-500' : 'text-gray-400'}`}>camión: {r.available}{unit ? ` ${unit.abbreviation}` : ''}</p>}
                   </div>
                   <div className="flex items-center gap-1 mt-2">
-                    <button onClick={() => setQ(r.product_id, q - 1, r.available)} disabled={q <= 0}
+                    <button onClick={() => setQ(r.product_id, q - (byWeight ? 0.5 : 1), r.available)} disabled={q <= 0}
                       className="w-7 h-7 rounded-lg bg-gray-100 text-gray-700 font-black disabled:opacity-30">−</button>
-                    <input type="number" inputMode="numeric" value={qty[r.product_id] ?? ''} disabled={noStock}
-                      onChange={e => setQ(r.product_id, parseInt(e.target.value) || 0, r.available)} placeholder="0"
+                    <input type="number" inputMode="decimal" step={byWeight ? '0.01' : 'any'} value={qty[r.product_id] ?? ''} disabled={noStock}
+                      onChange={e => setQ(r.product_id, parseFloat(e.target.value) || 0, r.available)} placeholder="0"
                       className="flex-1 w-full min-w-0 text-center border border-gray-200 rounded-lg py-1 text-sm disabled:bg-gray-100" />
-                    <button onClick={() => setQ(r.product_id, q + 1, r.available)} disabled={noStock || (isAuto && q >= r.available)}
+                    <button onClick={() => setQ(r.product_id, q + (byWeight ? 0.5 : 1), r.available)} disabled={noStock || (isAuto && q >= r.available)}
                       className={`w-7 h-7 rounded-lg text-white font-black disabled:opacity-30 ${special ? 'bg-violet-500' : 'bg-emerald-500'}`}>+</button>
                   </div>
                 </div>
@@ -408,10 +424,10 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
         </div>
         {isAuto && (
           <div className="px-4 py-2 border-t border-gray-100 flex gap-2">
-            {(['cash', 'card', 'sinpe'] as const).map(m => (
+            {(['cash', 'card', 'sinpe', ...(customer?.id ? ['credit'] as const : [])] as const).map(m => (
               <button key={m} onClick={() => setPaymentMethod(m)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                {m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : 'SINPE'}
+                className={`flex-1 py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
+                {payLabel(m)}
               </button>
             ))}
           </div>

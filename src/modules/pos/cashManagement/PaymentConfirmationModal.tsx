@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CreditCard, Banknote, Smartphone, X, ChevronRight, Layers } from 'lucide-react';
+import { CreditCard, Banknote, Smartphone, X, ChevronRight, Layers, HandCoins } from 'lucide-react';
 import { CartItem } from '@/types/Types_POS';
 
 interface PaymentConfirmationModalProps {
@@ -15,6 +15,12 @@ interface PaymentConfirmationModalProps {
   loading?: boolean;
   allowCard?: boolean;
   allowSinpe?: boolean;
+  /** Permitir venta a crédito (cliente con crédito habilitado). */
+  allowCredit?: boolean;
+  /** Crédito disponible (límite - saldo). Infinity = sin límite. */
+  creditAvailable?: number;
+  /** Saldo actual del cliente (para mostrar). */
+  creditBalance?: number;
 }
 
 export interface PaymentSplit {
@@ -24,7 +30,7 @@ export interface PaymentSplit {
 }
 
 export interface PaymentData {
-  paymentMethod: 'cash' | 'card' | 'sinpe';
+  paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit';
   amountReceived?: number;
   change?: number;
   voucherNumber?: string;
@@ -62,6 +68,15 @@ const METHODS = [
     idleClass: 'bg-white border-gray-200 text-gray-700',
     iconIdleClass: 'text-violet-500',
   },
+  {
+    id: 'credit' as const,
+    label: 'Crédito',
+    icon: HandCoins,
+    activeClass: 'bg-amber-500 border-amber-500 text-white',
+    iconActiveClass: 'text-white',
+    idleClass: 'bg-white border-gray-200 text-gray-700',
+    iconIdleClass: 'text-amber-500',
+  },
 ] as const;
 
 export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> = ({
@@ -75,12 +90,17 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   loading = false,
   allowCard = true,
   allowSinpe = true,
+  allowCredit = false,
+  creditAvailable = Infinity,
+  creditBalance = 0,
 }) => {
+  const crc = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+  const creditExceeds = total > creditAvailable;
   const availableMethods = METHODS.filter(m =>
-    m.id === 'cash' || (m.id === 'card' && allowCard) || (m.id === 'sinpe' && allowSinpe)
+    m.id === 'cash' || (m.id === 'card' && allowCard) || (m.id === 'sinpe' && allowSinpe) || (m.id === 'credit' && allowCredit)
   );
 
-  const [method, setMethod] = useState<'cash' | 'card' | 'sinpe'>(availableMethods[0]?.id ?? 'cash');
+  const [method, setMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>(availableMethods[0]?.id ?? 'cash');
   const [received, setReceived] = useState('');
   const [voucherNumber, setVoucherNumber] = useState('');
   const [error, setError] = useState('');
@@ -88,15 +108,17 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const [isMixed, setIsMixed] = useState(false);
   const [mixed, setMixed] = useState<Record<string, string>>({});
 
+  // El crédito no participa en pagos mixtos.
+  const mixedMethods = availableMethods.filter(m => m.id !== 'credit');
   const mixedAmount = (id: string) => parseFloat(mixed[id] || '') || 0;
-  const mixedTotal = availableMethods.reduce((s, m) => s + mixedAmount(m.id), 0);
+  const mixedTotal = mixedMethods.reduce((s, m) => s + mixedAmount(m.id), 0);
   const mixedDiff  = Math.round((total - mixedTotal) * 100) / 100;  // >0 falta, <0 sobra (vuelto)
   // Válido: la suma cubre el total (puede sobrar = vuelto en efectivo).
   const mixedValid = mixedTotal >= total - 0.5;
 
   const receivedNum = parseFloat(received) || 0;
   const change = receivedNum - total;
-  const cashOk = method !== 'cash' || receivedNum >= total;
+  const cashOk = method === 'credit' ? !creditExceeds : (method !== 'cash' || receivedNum >= total);
 
   const applyQuick = (amount: number) => {
     setReceived(String(amount));
@@ -110,9 +132,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         return;
       }
       // Solo métodos con monto > 0
-      const splits = availableMethods
+      const splits = mixedMethods
         .filter(m => mixedAmount(m.id) > 0)
-        .map(m => ({ method: m.id, amount: mixedAmount(m.id) }));
+        .map(m => ({ method: m.id as 'cash' | 'card' | 'sinpe', amount: mixedAmount(m.id) }));
 
       // El método dominante (mayor monto) para reportes legacy.
       const dominant = [...splits].sort((a, b) => b.amount - a.amount)[0];
@@ -131,6 +153,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       setError('El monto recibido es menor al total');
       return;
     }
+    if (method === 'credit' && creditExceeds) {
+      setError(`Supera el crédito disponible (${crc(creditAvailable)})`);
+      return;
+    }
     // Comprobante de tarjeta/SINPE es opcional.
     onConfirm({
       paymentMethod: method,
@@ -142,7 +168,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
   // Autocompleta el método con el saldo restante (botón "resto").
   const fillRest = (id: string) => {
-    const others = availableMethods.reduce((s, m) => m.id === id ? s : s + mixedAmount(m.id), 0);
+    const others = mixedMethods.reduce((s, m) => m.id === id ? s : s + mixedAmount(m.id), 0);
     const rest = Math.max(0, Math.round((total - others) * 100) / 100);
     setMixed(prev => ({ ...prev, [id]: String(rest) }));
     setError('');
@@ -269,7 +295,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                 <p className="text-gray-500 text-xs font-black uppercase tracking-wider px-1">
                   ¿Con cuánto paga en cada uno?
                 </p>
-                {availableMethods.map((m) => {
+                {mixedMethods.map((m) => {
                   const Icon = m.icon;
                   return (
                     <div key={m.id} className="flex items-center gap-3 bg-white border-2 border-gray-200 rounded-2xl px-3 py-2.5">
@@ -388,6 +414,19 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                     placeholder="N° comprobante (opcional)"
                     className="w-full text-center text-3xl font-black text-gray-900 bg-white border-2 border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-400 tracking-widest transition"
                   />
+                </div>
+              </div>
+            )}
+
+            {!isMixed && method === 'credit' && (
+              <div className={`border-2 rounded-2xl px-4 py-4 ${creditExceeds ? 'bg-red-50 border-red-300' : 'bg-amber-50 border-amber-200'}`}>
+                <p className={`font-black text-base ${creditExceeds ? 'text-red-700' : 'text-amber-700'}`}>Venta a crédito</p>
+                <div className="text-sm mt-1 space-y-0.5">
+                  <p className="text-gray-600">Saldo actual: <strong>{crc(creditBalance)}</strong></p>
+                  <p className="text-gray-600">Disponible: <strong>{creditAvailable === Infinity ? 'Sin límite' : crc(creditAvailable)}</strong></p>
+                  {creditExceeds
+                    ? <p className="text-red-600 font-bold">Esta venta supera el crédito disponible.</p>
+                    : <p className="text-amber-600">Se registrará una cuenta por cobrar (vence en 30 días).</p>}
                 </div>
               </div>
             )}

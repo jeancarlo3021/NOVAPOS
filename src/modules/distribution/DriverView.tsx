@@ -2,9 +2,11 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, MapPin, Navigation, PackageCheck, RefreshCw, Loader2,
-  ClipboardCheck, ChevronRight, CheckCircle2, X,
+  ClipboardCheck, CheckCircle2, X, Lock,
 } from 'lucide-react';
 import { distributionService, type DeliveryRoute } from '@/services/distribution/distributionService';
+import { posPrinterService } from '@/services/pos/posPrinterService';
+import { useTenantId } from '@/hooks/useTenant';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
@@ -15,6 +17,8 @@ export const DriverView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'routes' | 'orders'>('routes');
   const [verify, setVerify] = useState<any | null>(null);
+  const [closingId, setClosingId] = useState<string | null>(null);
+  const [closeSummary, setCloseSummary] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -29,6 +33,18 @@ export const DriverView: React.FC = () => {
   useEffect(() => { load(); }, [load]);
 
   const openRoutes = routes.filter(r => r.status === 'open');
+
+  const closeRoute = async (r: DeliveryRoute) => {
+    if (!confirm(`¿Cerrar la ruta de "${r.warehouse?.name ?? 'camión'}"?\nSe devolverá el sobrante al inventario y se hará el corte de ventas.`)) return;
+    setClosingId(r.id);
+    try {
+      const summary = await distributionService.close(r.id);
+      setCloseSummary({ ...summary, truck: r.warehouse?.name });
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudo cerrar la ruta');
+    } finally { setClosingId(null); }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 pb-6">
@@ -77,50 +93,87 @@ export const DriverView: React.FC = () => {
             </div>
           )}
           {routes.map(r => (
-            <button key={r.id} onClick={() => navigate(`/distribution/${r.id}`)}
-              className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3 hover:border-cyan-200">
-              <div className="w-11 h-11 rounded-xl bg-cyan-100 flex items-center justify-center shrink-0"><Truck size={20} className="text-cyan-600" /></div>
-              <div className="flex-1 min-w-0">
-                <p className="font-black text-gray-900 truncate">{r.warehouse?.name ?? 'Camión'}</p>
-                <p className="text-xs text-gray-400">{r.route_date} · {r.stops_done ?? 0}/{r.stops_total ?? 0} paradas</p>
+            <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-cyan-100 flex items-center justify-center shrink-0"><Truck size={20} className="text-cyan-600" /></div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-gray-900 truncate">{r.warehouse?.name ?? 'Camión'}</p>
+                  <p className="text-xs text-gray-400">{r.route_date}</p>
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.status === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {r.status === 'open' ? 'Abierta' : 'Cerrada'}
+                </span>
               </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.status === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                {r.status === 'open' ? 'Abierta' : 'Cerrada'}
-              </span>
-              <ChevronRight size={18} className="text-gray-300 shrink-0" />
-            </button>
+              {r.status === 'open' && (
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => navigate(`/distribution/${r.id}`)}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-bold py-2.5 rounded-lg">
+                    <Navigation size={15} /> Abrir / Vender
+                  </button>
+                  <button onClick={() => closeRoute(r)} disabled={closingId === r.id}
+                    className="flex items-center justify-center gap-1.5 bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 text-sm font-bold px-4 py-2.5 rounded-lg disabled:opacity-50">
+                    {closingId === r.id ? <Loader2 size={15} className="animate-spin" /> : <Lock size={15} />} Cerrar ruta
+                  </button>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       ) : (
         <div className="p-4 space-y-3">
+          <div className="bg-cyan-50 border border-cyan-200 rounded-xl px-4 py-3 text-sm text-cyan-800">
+            <p className="font-bold flex items-center gap-1.5"><PackageCheck size={15} /> Pedidos que tenés que llevar</p>
+            <p className="text-xs text-cyan-700 mt-0.5">Estos pedidos los tomó el gerente. Verificá los productos antes de salir y marcá la entrega al llegar.</p>
+          </div>
           {orders.length === 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 text-center py-12">
               <PackageCheck size={34} className="text-gray-200 mx-auto mb-2" />
               <p className="text-gray-500 font-semibold">Nada por entregar</p>
             </div>
           )}
-          {orders.map(o => {
+          {orders.map((o, idx) => {
             const addr = o.customer?.address;
             const mapUrl = addr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}` : null;
+            const items: any[] = o.items ?? [];
+            const units = items.reduce((s, it) => s + Number(it.quantity || 0), 0);
             return (
-              <div key={o.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <div key={o.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-cyan-400 shadow-sm p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-black text-gray-900 truncate">{o.customer?.name ?? o.customer_name ?? 'Cliente'}</p>
-                    <p className="text-[11px] text-gray-400">{o.route?.truck} · {o.route?.date}</p>
-                    {addr && <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><MapPin size={11} /> {addr}</p>}
+                  <div className="min-w-0 flex items-start gap-2">
+                    <span className="w-7 h-7 rounded-full bg-cyan-100 text-cyan-700 font-black text-xs flex items-center justify-center shrink-0 mt-0.5">{idx + 1}</span>
+                    <div className="min-w-0">
+                      <p className="font-black text-gray-900 truncate">{o.customer?.name ?? o.customer_name ?? 'Cliente'}</p>
+                      {addr && <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><MapPin size={11} /> {addr}</p>}
+                      {o.customer?.phone && <p className="text-xs text-gray-400">{o.customer.phone}</p>}
+                    </div>
                   </div>
-                  <span className="font-black text-gray-900 shrink-0">{fmt(o.total)}</span>
+                  <div className="text-right shrink-0">
+                    <p className="font-black text-gray-900">{fmt(o.total)}</p>
+                    <p className="text-[10px] text-gray-400">{items.length} prod · {units} u.</p>
+                  </div>
                 </div>
+
+                {/* Productos a entregar */}
+                {items.length > 0 && (
+                  <ul className="mt-3 bg-gray-50 rounded-lg p-2.5 text-sm text-gray-700 space-y-1">
+                    {items.map((it, i) => (
+                      <li key={i} className="flex justify-between gap-2">
+                        <span className="truncate"><strong>{it.quantity}</strong> × {it.product_name}</span>
+                        <span className="text-gray-400 shrink-0">{fmt(Number(it.unit_price) * Number(it.quantity))}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
                 <div className="flex gap-2 mt-3">
                   {mapUrl && (
                     <a href={mapUrl} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-xs font-bold">
-                      <Navigation size={13} /> Ir
+                      className="flex items-center gap-1 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-bold">
+                      <Navigation size={13} /> Cómo llegar
                     </a>
                   )}
                   <button onClick={() => setVerify(o)}
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-bold py-2 rounded-lg">
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold py-2.5 rounded-lg">
                     <ClipboardCheck size={15} /> Verificar y entregar
                   </button>
                 </div>
@@ -134,49 +187,105 @@ export const DriverView: React.FC = () => {
         <VerifyDeliverModal order={verify} onClose={() => setVerify(null)}
           onDelivered={async () => { setVerify(null); await load(); }} />
       )}
+
+      {closeSummary && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setCloseSummary(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="bg-linear-to-r from-emerald-600 to-teal-600 text-white px-5 py-4 rounded-t-2xl">
+              <h2 className="font-black text-lg flex items-center gap-2"><CheckCircle2 size={20} /> Ruta cerrada</h2>
+              <p className="text-emerald-100 text-xs">{closeSummary.truck ?? ''}</p>
+            </div>
+            <div className="p-5 space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-gray-500">Ventas</span><span className="font-bold">{closeSummary.sales_count ?? 0}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Total vendido</span><span className="font-black text-emerald-600">{fmt(closeSummary.sales_total ?? 0)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Anulaciones</span><span className="font-bold text-rose-600">{closeSummary.voids_count ?? 0}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Productos devueltos</span><span className="font-bold">{closeSummary.returned_items ?? 0}</span></div>
+            </div>
+            <div className="px-5 pb-5">
+              <button onClick={() => setCloseSummary(null)} className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 rounded-xl text-sm">Listo</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // ── Modal: verificar productos y entregar ────────────────────────────────────────
 function VerifyDeliverModal({ order, onClose, onDelivered }: { order: any; onClose: () => void; onDelivered: () => void }) {
+  const { tenantId } = useTenantId();
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>('cash');
   const [saving, setSaving] = useState(false);
   const items: any[] = order.items ?? [];
   const allChecked = items.length > 0 && items.every((it: any) => checked[it.product_id]);
 
   const deliver = async () => {
     setSaving(true);
-    try { await distributionService.deliverOrder(order.id); onDelivered(); }
-    finally { setSaving(false); }
+    try {
+      const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
+      const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+      const inv: any = await distributionService.deliverOrder(order.id, { payment_method: paymentMethod, issued_at });
+      // Imprimir la factura de la entrega (no bloquea si falla la impresora).
+      try {
+        const now = new Date();
+        const data = {
+          invoiceNumber: inv?.invoice_number ?? '',
+          date: now.toLocaleDateString('es-CR'),
+          time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+          items: items.map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
+          subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
+          paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : 'Crédito',
+          customerName: order.customer?.name ?? order.customer_name,
+        };
+        if (paymentMethod === 'credit') {
+          await posPrinterService.printAuto({ ...data, copyLabel: 'ORIGINAL - CLIENTE' } as any, tenantId ?? '');
+          await posPrinterService.printAuto({ ...data, copyLabel: 'COPIA - VENDEDOR' } as any, tenantId ?? '');
+        } else {
+          await posPrinterService.printAuto(data as any, tenantId ?? '');
+        }
+      } catch { /* impresora no disponible */ }
+      onDelivered();
+    } finally { setSaving(false); }
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-2xl h-[94vh] sm:h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div>
-            <h2 className="font-black text-gray-900">Verificar entrega</h2>
-            <p className="text-xs text-gray-400">{order.customer?.name ?? order.customer_name}</p>
+            <h2 className="font-black text-lg text-gray-900">Verificar entrega</h2>
+            <p className="text-sm text-gray-500">{order.customer?.name ?? order.customer_name}{order.customer?.address ? ` · ${order.customer.address}` : ''}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={20} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          <p className="text-xs text-gray-400">Marcá cada producto al cargarlo/entregarlo:</p>
+          <p className="text-sm font-bold text-gray-500 mb-1">Marcá cada producto al cargarlo / entregarlo:</p>
           {items.map((it: any) => (
-            <label key={it.product_id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer ${checked[it.product_id] ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200'}`}>
+            <label key={it.product_id} className={`flex items-center gap-3 px-4 py-4 rounded-xl border-2 cursor-pointer transition ${checked[it.product_id] ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200'}`}>
               <input type="checkbox" checked={!!checked[it.product_id]}
                 onChange={e => setChecked(p => ({ ...p, [it.product_id]: e.target.checked }))}
-                className="w-5 h-5 rounded text-emerald-600" />
-              <span className="flex-1 font-semibold text-gray-800">{it.product_name}</span>
-              <span className="text-gray-500 font-black">×{it.quantity}</span>
+                className="w-6 h-6 rounded text-emerald-600 shrink-0" />
+              <span className="flex-1 font-bold text-gray-800 text-base">{it.product_name}</span>
+              <span className="text-gray-700 font-black text-lg">×{it.quantity}</span>
             </label>
           ))}
         </div>
-        <div className="px-5 py-4 border-t border-gray-100">
+        <div className="px-5 py-4 border-t border-gray-100 space-y-3">
+          <div>
+            <p className="text-xs font-bold text-gray-500 mb-1.5">¿Con qué pagó el cliente?</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['cash', 'card', 'sinpe', 'credit'] as const).map(m => (
+                <button key={m} onClick={() => setPaymentMethod(m)}
+                  className={`py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
+                  {m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : 'Crédito'}
+                </button>
+              ))}
+            </div>
+          </div>
           <button onClick={deliver} disabled={saving || !allChecked}
             className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black py-3 rounded-xl text-sm">
-            {saving ? 'Entregando…' : <><CheckCircle2 size={16} /> {allChecked ? 'Confirmar entrega' : 'Marcá todos los productos'}</>}
+            {saving ? 'Entregando…' : <><CheckCircle2 size={16} /> {allChecked ? `Entregar e imprimir (${fmt(order.total)})` : 'Marcá todos los productos'}</>}
           </button>
         </div>
       </div>

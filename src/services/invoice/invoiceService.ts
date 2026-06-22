@@ -79,7 +79,7 @@ export const invoicesService = {
     discountPercentage: number,
     taxAmount: number,
     total: number,
-    paymentMethod: 'cash' | 'card' | 'sinpe',
+    paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit',
     customerName?: string,
     notes?: string,
     customerPhone?: string,
@@ -95,6 +95,8 @@ export const invoicesService = {
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[] | null,
     /** Tipo de documento fiscal elegido en el POS. */
     documentType?: 'ticket' | 'tiquete_electronico' | 'factura_electronica',
+    /** Cliente seleccionado (para vincular venta a crédito → cuenta por cobrar). */
+    customerId?: string | null,
   ) {
     // Validaciones según método de pago. En pago mixto (payments con 2+
     // splits) la validación ya la hizo el modal: la suma cuadra con el total y
@@ -121,6 +123,7 @@ export const invoicesService = {
         tax_amount: taxAmount,
         total,
         payment_method: paymentMethod,
+        customer_id: customerId ?? null,
         customer_name: customerName,
         customer_phone: customerPhone,
         amount_received: paymentMethod === 'cash' ? amountReceived : null,
@@ -140,18 +143,21 @@ export const invoicesService = {
 
     // Registrar movimiento de caja — en pago mixto solo entra la porción efectivo.
     // Las porciones de tarjeta/SINPE no afectan el efectivo en caja.
-    const cashAmount = (payments && payments.length > 1)
-      ? (payments.find(p => p.method === 'cash')?.amount ?? 0)
-      : (paymentMethod === 'cash' ? total : total);  // mantiene comportamiento legacy
+    // En venta a CRÉDITO no entra dinero: no se registra movimiento de caja.
+    if (paymentMethod !== 'credit') {
+      const cashAmount = (payments && payments.length > 1)
+        ? (payments.find(p => p.method === 'cash')?.amount ?? 0)
+        : (paymentMethod === 'cash' ? total : total);  // mantiene comportamiento legacy
 
-    await cashMovementsService.createMovement(
-      sessionId,
-      invoice.tenant_id,
-      'sale',
-      cashAmount,
-      `Venta ${invoice.invoice_number}`,
-      invoice.id
-    );
+      await cashMovementsService.createMovement(
+        sessionId,
+        invoice.tenant_id,
+        'sale',
+        cashAmount,
+        `Venta ${invoice.invoice_number}`,
+        invoice.id
+      );
+    }
 
     return invoice;
   },

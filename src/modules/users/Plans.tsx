@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Edit2, Plus, X, ShoppingCart, Package, BarChart2,
   TrendingDown, Settings, Users, CreditCard, Smartphone,
-  Percent, ClipboardList, Check, ChevronRight, Wallet,
+  Percent, ClipboardList, Check, ChevronRight, Wallet, HandCoins,
   BookOpen, UserCog, Tag, LayoutGrid,
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
@@ -336,6 +336,7 @@ export default function Plans() {
     if (pf.expenses) a.push('Gastos');
     if (pf.purchases) a.push('Compras');
     if (pf.accounts_payable) a.push('Cuentas por Pagar');
+    if (pf.accounts_receivable) a.push('Cuentas por Cobrar');
     if ((pf as any).multi_branch) {
       a.push('Sucursales');
       if ((pf as any).multi_branch_transfers) a.push('Transferencias');
@@ -874,6 +875,8 @@ export default function Plans() {
 
                   <FeatureRow icon={Wallet} color="bg-rose-500" title="Cuentas por Pagar"
                     description="Crédito de proveedores" checked={features.accounts_payable ?? false} onChange={v => set({ accounts_payable: v })} />
+                  <FeatureRow icon={HandCoins} color="bg-teal-500" title="Cuentas por Cobrar"
+                    description="Crédito de clientes y abonos" checked={features.accounts_receivable ?? false} onChange={v => set({ accounts_receivable: v })} />
 
                   <FeatureRow icon={TrendingDown} color="bg-red-400" title="Gastos"
                     description="Registro y gestión" checked={features.expenses} onChange={v => set({ expenses: v })} />

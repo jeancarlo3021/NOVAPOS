@@ -20,6 +20,8 @@ import {
   Receipt,
   Building,
   Truck,
+  PackageCheck,
+  HandCoins,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -56,9 +58,11 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Principal',
     defaultOpen: true,
     items: [
-      { name: 'Dashboard',      to: '/',          icon: LayoutDashboard, feature: 'always' },
-      { name: 'Punto de Venta', to: '/pos',       icon: ShoppingCart,    feature: 'pos',       module: 'pos'       },
-      { name: 'Inventario',     to: '/inventory', icon: Package,         feature: 'always',    module: 'inventory' },
+      { name: 'Dashboard',      to: '/',             icon: LayoutDashboard, feature: 'always' },
+      { name: 'Punto de Venta', to: '/pos',          icon: ShoppingCart,    feature: 'pos',          module: 'pos'          },
+      { name: 'Distribución',   to: '/distribution', icon: Truck,           feature: 'distribution', module: 'distribution' },
+      { name: 'Repartidor',     to: '/driver',       icon: PackageCheck,    feature: 'distribution', module: 'distribution' },
+      { name: 'Inventario',     to: '/inventory',    icon: Package,         feature: 'always',       module: 'inventory'    },
     ],
   },
   {
@@ -78,6 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Órdenes de Compra', to: '/purchases',         icon: ClipboardList, feature: 'purchases',        module: 'purchases'        },
       { name: 'Cuentas por Pagar', to: '/accounts-payable',  icon: Wallet,        feature: 'accounts_payable', module: 'accounts_payable' },
+      { name: 'Cuentas por Cobrar', to: '/accounts-receivable', icon: HandCoins,  feature: 'accounts_receivable', module: 'accounts_payable' },
       { name: 'Gastos',            to: '/expenses',          icon: TrendingDown,  feature: 'expenses',         module: 'expenses'         },
       { name: 'Reportes',          to: '/reports',           icon: FileText,      feature: 'reports',          module: 'reports'          },
       { name: 'Reportes Sucursales', to: '/branch-reports',  icon: Building,      feature: 'multi_branch',     module: 'reports'          },
@@ -164,8 +169,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
     return true;
   };
 
+  // Si el POS está desactivado, Distribución y Repartidor van de primero.
+  const posOff = planFeatures?.pos === false;
+  const isDist = (it: NavItem) => it.to === '/distribution' || it.to === '/driver';
+  const navGroups: NavGroup[] = posOff
+    ? NAV_GROUPS.map(g => g.id === 'main'
+        ? { ...g, items: [...g.items].sort((a, b) => Number(isDist(b)) - Number(isDist(a))) }
+        : g)
+    : NAV_GROUPS;
+
   // Aplana todas las rutas visibles según permisos (para asistido y compacto).
-  const allVisibleFlat: NavItem[] = NAV_GROUPS.flatMap(g => g.items).filter(item => isAllowed(item));
+  const allVisibleFlat: NavItem[] = navGroups.flatMap(g => g.items).filter(item => isAllowed(item));
 
   // Filtro adicional para modo asistido
   const assistedItems = (assisted && !showMore)
@@ -268,7 +282,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
         ) : (
           /* Modo normal: grupos colapsables */
           <nav className="px-2 space-y-1">
-            {NAV_GROUPS.map((group) => {
+            {navGroups.map((group) => {
               const visibleItems = group.items.filter(item => isAllowed(item));
               if (visibleItems.length === 0) return null;
               const isOpenG = !!openGroups[group.id];

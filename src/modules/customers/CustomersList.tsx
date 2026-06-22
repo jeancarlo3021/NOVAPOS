@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power } from 'lucide-react';
-import { customersService, ID_TYPES, type Customer, type CustomerInput } from '@/services/customers/customersService';
+import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power, HandCoins, MapPin } from 'lucide-react';
+import { customersService, ID_TYPES, type Customer, type CustomerInput, type CustomerZone } from '@/services/customers/customersService';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { CustomerPricesModal } from './CustomerPricesModal';
 
@@ -17,6 +17,7 @@ export const CustomersList: React.FC = () => {
   const [showForm, setShowForm]   = useState(false);
   const [editing, setEditing]     = useState<Customer | null>(null);
   const [pricesFor, setPricesFor] = useState<Customer | null>(null);
+  const [showZones, setShowZones] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -59,6 +60,10 @@ export const CustomersList: React.FC = () => {
           <button onClick={load}
             className="p-2 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+          <button onClick={() => setShowZones(true)}
+            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition">
+            <MapPin size={14} /> Zonas
           </button>
           {canCreate && (
             <button onClick={() => { setEditing(null); setShowForm(true); }}
@@ -178,9 +183,78 @@ export const CustomersList: React.FC = () => {
           onClose={() => setPricesFor(null)}
         />
       )}
+
+      {showZones && <ZonesModal onClose={() => setShowZones(false)} />}
     </div>
   );
 };
+
+// ── Modal: administrar zonas ──────────────────────────────────────────────────
+function ZonesModal({ onClose }: { onClose: () => void }) {
+  const [zones, setZones] = useState<CustomerZone[]>([]);
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    try { setZones(await customersService.listZones()); } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const add = async () => {
+    if (!name.trim()) return;
+    setSaving(true); setErr('');
+    try { await customersService.createZone(name.trim()); setName(''); await load(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Error'); }
+    finally { setSaving(false); }
+  };
+
+  const del = async (z: CustomerZone) => {
+    if (!confirm(`¿Eliminar la zona "${z.name}"? Los clientes con esta zona la conservan como texto.`)) return;
+    await customersService.removeZone(z.id); await load();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-black text-gray-900 flex items-center gap-2"><MapPin size={18} className="text-cyan-600" /> Zonas</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        </div>
+        <div className="px-5 py-3 border-b border-gray-100">
+          {err && <div className="mb-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+          <div className="flex gap-2">
+            <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()}
+              placeholder="Nueva zona (ej. Centro, Norte…)"
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            <button onClick={add} disabled={saving || !name.trim()}
+              className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-200 text-white font-bold text-sm flex items-center gap-1.5">
+              <Plus size={15} /> Agregar
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {loading ? (
+            <p className="text-center text-gray-400 text-sm py-8">Cargando…</p>
+          ) : zones.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-8">Sin zonas. Agregá la primera arriba.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {zones.map(z => (
+                <div key={z.id} className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-gray-100">
+                  <span className="font-semibold text-gray-800 flex items-center gap-2"><MapPin size={14} className="text-gray-400" /> {z.name}</span>
+                  <button onClick={() => del(z)} className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Form modal ───────────────────────────────────────────────────────────────
 
@@ -198,9 +272,23 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
     zone:                customer?.zone ?? '',
     notes:               customer?.notes ?? '',
     is_active:           customer?.is_active ?? true,
+    credit_enabled:      customer?.credit_enabled ?? false,
+    credit_limit:        customer?.credit_limit ?? 0,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
+  const [zones, setZones]   = useState<string[]>([]);
+
+  useEffect(() => {
+    customersService.listZones().then(zs => setZones((zs ?? []).map(z => z.name))).catch(() => {});
+  }, []);
+
+  const addZone = async () => {
+    const name = prompt('Nombre de la nueva zona:')?.trim();
+    if (!name) return;
+    try { await customersService.createZone(name); setZones(z => [...new Set([...z, name])]); set('zone', name); }
+    catch { /* ya existe */ setZones(z => [...new Set([...z, name])]); set('zone', name); }
+  };
 
   const set = <K extends keyof CustomerInput>(k: K, v: CustomerInput[K]) =>
     setForm(f => ({ ...f, [k]: v }));
@@ -277,15 +365,39 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
 
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Zona <span className="text-gray-400 font-normal">(para Distribución)</span></label>
-            <input value={form.zone ?? ''} onChange={e => set('zone', e.target.value)}
-              placeholder="Ej: Centro, Norte, San José…"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            <div className="flex gap-2">
+              <select value={form.zone ?? ''} onChange={e => set('zone', e.target.value)}
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="">Sin zona</option>
+                {zones.map(z => <option key={z} value={z}>{z}</option>)}
+                {form.zone && !zones.includes(form.zone) && <option value={form.zone}>{form.zone}</option>}
+              </select>
+              <button type="button" onClick={addZone}
+                className="px-3 py-2 rounded-lg bg-cyan-50 text-cyan-700 text-xs font-bold whitespace-nowrap">+ Zona</button>
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Notas</label>
             <input value={form.notes ?? ''} onChange={e => set('notes', e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          {/* Crédito */}
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2">
+            <label className="flex items-center justify-between gap-2 cursor-pointer">
+              <span className="flex items-center gap-1.5 text-sm font-bold text-gray-700"><HandCoins size={15} className="text-emerald-600" /> Venta a crédito</span>
+              <input type="checkbox" checked={!!form.credit_enabled} onChange={e => set('credit_enabled', e.target.checked)}
+                className="w-5 h-5 rounded text-emerald-600" />
+            </label>
+            {form.credit_enabled && (
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Límite de crédito <span className="text-gray-400 font-normal">(0 = sin límite)</span></label>
+                <input type="number" inputMode="decimal" value={form.credit_limit ?? 0}
+                  onChange={e => set('credit_limit', Number(e.target.value) || 0)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 pt-2 border-t border-gray-100">

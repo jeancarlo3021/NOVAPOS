@@ -13,6 +13,7 @@ import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
+import { CustomInvoiceModal } from './components/CustomInvoiceModal';
 import { PrinterSandbox } from './components/PrinterSandbox';
 import { TenantGroupView } from './components/TenantGroupView';
 import { AdminFeKioskView } from './components/AdminFeKioskView';
@@ -65,6 +66,7 @@ export const CreateOwner: React.FC = () => {
   const [success,   setSuccess]   = useState('');
   const [showForm,  setShowForm]  = useState(false);
   const [renewing,  setRenewing]  = useState<OwnerData | null>(null);
+  const [invoiceFor, setInvoiceFor] = useState<OwnerData | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -860,6 +862,12 @@ export const CreateOwner: React.FC = () => {
                               title="Enviar comprobante de alta por correo al dueño">
                               {emailingId === o.id ? <RefreshCw size={11} className="animate-spin" /> : <Mail size={11} />} Comprobante
                             </button>
+                            {/* Cobro / factura personalizada */}
+                            <button onClick={() => setInvoiceFor(o)}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-100 transition"
+                              title="Crear y enviar un cobro personalizado por correo (primer pago)">
+                              <Mail size={11} /> Cobro
+                            </button>
                             {/* Recordatorio de pago */}
                             <button onClick={() => sendAdminEmail(o, 'payment-reminder')} disabled={emailingId === o.id}
                               className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-amber-50 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-100 transition disabled:opacity-40"
@@ -900,6 +908,16 @@ export const CreateOwner: React.FC = () => {
           owner={renewing}
           onClose={() => setRenewing(null)}
           onDone={fetchOwners}
+        />
+      )}
+
+      {/* Cobro personalizado */}
+      {invoiceFor && (
+        <CustomInvoiceModal
+          owner={invoiceFor}
+          onClose={() => setInvoiceFor(null)}
+          onSent={(msg) => { setInvoiceFor(null); showToast(msg, 'success'); }}
+          onError={(msg) => showToast(msg, 'error')}
         />
       )}
 

@@ -41,6 +41,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: 'Efectivo',
   card: 'Tarjeta',
   sinpe: 'SINPE Móvil',
+  credit: 'Crédito',
 };
 
 export const POSMain = () => {
@@ -381,6 +382,22 @@ export const POSMain = () => {
     return () => { active = false; };
   }, [selectedCustomer]);
 
+  // Saldo de crédito del cliente seleccionado (cuentas por cobrar pendientes).
+  const [creditBalance, setCreditBalance] = useState(0);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (!selectedCustomer?.credit_enabled) { setCreditBalance(0); return; }
+      try {
+        const { accountsReceivableService } = await import('@/services/accountsReceivable/accountsReceivableService');
+        const rows = await accountsReceivableService.list({ customer_id: selectedCustomer.id });
+        const bal = (rows ?? []).reduce((s, r) => s + (Number(r.total_amount) - Number(r.paid_amount)), 0);
+        if (active) setCreditBalance(bal);
+      } catch { if (active) setCreditBalance(0); }
+    })();
+    return () => { active = false; };
+  }, [selectedCustomer]);
+
   // Precio efectivo de un producto según el cliente (especial o normal).
   const priceFor = (product: Product): number =>
     customerPrices[product.id] ?? product.unit_price;
@@ -541,35 +558,40 @@ export const POSMain = () => {
       const now = new Date();
 
       // Receipt
-      await posPrinterService.printAuto(
-        {
-          invoiceNumber,
-          date: now.toLocaleDateString('es-CR'),
-          time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
-          items: items.map(item => ({
-            name: item.product.name,
-            quantity: item.quantity,
-            unitPrice: item.unit_price,
-            subtotal: item.subtotal,
-          })),
-          subtotal: sub,
-          tax,
-          total: tot,
-          paymentMethod: PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod,
-          // Datos del local (sin email)
-          storeName: general?.businessName,
-          storeRuc: general?.ruc,
-          storeCedula: general?.cedula,
-          storeAddress: general?.address,
-          storeCity: general?.city,
-          storePhone: general?.phone,
-          cashierName: activeCashier?.full_name ?? user?.email ?? undefined,
-          customerName,
-          simplificadoFooter,
-          payments,
-        },
-        tenantId,
-      );
+      const receiptData = {
+        invoiceNumber,
+        date: now.toLocaleDateString('es-CR'),
+        time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+        items: items.map(item => ({
+          name: item.product.name,
+          quantity: item.quantity,
+          unitPrice: item.unit_price,
+          subtotal: item.subtotal,
+        })),
+        subtotal: sub,
+        tax,
+        total: tot,
+        paymentMethod: PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod,
+        // Datos del local (sin email)
+        storeName: general?.businessName,
+        storeRuc: general?.ruc,
+        storeCedula: general?.cedula,
+        storeAddress: general?.address,
+        storeCity: general?.city,
+        storePhone: general?.phone,
+        cashierName: activeCashier?.full_name ?? user?.email ?? undefined,
+        customerName,
+        simplificadoFooter,
+        payments,
+      };
+
+      if (paymentMethod === 'credit') {
+        // Venta a crédito: doble factura (copia para el cliente y para el vendedor).
+        await posPrinterService.printAuto({ ...receiptData, copyLabel: 'ORIGINAL - CLIENTE' }, tenantId);
+        await posPrinterService.printAuto({ ...receiptData, copyLabel: 'COPIA - VENDEDOR' }, tenantId);
+      } else {
+        await posPrinterService.printAuto(receiptData, tenantId);
+      }
 
       // Comandas (fire-and-forget — non-blocking)
       posPrinterService.printComandas(
@@ -631,6 +653,7 @@ export const POSMain = () => {
           activeCashier?.full_name ?? null,
           data.payments ?? null,
           documentType,
+          selectedCustomer?.id ?? null,
         );
 
         // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
@@ -1051,6 +1074,15 @@ export const POSMain = () => {
           loading={paymentLoading}
           allowCard={planFeatures.pos_card}
           allowSinpe={planFeatures.pos_sinpe}
+          allowCredit={!!selectedCustomer?.credit_enabled}
+          creditAvailable={
+            selectedCustomer?.credit_enabled
+              ? (Number(selectedCustomer.credit_limit ?? 0) > 0
+                  ? Number(selectedCustomer.credit_limit) - creditBalance
+                  : Infinity)
+              : 0
+          }
+          creditBalance={creditBalance}
         />
       )}
 

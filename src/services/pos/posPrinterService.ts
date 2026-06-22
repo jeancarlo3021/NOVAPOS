@@ -83,6 +83,8 @@ export interface ReceiptData {
   /** Desglose de pago mixto: si se setea, en el recibo se imprime cada
    *  línea en vez del paymentMethod único. */
   payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[];
+  /** Etiqueta de copia (ej. "ORIGINAL - CLIENTE" / "COPIA - VENDEDOR"). */
+  copyLabel?: string;
 }
 
 export interface ReceiptConfig {
@@ -1261,6 +1263,7 @@ export class POSPrinterService {
 
     // Header
     centerText('=== TICKET DE VENTA ===');
+    if (receiptData.copyLabel) { centerText(`** ${receiptData.copyLabel} **`); }
     if (cfg.showInvoiceNumber) { centerText(`#${receiptData.invoiceNumber}`); }
     if (cfg.showDateTime) { centerText(`${receiptData.date} ${receiptData.time}`); }
     sep();

@@ -17,7 +17,7 @@ export interface User {
 export type UserRole =
   | 'owner' | 'admin' | 'gerente'
   | 'asistente_1' | 'asistente_2' | 'asistente_3'
-  | 'cocinero' | 'mesero' | 'cajero' | 'almacenero' | 'contador';
+  | 'cocinero' | 'mesero' | 'cajero' | 'almacenero' | 'contador' | 'repartidor';
 
 export const USER_ROLES: Record<UserRole, string> = {
   owner: 'Propietario',
@@ -31,6 +31,7 @@ export const USER_ROLES: Record<UserRole, string> = {
   cajero: 'Cajero',
   almacenero: 'Almacenero',
   contador: 'Contador',
+  repartidor: 'Repartidor',
 };
 
 // Metadatos visuales por rol (color del badge, descripción, jerarquía)
@@ -120,6 +121,13 @@ export const ROLE_META: Record<UserRole, RoleMeta> = {
     description: 'Acceso de solo-lectura a reportes financieros y cierres.',
     level: 35,
   },
+  repartidor: {
+    label: 'Repartidor',
+    color: 'cyan',
+    emoji: '🚚',
+    description: 'Reparte en camión: vende lo que lleva y entrega pedidos.',
+    level: 30,
+  },
 };
 
 // Roles considerados "managers" para temas de permisos en otros módulos
@@ -143,6 +151,7 @@ export const ROLE_REQUIRED_FEATURES: Record<UserRole, string[]> = {
   cajero:      ['pos'],
   almacenero:  ['inventory', 'purchases'],
   contador:    ['reports', 'expenses', 'accounts_payable'],
+  repartidor:  ['distribution'],            // solo si el plan tiene Distribución
 };
 
 export type UserModule =

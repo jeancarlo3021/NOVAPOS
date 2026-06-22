@@ -33,8 +33,9 @@ export const distributionService = {
     if (to) q.set('to', to);
     const qs = q.toString();
     return apiFetch<{
-      routes: Array<{ id: string; route_date: string; status: string; modality: string; truck: string; driver: string; sales_count: number; sales_total: number; voids_count: number }>;
+      routes: Array<{ id: string; route_date: string; status: string; modality: string; truck: string; driver: string; sales_count: number; sales_total: number; voids_count: number; cash: number; card: number; sinpe: number; credit: number }>;
       trucks: Array<{ truck: string; routes: number; sales_count: number; sales_total: number }>;
+      by_method: { cash: number; card: number; sinpe: number; credit: number };
     }>(`/routes/report${qs ? '?' + qs : ''}`);
   },
 
@@ -83,6 +84,6 @@ export const distributionService = {
     apiFetch(`/routes/${id}/order`, { method: 'POST', body: JSON.stringify(body) }),
   orders: (id: string) =>
     apiFetch<any[]>(`/routes/${id}/orders`),
-  deliverOrder: (orderId: string) =>
-    apiFetch(`/routes/order/${orderId}/deliver`, { method: 'POST' }),
+  deliverOrder: (orderId: string, body?: { payment_method?: string; issued_at?: string }) =>
+    apiFetch<any>(`/routes/order/${orderId}/deliver`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
 };
