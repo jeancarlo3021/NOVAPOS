@@ -265,7 +265,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   recipes: false,
   hr: false,
   customers: true,
-  distribution: false,
+  distribution: true,
   promotions: false,
   tables: false,
   restaurant: false,

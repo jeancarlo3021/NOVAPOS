@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, MapPin, Navigation, PackageCheck, RefreshCw, Loader2,
-  ClipboardCheck, CheckCircle2, X, Lock,
+  ClipboardCheck, CheckCircle2, X, Lock, Printer, Package,
 } from 'lucide-react';
 import { distributionService, type DeliveryRoute } from '@/services/distribution/distributionService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -12,6 +12,7 @@ const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
 export const DriverView: React.FC = () => {
   const navigate = useNavigate();
+  const { tenantId } = useTenantId();
   const [routes, setRoutes] = useState<DeliveryRoute[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,6 +20,16 @@ export const DriverView: React.FC = () => {
   const [verify, setVerify] = useState<any | null>(null);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [closeSummary, setCloseSummary] = useState<any | null>(null);
+  const [showReturned, setShowReturned] = useState(false);
+  const [printingClose, setPrintingClose] = useState(false);
+
+  const printClose = async () => {
+    if (!closeSummary) return;
+    setPrintingClose(true);
+    try { await posPrinterService.printRouteClose(closeSummary, tenantId ?? ''); }
+    catch (e) { alert(e instanceof Error ? e.message : 'No se pudo imprimir'); }
+    finally { setPrintingClose(false); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -195,14 +206,45 @@ export const DriverView: React.FC = () => {
               <h2 className="font-black text-lg flex items-center gap-2"><CheckCircle2 size={20} /> Ruta cerrada</h2>
               <p className="text-emerald-100 text-xs">{closeSummary.truck ?? ''}</p>
             </div>
-            <div className="p-5 space-y-2 text-sm">
+            <div className="p-5 space-y-2 text-sm max-h-[50vh] overflow-y-auto">
               <div className="flex justify-between"><span className="text-gray-500">Ventas</span><span className="font-bold">{closeSummary.sales_count ?? 0}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Total vendido</span><span className="font-black text-emerald-600">{fmt(closeSummary.sales_total ?? 0)}</span></div>
+              {closeSummary.by_method && (
+                <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-1 text-xs">
+                  <div className="flex justify-between"><span className="text-gray-500">Efectivo</span><span>{fmt(closeSummary.by_method.cash)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(closeSummary.by_method.card)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(closeSummary.by_method.sinpe)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Crédito</span><span>{fmt(closeSummary.by_method.credit)}</span></div>
+                </div>
+              )}
               <div className="flex justify-between"><span className="text-gray-500">Anulaciones</span><span className="font-bold text-rose-600">{closeSummary.voids_count ?? 0}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Productos devueltos</span><span className="font-bold">{closeSummary.returned_items ?? 0}</span></div>
+
+              {showReturned && (
+                <div className="border border-gray-100 rounded-lg p-3 mt-2">
+                  <p className="text-xs font-black text-gray-500 mb-1.5">Inventario devuelto a bodega</p>
+                  {(closeSummary.returned ?? []).length === 0
+                    ? <p className="text-xs text-gray-400">Sin sobrante (se vendió todo).</p>
+                    : (closeSummary.returned ?? []).map((r: any, i: number) => (
+                        <div key={i} className="flex justify-between text-sm py-0.5">
+                          <span className="text-gray-700 truncate">{r.name}</span>
+                          <span className="font-bold">×{r.quantity}</span>
+                        </div>
+                      ))}
+                </div>
+              )}
             </div>
-            <div className="px-5 pb-5">
-              <button onClick={() => setCloseSummary(null)} className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 rounded-xl text-sm">Listo</button>
+            <div className="px-5 pb-5 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={printClose} disabled={printingClose}
+                  className="flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-200 text-white font-bold py-2.5 rounded-xl text-sm">
+                  {printingClose ? <Loader2 size={15} className="animate-spin" /> : <Printer size={15} />} Imprimir cierre
+                </button>
+                <button onClick={() => setShowReturned(v => !v)}
+                  className="flex items-center justify-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 font-bold py-2.5 rounded-xl text-sm">
+                  <Package size={15} /> {showReturned ? 'Ocultar' : 'Restante'}
+                </button>
+              </div>
+              <button onClick={() => { setCloseSummary(null); setShowReturned(false); }} className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 rounded-xl text-sm">Listo</button>
             </div>
           </div>
         </div>

@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, MapPin, ShoppingCart, ClipboardList, X,
-  CheckCircle2, Search, Loader2, PackageCheck, Truck, User,
+  ArrowLeft, MapPin, ShoppingCart, X,
+  CheckCircle2, Search, Loader2, PackageCheck, Truck, User, Scale,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
-import { useAuth } from '@/context/AuthContext';
 import { distributionService, type DeliveryRoute, type RouteStop } from '@/services/distribution/distributionService';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { unitTypesService } from '@/services/Inventory/unitTypesService';
@@ -31,14 +30,12 @@ export const RouteRun: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { tenantId } = useTenantId();
-  const { user } = useAuth();
-  // Solo el gerente (o dueño/admin) toma pedidos (preventa). El repartidor solo vende.
-  const canTakeOrders = ['owner', 'admin', 'gerente'].includes(user?.role ?? '');
   const [route, setRoute] = useState<DeliveryRoute | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [deliverTarget, setDeliverTarget] = useState<any | null>(null);
   const [saleStop, setSaleStop] = useState<{ stop: RouteStop | null; mode: 'auto' | 'pre' } | null>(null);
+  const [tab, setTab] = useState<'clients' | 'deliver'>('clients');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -52,6 +49,12 @@ export const RouteRun: React.FC = () => {
     } finally { setLoading(false); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
+
+  const markNoSale = async (stop: RouteStop) => {
+    const reason = window.prompt('Motivo (opcional):', '') ?? undefined;
+    await distributionService.updateStop(stop.id, { status: 'no_sale', reason });
+    await load();
+  };
 
   const deliver = async (order: any, paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit') => {
     const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
@@ -76,6 +79,7 @@ export const RouteRun: React.FC = () => {
   if (loading) return <div className="flex items-center justify-center py-20 text-gray-400 gap-2"><Loader2 className="animate-spin" size={18} /> Cargando ruta…</div>;
   if (!route) return <div className="p-6 text-center text-gray-400">Ruta no encontrada</div>;
 
+  const stops = route.stops ?? [];
   const pendingOrders = orders.filter(o => o.status === 'pending');
   const modLabel = route.modality === 'autoventa' ? 'Autoventa' : route.modality === 'preventa' ? 'Preventa' : 'Auto + Preventa';
 
@@ -97,27 +101,71 @@ export const RouteRun: React.FC = () => {
         {/* Acciones rápidas (mostrador) */}
         {route.status === 'open' && (
           <div className="flex items-center gap-2 mt-3">
-            {route.modality !== 'preventa' && (
-              <button onClick={() => setSaleStop({ stop: null, mode: 'auto' })}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-white text-emerald-700 font-black px-3 py-2.5 rounded-xl text-sm">
-                <ShoppingCart size={16} /> Vender
-              </button>
-            )}
-            {route.modality !== 'autoventa' && canTakeOrders && (
-              <button onClick={() => setSaleStop({ stop: null, mode: 'pre' })}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-black px-3 py-2.5 rounded-xl text-sm">
-                <ClipboardList size={16} /> Pedido
-              </button>
-            )}
+            <button onClick={() => setSaleStop({ stop: null, mode: 'auto' })}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-white text-emerald-700 font-black px-3 py-2.5 rounded-xl text-sm">
+              <ShoppingCart size={16} /> Vender
+            </button>
           </div>
         )}
       </div>
 
       {/* Por entregar */}
-      <div className="px-4 pt-3">
-        <h2 className="text-sm font-black text-gray-500 uppercase tracking-wide">Por entregar ({pendingOrders.length})</h2>
+      {/* Tabs */}
+      <div className="flex gap-2 px-4 pt-3">
+        <button onClick={() => setTab('clients')} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition ${tab === 'clients' ? 'bg-cyan-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600'}`}>
+          Clientes ({stops.length})
+        </button>
+        <button onClick={() => setTab('deliver')} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition ${tab === 'deliver' ? 'bg-cyan-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600'}`}>
+          Por entregar ({pendingOrders.length})
+        </button>
       </div>
-      {(
+
+      {/* Clientes de la ruta */}
+      {tab === 'clients' && (
+        <div className="p-4 space-y-3">
+          {stops.length === 0 && <p className="text-center text-gray-400 text-sm py-10">Sin clientes asignados. Vendé en mostrador con el botón “Vender”.</p>}
+          {stops.map((s, i) => {
+            const cust = (s as any).customer;
+            const addr = cust?.address;
+            const mapUrl = addr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}` : null;
+            const accent = s.status === 'visited' ? 'border-l-emerald-400' : s.status === 'no_sale' ? 'border-l-amber-400' : 'border-l-cyan-400';
+            return (
+              <div key={s.id} className={`bg-white rounded-2xl border border-gray-100 border-l-4 ${accent} shadow-sm p-4`}>
+                <div className="flex items-start gap-3">
+                  <span className={`w-8 h-8 rounded-full font-black text-sm flex items-center justify-center shrink-0 ${s.status === 'visited' ? 'bg-emerald-100 text-emerald-700' : s.status === 'no_sale' ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black text-gray-900 truncate">{cust?.name ?? 'Cliente'}</p>
+                    {addr && <p className="text-xs text-gray-400 flex items-center gap-1"><MapPin size={11} className="shrink-0" /> <span className="truncate">{addr}</span></p>}
+                    {cust?.phone && <p className="text-xs text-gray-400">{cust.phone}</p>}
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${s.status === 'visited' ? 'bg-emerald-100 text-emerald-700' : s.status === 'no_sale' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {s.status === 'visited' ? '✓ Vendido' : s.status === 'no_sale' ? 'No compró' : 'Pendiente'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {mapUrl && (
+                    <a href={mapUrl} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-bold">
+                      <MapPin size={13} /> Cómo llegar
+                    </a>
+                  )}
+                  <button onClick={() => setSaleStop({ stop: s, mode: 'auto' })}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold">
+                    <ShoppingCart size={13} /> Vender
+                  </button>
+                  <button onClick={() => markNoSale(s)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-50 text-gray-500 text-xs font-bold">
+                    No compró
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Por entregar */}
+      {tab === 'deliver' && (
         <div className="p-4 space-y-3">
           {pendingOrders.length === 0 && <p className="text-center text-gray-400 text-sm py-10">Nada por entregar</p>}
           {pendingOrders.map(o => (
@@ -218,6 +266,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>('cash');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [weightFor, setWeightFor] = useState<{ id: string; name: string; price: number; available: number; abbr: string } | null>(null);
 
   // Productos base (una sola vez): autoventa = stock del camión; preventa = catálogo.
   useEffect(() => {
@@ -416,6 +465,12 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
                     <button onClick={() => setQ(r.product_id, q + (byWeight ? 0.5 : 1), r.available)} disabled={noStock || (isAuto && q >= r.available)}
                       className={`w-7 h-7 rounded-lg text-white font-black disabled:opacity-30 ${special ? 'bg-violet-500' : 'bg-emerald-500'}`}>+</button>
                   </div>
+                  {byWeight && (
+                    <button onClick={() => setWeightFor({ id: r.product_id, name: r.name, price, available: r.available, abbr: unit?.abbreviation ?? 'kg' })} disabled={noStock}
+                      className="mt-1.5 w-full flex items-center justify-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 rounded-lg py-1 disabled:opacity-40">
+                      <Scale size={12} /> Peso / ₡
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -440,6 +495,75 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
           <button onClick={confirm} disabled={saving || lines.length === 0}
             className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black px-5 py-3 rounded-xl text-sm">
             {saving ? '…' : <><CheckCircle2 size={16} /> {isAuto ? 'Cobrar' : 'Guardar pedido'}</>}
+          </button>
+        </div>
+      </div>
+
+      {weightFor && (
+        <WeightEntryModal entry={weightFor} isAuto={isAuto}
+          onClose={() => setWeightFor(null)}
+          onConfirm={(qtyVal) => { setQ(weightFor.id, qtyVal, weightFor.available); setWeightFor(null); }} />
+      )}
+    </div>
+  );
+}
+
+// ── Modal: ingresar peso o monto (₡) para productos por peso ──────────────────
+function WeightEntryModal({ entry, isAuto, onConfirm, onClose }: {
+  entry: { id: string; name: string; price: number; available: number; abbr: string };
+  isAuto: boolean;
+  onConfirm: (qty: number) => void;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<'weight' | 'amount'>('weight');
+  const [val, setVal] = useState('');
+  const num = parseFloat(val) || 0;
+  let weight = mode === 'weight' ? num : (entry.price > 0 ? num / entry.price : 0);
+  weight = Math.round(weight * 1000) / 1000;
+  const capped = isAuto ? Math.min(weight, entry.available) : weight;
+  const total = capped * entry.price;
+  const presets = mode === 'weight' ? [0.25, 0.5, 1, 2, 5] : [1000, 2000, 5000, 10000];
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-60 p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="bg-emerald-500 px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <Scale size={20} className="text-white shrink-0" />
+            <div className="min-w-0">
+              <p className="text-white font-black truncate">{entry.name}</p>
+              <p className="text-emerald-100 text-xs">{fmt(entry.price)} / {entry.abbr}{isAuto ? ` · camión: ${entry.available} ${entry.abbr}` : ''}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center"><X size={16} className="text-white" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => { setMode('weight'); setVal(''); }}
+              className={`py-2 rounded-xl text-sm font-bold ${mode === 'weight' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}`}>Por peso ({entry.abbr})</button>
+            <button onClick={() => { setMode('amount'); setVal(''); }}
+              className={`py-2 rounded-xl text-sm font-bold ${mode === 'amount' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}`}>Por monto (₡)</button>
+          </div>
+          <input autoFocus type="number" inputMode="decimal" step="0.01" value={val} onChange={e => setVal(e.target.value)}
+            placeholder={mode === 'weight' ? '0.00' : '₡0'}
+            className="w-full text-3xl font-black text-center border-2 border-gray-200 rounded-2xl py-3 focus:outline-none focus:border-emerald-400" />
+          <div className="flex gap-2 flex-wrap">
+            {presets.map(p => (
+              <button key={p} onClick={() => setVal(String(p))}
+                className="flex-1 min-w-14 py-2 rounded-xl font-bold text-sm bg-gray-50 border-2 border-gray-200 hover:border-emerald-300">
+                {mode === 'weight' ? `${p}${entry.abbr}` : fmt(p)}
+              </button>
+            ))}
+          </div>
+          {capped > 0 && (
+            <div className="bg-emerald-50 border-2 border-emerald-200 rounded-2xl px-4 py-3 flex items-center justify-between">
+              <span className="text-emerald-700 font-semibold text-sm">{capped} {entry.abbr} × {fmt(entry.price)}</span>
+              <span className="text-emerald-700 font-black text-xl">{fmt(total)}</span>
+            </div>
+          )}
+          <button onClick={() => capped > 0 && onConfirm(capped)} disabled={capped <= 0}
+            className="w-full py-3.5 rounded-2xl font-black text-white bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2">
+            <CheckCircle2 size={18} /> Agregar {capped > 0 ? `${capped} ${entry.abbr}` : ''}
           </button>
         </div>
       </div>

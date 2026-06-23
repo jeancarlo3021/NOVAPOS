@@ -375,6 +375,70 @@ export class POSPrinterService {
     await this.printHTMLContent(this.generateCashCloseHTML(report, cfg, general));
   }
 
+  // ─── Cierre de RUTA (Distribución): ventas por método + sobrante de inventario ──
+  async printRouteClose(summary: {
+    truck?: string; route_date?: string;
+    sales_count: number; sales_total: number; voids_count: number;
+    by_method?: { cash: number; card: number; sinpe: number; credit: number };
+    returned?: Array<{ name: string; quantity: number }>;
+  }, tenantId: string): Promise<void> {
+    const cfg = await this.loadReceiptConfig(tenantId);
+    const bytes = this.generateRouteCloseESCPOS(summary, cfg);
+
+    if (cfg.printerType === 'bluetooth') {
+      const { btPrint } = await import('./bluetoothPrinterService');
+      await btPrint(bytes);
+      return;
+    }
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
+      await qzConnect();
+      const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
+      if (receiptPrinters.length > 0) { for (const printer of receiptPrinters) await qzPrintToPrinter(printer, bytes); }
+      else await qzPrintDefault(bytes);
+      return;
+    }
+    // Navegador: imprime el raw a la default igual.
+    await qzPrintDefault(bytes).catch(() => { throw new Error('Configurá una impresora para el cierre'); });
+  }
+
+  private generateRouteCloseESCPOS(summary: any, cfg: ReceiptConfig): Uint8Array {
+    const charWidth = cfg.paperWidth;
+    const cmds: number[] = [];
+    const push = (...b: number[]) => cmds.push(...b);
+    const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
+    const nl = () => push(0x0a);
+    const sep = () => { for (let i = 0; i < charWidth; i++) push(0xC4); nl(); };
+    const center = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
+    const row = (l: string, v: string) => { const sp = Math.max(1, charWidth - l.length - v.length); text(l + ' '.repeat(sp) + v); nl(); };
+    const money = (n: number) => `${Number(n || 0).toLocaleString('es-CR')}`;
+    const now = new Date();
+
+    push(0x1B, 0x40); push(0x1C, 0x2E); push(0x1B, 0x52, 0x00); push(0x1B, 0x74, 0x00); push(0x1B, 0x21, 0x00);
+    center('=== CIERRE DE RUTA ===');
+    if (summary.truck) center(summary.truck);
+    center(`${now.toLocaleDateString('es-CR')} ${now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}`);
+    sep();
+    center('VENTAS');
+    const bm = summary.by_method ?? { cash: 0, card: 0, sinpe: 0, credit: 0 };
+    row('Efectivo:', money(bm.cash));
+    row('Tarjeta:', money(bm.card));
+    row('SINPE:', money(bm.sinpe));
+    row('Credito:', money(bm.credit));
+    sep();
+    row('Ventas:', String(summary.sales_count ?? 0));
+    row('Anulaciones:', String(summary.voids_count ?? 0));
+    center(`*** TOTAL: ${money(summary.sales_total)} ***`);
+    sep();
+    center('INVENTARIO DEVUELTO');
+    const ret = summary.returned ?? [];
+    if (ret.length === 0) { center('(sin sobrante)'); }
+    else { for (const r of ret) row(String(r.name).substring(0, charWidth - 6), `x${r.quantity}`); }
+    sep(); nl(); nl(); nl();
+    push(0x1D, 0x56, 0x00);
+    return new Uint8Array(cmds);
+  }
+
   // ESC/POS raw para el cierre de caja — mismo motor que el ticket de venta.
   private generateCashCloseESCPOS(report: any, cfg: ReceiptConfig, general?: any): Uint8Array {
     const charWidth = cfg.paperWidth;

@@ -22,6 +22,8 @@ export interface DeliveryRoute {
 export interface RouteCloseSummary {
   route_id: string; sales_count: number; sales_total: number;
   voids_count: number; returned_items: number;
+  returned?: Array<{ name: string; quantity: number }>;
+  by_method?: { cash: number; card: number; sinpe: number; credit: number };
 }
 
 export const distributionService = {
