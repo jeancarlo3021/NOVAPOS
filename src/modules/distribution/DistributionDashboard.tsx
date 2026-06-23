@@ -2,13 +2,14 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, Plus, X, Package, RefreshCw, LockKeyhole,
-  CheckCircle2, Search, Loader2, Navigation, BarChart3, Users,
+  CheckCircle2, Search, Loader2, Navigation, BarChart3, Users, Scale,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { distributionService, type DeliveryRoute, type Truck as TruckT } from '@/services/distribution/distributionService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { usersService } from '@/services/users/usersService';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
+import { unitTypesService } from '@/services/Inventory/unitTypesService';
 import type { Product } from '@/types/Types_POS';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
@@ -308,18 +309,29 @@ function CreateRouteModal({ tenantId, onClose, onCreated }: { tenantId: string; 
 function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string; route: DeliveryRoute; onClose: () => void; onDone: () => void }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [central, setCentral] = useState<Record<string, number>>({});
+  const [unitMap, setUnitMap] = useState<Record<string, { abbreviation: string; requires_weight: boolean }>>({});
   const [qty, setQty] = useState<Record<string, number>>({});
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [weightFor, setWeightFor] = useState<{ id: string; name: string; price: number; available: number; abbr: string } | null>(null);
 
   useEffect(() => {
     (async () => {
-      const [prods, cs] = await Promise.all([
+      const [prods, cs, units] = await Promise.all([
         inventoryProductsService.getAllProducts(tenantId).catch(() => []),
         distributionService.centralStock().catch(() => ({})),
+        unitTypesService.getAllUnitTypes(tenantId ?? '').catch(() => []),
       ]);
       setProducts(prods ?? []); setCentral(cs ?? {});
+      const uById = new Map((units ?? []).map((u: any) => [u.id, u]));
+      const WEIGHT = new Set(['kg', 'g', 'lb', 'lbs', 'oz', 'gr', 'kilo', 'kilos']);
+      const map: Record<string, any> = {};
+      for (const p of (prods ?? []) as any[]) {
+        const ut = p.unit_type ?? (p.unit_type_id ? uById.get(p.unit_type_id) : null);
+        if (ut) map[p.id] = { abbreviation: ut.abbreviation ?? 'u', requires_weight: ut.requires_weight != null ? ut.requires_weight : WEIGHT.has((ut.abbreviation ?? '').toLowerCase()) };
+      }
+      setUnitMap(map);
     })();
   }, [tenantId]);
 
@@ -368,6 +380,9 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
               const q = qty[p.id] ?? 0;
               const inf = avail === -1;
               const out = !inf && avail <= 0;
+              const unit = unitMap[p.id];
+              const byWeight = !!unit?.requires_weight;
+              const stepBy = byWeight ? 0.5 : 1;
               return (
                 <div key={p.id} className={`rounded-xl border-2 p-2.5 flex flex-col transition ${q > 0 ? 'border-blue-400 bg-blue-50/50' : out ? 'border-gray-100 opacity-60' : 'border-gray-100'}`}>
                   <div className="flex items-start justify-between gap-1">
@@ -378,16 +393,23 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
                   </div>
                   <p className="text-xs font-bold text-gray-800 leading-tight mt-1.5 line-clamp-2 min-h-8">{p.name}</p>
                   <p className={`text-[10px] font-bold mt-0.5 ${out ? 'text-red-500' : 'text-emerald-600'}`}>
-                    Sistema: {inf ? '∞' : avail}
+                    Sistema: {inf ? '∞' : avail}{unit ? ` ${unit.abbreviation}` : ''}
+                    {byWeight && <span className="ml-1 text-[8px] font-black text-amber-600 bg-amber-100 px-1 rounded uppercase">por peso</span>}
                   </p>
                   <div className="flex items-center gap-1 mt-2">
-                    <button onClick={() => setQ(p.id, q - 1)} disabled={q <= 0}
+                    <button onClick={() => setQ(p.id, q - stepBy)} disabled={q <= 0}
                       className="w-7 h-7 rounded-lg bg-gray-100 text-gray-700 font-black disabled:opacity-30">−</button>
-                    <input type="number" inputMode="decimal" step="any" value={q || ''} onChange={e => setQ(p.id, parseFloat(e.target.value) || 0)}
+                    <input type="number" inputMode="decimal" step={byWeight ? '0.01' : 'any'} value={q || ''} onChange={e => setQ(p.id, parseFloat(e.target.value) || 0)}
                       placeholder="0" className="flex-1 w-full text-center border border-gray-200 rounded-lg py-1 text-sm min-w-0" />
-                    <button onClick={() => setQ(p.id, q + 1)} disabled={out || (!inf && q >= avail)}
+                    <button onClick={() => setQ(p.id, q + stepBy)} disabled={out || (!inf && q >= avail)}
                       className="w-7 h-7 rounded-lg bg-blue-500 text-white font-black disabled:opacity-30">+</button>
                   </div>
+                  {byWeight && (
+                    <button onClick={() => setWeightFor({ id: p.id, name: p.name, price: Number((p as any).unit_price ?? 0), available: avail, abbr: unit?.abbreviation ?? 'kg' })} disabled={out}
+                      className="mt-1.5 w-full flex items-center justify-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 rounded-lg py-1 disabled:opacity-40">
+                      <Scale size={12} /> Peso / ₡
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -402,6 +424,73 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
           <button onClick={save} disabled={saving || items.length === 0}
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white font-black px-6 py-3 rounded-xl text-sm flex items-center justify-center gap-2">
             {saving ? 'Cargando…' : <><CheckCircle2 size={16} /> Cargar camión</>}
+          </button>
+        </div>
+      </div>
+
+      {weightFor && (
+        <LoadWeightModal entry={weightFor}
+          onClose={() => setWeightFor(null)}
+          onConfirm={(v) => { setQ(weightFor.id, v); setWeightFor(null); }} />
+      )}
+    </div>
+  );
+}
+
+// ── Modal: ingresar peso o monto (₡) para cargar productos por peso ──────────────
+function LoadWeightModal({ entry, onConfirm, onClose }: {
+  entry: { id: string; name: string; price: number; available: number; abbr: string };
+  onConfirm: (weight: number) => void;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<'weight' | 'amount'>('weight');
+  const [val, setVal] = useState('');
+  const num = parseFloat(val) || 0;
+  let weight = mode === 'weight' ? num : (entry.price > 0 ? num / entry.price : 0);
+  weight = Math.round(weight * 1000) / 1000;
+  const cap = entry.available === -1 ? Infinity : entry.available;
+  const capped = Math.min(weight, cap);
+  const presets = mode === 'weight' ? [0.25, 0.5, 1, 2, 5] : [1000, 2000, 5000, 10000];
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-60 p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="bg-blue-600 px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <Scale size={20} className="text-white shrink-0" />
+            <div className="min-w-0">
+              <p className="text-white font-black truncate">{entry.name}</p>
+              <p className="text-blue-100 text-xs">{fmt(entry.price)} / {entry.abbr} · disponible: {entry.available === -1 ? '∞' : `${entry.available} ${entry.abbr}`}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center"><X size={16} className="text-white" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => { setMode('weight'); setVal(''); }}
+              className={`py-2 rounded-xl text-sm font-bold ${mode === 'weight' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Por peso ({entry.abbr})</button>
+            <button onClick={() => { setMode('amount'); setVal(''); }}
+              className={`py-2 rounded-xl text-sm font-bold ${mode === 'amount' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Por monto (₡)</button>
+          </div>
+          <input autoFocus type="number" inputMode="decimal" step="0.01" value={val} onChange={e => setVal(e.target.value)}
+            placeholder={mode === 'weight' ? '0.00' : '₡0'}
+            className="w-full text-3xl font-black text-center border-2 border-gray-200 rounded-2xl py-3 focus:outline-none focus:border-blue-400" />
+          <div className="flex gap-2 flex-wrap">
+            {presets.map(p => (
+              <button key={p} onClick={() => setVal(String(p))}
+                className="flex-1 min-w-14 py-2 rounded-xl font-bold text-sm bg-gray-50 border-2 border-gray-200 hover:border-blue-300">
+                {mode === 'weight' ? `${p}${entry.abbr}` : fmt(p)}
+              </button>
+            ))}
+          </div>
+          {capped > 0 && (
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl px-4 py-3 text-center">
+              <span className="text-blue-700 font-black text-xl">{capped} {entry.abbr}</span>
+            </div>
+          )}
+          <button onClick={() => capped > 0 && onConfirm(capped)} disabled={capped <= 0}
+            className="w-full py-3.5 rounded-2xl font-black text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2">
+            <CheckCircle2 size={18} /> Cargar {capped > 0 ? `${capped} ${entry.abbr}` : ''}
           </button>
         </div>
       </div>
