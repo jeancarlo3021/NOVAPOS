@@ -515,6 +515,8 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
       {weightProduct && (
         <WeightInputModal
           product={weightProduct}
+          ignoreStock={ignoreStock}
+          customerPrice={customerPrices?.[weightProduct.id]}
           onConfirm={handleWeightConfirm}
           onClose={() => setWeightProduct(null)}
         />

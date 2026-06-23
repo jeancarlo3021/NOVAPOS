@@ -133,9 +133,11 @@ export function BranchesAdmin() {
                     <button onClick={() => setEditingBranch(b)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg">
                       <Edit2 size={15} />
                     </button>
-                    <button onClick={() => handleDeleteBranch(b)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg">
-                      <Trash2 size={15} />
-                    </button>
+                    {!b.is_default && (
+                      <button onClick={() => handleDeleteBranch(b)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg">
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
 

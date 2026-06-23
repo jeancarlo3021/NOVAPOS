@@ -2,9 +2,10 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, Plus, X, Package, RefreshCw, LockKeyhole,
-  CheckCircle2, Search, Loader2, Navigation, BarChart3, Users, Scale,
+  CheckCircle2, Search, Loader2, Navigation, BarChart3, Users, Scale, Printer,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { posPrinterService } from '@/services/pos/posPrinterService';
 import { distributionService, type DeliveryRoute, type Truck as TruckT } from '@/services/distribution/distributionService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { usersService } from '@/services/users/usersService';
@@ -25,6 +26,17 @@ export const DistributionDashboard: React.FC = () => {
   const [loadFor, setLoadFor] = useState<DeliveryRoute | null>(null);
   const [closeSummary, setCloseSummary] = useState<{ route: DeliveryRoute; sum: import('@/services/distribution/distributionService').RouteCloseSummary } | null>(null);
   const [showReport, setShowReport] = useState(false);
+  const [showReturned, setShowReturned] = useState(false);
+  const [printingClose, setPrintingClose] = useState(false);
+
+  const printClose = async () => {
+    if (!closeSummary) return;
+    setPrintingClose(true);
+    try {
+      await posPrinterService.printRouteClose({ ...closeSummary.sum, truck: closeSummary.route.warehouse?.name } as any, tenantId ?? '');
+    } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo imprimir'); }
+    finally { setPrintingClose(false); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -144,11 +156,38 @@ export const DistributionDashboard: React.FC = () => {
               <div className="flex justify-between"><span className="text-gray-500">Ventas</span><span className="font-bold">{closeSummary.sum.sales_count}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Total vendido</span><span className="font-black text-emerald-600">{fmt(closeSummary.sum.sales_total)}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Anulaciones</span><span className="font-bold text-red-600">{closeSummary.sum.voids_count}</span></div>
+              {closeSummary.sum.by_method && (
+                <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-1 text-xs">
+                  <div className="flex justify-between"><span className="text-gray-500">Efectivo</span><span>{fmt(closeSummary.sum.by_method.cash)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(closeSummary.sum.by_method.card)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(closeSummary.sum.by_method.sinpe)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Crédito</span><span>{fmt(closeSummary.sum.by_method.credit)}</span></div>
+                </div>
+              )}
               <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-500">Productos devueltos a central</span><span className="font-bold">{closeSummary.sum.returned_items}</span></div>
-              <p className="text-[11px] text-gray-400 pt-1">El sobrante del camión se devolvió a la bodega central. Sin caja chica.</p>
+              {showReturned && (
+                <div className="border border-gray-100 rounded-lg p-3">
+                  <p className="text-[11px] font-black text-gray-500 mb-1.5">Inventario devuelto</p>
+                  {(closeSummary.sum.returned ?? []).length === 0
+                    ? <p className="text-xs text-gray-400">Sin sobrante.</p>
+                    : (closeSummary.sum.returned ?? []).map((r, i) => (
+                        <div key={i} className="flex justify-between text-sm py-0.5"><span className="text-gray-700 truncate">{r.name}</span><span className="font-bold">×{r.quantity}</span></div>
+                      ))}
+                </div>
+              )}
             </div>
-            <div className="px-5 pb-5">
-              <button onClick={() => setCloseSummary(null)} className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2.5 rounded-xl text-sm">Listo</button>
+            <div className="px-5 pb-5 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={printClose} disabled={printingClose}
+                  className="flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-200 text-white font-bold py-2.5 rounded-xl text-sm">
+                  {printingClose ? <Loader2 size={15} className="animate-spin" /> : <Printer size={15} />} Imprimir cierre
+                </button>
+                <button onClick={() => setShowReturned(v => !v)}
+                  className="flex items-center justify-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 font-bold py-2.5 rounded-xl text-sm">
+                  <Package size={15} /> {showReturned ? 'Ocultar' : 'Restante'}
+                </button>
+              </div>
+              <button onClick={() => { setCloseSummary(null); setShowReturned(false); }} className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 rounded-xl text-sm">Listo</button>
             </div>
           </div>
         </div>
@@ -487,6 +526,11 @@ function LoadWeightModal({ entry, onConfirm, onClose }: {
             <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl px-4 py-3 text-center">
               <span className="text-blue-700 font-black text-xl">{capped} {entry.abbr}</span>
             </div>
+          )}
+          {weight > cap && cap !== Infinity && (
+            <p className="text-amber-600 text-xs font-bold text-center">
+              Solo hay {entry.available} {entry.abbr} en bodega — se ajustó a ese máximo.
+            </p>
           )}
           <button onClick={() => capped > 0 && onConfirm(capped)} disabled={capped <= 0}
             className="w-full py-3.5 rounded-2xl font-black text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2">

@@ -23,11 +23,8 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
   const [error, setError] = useState<string | null>(null);
 
   const paperWidths = [
-    { value: 32, label: '32 caracteres (58mm)' },
-    { value: 40, label: '40 caracteres (80mm)' },
-    { value: 48, label: '48 caracteres (80mm)' },
-    { value: 56, label: '56 caracteres (80mm)' },
-    { value: 80, label: '80 caracteres (A4)' },
+    { value: 32, label: '58 mm' },
+    { value: 48, label: '80 mm' },
   ];
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,14 +86,14 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
               key={width.value}
               onClick={() => setConfig({ ...config, paperWidth: width.value as any })}
               className={`p-4 border-2 rounded-lg text-left transition ${
-                config.paperWidth === width.value
+                (config.paperWidth <= 32 ? 32 : 48) === width.value
                   ? 'border-blue-600 bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <p className="font-semibold text-gray-900">{width.label}</p>
               <p className="text-sm text-gray-500">
-                {width.value === 80 ? 'Impresora estándar' : 'Impresora térmica'}
+                {width.value === 48 ? 'Impresora térmica 80mm' : 'Impresora térmica 58mm'}
               </p>
             </button>
           ))}
