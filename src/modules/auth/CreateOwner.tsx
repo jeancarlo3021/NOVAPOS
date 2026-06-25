@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers,
+  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck,
 } from 'lucide-react';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
@@ -125,7 +125,7 @@ export const CreateOwner: React.FC = () => {
       const [plansR, ownersR, invR] = await Promise.allSettled([
         plansService.getAllPlans(),
         apiFetch<any[]>('/admin/owners'),
-        apiFetch<Array<{ tenant_id: string; count: number }>>('/admin/invoices-monthly'),
+        apiFetch<Array<{ tenant_id: string; count: number; distribution_count?: number }>>('/admin/invoices-monthly'),
       ]);
 
       const allPlans     = plansR.status  === 'fulfilled' ? plansR.value   : [];
@@ -145,6 +145,9 @@ export const CreateOwner: React.FC = () => {
 
       const countMap = new Map<string, number>(
         (invCounts ?? []).map(r => [r.tenant_id, r.count]),
+      );
+      const distCountMap = new Map<string, number>(
+        (invCounts ?? []).map(r => [r.tenant_id, r.distribution_count ?? 0]),
       );
 
       setOwners((ownersData ?? []).map((row: any) => {
@@ -172,6 +175,7 @@ export const CreateOwner: React.FC = () => {
           started_at:          row.started_at ?? null,
           ends_at:             row.ends_at ?? null,
           monthly_invoices:    countMap.get(row.id) ?? 0,
+          distribution_invoices: distCountMap.get(row.id) ?? 0,
         };
       }));
     } catch (err: any) {
@@ -690,6 +694,9 @@ export const CreateOwner: React.FC = () => {
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Facturas no anuladas emitidas este mes — para tracking de Facturación Electrónica">
                       <span className="inline-flex items-center gap-1"><FileText size={11} /> Facturas (mes)</span>
                     </th>
+                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Facturas hechas por Distribución (ruta/camión) este mes">
+                      <span className="inline-flex items-center gap-1"><Truck size={11} /> Distribución</span>
+                    </th>
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Estado</th>
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Acciones</th>
                   </tr>
@@ -810,6 +817,20 @@ export const CreateOwner: React.FC = () => {
                           >
                             <FileText size={11} />
                             {(o.monthly_invoices ?? 0).toLocaleString('es-CR')}
+                          </span>
+                        </td>
+                        {/* Facturas por Distribución */}
+                        <td className="px-5 py-4 text-center">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold tabular-nums ${
+                              (o.distribution_invoices ?? 0) === 0
+                                ? 'bg-gray-100 text-gray-500'
+                                : 'bg-cyan-100 text-cyan-700'
+                            }`}
+                            title={`${o.distribution_invoices ?? 0} facturas hechas por Distribución este mes`}
+                          >
+                            <Truck size={11} />
+                            {(o.distribution_invoices ?? 0).toLocaleString('es-CR')}
                           </span>
                         </td>
                         {/* Estado */}

@@ -505,7 +505,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                 </div>
               </div>
 
-              {/* ── Adicionales / Modificadores (restaurante) ── */}
+              {/* ── Adicionales / Modificadores (solo restaurante) ── */}
+              {(planFeatures?.restaurant || planFeatures?.tables) && (
               <div className="rounded-xl border-2 border-gray-200">
                 <button type="button"
                   onClick={() => setShowModifiers(v => !v)}
@@ -596,6 +597,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                   </div>
                 )}
               </div>
+              )}
 
               {/* ── Stock infinito vs Stock actual — ESENCIAL, siempre visible ── */}
               {!isProductsOnly && (

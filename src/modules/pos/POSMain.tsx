@@ -607,6 +607,27 @@ export const POSMain = () => {
     }
   }, [tenantId, user, activeCashier]);
 
+  // Pre-ticket / proforma: imprime el carrito SIN cobrar (documento no fiscal).
+  const printPreTicket = useCallback(async () => {
+    if (!tenantId || cartItems.length === 0) return;
+    try {
+      const now = new Date();
+      await posPrinterService.printAuto({
+        invoiceNumber: 'PRE-TICKET',
+        date: now.toLocaleDateString('es-CR'),
+        time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+        items: cartItems.map(it => ({ name: it.product.name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: it.subtotal })),
+        subtotal, tax: taxAmount, total,
+        paymentMethod: 'PROFORMA',
+        customerName: selectedCustomer?.name,
+        copyLabel: 'PRE-TICKET - NO ES FACTURA',
+        footerMessage: 'Documento no fiscal',
+      } as any, tenantId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo imprimir el pre-ticket');
+    }
+  }, [tenantId, cartItems, subtotal, taxAmount, total, selectedCustomer]);
+
   const handlePaymentConfirm = async (data: PaymentData) => {
     if (!tenantId || !currentSession) {
       setError('Sesión de caja no disponible');
@@ -880,6 +901,7 @@ export const POSMain = () => {
             onChangeQuantity={handleChangeQuantity}
             onApplyDiscount={handleApplyDiscount}
             onPayment={() => setShowPaymentModal(true)}
+            onPreTicket={printPreTicket}
             expanded={isListLayout}
           />
         </div>
@@ -909,6 +931,7 @@ export const POSMain = () => {
             onChangeQuantity={handleChangeQuantity}
             onApplyDiscount={handleApplyDiscount}
             onPayment={() => setShowPaymentModal(true)}
+            onPreTicket={printPreTicket}
             expanded
           />
         </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 
 interface POSCartPanelProps {
@@ -18,6 +18,8 @@ interface POSCartPanelProps {
   maxDiscountPercent?: number;
   onApplyDiscount?: (productId: string, discountPct: number) => void;
   onPayment: () => void;
+  /** Imprime un pre-ticket (proforma, sin cobrar). */
+  onPreTicket?: () => void;
   /** Cuando true, el carrito se expande para ocupar el área principal (modo lista). */
   expanded?: boolean;
 }
@@ -37,6 +39,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   maxDiscountPercent = 100,
   onApplyDiscount,
   onPayment,
+  onPreTicket,
   expanded = false,
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
@@ -313,20 +316,33 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
             </p>
           </div>
         ) : null}
-        <button
-          onClick={handlePaymentClick}
-          disabled={!canPay}
-          className={`
-            w-full h-16 flex items-center justify-center gap-2 font-black text-xl rounded-xl transition
-            ${canPay
-              ? 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 active:scale-[0.98] text-white shadow-sm'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            }
-          `}
-        >
-          <CreditCard size={24} />
-          {loading ? 'Procesando...' : 'Cobrar'}
-        </button>
+        <div className="flex gap-2">
+          {onPreTicket && (
+            <button
+              onClick={onPreTicket}
+              disabled={cartItems.length === 0}
+              title="Imprimir pre-ticket (proforma, no es factura)"
+              className={`h-16 w-12 flex items-center justify-center rounded-xl transition shrink-0
+                ${cartItems.length > 0 ? 'bg-gray-100 hover:bg-gray-200 text-gray-600' : 'bg-gray-50 text-gray-300 cursor-not-allowed'}`}
+            >
+              <Printer size={18} />
+            </button>
+          )}
+          <button
+            onClick={handlePaymentClick}
+            disabled={!canPay}
+            className={`
+              flex-1 h-16 flex items-center justify-center gap-2 font-black text-xl rounded-xl transition
+              ${canPay
+                ? 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 active:scale-[0.98] text-white shadow-sm'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              }
+            `}
+          >
+            <CreditCard size={24} />
+            {loading ? 'Procesando...' : 'Cobrar'}
+          </button>
+        </div>
       </div>
     </div>
   );

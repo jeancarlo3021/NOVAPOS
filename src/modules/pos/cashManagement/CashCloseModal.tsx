@@ -100,10 +100,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             else sOther += a;
           }
         }
+        // Movimientos manuales de efectivo: entradas = 'income', salidas = 'expense'.
+        // (Las ventas son tipo 'sale' y ya van contadas en las facturas.)
         const movsRaw = (Array.isArray(movRes) ? movRes : [])
-          .filter((m: any) => m.type === 'cash_in' || m.type === 'cash_out');
+          .filter((m: any) => m.type === 'income' || m.type === 'expense'
+            || m.type === 'cash_in' || m.type === 'cash_out');
         const movements: SysMovement[] = movsRaw.map((m: any) => ({
-          type: m.type === 'cash_in' ? 'in' : 'out',
+          type: (m.type === 'income' || m.type === 'cash_in') ? 'in' : 'out',
           amount: Math.abs(Number(m.amount || 0)),
           reason: m.description ?? '',
         }));
@@ -304,6 +307,24 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             </div>
           ))}
         </div>
+
+        {/* ── Movimientos de efectivo (entradas / salidas) ── */}
+        {sys.movements.length > 0 && (
+          <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-2 sm:py-3 shrink-0">
+            <div className="flex items-center gap-3 mb-1.5">
+              <p className="text-xs font-black text-gray-500 uppercase">Movimientos de efectivo</p>
+              <span className="text-xs font-bold text-emerald-600">Entradas: ₡{sys.cashIn.toLocaleString()}</span>
+              <span className="text-xs font-bold text-red-600">Salidas: ₡{sys.cashOut.toLocaleString()}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+              {sys.movements.map((m, i) => (
+                <span key={i} className={`text-[11px] font-bold px-2 py-1 rounded-lg ${m.type === 'in' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                  {m.type === 'in' ? '+' : '−'} ₡{m.amount.toLocaleString()}{m.reason ? ` · ${m.reason}` : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Tabs ── */}
         <div className="bg-white border-b border-gray-200 px-2 sm:px-6 flex gap-1 sm:gap-2 shrink-0 overflow-x-auto">
