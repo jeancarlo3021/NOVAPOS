@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Printer, Loader2, AlertTriangle, X, Bluetooth } from 'lucide-react';
-import { btRequestDevice, btIsSupported } from '@/services/pos/bluetoothPrinterService';
+import { btConnectFor, btRequestDevice, serialRequestPort, btIsSupported } from '@/services/pos/bluetoothPrinterService';
+import { posPrinterService } from '@/services/pos/posPrinterService';
 
 /**
  * Modal post-cobro: intenta imprimir el ticket y muestra el resultado, con
  * botones "Reintentar" (si falló o quieren otra copia) y "Cerrar".
  */
-export function PrintTicketModal({ invoiceNumber, total, printFn, onClose }: {
+export function PrintTicketModal({ invoiceNumber, total, tenantId, printFn, onClose }: {
   invoiceNumber?: string;
   total?: number;
+  tenantId?: string;
   printFn: () => Promise<void>;
   onClose: () => void;
 }) {
@@ -24,8 +26,29 @@ export function PrintTicketModal({ invoiceNumber, total, printFn, onClose }: {
 
   const connectAndPrint = async () => {
     setConnecting(true);
-    try { await btRequestDevice(); await run(); }
-    catch { /* el usuario canceló el selector */ }
+    try {
+      // Conectar usando el MODO configurado de cada estación Bluetooth (BLE / Serial / USB).
+      // Si el cliente configuró la impresora como "serial" (SPP), conectar en BLE no sirve.
+      let connected = false;
+      if (tenantId) {
+        try {
+          const cfg: any = await posPrinterService.loadReceiptConfig(tenantId);
+          const stations = (cfg?.printers ?? []).filter(
+            (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
+          );
+          for (const st of stations) {
+            await btConnectFor(st.id, (st.bt_mode ?? 'ble'));
+            connected = true;
+          }
+        } catch { /* seguimos al fallback */ }
+      }
+      // Fallback (modo simple sin estaciones): probá BLE y, si no, Serial.
+      if (!connected) {
+        try { await btRequestDevice(); }
+        catch { await serialRequestPort().catch(() => {}); }
+      }
+      await run();
+    } catch { /* el usuario canceló el selector */ }
     finally { setConnecting(false); }
   };
 

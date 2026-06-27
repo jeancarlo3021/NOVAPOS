@@ -192,12 +192,22 @@ export class POSPrinterService {
     // Bluetooth: enviar bytes ESC/POS a las estaciones de recibo (caja principal).
     if (cfg.printerType === 'bluetooth') {
       const bytes = this.generateESCPOS(receiptData, cfg);
-      const { btPrint, btPrintTo } = await import('./bluetoothPrinterService');
+      const { btPrint, btPrintTo, btReconnectFor, btIsConnectedFor } =
+        await import('./bluetoothPrinterService');
       const receiptStations = (cfg.printers ?? []).filter(
         (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
       );
       if (receiptStations.length > 0) {
-        for (const st of receiptStations) await btPrintTo(st.id, bytes);
+        for (const st of receiptStations) {
+          // Reconexión SILENCIOSA (sin selector): el permiso del dispositivo
+          // sobrevive aunque se borre el cache de la app; solo se pierde la
+          // conexión en memoria al recargar. getDevices() reusa el ya autorizado.
+          if (!btIsConnectedFor(st.id)) {
+            try { await btReconnectFor(st.id, (st as any).bt_mode ?? 'ble', (st as any).bt_device_id); }
+            catch { /* si no se puede en silencio, btPrintTo dará el error y el modal ofrece Conectar */ }
+          }
+          await btPrintTo(st.id, bytes);
+        }
       } else {
         await btPrint(bytes);   // modo simple (una sola impresora)
       }

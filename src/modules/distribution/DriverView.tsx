@@ -206,6 +206,7 @@ export const DriverView: React.FC = () => {
         <PrintTicketModal
           invoiceNumber={printTicket_.invoiceNumber}
           total={printTicket_.total}
+          tenantId={tenantId ?? undefined}
           printFn={printTicket_.print}
           onClose={() => setPrintTicket_(null)}
         />
