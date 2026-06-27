@@ -87,6 +87,8 @@ export interface ReceiptData {
   copyLabel?: string;
   /** Oculta el "Vuelva pronto" (ej. tickets de distribución/repartidor). */
   hideThanks?: boolean;
+  /** Comprobante de anulación: imprime SOLO "FACTURA ANULADA" + número + monto. */
+  voidNotice?: boolean;
 }
 
 export interface ReceiptConfig {
@@ -1358,6 +1360,22 @@ export class POSPrinterService {
     push(0x1B, 0x52, 0x00);         // ESC R 0 — charset internacional: USA
     push(0x1B, 0x74, 0x00);         // ESC t 0 — code page: CP437
     push(0x1B, 0x21, 0x00);         // ESC ! 0 — modo normal (sin negrita ni doble)
+
+    // ── Comprobante de ANULACIÓN: solo el aviso + número + monto ──────────
+    if (receiptData.voidNotice) {
+      push(0x1B, 0x21, 0x30);       // doble alto + ancho
+      centerText('FACTURA ANULADA');
+      push(0x1B, 0x21, 0x00);       // normal
+      if (cfg.showInvoiceNumber && receiptData.invoiceNumber) centerText(`#${receiptData.invoiceNumber}`);
+      if (cfg.showDateTime) centerText(`${receiptData.date} ${receiptData.time}`);
+      sep();
+      push(0x1B, 0x21, 0x10);       // doble alto
+      centerText(`TOTAL: ${receiptData.total.toLocaleString('es-CR')}`);
+      push(0x1B, 0x21, 0x00);       // normal
+      nl(); nl(); nl();
+      push(0x1D, 0x56, 0x00);       // GS V 0 — corte (sin cajón ni "vuelva pronto")
+      return new Uint8Array(cmds);
+    }
 
     // Header
     centerText('=== TICKET DE VENTA ===');

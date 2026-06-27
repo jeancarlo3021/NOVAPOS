@@ -209,12 +209,16 @@ function CreateRouteModal({ tenantId, onClose, onCreated }: { tenantId: string; 
   const [search, setSearch] = useState('');
   const [zone, setZone] = useState('');
   const [zoneList, setZoneList] = useState<string[]>([]);
+  const [busyTrucks, setBusyTrucks] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
   useEffect(() => {
     (async () => {
       setTrucks(await distributionService.trucks().catch(() => []));
+      // Camiones que ya tienen una ruta abierta (no se pueden reusar hasta cerrarla).
+      const open = await distributionService.list({ status: 'open' }).catch(() => []);
+      setBusyTrucks(new Set((open ?? []).map(r => r.warehouse_id).filter(Boolean)));
       setCustomers(await customersService.list().catch(() => []));
       setZoneList((await customersService.listZones().catch(() => [])).map(z => z.name));
       try {
@@ -267,7 +271,10 @@ function CreateRouteModal({ tenantId, onClose, onCreated }: { tenantId: string; 
               <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
                 <option value="">— Elegir —</option>
-                {trucks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {trucks.map(t => {
+                  const busy = busyTrucks.has(t.id);
+                  return <option key={t.id} value={t.id} disabled={busy}>{t.name}{busy ? ' — en ruta' : ''}</option>;
+                })}
               </select>
             </div>
             <div>

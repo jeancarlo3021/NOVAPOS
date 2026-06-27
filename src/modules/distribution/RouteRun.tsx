@@ -38,6 +38,8 @@ export const RouteRun: React.FC = () => {
   const [saleStop, setSaleStop] = useState<{ stop: RouteStop | null; mode: 'auto' | 'pre' } | null>(null);
   const [tab, setTab] = useState<'clients' | 'deliver' | 'sales'>('clients');
   const [sales, setSales] = useState<any[]>([]);
+  const [salesErr, setSalesErr] = useState<string | null>(null);
+  const [salesLoading, setSalesLoading] = useState(false);
   const [voiding, setVoiding] = useState<string | null>(null);
   const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void> } | null>(null);
 
@@ -59,7 +61,10 @@ export const RouteRun: React.FC = () => {
 
   const loadSales = useCallback(async () => {
     if (!id) return;
-    setSales(await distributionService.sales(id).catch(() => []));
+    setSalesLoading(true); setSalesErr(null);
+    try { setSales(await distributionService.sales(id)); }
+    catch (e) { setSalesErr(e instanceof Error ? e.message : 'No se pudieron cargar las ventas'); setSales([]); }
+    finally { setSalesLoading(false); }
   }, [id]);
   useEffect(() => { if (tab === 'sales') loadSales(); }, [tab, loadSales]);
 
@@ -70,23 +75,19 @@ export const RouteRun: React.FC = () => {
       await distributionService.voidSale(inv.id);
       await loadSales();
       await load();   // refresca stock del camión
-      // Reimprimir comprobante de ANULACIÓN.
+      // Reimprimir comprobante de ANULACIÓN (solo aviso + número + monto).
       const now = new Date();
       const data = {
         invoiceNumber: inv.invoice_number,
         date: now.toLocaleDateString('es-CR'),
         time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
-        items: (inv.items ?? []).map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
-        subtotal: Number(inv.total ?? 0), tax: 0, total: Number(inv.total ?? 0),
-        paymentMethod: payLabel(inv.payment_method),
-        customerName: inv.customer_name,
-        copyLabel: 'FACTURA ANULADA',
-        footerMessage: 'Comprobante de anulacion',
-        hideThanks: true,
+        items: [], subtotal: 0, tax: 0, total: Number(inv.total ?? 0),
+        paymentMethod: '',
+        voidNotice: true,
       };
       setPrintTicket_({
         invoiceNumber: inv.invoice_number, total: Number(inv.total ?? 0),
-        print: () => printTicket(data, tenantId ?? '', false),
+        print: () => posPrinterService.printAuto(data as any, tenantId ?? ''),
       });
     } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo anular'); }
     finally { setVoiding(null); }
@@ -245,7 +246,15 @@ export const RouteRun: React.FC = () => {
       {/* Ventas de la ruta — con anulación + devolución al camión */}
       {tab === 'sales' && (
         <div className="p-4 space-y-3">
-          {sales.length === 0 && <p className="text-center text-gray-400 text-sm py-10">Sin ventas en esta ruta.</p>}
+          {salesLoading && <p className="text-center text-gray-400 text-sm py-10 flex items-center justify-center gap-2"><Loader2 size={15} className="animate-spin" /> Cargando ventas…</p>}
+          {salesErr && !salesLoading && (
+            <div className="text-center py-8">
+              <p className="text-red-600 text-sm font-bold">No se pudieron cargar las ventas</p>
+              <p className="text-gray-400 text-xs mt-1">{salesErr}</p>
+              <button onClick={loadSales} className="mt-3 text-cyan-600 text-sm font-bold underline">Reintentar</button>
+            </div>
+          )}
+          {!salesLoading && !salesErr && sales.length === 0 && <p className="text-center text-gray-400 text-sm py-10">Sin ventas en esta ruta.</p>}
           {sales.map(inv => {
             const cancelled = inv.status === 'cancelled';
             return (
