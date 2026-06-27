@@ -45,6 +45,9 @@ export const DriverView: React.FC = () => {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Reconexión silenciosa de la impresora Bluetooth al entrar.
+  useEffect(() => { if (tenantId) posPrinterService.reconnectBluetooth(tenantId).catch(() => {}); }, [tenantId]);
+
   const openRoutes = routes.filter(r => r.status === 'open');
 
   const closeRoute = async (r: DeliveryRoute) => {

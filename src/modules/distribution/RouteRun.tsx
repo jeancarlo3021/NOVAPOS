@@ -52,6 +52,9 @@ export const RouteRun: React.FC = () => {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
+  // Reconexión silenciosa de la impresora Bluetooth al entrar (primera impresión instantánea).
+  useEffect(() => { if (tenantId) posPrinterService.reconnectBluetooth(tenantId).catch(() => {}); }, [tenantId]);
+
   const markNoSale = async (stop: RouteStop) => {
     const reason = window.prompt('Motivo (opcional):', '') ?? undefined;
     await distributionService.updateStop(stop.id, { status: 'no_sale', reason });

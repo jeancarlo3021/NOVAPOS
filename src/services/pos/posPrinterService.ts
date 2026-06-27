@@ -185,6 +185,27 @@ export class POSPrinterService {
 
   // ─── Public API ──────────────────────────────────────────────────────────────
 
+  /**
+   * Reconecta en SILENCIO las impresoras Bluetooth ya autorizadas (sin abrir el
+   * selector). Útil al entrar al POS / Distribución para que la primera
+   * impresión del día sea instantánea, incluso tras el borrado de cache.
+   */
+  async reconnectBluetooth(tenantId: string): Promise<void> {
+    try {
+      const cfg = await this.loadReceiptConfig(tenantId);
+      if (cfg.printerType !== 'bluetooth') return;
+      const { btReconnectFor, btIsConnectedFor } = await import('./bluetoothPrinterService');
+      const stations = (cfg.printers ?? []).filter(
+        (p: any) => p.is_active && p.connection === 'bluetooth',
+      );
+      for (const st of stations) {
+        if (btIsConnectedFor(st.id)) continue;
+        try { await btReconnectFor(st.id, (st as any).bt_mode ?? 'ble', (st as any).bt_device_id); }
+        catch { /* sin permiso aún: se conectará a mano al imprimir */ }
+      }
+    } catch { /* config no disponible */ }
+  }
+
   async printAuto(receiptData: ReceiptData, tenantId: string): Promise<void> {
     // Always reload config so we pick up latest settings changes
     const cfg = await this.loadReceiptConfig(tenantId);
@@ -418,7 +439,7 @@ export class POSPrinterService {
     const push = (...b: number[]) => cmds.push(...b);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
     const nl = () => push(0x0a);
-    const sep = () => { for (let i = 0; i < charWidth; i++) push(0xC4); nl(); };
+    const sep = () => { for (let i = 0; i < charWidth; i++) push(0x2D); nl(); };
     const center = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
     const row = (l: string, v: string) => { const sp = Math.max(1, charWidth - l.length - v.length); text(l + ' '.repeat(sp) + v); nl(); };
     const money = (n: number) => `${Number(n || 0).toLocaleString('es-CR')}`;
@@ -444,7 +465,7 @@ export class POSPrinterService {
     const ret = summary.returned ?? [];
     if (ret.length === 0) { center('(sin sobrante)'); }
     else { for (const r of ret) row(String(r.name).substring(0, charWidth - 6), `x${r.quantity}`); }
-    sep(); nl(); nl(); nl();
+    sep(); nl(); nl();
     push(0x1D, 0x56, 0x00);
     return new Uint8Array(cmds);
   }
@@ -456,7 +477,7 @@ export class POSPrinterService {
     const push = (...bytes: number[]) => cmds.push(...bytes);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
     const nl = () => push(0x0a);
-    const sep = () => { for (let i = 0; i < charWidth; i++) push(0xC4); nl(); };
+    const sep = () => { for (let i = 0; i < charWidth; i++) push(0x2D); nl(); };
     const centerText = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
     const row = (label: string, val: string) => {
       const sp = Math.max(1, charWidth - label.length - val.length);
@@ -540,7 +561,7 @@ export class POSPrinterService {
     nl();
 
     // Feed + corte (SIN cajón — el cierre no abre caja)
-    nl(); nl(); nl(); nl();
+    nl(); nl();
     push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
 
     return new Uint8Array(cmds);
@@ -880,7 +901,7 @@ export class POSPrinterService {
     const push = (...bytes: number[]) => cmds.push(...bytes);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
     const nl = () => push(0x0a);
-    const sep = () => { for (let i = 0; i < charWidth; i++) push(0xC4); nl(); };
+    const sep = () => { for (let i = 0; i < charWidth; i++) push(0x2D); nl(); };
     const centerText = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
     const rightAlign = (label: string, val: string) => {
       const sp = Math.max(1, charWidth - label.length - val.length);
@@ -936,7 +957,7 @@ export class POSPrinterService {
     nl();
 
     // Feed + corte (SIN comando de cajón)
-    nl(); nl(); nl(); nl();
+    nl(); nl();
     push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
 
     return new Uint8Array(cmds);
@@ -1319,9 +1340,10 @@ export class POSPrinterService {
     // Encoder CP437 single-byte (NO UTF-8) — soporta acentos, ñ, ¡¿ correctamente.
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
     const nl = () => push(0x0a);
-    // Línea separadora: byte 0xC4 de CP437 = '─' (línea horizontal continua,
-    // 1px de grosor). Más fina y limpia que el guión ASCII '-'.
-    const sep = () => { for (let i = 0; i < charWidth; i++) push(0xC4); nl(); };
+    // Separador con guion ASCII (0x2D). Antes usábamos 0xC4 (CP437 '─') pero
+    // algunas impresoras (ej. MTP-4B) no respetan el code page y lo imprimían
+    // como carácter chino. El '-' es universal y seguro.
+    const sep = () => { for (let i = 0; i < charWidth; i++) push(0x2D); nl(); };
     const centerText = (s: string) => { text(s.padStart((charWidth + s.length) / 2, ' ')); nl(); };
     const rightAlign = (label: string, val: string) => {
       const sp = Math.max(1, charWidth - label.length - val.length);
@@ -1412,8 +1434,8 @@ export class POSPrinterService {
       push(0x1B, 0x70, 0x00, 0x19, 0xFA);
     }
 
-    // Feed extra antes del corte (más papel para despegar cómodo)
-    nl(); nl(); nl(); nl(); nl(); nl(); nl(); nl();
+    // Feed antes del corte (lo justo para despegar, sin gastar papel).
+    nl(); nl(); nl();
     push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
 
     return new Uint8Array(cmds);
