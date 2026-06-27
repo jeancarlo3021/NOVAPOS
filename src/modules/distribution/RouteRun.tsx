@@ -8,6 +8,7 @@ import { useTenantId } from '@/hooks/useTenant';
 import { distributionService, type DeliveryRoute, type RouteStop } from '@/services/distribution/distributionService';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { unitTypesService } from '@/services/Inventory/unitTypesService';
+import { PrintTicketModal } from './PrintTicketModal';
 import { customerPricesService } from '@/services/customers/customerPricesService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -36,6 +37,7 @@ export const RouteRun: React.FC = () => {
   const [deliverTarget, setDeliverTarget] = useState<any | null>(null);
   const [saleStop, setSaleStop] = useState<{ stop: RouteStop | null; mode: 'auto' | 'pre' } | null>(null);
   const [tab, setTab] = useState<'clients' | 'deliver'>('clients');
+  const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void> } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -60,19 +62,21 @@ export const RouteRun: React.FC = () => {
     const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
     const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
     const inv: any = await distributionService.deliverOrder(order.id, { payment_method: paymentMethod, issued_at });
-    try {
-      const now = new Date();
-      await printTicket({
-        invoiceNumber: inv?.invoice_number ?? '',
-        date: now.toLocaleDateString('es-CR'),
-        time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
-        items: (order.items ?? []).map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
-        subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
-        paymentMethod: payLabel(paymentMethod),
-        customerName: order.customer?.name ?? order.customer_name,
-      }, tenantId ?? '', paymentMethod === 'credit');
-    } catch { /* impresora no disponible */ }
+    const now = new Date();
+    const data = {
+      invoiceNumber: inv?.invoice_number ?? '',
+      date: now.toLocaleDateString('es-CR'),
+      time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+      items: (order.items ?? []).map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
+      subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
+      paymentMethod: payLabel(paymentMethod),
+      customerName: order.customer?.name ?? order.customer_name,
+    };
     setDeliverTarget(null);
+    setPrintTicket_({
+      invoiceNumber: inv?.invoice_number, total: Number(order.total ?? 0),
+      print: () => printTicket(data, tenantId ?? '', paymentMethod === 'credit'),
+    });
     await load();
   };
 
@@ -198,11 +202,21 @@ export const RouteRun: React.FC = () => {
         <SaleModal
           tenantId={tenantId} route={route} stop={saleStop.stop} mode={saleStop.mode}
           onClose={() => setSaleStop(null)} onDone={async () => { setSaleStop(null); await load(); }}
+          onPrint={(info) => setPrintTicket_(info)}
         />
       )}
 
       {deliverTarget && (
         <DeliverModal order={deliverTarget} onClose={() => setDeliverTarget(null)} onConfirm={deliver} />
+      )}
+
+      {printTicket_ && (
+        <PrintTicketModal
+          invoiceNumber={printTicket_.invoiceNumber}
+          total={printTicket_.total}
+          printFn={printTicket_.print}
+          onClose={() => setPrintTicket_(null)}
+        />
       )}
     </div>
   );
@@ -246,9 +260,10 @@ function DeliverModal({ order, onClose, onConfirm }: {
 }
 
 // ── Modal de venta (autoventa) o pedido (preventa) ───────────────────────────────
-function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
+function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
   tenantId: string; route: DeliveryRoute; stop: RouteStop | null; mode: 'auto' | 'pre';
   onClose: () => void; onDone: () => void;
+  onPrint?: (info: { invoiceNumber?: string; total?: number; print: () => Promise<void> }) => void;
 }) {
   const isAuto = mode === 'auto';
   // Cliente: si viene de una parada, fijo; si es mostrador, seleccionable/opcional.
@@ -349,18 +364,20 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone }: {
           stop_id: stop?.id, customer_id: customer?.id ?? null, customer_name: customer?.name, items,
           subtotal: total, tax_amount: 0, total, payment_method: paymentMethod, issued_at,
         });
-        try {
-          const now = new Date();
-          await printTicket({
-            invoiceNumber: inv?.invoice_number ?? '',
-            date: now.toLocaleDateString('es-CR'),
-            time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
-            items: lines.map(l => ({ name: l.name, quantity: l.q, unitPrice: l.unit_price, subtotal: Math.round(l.q * l.unit_price) })),
-            subtotal: total, tax: 0, total,
-            paymentMethod: payLabel(paymentMethod),
-            customerName: customer?.name,
-          }, tenantId, paymentMethod === 'credit');
-        } catch { /* impresora no disponible */ }
+        const now = new Date();
+        const data = {
+          invoiceNumber: inv?.invoice_number ?? '',
+          date: now.toLocaleDateString('es-CR'),
+          time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+          items: lines.map(l => ({ name: l.name, quantity: l.q, unitPrice: l.unit_price, subtotal: Math.round(l.q * l.unit_price) })),
+          subtotal: total, tax: 0, total,
+          paymentMethod: payLabel(paymentMethod),
+          customerName: customer?.name,
+        };
+        onPrint?.({
+          invoiceNumber: inv?.invoice_number, total,
+          print: () => printTicket(data, tenantId, paymentMethod === 'credit'),
+        });
       } else {
         if (!customer?.id) { setErr('La preventa necesita un cliente'); setSaving(false); return; }
         await distributionService.order(route.id, {

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { distributionService, type DeliveryRoute } from '@/services/distribution/distributionService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
+import { PrintTicketModal } from './PrintTicketModal';
 import { useTenantId } from '@/hooks/useTenant';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
@@ -22,6 +23,7 @@ export const DriverView: React.FC = () => {
   const [closeSummary, setCloseSummary] = useState<any | null>(null);
   const [showReturned, setShowReturned] = useState(false);
   const [printingClose, setPrintingClose] = useState(false);
+  const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void> } | null>(null);
 
   const printClose = async () => {
     if (!closeSummary) return;
@@ -196,7 +198,17 @@ export const DriverView: React.FC = () => {
 
       {verify && (
         <VerifyDeliverModal order={verify} onClose={() => setVerify(null)}
-          onDelivered={async () => { setVerify(null); await load(); }} />
+          onDelivered={async () => { setVerify(null); await load(); }}
+          onPrint={(info) => setPrintTicket_(info)} />
+      )}
+
+      {printTicket_ && (
+        <PrintTicketModal
+          invoiceNumber={printTicket_.invoiceNumber}
+          total={printTicket_.total}
+          printFn={printTicket_.print}
+          onClose={() => setPrintTicket_(null)}
+        />
       )}
 
       {closeSummary && (
@@ -254,7 +266,10 @@ export const DriverView: React.FC = () => {
 };
 
 // ── Modal: verificar productos y entregar ────────────────────────────────────────
-function VerifyDeliverModal({ order, onClose, onDelivered }: { order: any; onClose: () => void; onDelivered: () => void }) {
+function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
+  order: any; onClose: () => void; onDelivered: () => void;
+  onPrint: (info: { invoiceNumber?: string; total?: number; print: () => Promise<void> }) => void;
+}) {
   const { tenantId } = useTenantId();
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>('cash');
@@ -268,25 +283,25 @@ function VerifyDeliverModal({ order, onClose, onDelivered }: { order: any; onClo
       const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
       const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
       const inv: any = await distributionService.deliverOrder(order.id, { payment_method: paymentMethod, issued_at });
-      // Imprimir la factura de la entrega (no bloquea si falla la impresora).
-      try {
-        const now = new Date();
-        const data = {
-          invoiceNumber: inv?.invoice_number ?? '',
-          date: now.toLocaleDateString('es-CR'),
-          time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
-          items: items.map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
-          subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
-          paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : 'Crédito',
-          customerName: order.customer?.name ?? order.customer_name,
-        };
+      const now = new Date();
+      const data = {
+        invoiceNumber: inv?.invoice_number ?? '',
+        date: now.toLocaleDateString('es-CR'),
+        time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+        items: items.map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
+        subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
+        paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : 'Crédito',
+        customerName: order.customer?.name ?? order.customer_name,
+      };
+      const doPrint = async () => {
         if (paymentMethod === 'credit') {
           await posPrinterService.printAuto({ ...data, copyLabel: 'ORIGINAL - CLIENTE' } as any, tenantId ?? '');
           await posPrinterService.printAuto({ ...data, copyLabel: 'COPIA - VENDEDOR' } as any, tenantId ?? '');
         } else {
           await posPrinterService.printAuto(data as any, tenantId ?? '');
         }
-      } catch { /* impresora no disponible */ }
+      };
+      onPrint({ invoiceNumber: inv?.invoice_number, total: Number(order.total ?? 0), print: doPrint });
       onDelivered();
     } finally { setSaving(false); }
   };
