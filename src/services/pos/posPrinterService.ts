@@ -1393,16 +1393,18 @@ export class POSPrinterService {
     centerText(cfg.footerMessage);
     centerText('Vuelva pronto');
 
-    // Feed extra antes del corte (más papel para despegar cómodo)
-    nl(); nl(); nl(); nl(); nl(); nl(); nl(); nl();
-    push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
-
-    // Abrir cajón de dinero DESPUÉS de cortar (pulso al pin 2 del conector RJ11).
+    // Abrir cajón de dinero — ANTES del corte. Algunas impresoras descartan los
+    // comandos que llegan DESPUÉS de GS V (corte), por eso a veces no abría en
+    // ciertos pagos (p. ej. efectivo). Mandándolo antes del corte abre siempre.
     // ESC p m t1 t2 — m=0 (pin 2), t1=25, t2=250 (duración del pulso).
     // Se omite si el negocio desactivó la apertura de cajón (cfg.openDrawer === false).
     if ((cfg as any).openDrawer !== false) {
       push(0x1B, 0x70, 0x00, 0x19, 0xFA);
     }
+
+    // Feed extra antes del corte (más papel para despegar cómodo)
+    nl(); nl(); nl(); nl(); nl(); nl(); nl(); nl();
+    push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
 
     return new Uint8Array(cmds);
   }

@@ -81,7 +81,12 @@ export const Dashboard = () => {
     }
     setLoading(true);
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    // Fecha LOCAL de la máquina (NO UTC). Con toISOString, después de las ~18:00
+    // en CR (UTC-6) la fecha saltaba al día siguiente y las ventas del día se
+    // veían en 0. issued_at se guarda en hora local, así que usamos fecha local.
+    const _d = new Date();
+    const _p = (x: number) => String(x).padStart(2, '0');
+    const todayStr = `${_d.getFullYear()}-${_p(_d.getMonth() + 1)}-${_p(_d.getDate())}`;
     // issued_at es TIMESTAMPTZ: si mandamos solo YYYY-MM-DD el backend
     // interpreta el `to` como medianoche y deja afuera todas las facturas
     // del día. Mandamos timestamps explícitos para cubrir 00:00 → 23:59:59.
