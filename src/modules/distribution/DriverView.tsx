@@ -296,6 +296,7 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
         subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
         paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : 'Crédito',
         customerName: order.customer?.name ?? order.customer_name,
+        hideThanks: true,
       };
       const doPrint = async () => {
         if (paymentMethod === 'credit') {

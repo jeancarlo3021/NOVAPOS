@@ -74,6 +74,7 @@ export const RouteRun: React.FC = () => {
       subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
       paymentMethod: payLabel(paymentMethod),
       customerName: order.customer?.name ?? order.customer_name,
+      hideThanks: true,
     };
     setDeliverTarget(null);
     setPrintTicket_({
@@ -377,6 +378,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
           subtotal: total, tax: 0, total,
           paymentMethod: payLabel(paymentMethod),
           customerName: customer?.name,
+          hideThanks: true,
         };
         onPrint?.({
           invoiceNumber: inv?.invoice_number, total,
@@ -399,6 +401,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
             paymentMethod: 'PEDIDO (a entregar)',
             customerName: customer.name,
             footerMessage: 'Comprobante de pedido — no es factura',
+            hideThanks: true,
           } as any, tenantId);
         } catch { /* impresora no disponible */ }
       }

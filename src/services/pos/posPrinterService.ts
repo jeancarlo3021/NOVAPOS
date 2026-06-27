@@ -85,6 +85,8 @@ export interface ReceiptData {
   payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[];
   /** Etiqueta de copia (ej. "ORIGINAL - CLIENTE" / "COPIA - VENDEDOR"). */
   copyLabel?: string;
+  /** Oculta el "Vuelva pronto" (ej. tickets de distribución/repartidor). */
+  hideThanks?: boolean;
 }
 
 export interface ReceiptConfig {
@@ -1422,8 +1424,8 @@ export class POSPrinterService {
     }
 
     sep();
-    centerText(cfg.footerMessage);
-    centerText('Vuelva pronto');
+    if (cfg.footerMessage) centerText(cfg.footerMessage);
+    if (!receiptData.hideThanks) centerText('Vuelva pronto');
 
     // Abrir cajón de dinero — ANTES del corte. Algunas impresoras descartan los
     // comandos que llegan DESPUÉS de GS V (corte), por eso a veces no abría en
