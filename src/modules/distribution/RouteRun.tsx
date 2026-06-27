@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, MapPin, ShoppingCart, X,
-  CheckCircle2, Search, Loader2, PackageCheck, Truck, User, Scale, Ban,
+  CheckCircle2, Search, Loader2, PackageCheck, Truck, User, Scale, Ban, Package,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { distributionService, type DeliveryRoute, type RouteStop } from '@/services/distribution/distributionService';
@@ -41,6 +41,9 @@ export const RouteRun: React.FC = () => {
   const [salesErr, setSalesErr] = useState<string | null>(null);
   const [salesLoading, setSalesLoading] = useState(false);
   const [voiding, setVoiding] = useState<string | null>(null);
+  const [showStock, setShowStock] = useState(false);
+  const [stock, setStock] = useState<any[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
   const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void> } | null>(null);
 
   const load = useCallback(async () => {
@@ -91,6 +94,14 @@ export const RouteRun: React.FC = () => {
       });
     } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo anular'); }
     finally { setVoiding(null); }
+  };
+
+  const openStock = async () => {
+    if (!id) return;
+    setShowStock(true); setStockLoading(true);
+    try { setStock(await distributionService.truckStock(id)); }
+    catch { setStock([]); }
+    finally { setStockLoading(false); }
   };
 
   const markNoSale = async (stop: RouteStop) => {
@@ -150,6 +161,10 @@ export const RouteRun: React.FC = () => {
             <button onClick={() => setSaleStop({ stop: null, mode: 'auto' })}
               className="flex-1 flex items-center justify-center gap-1.5 bg-white text-emerald-700 font-black px-3 py-2.5 rounded-xl text-sm">
               <ShoppingCart size={16} /> Vender
+            </button>
+            <button onClick={openStock}
+              className="flex items-center justify-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2.5 rounded-xl text-sm">
+              <Package size={16} /> Inventario
             </button>
           </div>
         )}
@@ -306,6 +321,35 @@ export const RouteRun: React.FC = () => {
           printFn={printTicket_.print}
           onClose={() => setPrintTicket_(null)}
         />
+      )}
+
+      {/* Modal: inventario cargado en el camión */}
+      {showStock && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => setShowStock(false)}>
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 className="font-black text-gray-900 flex items-center gap-2"><Package size={18} /> Inventario del camión</h2>
+              <button onClick={() => setShowStock(false)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              {stockLoading && <p className="text-center text-gray-400 text-sm py-10 flex items-center justify-center gap-2"><Loader2 size={15} className="animate-spin" /> Cargando…</p>}
+              {!stockLoading && stock.filter(s => Number(s.quantity) > 0).length === 0 && (
+                <p className="text-center text-gray-400 text-sm py-10">El camión no tiene productos cargados.</p>
+              )}
+              <ul className="divide-y divide-gray-100">
+                {stock.filter(s => Number(s.quantity) > 0).sort((a, b) => (a.product?.name ?? '').localeCompare(b.product?.name ?? '')).map(s => (
+                  <li key={s.product_id} className="flex items-center justify-between py-2.5">
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-900 truncate">{s.product?.name ?? 'Producto'}</p>
+                      {s.product?.sku && <p className="text-[11px] text-gray-400">{s.product.sku}</p>}
+                    </div>
+                    <span className="font-black text-cyan-700 shrink-0 ml-3">{Number(s.quantity)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
