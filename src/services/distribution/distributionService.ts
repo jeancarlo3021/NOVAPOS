@@ -88,4 +88,10 @@ export const distributionService = {
     apiFetch<any[]>(`/routes/${id}/orders`),
   deliverOrder: (orderId: string, body?: { payment_method?: string; issued_at?: string }) =>
     apiFetch<any>(`/routes/order/${orderId}/deliver`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+
+  /** Ventas (facturas) de la ruta — para poder anularlas. */
+  sales: (id: string) => apiFetch<any[]>(`/routes/${id}/sales`),
+  /** Anula una factura de ruta y devuelve el stock al camión. */
+  voidSale: (invoiceId: string) =>
+    apiFetch<any>(`/routes/void-sale/${invoiceId}`, { method: 'POST' }),
 };

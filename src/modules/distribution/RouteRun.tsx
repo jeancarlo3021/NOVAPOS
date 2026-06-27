@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, MapPin, ShoppingCart, X,
-  CheckCircle2, Search, Loader2, PackageCheck, Truck, User, Scale,
+  CheckCircle2, Search, Loader2, PackageCheck, Truck, User, Scale, Ban,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { distributionService, type DeliveryRoute, type RouteStop } from '@/services/distribution/distributionService';
@@ -36,7 +36,9 @@ export const RouteRun: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [deliverTarget, setDeliverTarget] = useState<any | null>(null);
   const [saleStop, setSaleStop] = useState<{ stop: RouteStop | null; mode: 'auto' | 'pre' } | null>(null);
-  const [tab, setTab] = useState<'clients' | 'deliver'>('clients');
+  const [tab, setTab] = useState<'clients' | 'deliver' | 'sales'>('clients');
+  const [sales, setSales] = useState<any[]>([]);
+  const [voiding, setVoiding] = useState<string | null>(null);
   const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void> } | null>(null);
 
   const load = useCallback(async () => {
@@ -54,6 +56,41 @@ export const RouteRun: React.FC = () => {
 
   // Reconexión silenciosa de la impresora Bluetooth al entrar (primera impresión instantánea).
   useEffect(() => { if (tenantId) posPrinterService.reconnectBluetooth(tenantId).catch(() => {}); }, [tenantId]);
+
+  const loadSales = useCallback(async () => {
+    if (!id) return;
+    setSales(await distributionService.sales(id).catch(() => []));
+  }, [id]);
+  useEffect(() => { if (tab === 'sales') loadSales(); }, [tab, loadSales]);
+
+  const voidSale = async (inv: any) => {
+    if (!confirm(`¿Anular la factura ${inv.invoice_number}? Los productos vuelven al camión.`)) return;
+    setVoiding(inv.id);
+    try {
+      await distributionService.voidSale(inv.id);
+      await loadSales();
+      await load();   // refresca stock del camión
+      // Reimprimir comprobante de ANULACIÓN.
+      const now = new Date();
+      const data = {
+        invoiceNumber: inv.invoice_number,
+        date: now.toLocaleDateString('es-CR'),
+        time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+        items: (inv.items ?? []).map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
+        subtotal: Number(inv.total ?? 0), tax: 0, total: Number(inv.total ?? 0),
+        paymentMethod: payLabel(inv.payment_method),
+        customerName: inv.customer_name,
+        copyLabel: 'FACTURA ANULADA',
+        footerMessage: 'Comprobante de anulacion',
+        hideThanks: true,
+      };
+      setPrintTicket_({
+        invoiceNumber: inv.invoice_number, total: Number(inv.total ?? 0),
+        print: () => printTicket(data, tenantId ?? '', false),
+      });
+    } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo anular'); }
+    finally { setVoiding(null); }
+  };
 
   const markNoSale = async (stop: RouteStop) => {
     const reason = window.prompt('Motivo (opcional):', '') ?? undefined;
@@ -125,6 +162,9 @@ export const RouteRun: React.FC = () => {
         </button>
         <button onClick={() => setTab('deliver')} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition ${tab === 'deliver' ? 'bg-cyan-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600'}`}>
           Por entregar ({pendingOrders.length})
+        </button>
+        <button onClick={() => setTab('sales')} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition ${tab === 'sales' ? 'bg-cyan-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600'}`}>
+          Ventas
         </button>
       </div>
 
@@ -199,6 +239,41 @@ export const RouteRun: React.FC = () => {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Ventas de la ruta — con anulación + devolución al camión */}
+      {tab === 'sales' && (
+        <div className="p-4 space-y-3">
+          {sales.length === 0 && <p className="text-center text-gray-400 text-sm py-10">Sin ventas en esta ruta.</p>}
+          {sales.map(inv => {
+            const cancelled = inv.status === 'cancelled';
+            return (
+              <div key={inv.id} className={`bg-white rounded-2xl border shadow-sm p-4 ${cancelled ? 'border-red-100 opacity-70' : 'border-gray-100'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-black text-gray-900">#{inv.invoice_number} {cancelled && <span className="text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full ml-1">ANULADA</span>}</p>
+                    <p className="text-[11px] text-gray-400">{inv.customer_name ?? 'Mostrador'} · {payLabel(inv.payment_method)}</p>
+                  </div>
+                  <span className="font-black text-gray-900 shrink-0">{fmt(inv.total)}</span>
+                </div>
+                <ul className="mt-2 text-sm text-gray-600 space-y-0.5">
+                  {(inv.items ?? []).map((it: any, idx: number) => (
+                    <li key={idx} className="flex justify-between">
+                      <span>{it.quantity} × {it.product_name}</span>
+                      <span className="text-gray-400">{fmt(Number(it.unit_price) * Number(it.quantity))}</span>
+                    </li>
+                  ))}
+                </ul>
+                {!cancelled && (
+                  <button onClick={() => voidSale(inv)} disabled={voiding === inv.id}
+                    className="mt-3 w-full flex items-center justify-center gap-1.5 bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 text-sm font-bold py-2 rounded-lg disabled:opacity-50">
+                    {voiding === inv.id ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />} Anular y devolver al camión
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
