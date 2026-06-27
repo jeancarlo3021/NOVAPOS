@@ -341,9 +341,13 @@ export const RouteRun: React.FC = () => {
                   <li key={s.product_id} className="flex items-center justify-between py-2.5">
                     <div className="min-w-0">
                       <p className="font-bold text-gray-900 truncate">{s.product?.name ?? 'Producto'}</p>
-                      {s.product?.sku && <p className="text-[11px] text-gray-400">{s.product.sku}</p>}
+                      <p className="text-[11px] text-gray-400">
+                        {[s.product?.sku, s.product?.unit_type?.name].filter(Boolean).join(' · ') || '—'}
+                      </p>
                     </div>
-                    <span className="font-black text-cyan-700 shrink-0 ml-3">{Number(s.quantity)}</span>
+                    <span className="font-black text-cyan-700 shrink-0 ml-3">
+                      {Number(s.quantity)}{s.product?.unit_type?.abbreviation ? ` ${s.product.unit_type.abbreviation}` : ''}
+                    </span>
                   </li>
                 ))}
               </ul>
