@@ -152,7 +152,7 @@ export const DistributionDashboard: React.FC = () => {
                   </button>
                   <button onClick={() => openClearLoad(r)}
                     className="col-span-2 flex items-center justify-center gap-1 bg-amber-50 text-amber-700 text-xs font-bold py-2 rounded-lg hover:bg-amber-100">
-                    <Trash2 size={13} /> Borrar carga (cargué por error)
+                    <Trash2 size={13} /> Borrar carga
                   </button>
                 </div>
               )}
