@@ -210,9 +210,36 @@ export class POSPrinterService {
     } catch { /* config no disponible */ }
   }
 
+  /**
+   * Rellena los datos del negocio (nombre, cédula, dirección, etc.) desde
+   * la configuración (settings_general) si el ticket no los trae. Así los
+   * tickets de distribución/repartidor también muestran los datos del local.
+   */
+  private async fillStoreInfo(receiptData: ReceiptData, tenantId: string): Promise<void> {
+    // Si ya vienen los datos clave, no hace falta cargar.
+    if (receiptData.storeName || receiptData.storeAddress || receiptData.storeRuc) return;
+    let general: any = null;
+    try {
+      const cached = localStorage.getItem(`novapos_cache_${tenantId}_settings_general`);
+      if (cached) { const parsed = JSON.parse(cached); general = parsed?.data ?? parsed; }
+    } catch { /* ignore */ }
+    if (!general) {
+      try { const r = await apiFetch<any>('/settings/general').catch(() => null); general = r?.config ?? r; }
+      catch { /* ignore */ }
+    }
+    if (!general) return;
+    receiptData.storeName ??= general.businessName;
+    receiptData.storeRuc ??= general.ruc;
+    receiptData.storeCedula ??= general.cedula;
+    receiptData.storeAddress ??= general.address;
+    receiptData.storeCity ??= general.city;
+    receiptData.storePhone ??= general.phone;
+  }
+
   async printAuto(receiptData: ReceiptData, tenantId: string): Promise<void> {
     // Always reload config so we pick up latest settings changes
     const cfg = await this.loadReceiptConfig(tenantId);
+    await this.fillStoreInfo(receiptData, tenantId);
 
     // Bluetooth: enviar bytes ESC/POS a las estaciones de recibo (caja principal).
     if (cfg.printerType === 'bluetooth') {
@@ -1386,7 +1413,10 @@ export class POSPrinterService {
 
     // Store
     if (cfg.showStoreName && receiptData.storeName) { centerText(receiptData.storeName); }
+    if (receiptData.storeRuc) { centerText(`Ced. Juridica: ${receiptData.storeRuc}`); }
+    if (receiptData.storeCedula) { centerText(`Cedula: ${receiptData.storeCedula}`); }
     if (cfg.showStoreAddress && receiptData.storeAddress) { centerText(receiptData.storeAddress); }
+    if (receiptData.storeCity) { centerText(receiptData.storeCity); }
     if (cfg.showStorePhone && receiptData.storePhone) { centerText(`Tel: ${receiptData.storePhone}`); }
 
     // Customer

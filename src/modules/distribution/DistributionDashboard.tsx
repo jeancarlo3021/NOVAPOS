@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Truck, Plus, X, Package, RefreshCw, LockKeyhole,
+  Truck, Plus, X, Package, RefreshCw, LockKeyhole, Trash2,
   CheckCircle2, Search, Loader2, Navigation, BarChart3, Users, Scale, Printer,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
@@ -24,6 +24,11 @@ export const DistributionDashboard: React.FC = () => {
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [loadFor, setLoadFor] = useState<DeliveryRoute | null>(null);
+  const [clearFor, setClearFor] = useState<DeliveryRoute | null>(null);
+  const [clearStock, setClearStock] = useState<any[]>([]);
+  const [clearLoading, setClearLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearErr, setClearErr] = useState('');
   const [closeSummary, setCloseSummary] = useState<{ route: DeliveryRoute; sum: import('@/services/distribution/distributionService').RouteCloseSummary } | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [showReturned, setShowReturned] = useState(false);
@@ -53,6 +58,25 @@ export const DistributionDashboard: React.FC = () => {
       setCloseSummary({ route: r, sum });
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : 'Error al cerrar'); }
+  };
+
+  const openClearLoad = async (r: DeliveryRoute) => {
+    setClearFor(r); setClearStock([]); setClearLoading(true); setClearErr('');
+    try { setClearStock((await distributionService.truckStock(r.id)).filter((s: any) => Number(s.quantity) > 0)); }
+    catch { setClearStock([]); }
+    finally { setClearLoading(false); }
+  };
+
+  const confirmClearLoad = async () => {
+    if (!clearFor) return;
+    setClearing(true); setClearErr('');
+    try {
+      const res = await distributionService.clearLoad(clearFor.id);
+      setClearFor(null);
+      await load();
+      alert(`Carga borrada: ${res.returned_items} producto(s) devueltos al inventario.`);
+    } catch (e) { setClearErr(e instanceof Error ? e.message : 'No se pudo borrar la carga'); }
+    finally { setClearing(false); }
   };
 
   const open = routes.filter(r => r.status === 'open').length;
@@ -126,6 +150,10 @@ export const DistributionDashboard: React.FC = () => {
                     className="flex items-center justify-center gap-1 bg-red-50 text-red-600 text-xs font-bold py-2 rounded-lg hover:bg-red-100">
                     <LockKeyhole size={13} /> Cerrar
                   </button>
+                  <button onClick={() => openClearLoad(r)}
+                    className="col-span-2 flex items-center justify-center gap-1 bg-amber-50 text-amber-700 text-xs font-bold py-2 rounded-lg hover:bg-amber-100">
+                    <Trash2 size={13} /> Borrar carga (cargué por error)
+                  </button>
                 </div>
               )}
             </div>
@@ -138,6 +166,44 @@ export const DistributionDashboard: React.FC = () => {
       )}
       {loadFor && tenantId && (
         <LoadTruckModal tenantId={tenantId} route={loadFor} onClose={() => setLoadFor(null)} onDone={async () => { setLoadFor(null); await load(); }} />
+      )}
+
+      {/* Modal: confirmar borrado de carga con la lista de productos a devolver */}
+      {clearFor && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => !clearing && setClearFor(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 className="font-black text-gray-900 flex items-center gap-2"><Trash2 size={18} className="text-amber-600" /> Borrar carga</h2>
+              <button onClick={() => !clearing && setClearFor(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              <p className="text-sm text-gray-600 mb-3">
+                Se devolverán al inventario los siguientes productos del camión <strong>{clearFor.warehouse?.name}</strong>. La ruta queda abierta y vacía para recargar.
+              </p>
+              {clearErr && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-3">{clearErr}</div>}
+              {clearLoading && <p className="text-center text-gray-400 text-sm py-8 flex items-center justify-center gap-2"><Loader2 size={15} className="animate-spin" /> Cargando…</p>}
+              {!clearLoading && clearStock.length === 0 && <p className="text-center text-gray-400 text-sm py-8">El camión no tiene carga.</p>}
+              {clearStock.length > 0 && (
+                <ul className="divide-y divide-gray-100 border border-gray-100 rounded-xl">
+                  {clearStock.sort((a, b) => (a.product?.name ?? '').localeCompare(b.product?.name ?? '')).map(s => (
+                    <li key={s.product_id} className="flex items-center justify-between px-3 py-2">
+                      <span className="font-bold text-gray-800 truncate">{s.product?.name ?? 'Producto'}</span>
+                      <span className="font-black text-amber-700 shrink-0 ml-3">{Number(s.quantity)}{s.product?.unit_type?.abbreviation ? ` ${s.product.unit_type.abbreviation}` : ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex gap-2 p-4 border-t border-gray-100">
+              <button onClick={() => setClearFor(null)} disabled={clearing}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-sm">Cancelar</button>
+              <button onClick={confirmClearLoad} disabled={clearing || clearLoading || clearStock.length === 0}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-200 text-white font-bold py-2.5 rounded-xl text-sm">
+                {clearing ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />} Borrar carga
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showReport && <ReportModal onClose={() => setShowReport(false)} />}

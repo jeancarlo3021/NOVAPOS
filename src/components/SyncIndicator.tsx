@@ -8,6 +8,9 @@ export function SyncIndicator() {
   const isPOS = pathname === '/pos' || pathname.startsWith('/pos/');
   const topClass = isPOS ? 'top-2' : 'top-14';
 
+  // Ocultar el indicador en Distribución/Repartidor (vistas de campo).
+  if (['/distribution', '/driver', '/repartidor'].some(p => pathname.startsWith(p))) return null;
+
   return (
     <div
       className={`fixed ${topClass} right-4 p-4 rounded-lg shadow-lg flex items-center gap-3 transition z-40 ${

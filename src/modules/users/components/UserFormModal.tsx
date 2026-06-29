@@ -99,6 +99,10 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
         setError('La contraseña debe tener al menos 6 caracteres');
         return;
       }
+      if (!/[a-zA-Z]/.test(createForm.password) || !/[0-9]/.test(createForm.password)) {
+        setError('La contraseña debe combinar letras y números (no solo letras ni solo números)');
+        return;
+      }
       if (!createForm.role) {
         setError('Selecciona un rol');
         return;

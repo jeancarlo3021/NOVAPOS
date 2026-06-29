@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { distributionService, type DeliveryRoute, type RouteStop } from '@/services/distribution/distributionService';
+import { distributionOfflineService } from '@/services/distribution/distributionOfflineService';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { unitTypesService } from '@/services/Inventory/unitTypesService';
 import { PrintTicketModal } from './PrintTicketModal';
@@ -51,8 +52,8 @@ export const RouteRun: React.FC = () => {
     setLoading(true);
     try {
       const [r, o] = await Promise.all([
-        distributionService.get(id),
-        distributionService.orders(id).catch(() => []),
+        distributionOfflineService.getRoute(id),
+        distributionOfflineService.orders(id).catch(() => []),
       ]);
       setRoute(r); setOrders(o ?? []);
     } finally { setLoading(false); }
@@ -99,7 +100,7 @@ export const RouteRun: React.FC = () => {
   const openStock = async () => {
     if (!id) return;
     setShowStock(true); setStockLoading(true);
-    try { setStock(await distributionService.truckStock(id)); }
+    try { setStock(await distributionOfflineService.truckStock(id)); }
     catch { setStock([]); }
     finally { setStockLoading(false); }
   };
@@ -113,7 +114,7 @@ export const RouteRun: React.FC = () => {
   const deliver = async (order: any, paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit') => {
     const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
     const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-    const inv: any = await distributionService.deliverOrder(order.id, { payment_method: paymentMethod, issued_at });
+    const inv: any = await distributionOfflineService.deliverOrder(id ?? '', order.id, { payment_method: paymentMethod, issued_at });
     const now = new Date();
     const data = {
       invoiceNumber: inv?.invoice_number ?? '',
@@ -424,7 +425,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
   useEffect(() => {
     (async () => {
       if (isAuto) {
-        const stock = await distributionService.truckStock(route.id).catch(() => []);
+        const stock = await distributionOfflineService.truckStock(route.id).catch(() => []);
         setRows((stock ?? []).map((s: any) => ({
           product_id: s.product_id, name: s.product?.name ?? 'Producto',
           base: Number(s.product?.unit_price ?? 0), available: Number(s.quantity),
@@ -497,7 +498,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
       const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
       const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
       if (isAuto) {
-        const inv: any = await distributionService.sale(route.id, {
+        const inv: any = await distributionOfflineService.sale(route.id, {
           stop_id: stop?.id, customer_id: customer?.id ?? null, customer_name: customer?.name, items,
           subtotal: total, tax_amount: 0, total, payment_method: paymentMethod, issued_at,
         });
@@ -518,7 +519,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
         });
       } else {
         if (!customer?.id) { setErr('La preventa necesita un cliente'); setSaving(false); return; }
-        await distributionService.order(route.id, {
+        await distributionOfflineService.order(route.id, {
           stop_id: stop?.id, customer_id: customer.id, customer_name: customer.name, items, total,
         });
         // Imprimir comprobante del PEDIDO (no fiscal, para la entrega).

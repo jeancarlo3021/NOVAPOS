@@ -50,6 +50,10 @@ export function HelpCenter() {
 
   const key = (catId: string, i: number) => `${catId}-${i}`;
 
+  // Ocultar el Centro de Ayuda en Distribución/Repartidor (vistas de campo).
+  const hidden = ['/distribution', '/repartidor', '/driver'].some(p => location.pathname.startsWith(p));
+  if (hidden) return null;
+
   return (
     <>
       {/* Botón flotante */}

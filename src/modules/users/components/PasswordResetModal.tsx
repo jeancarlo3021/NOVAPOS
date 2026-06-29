@@ -45,6 +45,11 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
       return;
     }
 
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      setError('La contraseña debe combinar letras y números (no solo letras ni solo números)');
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
       setError('Las contraseñas no coinciden');
       return;

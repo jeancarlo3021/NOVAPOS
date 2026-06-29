@@ -5,6 +5,7 @@ import {
   ClipboardCheck, CheckCircle2, X, Lock, Printer, Package,
 } from 'lucide-react';
 import { distributionService, type DeliveryRoute } from '@/services/distribution/distributionService';
+import { distributionOfflineService } from '@/services/distribution/distributionOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { PrintTicketModal } from './PrintTicketModal';
 import { useTenantId } from '@/hooks/useTenant';
@@ -37,8 +38,8 @@ export const DriverView: React.FC = () => {
     setLoading(true);
     try {
       const [r, o] = await Promise.all([
-        distributionService.mine().catch(() => []),
-        distributionService.myOrders().catch(() => []),
+        distributionOfflineService.mine().catch(() => []),
+        distributionOfflineService.myOrders().catch(() => []),
       ]);
       setRoutes(r ?? []); setOrders(o ?? []);
     } finally { setLoading(false); }
@@ -286,7 +287,7 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
     try {
       const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
       const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-      const inv: any = await distributionService.deliverOrder(order.id, { payment_method: paymentMethod, issued_at });
+      const inv: any = await distributionOfflineService.deliverOrder(order.route_id ?? '', order.id, { payment_method: paymentMethod, issued_at });
       const now = new Date();
       const data = {
         invoiceNumber: inv?.invoice_number ?? '',

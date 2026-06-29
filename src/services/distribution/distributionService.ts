@@ -74,6 +74,9 @@ export const distributionService = {
 
   centralStock: () => apiFetch<Record<string, number>>('/routes/central-stock'),
 
+  /** Borra la carga del camión (devuelve todo al inventario). Solo si no hay ventas. */
+  clearLoad: (id: string) => apiFetch<{ returned_items: number }>(`/routes/${id}/clear-load`, { method: 'POST' }),
+
   truckStock: (id: string) =>
     apiFetch<Array<{ product_id: string; quantity: number; product?: { id: string; name: string; sku?: string; unit_price?: number } }>>(`/routes/${id}/truck-stock`),
 
