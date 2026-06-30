@@ -448,8 +448,24 @@ export class POSPrinterService {
     const bytes = this.generateRouteCloseESCPOS(summary, cfg);
 
     if (cfg.printerType === 'bluetooth') {
-      const { btPrint } = await import('./bluetoothPrinterService');
-      await btPrint(bytes);
+      // Igual que printAuto: reconectar en silencio y mandar a cada estación de
+      // recibo configurada (no al modo simple, que fallaba en rutas seguidas).
+      const { btPrint, btPrintTo, btReconnectFor, btIsConnectedFor } =
+        await import('./bluetoothPrinterService');
+      const receiptStations = (cfg.printers ?? []).filter(
+        (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
+      );
+      if (receiptStations.length > 0) {
+        for (const st of receiptStations) {
+          if (!btIsConnectedFor(st.id)) {
+            try { await btReconnectFor(st.id, (st as any).bt_mode ?? 'ble', (st as any).bt_device_id); }
+            catch { /* btPrintTo dará el error y el modal ofrece Conectar */ }
+          }
+          await btPrintTo(st.id, bytes);
+        }
+      } else {
+        await btPrint(bytes);   // modo simple (una sola impresora)
+      }
       return;
     }
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {

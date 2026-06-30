@@ -21,6 +21,14 @@ const isNetworkErr = (e: unknown): boolean => {
 
 const provisional = () => `OFF-${Date.now().toString().slice(-6)}`;
 
+// Modo solo-lectura (suscripción vencida/suspendida): bloquea mutaciones,
+// incluso las que irían a la cola offline.
+function assertNotReadOnly() {
+  let readOnly = false;
+  try { readOnly = localStorage.getItem('novapos_read_only') === '1'; } catch { /* ignore */ }
+  if (readOnly) throw new Error('Cuenta en modo solo lectura — regularizá el pago para vender.');
+}
+
 const routeKey  = (id: string) => `novapos_dist_route_${id}`;
 const ordersKey = (id: string) => `novapos_dist_orders_${id}`;
 const stockKey  = (id: string) => `novapos_dist_stock_${id}`;
@@ -91,6 +99,7 @@ export const distributionOfflineService = {
 
   // ── Escrituras (online directo / offline encolado) ──────────────────────
   async sale(routeId: string, body: any): Promise<{ invoice_number: string; offline?: boolean }> {
+    assertNotReadOnly();
     if (navigator.onLine) {
       try { return await distributionService.sale(routeId, body) as any; }
       catch (e) { if (!isNetworkErr(e)) throw e; }
@@ -101,6 +110,7 @@ export const distributionOfflineService = {
   },
 
   async deliverOrder(routeId: string, orderId: string, body: any): Promise<{ invoice_number: string; offline?: boolean }> {
+    assertNotReadOnly();
     if (navigator.onLine) {
       try { return await distributionService.deliverOrder(orderId, body) as any; }
       catch (e) { if (!isNetworkErr(e)) throw e; }
@@ -114,6 +124,7 @@ export const distributionOfflineService = {
   },
 
   async order(routeId: string, body: any): Promise<{ offline?: boolean }> {
+    assertNotReadOnly();
     if (navigator.onLine) {
       try { await distributionService.order(routeId, body); return {}; }
       catch (e) { if (!isNetworkErr(e)) throw e; }

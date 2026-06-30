@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck,
+  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal,
 } from 'lucide-react';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
@@ -67,6 +67,7 @@ export const CreateOwner: React.FC = () => {
   const [showForm,  setShowForm]  = useState(false);
   const [renewing,  setRenewing]  = useState<OwnerData | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<OwnerData | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -290,6 +291,28 @@ export const CreateOwner: React.FC = () => {
       fetchOwners();
     } catch (err: any) {
       showToast(err?.message || 'No se pudo actualizar el monto', 'error');
+    }
+  };
+
+  // ── Ajustar días restantes de la suscripción ───────────────────────────────
+  const handleEditDays = async (o: OwnerData) => {
+    const current = o.is_admin_plan ? '' : String(Math.max(0, daysUntil(effectiveEndsAt(o).date) ?? 0));
+    const input = window.prompt(
+      `Días restantes para "${o.name}".\nLa fecha de vencimiento se fija en hoy + estos días.`,
+      current,
+    );
+    if (input === null) return;   // canceló
+    const days = Number(input.trim());
+    if (isNaN(days) || days < 0 || days > 3650) { showToast('Días inválidos (0 a 3650)', 'error'); return; }
+    try {
+      await apiFetch('/admin/set-subscription-days', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId: o.id, days }),
+      });
+      showToast(`Días restantes actualizados: ${days}`, 'success');
+      fetchOwners();
+    } catch (err: any) {
+      showToast(err?.message || 'No se pudieron actualizar los días', 'error');
     }
   };
 
@@ -802,7 +825,13 @@ export const CreateOwner: React.FC = () => {
                           {o.is_admin_plan ? (
                             <span className="text-xs text-gray-400">—</span>
                           ) : (
-                            <DaysTag days={days} />
+                            <div className="flex items-center gap-1.5">
+                              <DaysTag days={days} />
+                              <button onClick={() => handleEditDays(o)} title="Cambiar días restantes"
+                                className="p-1 rounded-md text-gray-400 hover:text-cyan-700 hover:bg-cyan-50">
+                                <Pencil size={12} />
+                              </button>
+                            </div>
                           )}
                         </td>
                         {/* Facturas del mes — para Facturación Electrónica futura */}
@@ -841,74 +870,65 @@ export const CreateOwner: React.FC = () => {
                             {isActive ? '● Activo' : '● Suspendido'}
                           </span>
                         </td>
-                        {/* Acciones */}
+                        {/* Acciones — menú desplegable */}
                         <td className="px-5 py-4">
-                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                            {/* Renovar */}
-                            <button onClick={() => setRenewing(o)}
-                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-100 transition"
-                              title="Renovar suscripción">
-                              <RefreshCw size={11} /> Renovar
+                          <div className="relative flex justify-center">
+                            <button onClick={() => setOpenMenuId(openMenuId === o.id ? null : o.id)}
+                              className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition">
+                              <MoreHorizontal size={14} /> Acciones
                             </button>
-                            {/* Activar/Desactivar */}
-                            <button onClick={() => handleToggleStatus(o)} disabled={isBusy}
-                              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg border transition disabled:opacity-40 ${
-                                isActive
-                                  ? 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100'
-                                  : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                              }`}
-                              title={isActive ? 'Desactivar' : 'Activar'}>
-                              {isBusy ? <RefreshCw size={11} className="animate-spin" /> : <Power size={11} />}
-                              {isActive ? 'Desactivar' : 'Activar'}
-                            </button>
-                            {/* Cambiar plan */}
-                            <select onChange={e => handleChangePlan(o.id, e.target.value)} defaultValue=""
-                              className="text-xs px-2 py-1 border border-gray-200 rounded-lg bg-white text-gray-600 hover:border-gray-300 transition">
-                              <option value="">Cambiar plan</option>
-                              {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                            </select>
-                            {/* Ajustar monto de venta */}
-                            <button onClick={() => handleEditPrice(o)}
-                              title="Ajustar monto de venta del plan"
-                              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg border transition ${
-                                o.custom_price != null
-                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                              }`}>
-                              ₡ {(o.plan_price ?? 0).toLocaleString('es-CR')}{o.custom_price != null && ' ✎'}
-                            </button>
-                            {/* Comprobante de alta */}
-                            <button onClick={() => sendAdminEmail(o, 'new-business')} disabled={emailingId === o.id}
-                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 transition disabled:opacity-40"
-                              title="Enviar comprobante de alta por correo al dueño">
-                              {emailingId === o.id ? <RefreshCw size={11} className="animate-spin" /> : <Mail size={11} />} Comprobante
-                            </button>
-                            {/* Cobro / factura personalizada */}
-                            <button onClick={() => setInvoiceFor(o)}
-                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-100 transition"
-                              title="Crear y enviar un cobro personalizado por correo (primer pago)">
-                              <Mail size={11} /> Cobro
-                            </button>
-                            {/* Recordatorio de pago */}
-                            <button onClick={() => sendAdminEmail(o, 'payment-reminder')} disabled={emailingId === o.id}
-                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-amber-50 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-100 transition disabled:opacity-40"
-                              title="Enviar recordatorio de pago por correo al dueño">
-                              {emailingId === o.id ? <RefreshCw size={11} className="animate-spin" /> : <Mail size={11} />} Recordatorio
-                            </button>
-                            {/* Enviar correo de cambio de contraseña */}
-                            <button onClick={() => sendPasswordReset(o)} disabled={pwdSendingId === o.id}
-                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-violet-50 border border-violet-200 text-violet-700 rounded-lg hover:bg-violet-100 transition disabled:opacity-40"
-                              title="Enviar correo para que el dueño cambie su contraseña">
-                              {pwdSendingId === o.id ? <RefreshCw size={11} className="animate-spin" /> : <Lock size={11} />} Cambiar clave
-                            </button>
-                            {/* Eliminar */}
-                            <button
-                              onClick={() => handleDeleteOwner(o.id, o.owner_id, o.name)}
-                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-red-50 border border-red-200 text-red-700 rounded-lg hover:bg-red-600 hover:text-white hover:border-red-600 transition"
-                              title="Eliminar negocio (requiere confirmación con nombre)"
-                            >
-                              <Trash2 size={11} /> Eliminar
-                            </button>
+                            {openMenuId === o.id && (
+                              <>
+                                <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)} />
+                                <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white rounded-xl shadow-2xl border border-gray-100 py-1.5 text-left">
+                                  <button onClick={() => { setOpenMenuId(null); setRenewing(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
+                                    <RefreshCw size={13} /> Renovar suscripción
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); handleEditDays(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50">
+                                    <Calendar size={13} /> Cambiar días restantes
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); handleToggleStatus(o); }} disabled={isBusy}
+                                    className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-bold disabled:opacity-40 ${isActive ? 'text-orange-700 hover:bg-orange-50' : 'text-emerald-700 hover:bg-emerald-50'}`}>
+                                    <Power size={13} /> {isActive ? 'Desactivar' : 'Activar'}
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); handleEditPrice(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                                    <Receipt size={13} /> Ajustar monto {o.custom_price != null && '✎'}
+                                  </button>
+                                  <div className="px-3 py-1.5">
+                                    <select onChange={e => { handleChangePlan(o.id, e.target.value); setOpenMenuId(null); }} defaultValue=""
+                                      className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-600">
+                                      <option value="">Cambiar plan…</option>
+                                      {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'new-business'); }} disabled={emailingId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40">
+                                    <Mail size={13} /> Comprobante de alta
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setInvoiceFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
+                                    <Mail size={13} /> Cobro personalizado
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'payment-reminder'); }} disabled={emailingId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40">
+                                    <Mail size={13} /> Recordatorio de pago
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); sendPasswordReset(o); }} disabled={pwdSendingId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50 disabled:opacity-40">
+                                    <Lock size={13} /> Cambiar clave
+                                  </button>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <button onClick={() => { setOpenMenuId(null); handleDeleteOwner(o.id, o.owner_id, o.name); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50">
+                                    <Trash2 size={13} /> Eliminar negocio
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>

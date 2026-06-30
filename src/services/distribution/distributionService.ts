@@ -82,6 +82,9 @@ export const distributionService = {
 
   close: (id: string) => apiFetch<RouteCloseSummary>(`/routes/${id}/close`, { method: 'POST' }),
 
+  /** Resumen de una ruta ya cerrada (para reimprimir el cierre). */
+  closeSummary: (id: string) => apiFetch<RouteCloseSummary & { truck?: string; route_date?: string }>(`/routes/${id}/close-summary`),
+
   // ── Venta en ruta (autoventa) y pedido (preventa) ──
   sale: (id: string, body: any) =>
     apiFetch(`/routes/${id}/sale`, { method: 'POST', body: JSON.stringify(body) }),

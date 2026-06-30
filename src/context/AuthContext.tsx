@@ -1018,9 +1018,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
   };
 
-  // Modo solo-lectura: tenant suspendido por morosidad. Permite entrar pero
-  // sólo a vistas de inventario y todas las mutaciones quedan deshabilitadas.
-  const isReadOnly = tenant?.status === 'suspended';
+  // Modo solo-lectura: tenant suspendido por morosidad O suscripción vencida
+  // hace más de 6 días de gracia. Permite entrar (ver) pero todas las
+  // mutaciones quedan deshabilitadas (igual que el bloqueo del backend).
+  const GRACE_DAYS = 6;
+  const subEndsAt = tenant?.subscription?.ends_at;
+  const isExpiredBeyondGrace = (() => {
+    if (!subEndsAt) return false;
+    const graceMs = GRACE_DAYS * 24 * 60 * 60 * 1000;
+    return new Date(subEndsAt).getTime() + graceMs < Date.now();
+  })();
+  const isReadOnly = tenant?.status === 'suspended' || isExpiredBeyondGrace;
 
   // Persistir el flag para que apiFetch lo lea desde cualquier servicio sin
   // necesidad de pasarle el contexto. Se limpia al cambiar de tenant o estado.

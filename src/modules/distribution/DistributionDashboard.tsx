@@ -33,6 +33,16 @@ export const DistributionDashboard: React.FC = () => {
   const [showReport, setShowReport] = useState(false);
   const [showReturned, setShowReturned] = useState(false);
   const [printingClose, setPrintingClose] = useState(false);
+  const [reprintingId, setReprintingId] = useState<string | null>(null);
+
+  const reprintClose = async (r: DeliveryRoute) => {
+    setReprintingId(r.id);
+    try {
+      const sum = await distributionService.closeSummary(r.id);
+      await posPrinterService.printRouteClose({ ...sum, truck: sum.truck ?? r.warehouse?.name } as any, tenantId ?? '');
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo reimprimir el cierre'); }
+    finally { setReprintingId(null); }
+  };
 
   const printClose = async () => {
     if (!closeSummary) return;
@@ -155,6 +165,12 @@ export const DistributionDashboard: React.FC = () => {
                     <Trash2 size={13} /> Borrar carga
                   </button>
                 </div>
+              )}
+              {r.status === 'closed' && (
+                <button onClick={() => reprintClose(r)} disabled={reprintingId === r.id}
+                  className="w-full flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg disabled:opacity-50">
+                  {reprintingId === r.id ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} Reimprimir cierre
+                </button>
               )}
             </div>
           ))}

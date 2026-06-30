@@ -13,6 +13,10 @@ import { PrintTicketModal } from './PrintTicketModal';
 import { customerPricesService } from '@/services/customers/customerPricesService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
+import {
+  promotionsService, getProductPromotion, calcPromoUnitPrice, calcPromoSubtotal, promoLabel,
+  type Promotion,
+} from '@/services/promotions/promotionsService';
 import type { Product } from '@/types/Types_POS';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
@@ -411,7 +415,8 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
   const [custList, setCustList] = useState<Customer[]>([]);
   const [custSearch, setCustSearch] = useState('');
 
-  const [rows, setRows] = useState<Array<{ product_id: string; name: string; base: number; available: number }>>([]);
+  const [rows, setRows] = useState<Array<{ product_id: string; name: string; base: number; available: number; category_id?: string | null }>>([]);
+  const [promos, setPromos] = useState<Promotion[]>([]);
   const [unitMap, setUnitMap] = useState<Record<string, { name: string; abbreviation: string; requires_weight: boolean }>>({});
   const [priceMap, setPriceMap] = useState<Record<string, number>>({});
   const [qty, setQty] = useState<Record<string, number>>({});
@@ -429,13 +434,19 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
         setRows((stock ?? []).map((s: any) => ({
           product_id: s.product_id, name: s.product?.name ?? 'Producto',
           base: Number(s.product?.unit_price ?? 0), available: Number(s.quantity),
+          category_id: s.product?.category_id ?? null,
         })));
       } else {
         const prods: Product[] = await inventoryProductsService.getAllProducts(tenantId).catch(() => []);
-        setRows((prods ?? []).map(p => ({ product_id: p.id, name: p.name, base: Number(p.unit_price ?? 0), available: Infinity })));
+        setRows((prods ?? []).map(p => ({ product_id: p.id, name: p.name, base: Number(p.unit_price ?? 0), available: Infinity, category_id: (p as any).category_id ?? null })));
       }
     })();
   }, [isAuto, route.id, tenantId]);
+
+  // Promociones activas hoy (mismo motor que el POS).
+  useEffect(() => {
+    promotionsService.getActiveToday(tenantId).then(setPromos).catch(() => setPromos([]));
+  }, [tenantId]);
 
   // Tipo de medida por producto (igual que el POS: peso vs unidad).
   useEffect(() => {
@@ -475,9 +486,18 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
   }, [pickOpen, custList.length]);
 
   const priceOf = (pid: string, base: number) => priceMap[pid] ?? base;
+  const promoOf = (r: { product_id: string; category_id?: string | null }) =>
+    getProductPromotion(r.product_id, r.category_id, promos);
   const filtered = rows.filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()));
-  const lines = rows.map(r => ({ ...r, unit_price: priceOf(r.product_id, r.base), q: Number(qty[r.product_id] || 0) })).filter(l => l.q > 0);
-  const total = lines.reduce((s, l) => s + l.q * l.unit_price, 0);
+  const lines = rows.map(r => {
+    const baseUnit = priceOf(r.product_id, r.base);
+    const promo = promoOf(r);
+    const q = Number(qty[r.product_id] || 0);
+    const unit_price = promo ? calcPromoUnitPrice(baseUnit, promo) : baseUnit;
+    const subtotal = Math.round(promo ? calcPromoSubtotal(baseUnit, q, promo) : unit_price * q);
+    return { ...r, baseUnit, unit_price, q, subtotal, promo };
+  }).filter(l => l.q > 0);
+  const total = lines.reduce((s, l) => s + l.subtotal, 0);
 
   const setQ = (id: string, v: number, available: number) => {
     let n = Math.max(0, Number(v) || 0);   // permite decimales (tipo de medida)
@@ -493,7 +513,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
     try {
       const items = lines.map(l => ({
         product_id: l.product_id, quantity: l.q, unit_price: l.unit_price,
-        subtotal: Math.round(l.q * l.unit_price), discount_percent: 0, discount_amount: 0,
+        subtotal: l.subtotal, discount_percent: 0, discount_amount: 0,
       }));
       const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
       const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
@@ -507,7 +527,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
           invoiceNumber: inv?.invoice_number ?? '',
           date: now.toLocaleDateString('es-CR'),
           time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
-          items: lines.map(l => ({ name: l.name, quantity: l.q, unitPrice: l.unit_price, subtotal: Math.round(l.q * l.unit_price) })),
+          items: lines.map(l => ({ name: l.name, quantity: l.q, unitPrice: l.unit_price, subtotal: l.subtotal })),
           subtotal: total, tax: 0, total,
           paymentMethod: payLabel(paymentMethod),
           customerName: customer?.name,
@@ -529,7 +549,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
             invoiceNumber: 'PEDIDO',
             date: now.toLocaleDateString('es-CR'),
             time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
-            items: lines.map(l => ({ name: l.name, quantity: l.q, unitPrice: l.unit_price, subtotal: Math.round(l.q * l.unit_price) })),
+            items: lines.map(l => ({ name: l.name, quantity: l.q, unitPrice: l.unit_price, subtotal: l.subtotal })),
             subtotal: total, tax: 0, total,
             paymentMethod: 'PEDIDO (a entregar)',
             customerName: customer.name,
@@ -594,6 +614,8 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
               const special = priceMap[r.product_id] != null;
               const price = priceOf(r.product_id, r.base);
               const noStock = isAuto && r.available <= 0;
+              const promo = promoOf(r);
+              const promoPrice = promo ? calcPromoUnitPrice(price, promo) : price;
               const unit = unitMap[r.product_id];
               const byWeight = !!unit?.requires_weight;
               const accent = special ? 'from-violet-100 to-fuchsia-100 text-violet-700' : 'from-emerald-100 to-cyan-100 text-emerald-700';
@@ -607,8 +629,14 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
                   </div>
                   <p className="text-xs font-bold text-gray-800 leading-tight mt-1.5 line-clamp-2 min-h-8">{r.name}</p>
                   <div className="mt-0.5">
-                    <span className={`text-[11px] font-black ${special ? 'text-violet-600' : 'text-gray-700'}`}>{fmt(price)}</span>
+                    {promo && promo.type !== '2x1'
+                      ? (<>
+                          <span className="text-[11px] font-black text-rose-600">{fmt(promoPrice)}</span>
+                          <span className="ml-1 text-[9px] text-gray-400 line-through">{fmt(price)}</span>
+                        </>)
+                      : <span className={`text-[11px] font-black ${special ? 'text-violet-600' : 'text-gray-700'}`}>{fmt(price)}</span>}
                     {unit && <span className="text-[10px] text-gray-400">/{unit.abbreviation}</span>}
+                    {promo && <span className="ml-1 text-[8px] font-black text-rose-600 bg-rose-100 px-1 rounded uppercase">{promoLabel(promo)}</span>}
                     {special && <span className="ml-1 text-[8px] font-black text-violet-600 bg-violet-100 px-1 rounded uppercase">cliente</span>}
                     {byWeight && <span className="ml-1 text-[8px] font-black text-amber-600 bg-amber-100 px-1 rounded uppercase">por {unit.name}</span>}
                     {isAuto && <p className={`text-[10px] font-bold ${r.available <= 0 ? 'text-red-500' : 'text-gray-400'}`}>camión: {r.available}{unit ? ` ${unit.abbreviation}` : ''}</p>}
