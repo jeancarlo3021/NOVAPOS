@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { posPrinterService } from '@/services/pos/posPrinterService';
+import { PrintTicketModal } from './PrintTicketModal';
 import { distributionService, type DeliveryRoute, type Truck as TruckT } from '@/services/distribution/distributionService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { usersService } from '@/services/users/usersService';
@@ -32,25 +33,26 @@ export const DistributionDashboard: React.FC = () => {
   const [closeSummary, setCloseSummary] = useState<{ route: DeliveryRoute; sum: import('@/services/distribution/distributionService').RouteCloseSummary } | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [showReturned, setShowReturned] = useState(false);
-  const [printingClose, setPrintingClose] = useState(false);
   const [reprintingId, setReprintingId] = useState<string | null>(null);
+  const [printJob, setPrintJob] = useState<{ run: () => Promise<void> } | null>(null);
 
   const reprintClose = async (r: DeliveryRoute) => {
     setReprintingId(r.id);
     try {
       const sum = await distributionService.closeSummary(r.id);
-      await posPrinterService.printRouteClose({ ...sum, truck: sum.truck ?? r.warehouse?.name } as any, tenantId ?? '');
+      // Modal con reintentar / reconectar impresora (igual que las facturas).
+      setPrintJob({
+        run: () => posPrinterService.printRouteClose({ ...sum, truck: sum.truck ?? r.warehouse?.name } as any, tenantId ?? ''),
+      });
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo reimprimir el cierre'); }
     finally { setReprintingId(null); }
   };
 
-  const printClose = async () => {
+  const printClose = () => {
     if (!closeSummary) return;
-    setPrintingClose(true);
-    try {
-      await posPrinterService.printRouteClose({ ...closeSummary.sum, truck: closeSummary.route.warehouse?.name } as any, tenantId ?? '');
-    } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo imprimir'); }
-    finally { setPrintingClose(false); }
+    setPrintJob({
+      run: () => posPrinterService.printRouteClose({ ...closeSummary.sum, truck: closeSummary.route.warehouse?.name } as any, tenantId ?? ''),
+    });
   };
 
   const load = useCallback(async () => {
@@ -224,6 +226,15 @@ export const DistributionDashboard: React.FC = () => {
 
       {showReport && <ReportModal onClose={() => setShowReport(false)} />}
 
+      {/* Modal de impresión del cierre — con Reintentar / Conectar impresora. */}
+      {printJob && (
+        <PrintTicketModal
+          tenantId={tenantId ?? undefined}
+          printFn={printJob.run}
+          onClose={() => setPrintJob(null)}
+        />
+      )}
+
       {closeSummary && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setCloseSummary(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
@@ -260,9 +271,9 @@ export const DistributionDashboard: React.FC = () => {
             </div>
             <div className="px-5 pb-5 space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={printClose} disabled={printingClose}
-                  className="flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-200 text-white font-bold py-2.5 rounded-xl text-sm">
-                  {printingClose ? <Loader2 size={15} className="animate-spin" /> : <Printer size={15} />} Imprimir cierre
+                <button onClick={printClose}
+                  className="flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2.5 rounded-xl text-sm">
+                  <Printer size={15} /> Imprimir cierre
                 </button>
                 <button onClick={() => setShowReturned(v => !v)}
                   className="flex items-center justify-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 font-bold py-2.5 rounded-xl text-sm">

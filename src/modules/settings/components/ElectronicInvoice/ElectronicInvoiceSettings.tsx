@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { FileText, Save, Upload, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { FileText, Save, AlertCircle, CheckCircle2, Eye, EyeOff, Plug, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useTenantId } from '@/hooks/useTenant';
 
 interface FESettings {
   enabled:               boolean;
   environment:           'sandbox' | 'production';
+  // Proveedor Facturemos CR
+  api_key_emisor:        string;  // Clave del emisor (Genius Technology)
   hacienda_username:     string;  // Cédula jurídica + ATV usuario
   hacienda_password:     string;
   pin_certificate:       string;
@@ -30,6 +32,7 @@ interface FESettings {
 const DEFAULT_SETTINGS: FESettings = {
   enabled: false,
   environment: 'sandbox',
+  api_key_emisor: '',
   hacienda_username: '',
   hacienda_password: '',
   pin_certificate: '',
@@ -56,6 +59,19 @@ export const ElectronicInvoiceSettings: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleTestConnection = async () => {
+    setTesting(true); setTestResult(null);
+    try {
+      const r = await apiFetch<{ message?: string; emisor_configured?: boolean }>(
+        '/hacienda/test-connection', { method: 'POST' });
+      setTestResult({ ok: true, msg: r?.message ?? 'Conexión correcta' });
+    } catch (e) {
+      setTestResult({ ok: false, msg: e instanceof Error ? e.message : 'No se pudo conectar' });
+    } finally { setTesting(false); }
+  };
 
   useEffect(() => {
     if (!tenantId) return;
@@ -147,20 +163,20 @@ export const ElectronicInvoiceSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* Credenciales ATV */}
+      {/* Proveedor Facturemos CR */}
       <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 space-y-3">
-        <h3 className="font-black text-gray-900">Credenciales ATV Hacienda</h3>
+        <h3 className="font-black text-gray-900">Proveedor — Facturemos CR</h3>
+        <p className="text-xs text-gray-500">
+          Facturemos se encarga del certificado y la comunicación con Hacienda. Solo
+          necesitás la <strong>ApiKey del emisor</strong> (la obtenés al crear el emisor en su
+          plataforma). La clave maestra del cliente se configura en el servidor.
+        </p>
         <div>
-          <label className="block text-xs font-bold text-gray-600 mb-1">Usuario ATV</label>
-          <input value={settings.hacienda_username} onChange={e => set('hacienda_username', e.target.value)}
-            placeholder="cpf-XX-XXXX-XXXX@stag.comprobanteselectronicos.go.cr"
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-gray-600 mb-1">Contraseña ATV</label>
+          <label className="block text-xs font-bold text-gray-600 mb-1">ApiKey del emisor</label>
           <div className="relative">
-            <input type={showPass ? 'text' : 'password'} value={settings.hacienda_password}
-              onChange={e => set('hacienda_password', e.target.value)}
+            <input type={showPass ? 'text' : 'password'} value={settings.api_key_emisor}
+              onChange={e => set('api_key_emisor', e.target.value)}
+              placeholder="Clave del emisor proporcionada por Facturemos"
               className="w-full border border-gray-200 rounded-lg pl-3 pr-9 py-2 text-sm font-mono" />
             <button type="button" onClick={() => setShowPass(v => !v)}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
@@ -168,24 +184,20 @@ export const ElectronicInvoiceSettings: React.FC = () => {
             </button>
           </div>
         </div>
-        <div>
-          <label className="block text-xs font-bold text-gray-600 mb-1">PIN del certificado</label>
-          <input type="password" value={settings.pin_certificate}
-            onChange={e => set('pin_certificate', e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-gray-600 mb-1">
-            Certificado (.p12) {settings.certificate_uploaded && <span className="text-emerald-600">· Cargado ✓</span>}
-          </label>
-          <button type="button"
-            className="w-full border-2 border-dashed border-gray-200 rounded-lg px-3 py-4 text-sm text-gray-500 hover:border-blue-300 hover:bg-blue-50 transition flex items-center justify-center gap-2">
-            <Upload size={15} /> {settings.certificate_uploaded ? 'Reemplazar certificado' : 'Subir certificado .p12'}
-          </button>
-          <p className="text-[11px] text-gray-400 mt-1">
-            Pronto: subida directa. Por ahora, solicitá a soporte cargarlo.
-          </p>
-        </div>
+        <button type="button" onClick={handleTestConnection} disabled={testing}
+          className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 font-bold py-2.5 rounded-lg hover:bg-blue-100 disabled:opacity-50 text-sm">
+          {testing ? <Loader2 size={15} className="animate-spin" /> : <Plug size={15} />} Probar conexión
+        </button>
+        {testResult && (
+          <div className={`rounded-lg px-3 py-2 text-sm flex items-start gap-2 ${testResult.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+            {testResult.ok ? <CheckCircle2 size={15} className="mt-0.5" /> : <AlertCircle size={15} className="mt-0.5" />}
+            {testResult.msg}
+          </div>
+        )}
+        <p className="text-[11px] text-gray-400">
+          Guardá primero los cambios para que "Probar conexión" use el ambiente y la
+          ApiKey actuales.
+        </p>
       </div>
 
       {/* Datos del emisor */}

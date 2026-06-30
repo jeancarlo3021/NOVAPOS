@@ -23,15 +23,12 @@ export const DriverView: React.FC = () => {
   const [closingId, setClosingId] = useState<string | null>(null);
   const [closeSummary, setCloseSummary] = useState<any | null>(null);
   const [showReturned, setShowReturned] = useState(false);
-  const [printingClose, setPrintingClose] = useState(false);
   const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void> } | null>(null);
 
-  const printClose = async () => {
+  const printClose = () => {
     if (!closeSummary) return;
-    setPrintingClose(true);
-    try { await posPrinterService.printRouteClose(closeSummary, tenantId ?? ''); }
-    catch (e) { alert(e instanceof Error ? e.message : 'No se pudo imprimir'); }
-    finally { setPrintingClose(false); }
+    // Modal con Reintentar / Conectar impresora (igual que las facturas).
+    setPrintTicket_({ print: () => posPrinterService.printRouteClose(closeSummary, tenantId ?? '') });
   };
 
   const load = useCallback(async () => {
@@ -252,9 +249,9 @@ export const DriverView: React.FC = () => {
             </div>
             <div className="px-5 pb-5 space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={printClose} disabled={printingClose}
+                <button onClick={printClose}
                   className="flex items-center justify-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-200 text-white font-bold py-2.5 rounded-xl text-sm">
-                  {printingClose ? <Loader2 size={15} className="animate-spin" /> : <Printer size={15} />} Imprimir cierre
+                  <Printer size={15} /> Imprimir cierre
                 </button>
                 <button onClick={() => setShowReturned(v => !v)}
                   className="flex items-center justify-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 font-bold py-2.5 rounded-xl text-sm">
