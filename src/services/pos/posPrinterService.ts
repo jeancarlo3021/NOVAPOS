@@ -522,7 +522,7 @@ export class POSPrinterService {
     center(`*** TOTAL: ${money(summary.sales_total)} ***`);
     sep();
     center('INVENTARIO DEVUELTO');
-    const ret = summary.returned ?? [];
+    const ret = [...(summary.returned ?? [])].sort((a: any, b: any) => String(a.name).localeCompare(String(b.name), 'es'));
     if (ret.length === 0) { center('(sin sobrante)'); }
     else { for (const r of ret) row(String(r.name).substring(0, charWidth - 6), `x${r.quantity}`); }
     sep(); nl(); nl();

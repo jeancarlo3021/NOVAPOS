@@ -23,7 +23,7 @@ export const DriverView: React.FC = () => {
   const [closingId, setClosingId] = useState<string | null>(null);
   const [closeSummary, setCloseSummary] = useState<any | null>(null);
   const [showReturned, setShowReturned] = useState(false);
-  const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void> } | null>(null);
+  const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void>; receipt?: any } | null>(null);
 
   const printClose = () => {
     if (!closeSummary) return;
@@ -207,6 +207,7 @@ export const DriverView: React.FC = () => {
         <PrintTicketModal
           invoiceNumber={printTicket_.invoiceNumber}
           total={printTicket_.total}
+          receipt={printTicket_.receipt}
           tenantId={tenantId ?? undefined}
           printFn={printTicket_.print}
           onClose={() => setPrintTicket_(null)}
@@ -238,7 +239,7 @@ export const DriverView: React.FC = () => {
                   <p className="text-xs font-black text-gray-500 mb-1.5">Inventario devuelto a bodega</p>
                   {(closeSummary.returned ?? []).length === 0
                     ? <p className="text-xs text-gray-400">Sin sobrante (se vendió todo).</p>
-                    : (closeSummary.returned ?? []).map((r: any, i: number) => (
+                    : [...(closeSummary.returned ?? [])].sort((a: any, b: any) => String(a.name).localeCompare(String(b.name), 'es')).map((r: any, i: number) => (
                         <div key={i} className="flex justify-between text-sm py-0.5">
                           <span className="text-gray-700 truncate">{r.name}</span>
                           <span className="font-bold">×{r.quantity}</span>
@@ -270,12 +271,13 @@ export const DriverView: React.FC = () => {
 // ── Modal: verificar productos y entregar ────────────────────────────────────────
 function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
   order: any; onClose: () => void; onDelivered: () => void;
-  onPrint: (info: { invoiceNumber?: string; total?: number; print: () => Promise<void> }) => void;
+  onPrint: (info: { invoiceNumber?: string; total?: number; print: () => Promise<void>; receipt?: any }) => void;
 }) {
   const { tenantId } = useTenantId();
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit' | 'mixed'>('cash');
   const [mix, setMix] = useState<{ cash: number; card: number; sinpe: number }>({ cash: 0, card: 0, sinpe: 0 });
+  const [preview, setPreview] = useState(false);
   const [enabledPays, setEnabledPays] = useState<string[]>(['cash', 'card', 'sinpe', 'credit', 'mixed']);
   useEffect(() => {
     posPrinterService.loadReceiptConfig(tenantId ?? '')
@@ -326,7 +328,7 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
           await posPrinterService.printAuto(data as any, tenantId ?? '');
         }
       };
-      onPrint({ invoiceNumber: inv?.invoice_number, total: Number(order.total ?? 0), print: doPrint });
+      onPrint({ invoiceNumber: inv?.invoice_number, total: Number(order.total ?? 0), print: doPrint, receipt: data });
       onDelivered();
     } finally { setSaving(false); }
   };
@@ -385,12 +387,48 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
               {!mixValid && <p className="text-[11px] text-red-600">La suma debe ser igual al total.</p>}
             </div>
           )}
-          <button onClick={deliver} disabled={saving || !allChecked || !mixValid}
+          <button onClick={() => setPreview(true)} disabled={saving || !allChecked || !mixValid}
             className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black py-3 rounded-xl text-sm">
             {saving ? 'Entregando…' : <><CheckCircle2 size={16} /> {allChecked ? `Entregar e imprimir (${fmt(order.total)})` : 'Marcá todos los productos'}</>}
           </button>
         </div>
       </div>
+
+      {/* Previsualización ANTES de entregar/emitir */}
+      {preview && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-60 p-4" onClick={() => setPreview(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3 bg-emerald-600 text-white text-center">
+              <p className="font-black">Confirmar entrega</p>
+              <p className="text-emerald-100 text-xs">Revisá antes de cobrar</p>
+            </div>
+            <div className="p-4">
+              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 font-mono text-[11px] leading-snug max-h-64 overflow-y-auto">
+                <p className="text-center font-black">TICKET DE VENTA</p>
+                {(order.customer?.name ?? order.customer_name) && <p className="text-center">{order.customer?.name ?? order.customer_name}</p>}
+                <div className="border-t border-dashed border-gray-300 my-1.5" />
+                {items.map((it: any, i: number) => (
+                  <div key={i} className="flex justify-between gap-2">
+                    <span className="truncate">{it.quantity} × {it.product_name}</span>
+                    <span>{fmt(Math.round(it.unit_price * it.quantity))}</span>
+                  </div>
+                ))}
+                <div className="border-t border-dashed border-gray-300 my-1.5" />
+                <div className="flex justify-between font-black text-xs"><span>TOTAL</span><span>{fmt(orderTotal)}</span></div>
+                <p className="text-center mt-1">{paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : paymentMethod === 'mixed' ? 'Mixto' : 'Crédito'}</p>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => setPreview(false)} disabled={saving}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-sm">Volver</button>
+                <button onClick={() => { setPreview(false); deliver(); }} disabled={saving}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black py-2.5 rounded-xl text-sm">
+                  {saving ? '…' : <><CheckCircle2 size={15} /> Entregar</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

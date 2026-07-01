@@ -18,6 +18,7 @@ import { PrinterSandbox } from './components/PrinterSandbox';
 import { TenantGroupView } from './components/TenantGroupView';
 import { AdminFeKioskView } from './components/AdminFeKioskView';
 import { GroupDocCount } from './components/GroupDocCount';
+import { CabysImport } from './components/CabysImport';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ export const CreateOwner: React.FC = () => {
   const [renewing,  setRenewing]  = useState<OwnerData | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<OwnerData | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [showCabys, setShowCabys] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -418,6 +420,10 @@ export const CreateOwner: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowCabys(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition">
+              <FileText size={15} /> CABYS
+            </button>
             <Link to="/plans"
               className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition">
               <Settings size={15} /> Planes
@@ -942,6 +948,8 @@ export const CreateOwner: React.FC = () => {
         </div>
       </div>
       )}
+
+      {showCabys && <CabysImport onClose={() => setShowCabys(false)} />}
 
       {/* Renew modal */}
       {renewing && (

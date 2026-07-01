@@ -8,6 +8,7 @@ import { useTenantId } from '@/hooks/useTenant';
 import { Card, CardHeader, CardContent, CardFooter, Spinner } from '@/components/ui/uiComponents';
 import { storageService } from '@/services/storage/storageService';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
+import { CabysPicker } from './CabysPicker';
 
 // ── Form ───────────────────────────────────────────────────────────────────────
 
@@ -520,14 +521,15 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">
                         CABYS <span className="text-xs text-gray-400 font-normal">(opcional)</span>
                       </label>
-                      <input
-                        type="text"
-                        name="cabys_code"
+                      <CabysPicker
                         value={formData.cabys_code}
-                        onChange={handleChange}
-                        placeholder="Código CABYS de Hacienda"
                         disabled={submitting}
-                        className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                        onSelect={(code, iva) => setFormData(prev => ({
+                          ...prev,
+                          cabys_code: code,
+                          // Si el CABYS trae su IVA, lo aplicamos al producto.
+                          iva_rate: code ? String(iva) : prev.iva_rate,
+                        }))}
                       />
                     </div>
                     <div>

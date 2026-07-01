@@ -9,6 +9,10 @@ export const haciendaService = {
   emit: (invoiceId: string) => apiFetch<{ clave?: string; consecutivo?: string; response?: any }>(
     '/hacienda/emit', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId }) }),
 
+  /** Devuelve el payload EXACTO que se enviaría a Facturemos, SIN enviarlo (diagnóstico). */
+  debug: (invoiceId: string) => apiFetch<{ environment: string; apiKeyEmisor_last4: string; emisor_cedula: string; ConsecutivoModel: any; Factura: any }>(
+    '/hacienda/emit', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, debug: true }) }),
+
   /** Consulta el estatus de un documento ya emitido por su clave. */
   status: (clave: string) => apiFetch<any>(`/hacienda/status/${clave}`),
 };

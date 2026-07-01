@@ -7,15 +7,28 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
  * Modal post-cobro: intenta imprimir el ticket y muestra el resultado, con
  * botones "Reintentar" (si falló o quieren otra copia) y "Cerrar".
  */
-export function PrintTicketModal({ invoiceNumber, total, tenantId, printFn, onClose }: {
+interface ReceiptPreview {
+  invoiceNumber?: string;
+  date?: string;
+  time?: string;
+  customerName?: string;
+  paymentMethod?: string;
+  items?: Array<{ name: string; quantity: number; unitPrice: number; subtotal: number }>;
+  subtotal?: number;
+  total?: number;
+}
+
+export function PrintTicketModal({ invoiceNumber, total, tenantId, printFn, onClose, receipt }: {
   invoiceNumber?: string;
   total?: number;
   tenantId?: string;
   printFn: () => Promise<void>;
   onClose: () => void;
+  receipt?: ReceiptPreview;
 }) {
   const [status, setStatus] = useState<'printing' | 'ok' | 'error'>('printing');
   const [connecting, setConnecting] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const run = async () => {
     setStatus('printing');
@@ -68,6 +81,30 @@ export function PrintTicketModal({ invoiceNumber, total, tenantId, printFn, onCl
           {total != null && <p className="text-white/90 text-sm font-bold">{fmt(total)}</p>}
         </div>
         <div className="p-4 space-y-2">
+          {receipt && (
+            <button onClick={() => setShowPreview(v => !v)}
+              className="w-full text-center text-xs font-bold text-cyan-700 underline">
+              {showPreview ? 'Ocultar factura' : 'Ver factura'}
+            </button>
+          )}
+          {receipt && showPreview && (
+            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 font-mono text-[11px] leading-snug max-h-56 overflow-y-auto">
+              <p className="text-center font-black">TICKET DE VENTA</p>
+              {receipt.invoiceNumber && <p className="text-center">#{receipt.invoiceNumber}</p>}
+              {(receipt.date || receipt.time) && <p className="text-center text-gray-500">{receipt.date} {receipt.time}</p>}
+              {receipt.customerName && <p className="text-center">{receipt.customerName}</p>}
+              <div className="border-t border-dashed border-gray-300 my-1.5" />
+              {(receipt.items ?? []).map((it, i) => (
+                <div key={i} className="flex justify-between gap-2">
+                  <span className="truncate">{it.quantity} × {it.name}</span>
+                  <span>{fmt(it.subtotal)}</span>
+                </div>
+              ))}
+              <div className="border-t border-dashed border-gray-300 my-1.5" />
+              <div className="flex justify-between font-black text-xs"><span>TOTAL</span><span>{fmt(receipt.total ?? 0)}</span></div>
+              {receipt.paymentMethod && <p className="text-center mt-1">{receipt.paymentMethod}</p>}
+            </div>
+          )}
           {status === 'error' && (
             <p className="text-center text-xs text-gray-500">Revisá que la impresora esté conectada y reintentá.</p>
           )}

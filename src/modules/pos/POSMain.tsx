@@ -74,6 +74,7 @@ export const POSMain = () => {
   const [forceRefresh, setForceRefresh] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [enabledPays, setEnabledPays] = useState<string[]>(['cash', 'card', 'sinpe', 'credit', 'mixed']);
+  const [printerType, setPrinterType] = useState<string | undefined>(undefined);
   const [lastInvoice, setLastInvoice] = useState<any>(null);
   const [paymentData, setPaymentData] = useState<any>(null);
   const [error, setError] = useState('');
@@ -158,6 +159,8 @@ export const POSMain = () => {
     useState<import('./POSDesktopBar').DocumentType>('ticket');
 
   useEffect(() => {
+    // Si el plan no tiene FE, ni cargamos el default: siempre tiquete corriente.
+    if (!(planFeatures as any)?.electronic_invoice) return;
     let cancelled = false;
     (async () => {
       try {
@@ -171,7 +174,7 @@ export const POSMain = () => {
       } catch { /* sin config aún, dejamos ticket */ }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [planFeatures]);
 
   // Cliente para la factura en curso — reusamos el del tab activo así viaja
   // junto con la pestaña cuando el cajero cambia entre ventas en espera.
@@ -362,7 +365,10 @@ export const POSMain = () => {
   useEffect(() => {
     if (!tenantId) return;
     posPrinterService.loadReceiptConfig(tenantId)
-      .then(cfg => setEnabledPays((cfg as any).paymentMethods ?? ['cash', 'card', 'sinpe', 'credit', 'mixed']))
+      .then(cfg => {
+        setEnabledPays((cfg as any).paymentMethods ?? ['cash', 'card', 'sinpe', 'credit', 'mixed']);
+        setPrinterType(cfg.printerType);
+      })
       .catch(() => {});
     import('@/services/pos/qzTrayService').then(({ qzConnect, qzIsAvailable }) => {
       qzIsAvailable().then(available => {
@@ -487,14 +493,8 @@ export const POSMain = () => {
   // Tope de descuento del negocio. Se respeta para todos los roles.
   const maxDiscountPercent: number = generalCfgCached?.maxDiscountPercent ?? 100;
 
-  // Tipo de impresora (para el botón de abrir cajón, solo en Bluetooth).
-  const printerTypeCached: string | undefined = (() => {
-    try {
-      const cached = cacheGet<any>(cacheKey(tenantId ?? '', 'settings_receipt'));
-      return (cached?.config ?? cached)?.printerType;
-    } catch { return undefined; }
-  })();
-  const isBluetoothPrinter = printerTypeCached === 'bluetooth';
+  // El botón de abrir cajón solo aplica con impresora Bluetooth (config real).
+  const isBluetoothPrinter = printerType === 'bluetooth';
 
   const handleOpenDrawer = async () => {
     if (!tenantId) return;

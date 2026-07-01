@@ -263,7 +263,7 @@ export const DistributionDashboard: React.FC = () => {
                   <p className="text-[11px] font-black text-gray-500 mb-1.5">Inventario devuelto</p>
                   {(closeSummary.sum.returned ?? []).length === 0
                     ? <p className="text-xs text-gray-400">Sin sobrante.</p>
-                    : (closeSummary.sum.returned ?? []).map((r, i) => (
+                    : [...(closeSummary.sum.returned ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'es')).map((r, i) => (
                         <div key={i} className="flex justify-between text-sm py-0.5"><span className="text-gray-700 truncate">{r.name}</span><span className="font-bold">×{r.quantity}</span></div>
                       ))}
                 </div>
@@ -538,7 +538,7 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
                   <div className="flex items-center gap-1 mt-2">
                     <button onClick={() => setQ(p.id, q - stepBy)} disabled={q <= 0}
                       className="w-7 h-7 rounded-lg bg-gray-100 text-gray-700 font-black disabled:opacity-30">−</button>
-                    <input type="number" inputMode="decimal" step={byWeight ? '0.01' : 'any'} value={q || ''} onChange={e => setQ(p.id, parseFloat(e.target.value) || 0)}
+                    <input type="number" inputMode="decimal" step="any" value={q || ''} onChange={e => setQ(p.id, parseFloat(e.target.value) || 0)}
                       placeholder="0" className="flex-1 w-full text-center border border-gray-200 rounded-lg py-1 text-sm min-w-0" />
                     <button onClick={() => setQ(p.id, q + stepBy)} disabled={out || (!inf && q >= avail)}
                       className="w-7 h-7 rounded-lg bg-blue-500 text-white font-black disabled:opacity-30">+</button>

@@ -6,6 +6,7 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
 import { posOfflineService } from '@/services/pos/posOfflineService';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
 
 interface InvoiceRow {
   id: string;
@@ -38,6 +39,8 @@ interface Props {
  */
 export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) => {
   const { tenantId } = useTenantId();
+  const { planFeatures } = useAuth();
+  const feEnabled = !!planFeatures?.electronic_invoice;
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -46,7 +49,19 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [doneId, setDoneId] = useState<string | null>(null);
   const [emittingId, setEmittingId] = useState<string | null>(null);
+  const [debugJson, setDebugJson] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  const handleDebug = async (row: InvoiceRow) => {
+    setEmittingId(row.id); setError('');
+    try {
+      const { haciendaService } = await import('@/services/hacienda/haciendaService');
+      const r = await haciendaService.debug(row.id);
+      setDebugJson(JSON.stringify(r, null, 2));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo generar el payload');
+    } finally { setEmittingId(null); }
+  };
 
   const handleEmit = async (row: InvoiceRow) => {
     setEmittingId(row.id); setError('');
@@ -242,6 +257,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-gray-800 text-sm">{fmt(inv.total)}</span>
+                    {feEnabled && (<>
                     <button
                       onClick={() => handleEmit(inv)}
                       disabled={emittingId === inv.id || !!(inv as any).fe_clave}
@@ -256,6 +272,15 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
                     >
                       {(inv as any).fe_clave ? 'FE ✓' : emittingId === inv.id ? 'Emitiendo…' : 'Emitir FE'}
                     </button>
+                    <button
+                      onClick={() => handleDebug(inv)}
+                      disabled={emittingId === inv.id}
+                      title="Ver el payload que se enviaría a Facturemos (sin enviar)"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition text-slate-600 border border-slate-300 bg-white hover:bg-slate-100"
+                    >
+                      Payload
+                    </button>
+                    </>)}
                     <button
                       onClick={() => handleReprint(inv)}
                       disabled={isPrinting}
@@ -288,6 +313,28 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
           </p>
         </div>
       </div>
+
+      {/* Modal: payload de debug (para compartir con soporte de Facturemos) */}
+      {debugJson !== null && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-60 p-4" onClick={() => setDebugJson(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+              <h3 className="font-black text-gray-900 text-sm">Payload a Facturemos (debug — no enviado)</h3>
+              <button onClick={() => setDebugJson(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+            </div>
+            <div className="p-4 overflow-auto">
+              <textarea readOnly value={debugJson}
+                className="w-full h-96 border border-gray-200 rounded-lg p-3 text-[11px] font-mono bg-gray-50" />
+            </div>
+            <div className="flex gap-2 px-5 py-3 border-t border-gray-100">
+              <button onClick={() => { navigator.clipboard?.writeText(debugJson).catch(() => {}); }}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-sm">Copiar</button>
+              <button onClick={() => setDebugJson(null)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-sm">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

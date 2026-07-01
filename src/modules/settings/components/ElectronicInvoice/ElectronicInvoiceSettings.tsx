@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FileText, Save, AlertCircle, CheckCircle2, Eye, EyeOff, Plug, Loader2 } from 'lucide-react';
+import { CRLocationFields } from '@/components/CRLocationFields';
 import { apiFetch } from '@/lib/api';
 import { useTenantId } from '@/hooks/useTenant';
 
@@ -188,15 +189,28 @@ export const ElectronicInvoiceSettings: React.FC = () => {
         <div>
           <label className="block text-xs font-bold text-gray-600 mb-1">ApiKey del emisor</label>
           <div className="relative">
-            <input type={showPass ? 'text' : 'password'} value={settings.api_key_emisor}
+            {/* type=text + estas props evitan que el navegador / gestor de contraseñas
+                autocompleten el campo por encima de lo que pegás. Enmascaramos
+                nosotros con CSS cuando showPass es false. */}
+            <input type="text" value={settings.api_key_emisor}
               onChange={e => set('api_key_emisor', e.target.value)}
+              name="fe_apikey_emisor"
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+              data-lpignore="true" data-1p-ignore data-form-type="other"
               placeholder="Clave del emisor proporcionada por Facturemos"
+              style={showPass ? undefined : { WebkitTextSecurity: 'disc' } as any}
               className="w-full border border-gray-200 rounded-lg pl-3 pr-9 py-2 text-sm font-mono" />
             <button type="button" onClick={() => setShowPass(v => !v)}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
               {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           </div>
+          {settings.api_key_emisor && (
+            <button type="button" onClick={() => set('api_key_emisor', '')}
+              className="mt-1 text-[11px] font-bold text-red-600 hover:underline">
+              Limpiar campo
+            </button>
+          )}
         </div>
         <div>
           <label className="block text-xs font-bold text-gray-600 mb-1">Proveedor de sistemas (cédula)</label>
@@ -251,31 +265,31 @@ export const ElectronicInvoiceSettings: React.FC = () => {
           <input value={settings.emisor_commercial_name} onChange={e => set('emisor_commercial_name', e.target.value)}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">Provincia</label>
-            <input value={settings.emisor_province_code}
-              onChange={e => set('emisor_province_code', e.target.value)}
-              placeholder="1-7" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">Cantón</label>
-            <input value={settings.emisor_canton_code}
-              onChange={e => set('emisor_canton_code', e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">Distrito</label>
-            <input value={settings.emisor_district_code}
-              onChange={e => set('emisor_district_code', e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-          </div>
-        </div>
+        <CRLocationFields
+          province={settings.emisor_province_code}
+          canton={settings.emisor_canton_code}
+          district={settings.emisor_district_code}
+          onChange={(f, v) => set(
+            f === 'province' ? 'emisor_province_code' : f === 'canton' ? 'emisor_canton_code' : 'emisor_district_code',
+            v,
+          )}
+        />
         <div>
-          <label className="block text-xs font-bold text-gray-600 mb-1">Dirección</label>
+          <label className="block text-xs font-bold text-gray-600 mb-1">
+            Dirección <span className="text-gray-400 font-normal">(otras señas — 5 a 250 caracteres)</span>
+          </label>
           <textarea value={settings.emisor_address}
-            onChange={e => set('emisor_address', e.target.value)}
-            rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none" />
+            onChange={e => set('emisor_address', e.target.value.slice(0, 250))}
+            rows={2} maxLength={250}
+            className={`w-full border rounded-lg px-3 py-2 text-sm resize-none ${
+              settings.emisor_address && settings.emisor_address.trim().length < 5 ? 'border-red-300' : 'border-gray-200'
+            }`} />
+          <div className="flex justify-between text-[11px] mt-0.5">
+            {settings.emisor_address && settings.emisor_address.trim().length < 5
+              ? <span className="text-red-600 font-bold">Mínimo 5 caracteres (lo exige Hacienda).</span>
+              : <span className="text-gray-400">Otras señas de la ubicación.</span>}
+            <span className="text-gray-400">{(settings.emisor_address ?? '').length}/250</span>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>

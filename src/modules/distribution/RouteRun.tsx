@@ -52,7 +52,7 @@ export const RouteRun: React.FC = () => {
   const [showStock, setShowStock] = useState(false);
   const [stock, setStock] = useState<any[]>([]);
   const [stockLoading, setStockLoading] = useState(false);
-  const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void> } | null>(null);
+  const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void>; receipt?: any } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -137,6 +137,7 @@ export const RouteRun: React.FC = () => {
     setPrintTicket_({
       invoiceNumber: inv?.invoice_number, total: Number(order.total ?? 0),
       print: () => printTicket(data, tenantId ?? '', paymentMethod),
+      receipt: data,
     });
     await load();
   };
@@ -325,6 +326,7 @@ export const RouteRun: React.FC = () => {
         <PrintTicketModal
           invoiceNumber={printTicket_.invoiceNumber}
           total={printTicket_.total}
+          receipt={printTicket_.receipt}
           tenantId={tenantId ?? undefined}
           printFn={printTicket_.print}
           onClose={() => setPrintTicket_(null)}
@@ -408,7 +410,7 @@ function DeliverModal({ order, onClose, onConfirm }: {
 function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
   tenantId: string; route: DeliveryRoute; stop: RouteStop | null; mode: 'auto' | 'pre';
   onClose: () => void; onDone: () => void;
-  onPrint?: (info: { invoiceNumber?: string; total?: number; print: () => Promise<void> }) => void;
+  onPrint?: (info: { invoiceNumber?: string; total?: number; print: () => Promise<void>; receipt?: any }) => void;
 }) {
   const isAuto = mode === 'auto';
   // Cliente: si viene de una parada, fijo; si es mostrador, seleccionable/opcional.
@@ -429,7 +431,18 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
   const [enabledPays, setEnabledPays] = useState<string[]>(['cash', 'card', 'sinpe', 'credit', 'mixed']);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [preview, setPreview] = useState(false);
   const [weightFor, setWeightFor] = useState<{ id: string; name: string; price: number; available: number; abbr: string } | null>(null);
+
+  // Valida y abre la previsualización antes de cobrar.
+  const tryPreview = () => {
+    if (lines.length === 0) { setErr('Agregá productos'); return; }
+    if (paymentMethod === 'mixed') {
+      const sum = Math.round((mix.cash + mix.card + mix.sinpe) * 100) / 100;
+      if (sum !== Math.round(total * 100) / 100) { setErr('El pago mixto debe sumar el total'); return; }
+    }
+    setErr(''); setPreview(true);
+  };
 
   // Métodos de pago habilitados (config de recibo).
   useEffect(() => {
@@ -563,6 +576,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
         onPrint?.({
           invoiceNumber: inv?.invoice_number, total,
           print: () => printTicket(data, tenantId, paymentMethod),
+          receipt: data,
         });
       } else {
         if (!customer?.id) { setErr('La preventa necesita un cliente'); setSaving(false); return; }
@@ -726,12 +740,49 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
             <p className="text-xs text-gray-400">Total</p>
             <p className="text-xl font-black text-gray-900">{fmt(total)}</p>
           </div>
-          <button onClick={confirm} disabled={saving || lines.length === 0}
+          <button onClick={() => isAuto ? tryPreview() : confirm()} disabled={saving || lines.length === 0}
             className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black px-5 py-3 rounded-xl text-sm">
             {saving ? '…' : <><CheckCircle2 size={16} /> {isAuto ? 'Cobrar' : 'Guardar pedido'}</>}
           </button>
         </div>
       </div>
+
+      {/* Previsualización ANTES de cobrar/emitir */}
+      {preview && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-60 p-4" onClick={() => setPreview(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3 bg-emerald-600 text-white text-center">
+              <p className="font-black">Confirmar venta</p>
+              <p className="text-emerald-100 text-xs">Revisá antes de cobrar</p>
+            </div>
+            <div className="p-4">
+              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 font-mono text-[11px] leading-snug max-h-64 overflow-y-auto">
+                <p className="text-center font-black">TICKET DE VENTA</p>
+                {customer?.name && <p className="text-center">{customer.name}</p>}
+                <div className="border-t border-dashed border-gray-300 my-1.5" />
+                {lines.map((l, i) => (
+                  <div key={i} className="flex justify-between gap-2">
+                    <span className="truncate">{l.q} × {l.name}</span>
+                    <span>{fmt(l.subtotal)}</span>
+                  </div>
+                ))}
+                <div className="border-t border-dashed border-gray-300 my-1.5" />
+                <div className="flex justify-between font-black text-xs"><span>TOTAL</span><span>{fmt(total)}</span></div>
+                <p className="text-center mt-1">{payLabel(paymentMethod)}</p>
+              </div>
+              {err && <p className="text-red-600 text-xs font-bold mt-2">{err}</p>}
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => setPreview(false)} disabled={saving}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-sm">Volver</button>
+                <button onClick={() => confirm().then(() => setPreview(false))} disabled={saving}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black py-2.5 rounded-xl text-sm">
+                  {saving ? '…' : <><CheckCircle2 size={15} /> Cobrar</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {weightFor && (
         <WeightEntryModal entry={weightFor} isAuto={isAuto}
