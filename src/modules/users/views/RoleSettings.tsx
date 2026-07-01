@@ -120,8 +120,12 @@ export const RoleSettings: React.FC = () => {
     if (stored && Object.keys(stored).length > 0) {
       visibleModules.forEach(mod => {
         const s = stored[mod.key];
+        // Si el módulo NO estaba en la matriz guardada (ej. una feature recién
+        // activada como Gastos), se siembra ACTIVO — igual que el runtime, que
+        // permite todo lo que aún no fue configurado. Así no se apaga sin querer.
+        const inStored = mod.key in stored;
         seeded[mod.key] = {
-          can_access: s?.can_access ?? false,
+          can_access: inStored ? (s?.can_access ?? false) : true,
           can_create: s?.can_create ?? false,
           can_edit: s?.can_edit ?? false,
           can_delete: s?.can_delete ?? false,
