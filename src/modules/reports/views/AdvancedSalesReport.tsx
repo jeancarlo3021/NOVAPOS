@@ -1,10 +1,12 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts';
-import { TrendingUp, ShoppingBag, CreditCard, Receipt, Download, Package } from 'lucide-react';
+import { TrendingUp, ShoppingBag, CreditCard, Receipt, Download, Package, Eye, X } from 'lucide-react';
 import { useReportsData } from '@/hooks/reports/useReportsData';
+import { invoicesService, type InvoiceItem } from '@/services/invoice/invoiceService';
+import { formatWallClock } from '@/utils/datetime';
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -35,6 +37,25 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
     fetchTopProducts(from, to);
     fetchInvoices(from, to);
   }, [tenantId, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Detalle de una factura (modal con sus líneas).
+  const [detail, setDetail] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+
+  const openDetail = async (inv: any) => {
+    setDetail({ ...inv, items: null });
+    setDetailLoading(true);
+    setDetailError('');
+    try {
+      const full = await invoicesService.getInvoiceById(inv.id);
+      setDetail(full);
+    } catch (e) {
+      setDetailError(e instanceof Error ? e.message : 'No se pudo cargar el detalle');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -175,8 +196,8 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
                 <tr>
-                  {['Factura', 'Fecha', 'Cliente', 'Método', 'Total'].map(h => (
-                    <th key={h} className={`px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide ${h === 'Total' ? 'text-right' : 'text-left'}`}>{h}</th>
+                  {['Factura', 'Fecha', 'Cliente', 'Método', 'Total', 'Detalle'].map(h => (
+                    <th key={h} className={`px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide ${h === 'Total' ? 'text-right' : h === 'Detalle' ? 'text-center' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -184,7 +205,7 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
                 {invoices.map(inv => (
                   <tr key={inv.id} className="hover:bg-gray-50 transition">
                     <td className="px-5 py-3 font-mono text-xs font-bold text-gray-700">{inv.invoice_number}</td>
-                    <td className="px-5 py-3 text-gray-600 text-xs">{new Date(inv.issued_at).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                    <td className="px-5 py-3 text-gray-600 text-xs">{formatWallClock(inv.issued_at, { dateStyle: 'short', timeStyle: 'short' })}</td>
                     <td className="px-5 py-3 text-gray-600 max-w-[140px] truncate">{inv.customer_name ?? '—'}</td>
                     <td className="px-5 py-3">
                       {(inv as any).payments && (inv as any).payments.length > 1 ? (
@@ -200,6 +221,15 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
                       )}
                     </td>
                     <td className="px-5 py-3 text-right font-black text-gray-900">{fmt(Number(inv.total))}</td>
+                    <td className="px-5 py-3 text-center">
+                      <button
+                        onClick={() => openDetail(inv)}
+                        title="Ver contenido de la factura"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg text-emerald-700 border border-emerald-300 bg-white hover:bg-emerald-600 hover:text-white transition"
+                      >
+                        <Eye size={13} /> Ver
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -209,6 +239,68 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
           <p className="text-gray-400 text-center py-12 text-sm">Sin facturas en el período</p>
         )}
       </div>
+
+      {/* Modal: detalle de la factura */}
+      {detail && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setDetail(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+              <div>
+                <h3 className="font-black text-gray-900 text-sm">Factura {detail.invoice_number}</h3>
+                <p className="text-xs text-gray-400">
+                  {formatWallClock(detail.issued_at, { dateStyle: 'medium', timeStyle: 'short' })}
+                  {detail.customer_name ? ` · ${detail.customer_name}` : ''}
+                </p>
+              </div>
+              <button onClick={() => setDetail(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+            </div>
+
+            <div className="p-4 overflow-y-auto">
+              {detailLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-emerald-500" />
+                </div>
+              ) : detailError ? (
+                <p className="text-red-600 text-sm text-center py-6">{detailError}</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-gray-500 uppercase">Producto</th>
+                      <th className="px-3 py-2 text-center text-xs font-bold text-gray-500 uppercase">Cant.</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-gray-500 uppercase">P. Unit</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-gray-500 uppercase">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {((detail.items ?? []) as InvoiceItem[]).map((it, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-2 text-gray-800">{it.product_name}</td>
+                        <td className="px-3 py-2 text-center text-gray-600">{Number(it.quantity)}</td>
+                        <td className="px-3 py-2 text-right text-gray-600">{fmt(Number(it.unit_price))}</td>
+                        <td className="px-3 py-2 text-right font-bold text-gray-800">{fmt(Number(it.subtotal))}</td>
+                      </tr>
+                    ))}
+                    {(!detail.items || detail.items.length === 0) && (
+                      <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400">Sin líneas</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="px-5 py-3 border-t border-gray-100 shrink-0 space-y-1">
+              {Number(detail.tax_amount) > 0 && (
+                <>
+                  <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(Number(detail.subtotal))}</span></div>
+                  <div className="flex justify-between text-sm text-gray-500"><span>Impuesto</span><span>{fmt(Number(detail.tax_amount))}</span></div>
+                </>
+              )}
+              <div className="flex justify-between text-base font-black text-gray-900"><span>Total</span><span>{fmt(Number(detail.total))}</span></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

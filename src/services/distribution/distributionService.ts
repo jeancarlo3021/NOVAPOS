@@ -41,9 +41,11 @@ export const distributionService = {
     }>(`/routes/report${qs ? '?' + qs : ''}`);
   },
 
-  list: (params?: { date?: string; status?: string; driver_id?: string }) => {
+  list: (params?: { date?: string; from?: string; to?: string; status?: string; driver_id?: string }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set('date', params.date);
+    if (params?.from) q.set('from', params.from);
+    if (params?.to) q.set('to', params.to);
     if (params?.status) q.set('status', params.status);
     if (params?.driver_id) q.set('driver_id', params.driver_id);
     const qs = q.toString();

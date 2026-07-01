@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
+import { wallClockDate } from '@/utils/datetime';
 
 export interface DailyStat {
   date: string;       // 'YYYY-MM-DD'
@@ -83,7 +84,7 @@ export function useReportsData(tenantId: string | null) {
 
       // Today subset
       const today = all.filter(r => {
-        const d = new Date(r.issued_at);
+        const d = wallClockDate(r.issued_at) ?? new Date(r.issued_at);
         return d >= todayStart && d <= todayEnd;
       });
 
@@ -181,7 +182,7 @@ export function useReportsData(tenantId: string | null) {
     if (!invoices.length) return;
     const header = 'Factura,Fecha,Total,Método,Cliente';
     const rows = invoices.map(r =>
-      `${r.invoice_number},${new Date(r.issued_at).toLocaleString('es-CR')},${r.total},${PAYMENT_LABELS[r.payment_method] ?? r.payment_method},${r.customer_name ?? ''}`
+      `${r.invoice_number},${(wallClockDate(r.issued_at) ?? new Date(r.issued_at)).toLocaleString('es-CR')},${r.total},${PAYMENT_LABELS[r.payment_method] ?? r.payment_method},${r.customer_name ?? ''}`
     );
     const csv = [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

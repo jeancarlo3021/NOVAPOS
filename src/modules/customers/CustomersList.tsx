@@ -273,6 +273,7 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
     province_code:       customer?.province_code ?? '',
     canton_code:         customer?.canton_code ?? '',
     district_code:       customer?.district_code ?? '',
+    economic_activity_code: customer?.economic_activity_code ?? '',
     zone:                customer?.zone ?? '',
     notes:               customer?.notes ?? '',
     is_active:           customer?.is_active ?? true,
@@ -385,6 +386,14 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
             district={form.district_code ?? ''}
             onChange={(f, v) => set(f === 'province' ? 'province_code' : f === 'canton' ? 'canton_code' : 'district_code', v)}
           />
+
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Actividad económica <span className="text-gray-400 font-normal">(código Hacienda)</span></label>
+            <input value={form.economic_activity_code ?? ''} onChange={e => set('economic_activity_code', e.target.value.replace(/[^\d.]/g, ''))}
+              placeholder="Ej. 620100"
+              inputMode="numeric"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          </div>
 
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Zona <span className="text-gray-400 font-normal">(para Distribución)</span></label>

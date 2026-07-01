@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Search, X, UserPlus, IdCard, Plus, Check } from 'lucide-react';
 import { customersService, ID_TYPES, type Customer, type CustomerInput } from '@/services/customers/customersService';
+import { CRLocationFields } from '@/components/CRLocationFields';
 
 interface Props {
   onPick: (c: Customer | null) => void;
@@ -122,6 +123,11 @@ function QuickCustomerCreate({ initialName, onClose, onCreated }: {
     name: initialName,
     email: '',
     phone: '',
+    province_code: '',
+    canton_code: '',
+    district_code: '',
+    address: '',
+    economic_activity_code: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
@@ -129,9 +135,12 @@ function QuickCustomerCreate({ initialName, onClose, onCreated }: {
   const set = <K extends keyof CustomerInput>(k: K, v: CustomerInput[K]) =>
     setForm(f => ({ ...f, [k]: v }));
 
+  const addrLen = (form.address ?? '').trim().length;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
     if (!form.name?.trim()) { setError('Nombre requerido'); return; }
+    if (addrLen > 0 && addrLen < 5) { setError('Otras señas: mínimo 5 caracteres'); return; }
     setSaving(true);
     try {
       const created = await customersService.create(form);
@@ -143,14 +152,14 @@ function QuickCustomerCreate({ initialName, onClose, onCreated }: {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-60 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
           <h3 className="font-black text-gray-900 flex items-center gap-2">
             <UserPlus size={18} className="text-emerald-600" /> Nuevo cliente
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
-        <form onSubmit={handleSubmit} className="p-4 space-y-3">
+        <form onSubmit={handleSubmit} className="p-4 space-y-3 overflow-y-auto">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2">{error}</div>}
 
           <div>
@@ -189,6 +198,38 @@ function QuickCustomerCreate({ initialName, onClose, onCreated }: {
               <input value={form.phone ?? ''}
                 onChange={e => set('phone', e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          {/* Ubicación (Hacienda) */}
+          <CRLocationFields
+            province={form.province_code ?? ''}
+            canton={form.canton_code ?? ''}
+            district={form.district_code ?? ''}
+            onChange={(f, v) => set(f === 'province' ? 'province_code' : f === 'canton' ? 'canton_code' : 'district_code', v)}
+          />
+
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Actividad económica <span className="text-gray-400 font-normal">(código Hacienda)</span></label>
+            <input value={form.economic_activity_code ?? ''}
+              onChange={e => set('economic_activity_code', e.target.value.replace(/[^\d.]/g, ''))}
+              placeholder="Ej. 620100" inputMode="numeric"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Otras señas</label>
+            <textarea value={form.address ?? ''} onChange={e => set('address', e.target.value.slice(0, 250))}
+              rows={2}
+              placeholder="Dirección exacta (mín. 5 caracteres)"
+              className={`w-full border rounded-lg px-3 py-2 text-sm ${
+                addrLen > 0 && addrLen < 5 ? 'border-red-300' : 'border-gray-200'
+              }`} />
+            <div className="flex justify-between text-[10px] mt-0.5">
+              {addrLen > 0 && addrLen < 5
+                ? <span className="text-red-500">Mínimo 5 caracteres</span>
+                : <span className="text-gray-400">Requerido para factura electrónica</span>}
+              <span className="text-gray-400">{(form.address ?? '').length}/250</span>
             </div>
           </div>
 

@@ -9,6 +9,8 @@ import { distributionOfflineService } from '@/services/distribution/distribution
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { PrintTicketModal } from './PrintTicketModal';
 import { useTenantId } from '@/hooks/useTenant';
+import { offlineQueue } from '@/services/offlineQueue';
+import { apiFetch } from '@/lib/api';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
@@ -52,6 +54,27 @@ export const DriverView: React.FC = () => {
     if (!confirm(`¿Cerrar la ruta de "${r.warehouse?.name ?? 'camión'}"?\nSe devolverá el sobrante al inventario y se hará el corte de ventas.`)) return;
     setClosingId(r.id);
     try {
+      // 1) Subir PRIMERO las ventas offline pendientes (contado/crédito). Si se
+      //    cierra la ruta con ventas sin subir, el corte queda incompleto y la
+      //    ruta se cierra dejando esas ventas sin poder sincronizar (se pierden).
+      const pending = await offlineQueue.getPendingCount().catch(() => 0);
+      if (pending > 0) {
+        if (!navigator.onLine) {
+          alert(`Tenés ${pending} venta(s) sin subir y estás sin conexión.\nConectate a internet para que suban antes de cerrar la ruta.`);
+          return;
+        }
+        await offlineQueue.syncAll(apiFetch).catch(() => {});
+        const stillPending = await offlineQueue.getPendingCount().catch(() => 0);
+        if (stillPending > 0) {
+          alert(`Quedaron ${stillPending} venta(s) sin subir. Revisá la conexión e intentá cerrar de nuevo.`);
+          return;
+        }
+      }
+      // 2) El cierre requiere conexión (corta ventas + devuelve sobrante al inventario).
+      if (!navigator.onLine) {
+        alert('Necesitás conexión a internet para cerrar la ruta.');
+        return;
+      }
       const summary = await distributionService.close(r.id);
       setCloseSummary({ ...summary, truck: r.warehouse?.name });
       await load();

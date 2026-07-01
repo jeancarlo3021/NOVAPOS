@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  BadgeInfo,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
@@ -108,6 +109,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'system',
     label: 'Sistema',
     items: [
+      { name: 'Mi Plan',       to: '/info',         icon: BadgeInfo, feature: 'always'    },
       { name: 'Configuración', to: '/settings',     icon: Settings, feature: 'settings'   },
       { name: 'Panel Admin',   to: '/create-owner', icon: User2,    feature: 'admin_only' },
     ],

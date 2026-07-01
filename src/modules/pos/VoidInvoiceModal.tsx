@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Ban, Lock, AlertCircle, Wifi, WifiOff } from 'lucide-react';
+import { X, Search, Ban, Lock, AlertCircle, WifiOff } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService } from '@/services/invoice/invoiceService';
 import { posOfflineService } from '@/services/pos/posOfflineService';
 import { useTenantId } from '@/hooks/useTenant';
+import { formatWallClock } from '@/utils/datetime';
 
 interface InvoiceRow {
   id: string;
@@ -13,6 +14,8 @@ interface InvoiceRow {
   payment_method: string;
   status?: 'completed' | 'cancelled' | 'draft';
   voided?: boolean; // legacy cache field (mismo significado que status='cancelled')
+  fe_clave?: string | null;    // si tiene, la factura se emitió a Hacienda
+  fe_nc_clave?: string | null; // si tiene, ya se le emitió Nota de Crédito
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -86,13 +89,6 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
       } else {
         // Offline: use cached invoices
         invoiceData = posOfflineService.getCachedInvoices() as any;
-
-        // Also log what's in the cache
-        invoiceData.forEach(inv => {
-        });
-      }
-
-      if (invoiceData.length === 0) {
       }
 
       setInvoices(invoiceData);
@@ -137,9 +133,20 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
       return;
     }
     setVoiding(true);
+    let ncWarning = '';
     try {
       if (isOnline) {
         await invoicesService.cancelInvoice(selected.id);
+        // Factura electrónica: emitir Nota de Crédito a Hacienda (anulación fiscal).
+        if (selected.fe_clave && !selected.fe_nc_clave) {
+          try {
+            const { haciendaService } = await import('@/services/hacienda/haciendaService');
+            await haciendaService.creditNote(selected.id, 'Anulación por error en facturación');
+          } catch (ncErr) {
+            // La factura ya quedó anulada localmente; avisamos que la NC falló.
+            ncWarning = `Factura anulada, pero falló la Nota de Crédito en Hacienda: ${ncErr instanceof Error ? ncErr.message : 'error'}`;
+          }
+        }
       } else {
         await posOfflineService.queueVoid(selected.id, selected.invoice_number);
       }
@@ -150,9 +157,11 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
       try { posOfflineService.markVoidedInCache(selected.id); } catch { /* ignore */ }
       setInvoices(prev =>
         prev.map(inv =>
-          inv.id === selected.id ? { ...inv, status: 'cancelled', voided: true } : inv,
+          inv.id === selected.id ? { ...inv, status: 'cancelled', voided: true, fe_nc_clave: selected.fe_clave ? 'nc' : inv.fe_nc_clave } : inv,
         ),
       );
+      // Si la NC falló, mantenemos el modal abierto con el aviso (la anulación sí ocurrió).
+      if (ncWarning) { setPinError(ncWarning); setVoiding(false); return; }
       setPinError('');
       onVoided(selected.invoice_number);
     } catch (e) {
@@ -200,6 +209,11 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                 {' — '}{fmt(selected.total)}
               </p>
               <p className="text-xs text-red-500">Esta acción no se puede deshacer.</p>
+              {selected.fe_clave && !selected.fe_nc_clave && (
+                <p className="text-xs text-red-700 font-semibold pt-1 border-t border-red-200 mt-1">
+                  Factura electrónica: se emitirá una <b>Nota de Crédito</b> a Hacienda.
+                </p>
+              )}
             </div>
 
             {storedPin ? (
@@ -304,7 +318,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                           )}
                         </div>
                         <p className="text-gray-500 text-xs mt-0.5">
-                          {new Date(inv.issued_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}
+                          {formatWallClock(inv.issued_at, { hour: '2-digit', minute: '2-digit' })}
                           {' · '}{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
                         </p>
                       </div>

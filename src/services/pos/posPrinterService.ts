@@ -89,7 +89,22 @@ export interface ReceiptData {
   hideThanks?: boolean;
   /** Comprobante de anulación: imprime SOLO "FACTURA ANULADA" + número + monto. */
   voidNotice?: boolean;
+  // ── Factura/Tiquete Electrónico (Hacienda) ────────────────────────────────
+  /** Clave numérica de 50 dígitos asignada por Hacienda. */
+  feClave?: string;
+  /** Consecutivo del comprobante electrónico. */
+  feConsecutivo?: string;
+  /** Etiqueta del tipo: "FACTURA ELECTRÓNICA" / "TIQUETE ELECTRÓNICO". */
+  feTipoLabel?: string;
+  /** QR (data URL PNG) con el enlace de consulta del comprobante. */
+  feQrDataUrl?: string;
+  /** Contenido codificado en el QR (URL de consulta) — para ESC/POS nativo. */
+  feQrContent?: string;
 }
+
+/** Leyenda obligatoria al pie del comprobante electrónico (resolución DGT 4.4). */
+export const FE_RESOLUTION_FOOTER =
+  'Autorizada mediante resolución MH-DGT-RES-0027-2024 del 13 de noviembre del 2024 de la DGTD. Version 4.4';
 
 export interface ReceiptConfig {
   paperWidth: 32 | 40 | 48 | 56 | 80;
@@ -1376,6 +1391,18 @@ export class POSPrinterService {
       : 'R&eacute;gimen Tradicional'}
   </div>
 
+  ${receiptData.feClave ? `
+  <hr class="divider">
+  <div style="text-align:center;font-size:11px;">
+    <div style="font-weight:900;letter-spacing:0.5px;">${receiptData.feTipoLabel ?? 'COMPROBANTE ELECTR&Oacute;NICO'}</div>
+    ${receiptData.feConsecutivo ? `<div style="margin-top:2px;">Consecutivo:</div><div style="font-family:monospace;font-weight:bold;">${receiptData.feConsecutivo}</div>` : ''}
+    <div style="margin-top:2px;">Clave:</div>
+    <div style="font-family:monospace;font-size:9px;word-break:break-all;line-height:1.2;">${receiptData.feClave}</div>
+    ${receiptData.feQrDataUrl ? `<div style="margin-top:6px;"><img src="${receiptData.feQrDataUrl}" style="width:130px;height:130px;" alt="QR"/></div>` : ''}
+    <div style="margin-top:6px;font-size:9px;font-weight:normal;line-height:1.25;">${FE_RESOLUTION_FOOTER}</div>
+  </div>
+  ` : ''}
+
   ${cfg.showCashierName && receiptData.cashierName ? `<div class="cashier">Cajero: ${receiptData.cashierName}</div>` : ''}
 
   <hr class="divider">
@@ -1496,6 +1523,41 @@ export class POSPrinterService {
       centerText('Regimen Tradicional');
     }
     sep();
+
+    // ── Comprobante Electrónico (Hacienda): clave, consecutivo, QR y resolución ──
+    if (receiptData.feClave) {
+      const center = (on: boolean) => push(0x1B, 0x61, on ? 0x01 : 0x00); // ESC a
+      center(true);
+      push(0x1B, 0x45, 0x01);                        // negrita ON
+      text(receiptData.feTipoLabel ?? 'COMPROBANTE ELECTRONICO'); nl();
+      push(0x1B, 0x45, 0x00);                        // negrita OFF
+      if (receiptData.feConsecutivo) { text('Consecutivo:'); nl(); text(receiptData.feConsecutivo); nl(); }
+      text('Clave:'); nl(); text(receiptData.feClave); nl();
+
+      // QR nativo ESC/POS (GS ( k, modelo 2). Los printers sin soporte lo ignoran.
+      const qr = receiptData.feQrContent;
+      if (qr) {
+        const d: number[] = [];
+        for (let i = 0; i < qr.length; i++) d.push(qr.charCodeAt(i) & 0xff);
+        const len = d.length + 3;
+        push(0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);       // modelo 2
+        push(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x06);             // tamaño módulo 6
+        push(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x30);             // corrección L
+        push(0x1D, 0x28, 0x6B, len & 0xff, (len >> 8) & 0xff, 0x31, 0x50, 0x30, ...d); // datos
+        push(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30);             // imprimir
+        nl();
+      }
+      // Leyenda de resolución (envuelta al ancho del papel).
+      const words = FE_RESOLUTION_FOOTER.split(' ');
+      let line = '';
+      for (const w of words) {
+        if ((line + ' ' + w).trim().length > charWidth) { centerText(line.trim()); line = w; }
+        else line = (line + ' ' + w).trim();
+      }
+      if (line) centerText(line.trim());
+      center(false);
+      sep();
+    }
     if (cfg.showCashierName && receiptData.cashierName) {
       centerText(`Cajero: ${receiptData.cashierName}`);
     }

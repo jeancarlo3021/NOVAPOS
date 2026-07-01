@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend,
+  LineChart, Line,
 } from 'recharts';
 import { Clock, TrendingUp, Award, Zap } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { wallClockDate } from '@/utils/datetime';
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -101,7 +102,7 @@ export const HourlySalesReport: React.FC<Props> = ({ tenantId, from, to }) => {
   // ── Filtrar por día seleccionado ──────────────────────────────────────────
   const filteredInvoices = useMemo(() => {
     if (selectedDay === 'all') return invoices;
-    return invoices.filter(inv => new Date(inv.issued_at).getDay() === selectedDay);
+    return invoices.filter(inv => (wallClockDate(inv.issued_at) ?? new Date(0)).getDay() === selectedDay);
   }, [invoices, selectedDay]);
 
   // ── Agrupar por hora (0-23) ───────────────────────────────────────────────
@@ -110,7 +111,7 @@ export const HourlySalesReport: React.FC<Props> = ({ tenantId, from, to }) => {
     for (let h = 0; h < 24; h++) buckets[h] = { total: 0, count: 0 };
 
     filteredInvoices.forEach(inv => {
-      const hour = new Date(inv.issued_at).getHours();
+      const hour = (wallClockDate(inv.issued_at) ?? new Date(0)).getHours();
       buckets[hour].total += Number(inv.total);
       buckets[hour].count += 1;
     });
@@ -133,7 +134,7 @@ export const HourlySalesReport: React.FC<Props> = ({ tenantId, from, to }) => {
     }
 
     invoices.forEach(inv => {
-      const date = new Date(inv.issued_at);
+      const date = wallClockDate(inv.issued_at) ?? new Date(0);
       const hour = date.getHours();
       const day = DAY_SHORT[date.getDay()];
       matrix[hour][day] += Number(inv.total);

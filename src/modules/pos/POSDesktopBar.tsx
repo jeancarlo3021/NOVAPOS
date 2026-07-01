@@ -147,7 +147,15 @@ export function POSDesktopBar({
           <Receipt size={15} className="text-gray-400" />
           <select
             value={documentType}
-            onChange={(e) => onDocumentTypeChange(e.target.value as DocumentType)}
+            onChange={(e) => {
+              const t = e.target.value as DocumentType;
+              // Factura Electrónica exige cliente con cédula (receptor de Hacienda).
+              if (t === 'factura_electronica' && !selectedCustomer?.identification) {
+                alert('Para emitir Factura Electrónica primero seleccioná un cliente con cédula (usá el buscador 🔍).');
+                return;
+              }
+              onDocumentTypeChange(t);
+            }}
             className={`px-2 py-1.5 border rounded-lg text-xs font-bold focus:outline-none focus:ring-2 ${
               documentType === 'factura_electronica' ? 'border-blue-300 bg-blue-50 text-blue-700 focus:ring-blue-200' :
               documentType === 'tiquete_electronico' ? 'border-cyan-300 bg-cyan-50 text-cyan-700 focus:ring-cyan-200' :
@@ -156,7 +164,9 @@ export function POSDesktopBar({
           >
             <option value="ticket">Tiquete corriente</option>
             <option value="tiquete_electronico">Tiquete electrónico</option>
-            <option value="factura_electronica">Factura electrónica</option>
+            <option value="factura_electronica" disabled={!selectedCustomer?.identification}>
+              Factura electrónica{!selectedCustomer?.identification ? ' (requiere cliente)' : ''}
+            </option>
           </select>
         </div>
       )}

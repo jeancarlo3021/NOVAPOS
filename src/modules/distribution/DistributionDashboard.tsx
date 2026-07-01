@@ -23,6 +23,8 @@ export const DistributionDashboard: React.FC = () => {
   const [routes, setRoutes] = useState<DeliveryRoute[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [loadFor, setLoadFor] = useState<DeliveryRoute | null>(null);
   const [clearFor, setClearFor] = useState<DeliveryRoute | null>(null);
@@ -57,10 +59,15 @@ export const DistributionDashboard: React.FC = () => {
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
-    try { setRoutes(await distributionService.list()); }
+    try {
+      setRoutes(await distributionService.list({
+        from: fromDate || undefined,
+        to: toDate || undefined,
+      }));
+    }
     catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
     finally { setLoading(false); }
-  }, []);
+  }, [fromDate, toDate]);
   useEffect(() => { load(); }, [load]);
 
   const closeRoute = async (r: DeliveryRoute) => {
@@ -123,6 +130,28 @@ export const DistributionDashboard: React.FC = () => {
           <div className="bg-white/15 rounded-xl px-3 py-2"><p className="text-cyan-100 text-[11px]">Abiertas</p><p className="text-xl font-black">{open}</p></div>
           <div className="bg-white/15 rounded-xl px-3 py-2"><p className="text-cyan-100 text-[11px]">Cerradas</p><p className="text-xl font-black">{closed}</p></div>
         </div>
+      </div>
+
+      {/* Filtro por rango de fechas */}
+      <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Desde</label>
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} max={toDate || undefined}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-400" />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Hasta</label>
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} min={fromDate || undefined}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-400" />
+        </div>
+        <button
+          onClick={() => { const t = new Date(); const d = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; setFromDate(d); setToDate(d); }}
+          className="px-3 py-1.5 rounded-lg bg-cyan-50 text-cyan-700 text-xs font-bold hover:bg-cyan-100">Hoy</button>
+        {(fromDate || toDate) && (
+          <button onClick={() => { setFromDate(''); setToDate(''); }}
+            className="px-3 py-1.5 rounded-lg text-gray-500 text-xs font-bold hover:bg-gray-100">Limpiar</button>
+        )}
+        <span className="ml-auto text-xs text-gray-400 self-center">{routes.length} ruta{routes.length !== 1 ? 's' : ''}</span>
       </div>
 
       {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>}

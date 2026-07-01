@@ -15,6 +15,14 @@ export const haciendaService = {
 
   /** Consulta el estatus de un documento ya emitido por su clave. */
   status: (clave: string) => apiFetch<any>(`/hacienda/status/${clave}`),
+
+  /** Consulta el estatus por factura y lo GUARDA (aceptado/rechazado). */
+  refreshStatus: (invoiceId: string) => apiFetch<{ fe_status: string; ind_estado?: string; error?: string }>(
+    '/hacienda/refresh-status', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId }) }),
+
+  /** Emite una Nota de Crédito que anula una factura ya emitida. */
+  creditNote: (invoiceId: string, reason?: string) => apiFetch<{ nc_clave?: string }>(
+    '/hacienda/credit-note', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason }) }),
 };
 
 export default haciendaService;

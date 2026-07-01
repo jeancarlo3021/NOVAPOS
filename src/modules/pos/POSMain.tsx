@@ -176,6 +176,14 @@ export const POSMain = () => {
     return () => { cancelled = true; };
   }, [planFeatures]);
 
+  // Si eligieron Factura Electrónica y no hay cliente con cédula, se revierte a
+  // tiquete electrónico (la factura exige receptor identificado por Hacienda).
+  useEffect(() => {
+    if (documentType === 'factura_electronica' && !selectedCustomer?.identification) {
+      setDocumentType('tiquete_electronico');
+    }
+  }, [documentType, selectedCustomer]);
+
   // Cliente para la factura en curso — reusamos el del tab activo así viaja
   // junto con la pestaña cuando el cajero cambia entre ventas en espera.
   const customerName    = tabCustomerName;
@@ -531,6 +539,7 @@ export const POSMain = () => {
     paymentMethod: string,
     customerName?: string,
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[],
+    fe?: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string },
   ) => {
     if (!tenantId) return;
     try {
@@ -586,6 +595,12 @@ export const POSMain = () => {
         customerName,
         simplificadoFooter,
         payments,
+        // Datos del comprobante electrónico (si se emitió a Hacienda).
+        feClave: fe?.clave,
+        feConsecutivo: fe?.consecutivo,
+        feTipoLabel: fe?.tipoLabel,
+        feQrDataUrl: fe?.qrDataUrl,
+        feQrContent: fe?.qrContent,
       };
 
       const dblMethods = (await posPrinterService.loadReceiptConfig(tenantId).catch(() => null) as any)?.doubleInvoiceMethods ?? ['credit'];
@@ -699,7 +714,37 @@ export const POSMain = () => {
           total: invoice.total,
           payment_method: invoice.payment_method,
         });
-        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined);
+
+        // Emisión a Hacienda (Factura/Tiquete electrónico) al cobrar.
+        let feData: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string } | undefined;
+        const isElectronic = documentType === 'factura_electronica' || documentType === 'tiquete_electronico';
+        if (isElectronic) {
+          try {
+            setSuccess('Emitiendo comprobante a Hacienda…');
+            const { haciendaService } = await import('@/services/hacienda/haciendaService');
+            const res: any = await haciendaService.emit(invoice.id);
+            if (res?.clave) {
+              const esFactura = (res.tipo ?? (documentType === 'factura_electronica' ? '01' : '04')) === '01';
+              // El consecutivo (20 díg) va embebido en la clave (pos 22-41) si
+              // Facturemos no lo devuelve por separado.
+              const consecFromClave = typeof res.clave === 'string' && res.clave.length === 50
+                ? res.clave.slice(21, 41) : undefined;
+              feData = {
+                clave: res.clave,
+                consecutivo: res.consecutivo ?? consecFromClave,
+                tipoLabel: esFactura ? 'FACTURA ELECTRÓNICA' : 'TIQUETE ELECTRÓNICO',
+                // QR oculto por ahora (no requerido aún).
+              };
+              setSuccess(`${esFactura ? 'Factura' : 'Tiquete'} electrónico ${invoice.invoice_number} emitido a Hacienda ✓`);
+            } else {
+              setSuccess(`Factura ${invoice.invoice_number} — comprobante en proceso`);
+            }
+          } catch (e) {
+            setError(`Venta guardada, pero falló la emisión a Hacienda: ${e instanceof Error ? e.message : 'error'}. Reintentá desde "Reimprimir facturas".`);
+          }
+        }
+
+        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData);
         setInvoiceCounterKey(k => k + 1);
         return;
       } else {

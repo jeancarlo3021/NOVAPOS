@@ -43,6 +43,7 @@ const BillingDashboard         = lazy(() => import('./modules/billing/BillingDas
 const BranchesAdmin            = lazy(() => import('./modules/branches/BranchesAdmin').then(m => ({ default: m.BranchesAdmin })));
 const TransfersDashboard       = lazy(() => import('./modules/branches/TransfersDashboard').then(m => ({ default: m.TransfersDashboard })));
 const CustomersList            = lazy(() => import('./modules/customers/CustomersList').then(m => ({ default: m.CustomersList })));
+const InfoDashboard            = lazy(() => import('./modules/info/InfoDashboard').then(m => ({ default: m.InfoDashboard })));
 
 function RouteFallback() {
   return (
@@ -152,6 +153,8 @@ function AppContent() {
               <Route path="/transfers" element={
                 <PlanGuard feature="multi_branch_transfers"><TransfersDashboard /></PlanGuard>
               } />
+
+              <Route path="/info" element={<InfoDashboard />} />
 
               {/* Owner only */}
               <Route path="/create-owner" element={<CreateOwner />} />
