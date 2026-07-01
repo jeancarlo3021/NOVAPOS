@@ -7,6 +7,7 @@ export interface User {
   role: string;
   full_name: string;
   phone?: string;
+  zone?: string | null;
   created_at: string;
   /** Última vez que el usuario inició sesión. Viene de auth.users.last_sign_in_at
    *  o de un trigger que actualiza public.users.last_login_at. Opcional para
@@ -233,12 +234,14 @@ export interface CreateUserFormData {
   full_name: string;
   role: UserRole;
   phone?: string;
+  zone?: string;
 }
 
 export interface UpdateUserFormData {
   full_name?: string;
   role?: UserRole;
   phone?: string;
+  zone?: string;
 }
 
 export interface CreateTeamFormData {

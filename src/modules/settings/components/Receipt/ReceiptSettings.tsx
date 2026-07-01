@@ -32,6 +32,12 @@ interface ReceiptConfig {
   autoprint: boolean;
   qz_certificate?: string;
   printers?: PrinterEntry[];
+  /** Copias por venta (1 o 2). */
+  printCopies?: number;
+  /** Métodos de pago habilitados. */
+  paymentMethods?: string[];
+  /** Métodos que imprimen doble factura. */
+  doubleInvoiceMethods?: string[];
 }
 
 export const ReceiptSettings: React.FC = () => {
@@ -50,6 +56,9 @@ export const ReceiptSettings: React.FC = () => {
     footerMessage: '¡GRACIAS POR SU COMPRA!',
     printerType: 'browser',
     autoprint: false,
+    printCopies: 1,
+    paymentMethods: ['cash', 'card', 'sinpe', 'credit', 'mixed'],
+    doubleInvoiceMethods: ['credit'],
     qz_certificate: '',
     printers: [],
   });

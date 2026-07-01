@@ -14,6 +14,7 @@ interface InvoiceRow {
   total: number;
   payment_method: string;
   payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[] | null;
+  fe_clave?: string | null;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -44,7 +45,19 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [doneId, setDoneId] = useState<string | null>(null);
+  const [emittingId, setEmittingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  const handleEmit = async (row: InvoiceRow) => {
+    setEmittingId(row.id); setError('');
+    try {
+      const { haciendaService } = await import('@/services/hacienda/haciendaService');
+      const r = await haciendaService.emit(row.id);
+      setInvoices(prev => prev.map(i => i.id === row.id ? { ...i, fe_clave: r.clave ?? 'enviada' } : i));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo emitir a Hacienda');
+    } finally { setEmittingId(null); }
+  };
 
   const load = useCallback(async () => {
     if (!tenantId) return;
@@ -229,6 +242,20 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-gray-800 text-sm">{fmt(inv.total)}</span>
+                    <button
+                      onClick={() => handleEmit(inv)}
+                      disabled={emittingId === inv.id || !!(inv as any).fe_clave}
+                      title="Emitir a Hacienda (Facturación Electrónica)"
+                      className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition ${
+                        (inv as any).fe_clave
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : emittingId === inv.id
+                          ? 'bg-gray-200 text-gray-500'
+                          : 'text-amber-700 border border-amber-300 bg-white hover:bg-amber-600 hover:text-white'
+                      }`}
+                    >
+                      {(inv as any).fe_clave ? 'FE ✓' : emittingId === inv.id ? 'Emitiendo…' : 'Emitir FE'}
+                    </button>
                     <button
                       onClick={() => handleReprint(inv)}
                       disabled={isPrinting}

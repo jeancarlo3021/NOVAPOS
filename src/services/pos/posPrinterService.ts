@@ -107,6 +107,12 @@ export interface ReceiptConfig {
   printerType: 'thermal' | 'browser' | 'qztray' | 'bluetooth';
   autoprint: boolean;
   printers?: PrinterEntry[];
+  /** Copias a imprimir por venta (1 o 2). Default 1. */
+  printCopies?: number;
+  /** Métodos de pago habilitados (cash/card/sinpe/credit/mixed). Default todos. */
+  paymentMethods?: string[];
+  /** Métodos que imprimen DOBLE factura (ORIGINAL/COPIA). Default ['credit']. */
+  doubleInvoiceMethods?: string[];
 }
 
 export type { PrinterEntry };
@@ -184,6 +190,9 @@ export class POSPrinterService {
       footerMessage: '¡GRACIAS POR SU COMPRA!',
       printerType: 'browser',
       autoprint: false,
+      printCopies: 1,
+      paymentMethods: ['cash', 'card', 'sinpe', 'credit', 'mixed'],
+      doubleInvoiceMethods: ['credit'],
     };
   }
 
@@ -241,6 +250,10 @@ export class POSPrinterService {
     const cfg = await this.loadReceiptConfig(tenantId);
     await this.fillStoreInfo(receiptData, tenantId);
 
+    // Copias configuradas (1 o 2). Los comprobantes que ya traen su propia copia
+    // (ej. crédito ORIGINAL/COPIA) no se duplican de nuevo.
+    const copies = receiptData.copyLabel ? 1 : Math.max(1, Math.min(2, Number(cfg.printCopies ?? 1)));
+
     // Bluetooth: enviar bytes ESC/POS a las estaciones de recibo (caja principal).
     if (cfg.printerType === 'bluetooth') {
       const bytes = this.generateESCPOS(receiptData, cfg);
@@ -258,10 +271,10 @@ export class POSPrinterService {
             try { await btReconnectFor(st.id, (st as any).bt_mode ?? 'ble', (st as any).bt_device_id); }
             catch { /* si no se puede en silencio, btPrintTo dará el error y el modal ofrece Conectar */ }
           }
-          await btPrintTo(st.id, bytes);
+          for (let i = 0; i < copies; i++) await btPrintTo(st.id, bytes);
         }
       } else {
-        await btPrint(bytes);   // modo simple (una sola impresora)
+        for (let i = 0; i < copies; i++) await btPrint(bytes);   // modo simple (una sola impresora)
       }
       return;
     }
@@ -269,11 +282,11 @@ export class POSPrinterService {
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       // En modo QZ NO caemos al diálogo del navegador: si falla, mostramos el
       // error para diagnosticar (caer a Chrome confundía al usuario).
-      await this.printQZTray(receiptData, cfg);
+      for (let i = 0; i < copies; i++) await this.printQZTray(receiptData, cfg);
       return;
     }
 
-    await this.printBrowser(receiptData, cfg);
+    for (let i = 0; i < copies; i++) await this.printBrowser(receiptData, cfg);
   }
 
   async printTest(tenantId: string): Promise<void> {

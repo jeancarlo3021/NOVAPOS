@@ -31,6 +31,13 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
   const [form, setForm] = useState<CreateUserFormData | UpdateUserFormData>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [zoneList, setZoneList] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isOpen) return;
+    import('@/services/customers/customersService').then(({ customersService }) =>
+      customersService.listZones().then(zs => setZoneList((zs ?? []).map((z: any) => z.name))).catch(() => {}),
+    );
+  }, [isOpen]);
   // Sucursal destino (solo al crear). Default = tenant actual.
   const [targetTenantId, setTargetTenantId] = useState<string>('');
   const [myTenants, setMyTenants] = useState<MyTenant[]>([]);
@@ -61,6 +68,7 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
         full_name: user.full_name,
         role: user.role as UserRole,
         phone: user.phone || '',
+        zone: (user as any).zone || '',
       });
     } else {
       setForm({ ...EMPTY_FORM });
@@ -126,6 +134,7 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
           full_name: form.full_name,
           role: form.role as UserRole,
           phone: (form as any).phone || undefined,
+          zone: (form as any).zone ?? '',
         };
         await usersService.updateUser(user.id, updateForm);
       } else {
@@ -297,6 +306,28 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
               placeholder="Opcional"
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Zona asignada <span className="text-gray-400 font-normal">(opcional — limita a esa zona)</span>
+            </label>
+            <select
+              value={(form as any).zone || ''}
+              onChange={(e) => set('zone', e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+              <option value="">Sin restricción (ve todas)</option>
+              {zoneList.map(z => <option key={z} value={z}>{z}</option>)}
+              {/* Si el usuario ya tenía una zona que ya no existe en el catálogo, la mostramos igual. */}
+              {(form as any).zone && !zoneList.includes((form as any).zone) && (
+                <option value={(form as any).zone}>{(form as any).zone}</option>
+              )}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Las zonas son las que creás en <strong>Clientes → Zonas</strong>. Si asignás una,
+              el usuario (ej. repartidor) solo verá clientes y cuentas por cobrar de esa zona.
+            </p>
           </div>
 
           {/* PIN para modo Kiosk del POS — solo al editar */}

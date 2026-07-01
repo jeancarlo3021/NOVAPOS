@@ -274,17 +274,36 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
 }) {
   const { tenantId } = useTenantId();
   const [checked, setChecked] = useState<Record<string, boolean>>({});
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit' | 'mixed'>('cash');
+  const [mix, setMix] = useState<{ cash: number; card: number; sinpe: number }>({ cash: 0, card: 0, sinpe: 0 });
+  const [enabledPays, setEnabledPays] = useState<string[]>(['cash', 'card', 'sinpe', 'credit', 'mixed']);
+  useEffect(() => {
+    posPrinterService.loadReceiptConfig(tenantId ?? '')
+      .then(cfg => setEnabledPays((cfg as any).paymentMethods ?? ['cash', 'card', 'sinpe', 'credit', 'mixed']))
+      .catch(() => {});
+  }, [tenantId]);
+  useEffect(() => {
+    if (!enabledPays.includes(paymentMethod)) {
+      const first = (['cash', 'card', 'sinpe', 'mixed', 'credit'] as const).find(m => enabledPays.includes(m));
+      if (first) setPaymentMethod(first);
+    }
+  }, [enabledPays]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [saving, setSaving] = useState(false);
   const items: any[] = order.items ?? [];
   const allChecked = items.length > 0 && items.every((it: any) => checked[it.product_id]);
+  const orderTotal = Number(order.total ?? 0);
+  const mixSum = Math.round((mix.cash + mix.card + mix.sinpe) * 100) / 100;
+  const mixValid = paymentMethod !== 'mixed' || mixSum === orderTotal;
 
   const deliver = async () => {
     setSaving(true);
     try {
       const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
       const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-      const inv: any = await distributionOfflineService.deliverOrder(order.route_id ?? '', order.id, { payment_method: paymentMethod, issued_at });
+      const payments = paymentMethod === 'mixed'
+        ? (['cash', 'card', 'sinpe'] as const).filter(m => mix[m] > 0).map(m => ({ method: m, amount: mix[m] }))
+        : undefined;
+      const inv: any = await distributionOfflineService.deliverOrder(order.route_id ?? '', order.id, { payment_method: paymentMethod, payments, issued_at });
       const now = new Date();
       const data = {
         invoiceNumber: inv?.invoice_number ?? '',
@@ -292,12 +311,15 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
         time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
         items: items.map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
         subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
-        paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : 'Crédito',
+        paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : paymentMethod === 'mixed' ? 'Mixto' : 'Crédito',
+        payments,
         customerName: order.customer?.name ?? order.customer_name,
         hideThanks: true,
       };
       const doPrint = async () => {
-        if (paymentMethod === 'credit') {
+        const cfg: any = await posPrinterService.loadReceiptConfig(tenantId ?? '').catch(() => null);
+        const dbl: string[] = cfg?.doubleInvoiceMethods ?? ['credit'];
+        if (dbl.includes(paymentMethod)) {
           await posPrinterService.printAuto({ ...data, copyLabel: 'ORIGINAL - CLIENTE' } as any, tenantId ?? '');
           await posPrinterService.printAuto({ ...data, copyLabel: 'COPIA - VENDEDOR' } as any, tenantId ?? '');
         } else {
@@ -334,16 +356,36 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
         <div className="px-5 py-4 border-t border-gray-100 space-y-3">
           <div>
             <p className="text-xs font-bold text-gray-500 mb-1.5">¿Con qué pagó el cliente?</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(['cash', 'card', 'sinpe', 'credit'] as const).map(m => (
+            <div className="grid grid-cols-3 gap-2">
+              {(['cash', 'card', 'sinpe', 'credit', 'mixed'] as const).filter(m => enabledPays.includes(m)).map(m => (
                 <button key={m} onClick={() => setPaymentMethod(m)}
-                  className={`py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
-                  {m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : 'Crédito'}
+                  className={`py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : m === 'mixed' ? 'bg-violet-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
+                  {m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : m === 'credit' ? 'Crédito' : 'Mixto'}
                 </button>
               ))}
             </div>
           </div>
-          <button onClick={deliver} disabled={saving || !allChecked}
+          {paymentMethod === 'mixed' && (
+            <div className="space-y-2 bg-violet-50 border border-violet-200 rounded-xl p-3">
+              {(['cash', 'card', 'sinpe'] as const).map(m => (
+                <div key={m} className="flex items-center gap-2">
+                  <span className="w-20 text-xs font-bold text-gray-600">{m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : 'SINPE'}</span>
+                  <div className="relative flex-1">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₡</span>
+                    <input type="number" inputMode="decimal" value={mix[m] || ''} placeholder="0"
+                      onChange={e => setMix(prev => ({ ...prev, [m]: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                      className="w-full pl-5 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm text-right" />
+                  </div>
+                </div>
+              ))}
+              <div className={`flex justify-between text-xs font-bold ${mixValid ? 'text-emerald-700' : 'text-red-600'}`}>
+                <span>Suma: {fmt(mixSum)}</span>
+                <span>Total: {fmt(orderTotal)}</span>
+              </div>
+              {!mixValid && <p className="text-[11px] text-red-600">La suma debe ser igual al total.</p>}
+            </div>
+          )}
+          <button onClick={deliver} disabled={saving || !allChecked || !mixValid}
             className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black py-3 rounded-xl text-sm">
             {saving ? 'Entregando…' : <><CheckCircle2 size={16} /> {allChecked ? `Entregar e imprimir (${fmt(order.total)})` : 'Marcá todos los productos'}</>}
           </button>

@@ -269,6 +269,9 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
     email:               customer?.email ?? '',
     phone:               customer?.phone ?? '',
     address:             customer?.address ?? '',
+    province_code:       customer?.province_code ?? '',
+    canton_code:         customer?.canton_code ?? '',
+    district_code:       customer?.district_code ?? '',
     zone:                customer?.zone ?? '',
     notes:               customer?.notes ?? '',
     is_active:           customer?.is_active ?? true,
@@ -361,6 +364,28 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
             <label className="block text-xs font-bold text-gray-600 mb-1">Dirección</label>
             <textarea value={form.address ?? ''} onChange={e => set('address', e.target.value)}
               rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none" />
+          </div>
+
+          {/* Ubicación fiscal (para Factura Electrónica) */}
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Provincia <span className="text-gray-400 font-normal">(cód.)</span></label>
+              <input value={form.province_code ?? ''} onChange={e => set('province_code', e.target.value)}
+                inputMode="numeric" maxLength={1} placeholder="1"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Cantón</label>
+              <input value={form.canton_code ?? ''} onChange={e => set('canton_code', e.target.value)}
+                inputMode="numeric" maxLength={2} placeholder="01"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Distrito</label>
+              <input value={form.district_code ?? ''} onChange={e => set('district_code', e.target.value)}
+                inputMode="numeric" maxLength={2} placeholder="01"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
           </div>
 
           <div>

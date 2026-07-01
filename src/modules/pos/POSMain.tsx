@@ -73,6 +73,7 @@ export const POSMain = () => {
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [enabledPays, setEnabledPays] = useState<string[]>(['cash', 'card', 'sinpe', 'credit', 'mixed']);
   const [lastInvoice, setLastInvoice] = useState<any>(null);
   const [paymentData, setPaymentData] = useState<any>(null);
   const [error, setError] = useState('');
@@ -360,7 +361,9 @@ export const POSMain = () => {
   // para que el primer cobro sea instantáneo
   useEffect(() => {
     if (!tenantId) return;
-    posPrinterService.loadReceiptConfig(tenantId).catch(() => {});
+    posPrinterService.loadReceiptConfig(tenantId)
+      .then(cfg => setEnabledPays((cfg as any).paymentMethods ?? ['cash', 'card', 'sinpe', 'credit', 'mixed']))
+      .catch(() => {});
     import('@/services/pos/qzTrayService').then(({ qzConnect, qzIsAvailable }) => {
       qzIsAvailable().then(available => {
         if (available) qzConnect().catch(() => {});
@@ -585,8 +588,9 @@ export const POSMain = () => {
         payments,
       };
 
-      if (paymentMethod === 'credit') {
-        // Venta a crédito: doble factura (copia para el cliente y para el vendedor).
+      const dblMethods = (await posPrinterService.loadReceiptConfig(tenantId).catch(() => null) as any)?.doubleInvoiceMethods ?? ['credit'];
+      if (dblMethods.includes(paymentMethod)) {
+        // Doble factura (copia para el cliente y para el vendedor).
         await posPrinterService.printAuto({ ...receiptData, copyLabel: 'ORIGINAL - CLIENTE' }, tenantId);
         await posPrinterService.printAuto({ ...receiptData, copyLabel: 'COPIA - VENDEDOR' }, tenantId);
       } else {
@@ -1095,6 +1099,7 @@ export const POSMain = () => {
           onConfirm={handlePaymentConfirm}
           onCancel={() => setShowPaymentModal(false)}
           loading={paymentLoading}
+          enabledMethods={enabledPays}
           allowCard={planFeatures.pos_card}
           allowSinpe={planFeatures.pos_sinpe}
           allowCredit={!!selectedCustomer?.credit_enabled}

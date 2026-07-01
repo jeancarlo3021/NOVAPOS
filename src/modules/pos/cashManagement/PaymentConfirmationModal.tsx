@@ -21,6 +21,8 @@ interface PaymentConfirmationModalProps {
   creditAvailable?: number;
   /** Saldo actual del cliente (para mostrar). */
   creditBalance?: number;
+  /** Métodos de pago habilitados en configuración (cash/card/sinpe/credit/mixed). */
+  enabledMethods?: string[];
 }
 
 export interface PaymentSplit {
@@ -93,12 +95,18 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   allowCredit = false,
   creditAvailable = Infinity,
   creditBalance = 0,
+  enabledMethods,
 }) => {
   const crc = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
   const creditExceeds = total > creditAvailable;
-  const availableMethods = METHODS.filter(m =>
-    m.id === 'cash' || (m.id === 'card' && allowCard) || (m.id === 'sinpe' && allowSinpe) || (m.id === 'credit' && allowCredit)
+  const enabled = (id: string) => !enabledMethods || enabledMethods.includes(id);
+  const mixedAllowed = enabled('mixed');
+  const filtered = METHODS.filter(m =>
+    enabled(m.id) &&
+    (m.id === 'cash' || (m.id === 'card' && allowCard) || (m.id === 'sinpe' && allowSinpe) || (m.id === 'credit' && allowCredit))
   );
+  // Nunca dejar el modal sin opciones: si la config dejó todo fuera, cae a efectivo.
+  const availableMethods = filtered.length > 0 ? filtered : METHODS.filter(m => m.id === 'cash');
 
   const [method, setMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>(availableMethods[0]?.id ?? 'cash');
   const [received, setReceived] = useState('');
@@ -247,7 +255,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
           {/* ─── Columna derecha: método + entrada ─── */}
           <div className="md:col-span-3 space-y-4">
             {/* Toggle Único / Mixto */}
-            {availableMethods.length > 1 && (
+            {mixedAllowed && availableMethods.filter(m => m.id !== 'credit').length > 1 && (
               <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
                 <button onPointerDown={() => { setIsMixed(false); setError(''); }}
                   className={`flex-1 py-2 rounded-lg text-sm font-black transition ${

@@ -27,6 +27,11 @@ interface FESettings {
   emisor_email:               string;
   // Actividad económica
   economic_activity_code:     string;
+  // Proveedor de sistemas (cédula) — requerido por Facturemos
+  proveedor_sistemas?:        string;
+  // Numeración (consecutivo Hacienda)
+  sucursal?:                  string;
+  terminal?:                  string;
 }
 
 const DEFAULT_SETTINGS: FESettings = {
@@ -49,6 +54,9 @@ const DEFAULT_SETTINGS: FESettings = {
   emisor_phone: '',
   emisor_email: '',
   economic_activity_code: '',
+  proveedor_sistemas: '',
+  sucursal: '1',
+  terminal: '1',
 };
 
 export const ElectronicInvoiceSettings: React.FC = () => {
@@ -65,6 +73,12 @@ export const ElectronicInvoiceSettings: React.FC = () => {
   const handleTestConnection = async () => {
     setTesting(true); setTestResult(null);
     try {
+      // Guardar PRIMERO la config actual (incluida la ApiKey del emisor) para que
+      // el test la lea del servidor.
+      await apiFetch('/settings/electronic-invoice', {
+        method: 'PUT',
+        body: JSON.stringify({ ...settings, api_key_emisor: (settings.api_key_emisor || '').trim() }),
+      });
       const r = await apiFetch<{ message?: string; emisor_configured?: boolean }>(
         '/hacienda/test-connection', { method: 'POST' });
       setTestResult({ ok: true, msg: r?.message ?? 'Conexión correcta' });
@@ -184,6 +198,12 @@ export const ElectronicInvoiceSettings: React.FC = () => {
             </button>
           </div>
         </div>
+        <div>
+          <label className="block text-xs font-bold text-gray-600 mb-1">Proveedor de sistemas (cédula)</label>
+          <input value={settings.proveedor_sistemas ?? ''} onChange={e => set('proveedor_sistemas', e.target.value)}
+            placeholder="Cédula del proveedor (la indica Facturemos)"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
+        </div>
         <button type="button" onClick={handleTestConnection} disabled={testing}
           className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 font-bold py-2.5 rounded-lg hover:bg-blue-100 disabled:opacity-50 text-sm">
           {testing ? <Loader2 size={15} className="animate-spin" /> : <Plug size={15} />} Probar conexión
@@ -195,8 +215,7 @@ export const ElectronicInvoiceSettings: React.FC = () => {
           </div>
         )}
         <p className="text-[11px] text-gray-400">
-          Guardá primero los cambios para que "Probar conexión" use el ambiente y la
-          ApiKey actuales.
+          "Probar conexión" guarda automáticamente la ApiKey y el ambiente antes de probar.
         </p>
       </div>
 

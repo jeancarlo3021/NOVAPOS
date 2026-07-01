@@ -22,6 +22,7 @@ export const AccountsReceivableDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('');
   const [search, setSearch] = useState('');
+  const [zoneFilter, setZoneFilter] = useState('');
   const [payTarget, setPayTarget] = useState<Receivable | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -37,9 +38,12 @@ export const AccountsReceivableDashboard: React.FC = () => {
   }, [filter]);
   useEffect(() => { load(); }, [load]);
 
-  const filtered = rows.filter(r => !search ||
-    (r.customer_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (r.invoice_number ?? '').toLowerCase().includes(search.toLowerCase()));
+  const zones = Array.from(new Set(rows.map(r => (r as any).zone).filter(Boolean))).sort() as string[];
+  const filtered = rows.filter(r =>
+    (!zoneFilter || (r as any).zone === zoneFilter) &&
+    (!search ||
+      (r.customer_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (r.invoice_number ?? '').toLowerCase().includes(search.toLowerCase())));
 
   const del = async (r: Receivable) => {
     if (!confirm('¿Eliminar esta cuenta por cobrar?')) return;
@@ -85,6 +89,13 @@ export const AccountsReceivableDashboard: React.FC = () => {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar cliente o factura…"
             className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white" />
         </div>
+        {zones.length > 0 && (
+          <select value={zoneFilter} onChange={e => setZoneFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+            <option value="">Todas las zonas</option>
+            {zones.map(z => <option key={z} value={z}>{z}</option>)}
+          </select>
+        )}
         {['', 'pending', 'partial', 'overdue', 'paid'].map(s => (
           <button key={s} onClick={() => setFilter(s)}
             className={`px-3 py-2 rounded-lg text-xs font-bold ${filter === s ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>

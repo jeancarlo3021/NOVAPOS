@@ -20,11 +20,14 @@ import {
 import type { Product } from '@/types/Types_POS';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
-const payLabel = (m: string) => m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : 'Crédito';
+const payLabel = (m: string) => m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : m === 'mixed' ? 'Mixto' : 'Crédito';
 
-// Imprime el ticket; en crédito saca doble factura (cliente + vendedor).
-async function printTicket(data: any, tenantId: string, credit: boolean) {
-  if (credit) {
+// Imprime el ticket; saca doble factura (cliente + vendedor) si el método de pago
+// está configurado para ello (Configuración → Recibo → Doble factura).
+async function printTicket(data: any, tenantId: string, paymentMethod: string) {
+  const cfg: any = await posPrinterService.loadReceiptConfig(tenantId).catch(() => null);
+  const dbl: string[] = cfg?.doubleInvoiceMethods ?? ['credit'];
+  if (dbl.includes(paymentMethod)) {
     await posPrinterService.printAuto({ ...data, copyLabel: 'ORIGINAL - CLIENTE' }, tenantId);
     await posPrinterService.printAuto({ ...data, copyLabel: 'COPIA - VENDEDOR' }, tenantId);
   } else {
@@ -133,7 +136,7 @@ export const RouteRun: React.FC = () => {
     setDeliverTarget(null);
     setPrintTicket_({
       invoiceNumber: inv?.invoice_number, total: Number(order.total ?? 0),
-      print: () => printTicket(data, tenantId ?? '', paymentMethod === 'credit'),
+      print: () => printTicket(data, tenantId ?? '', paymentMethod),
     });
     await load();
   };
@@ -421,10 +424,26 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
   const [priceMap, setPriceMap] = useState<Record<string, number>>({});
   const [qty, setQty] = useState<Record<string, number>>({});
   const [search, setSearch] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit' | 'mixed'>('cash');
+  const [mix, setMix] = useState<{ cash: number; card: number; sinpe: number }>({ cash: 0, card: 0, sinpe: 0 });
+  const [enabledPays, setEnabledPays] = useState<string[]>(['cash', 'card', 'sinpe', 'credit', 'mixed']);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [weightFor, setWeightFor] = useState<{ id: string; name: string; price: number; available: number; abbr: string } | null>(null);
+
+  // Métodos de pago habilitados (config de recibo).
+  useEffect(() => {
+    posPrinterService.loadReceiptConfig(tenantId)
+      .then(cfg => setEnabledPays((cfg as any).paymentMethods ?? ['cash', 'card', 'sinpe', 'credit', 'mixed']))
+      .catch(() => {});
+  }, [tenantId]);
+  // Si el método actual quedó deshabilitado, saltar al primero disponible.
+  useEffect(() => {
+    if (!enabledPays.includes(paymentMethod)) {
+      const first = (['cash', 'card', 'sinpe', 'mixed'] as const).find(m => enabledPays.includes(m));
+      if (first) setPaymentMethod(first);
+    }
+  }, [enabledPays]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Productos base (una sola vez): autoventa = stock del camión; preventa = catálogo.
   useEffect(() => {
@@ -509,6 +528,13 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
 
   const confirm = async () => {
     if (lines.length === 0) { setErr('Agregá productos'); return; }
+    // Validar pago mixto (la suma debe igualar el total).
+    let payments: Array<{ method: 'cash' | 'card' | 'sinpe'; amount: number }> | undefined;
+    if (isAuto && paymentMethod === 'mixed') {
+      const sum = Math.round((mix.cash + mix.card + mix.sinpe) * 100) / 100;
+      if (sum !== Math.round(total * 100) / 100) { setErr('El pago mixto debe sumar el total'); return; }
+      payments = (['cash', 'card', 'sinpe'] as const).filter(m => mix[m] > 0).map(m => ({ method: m, amount: mix[m] }));
+    }
     setSaving(true); setErr('');
     try {
       const items = lines.map(l => ({
@@ -520,7 +546,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
       if (isAuto) {
         const inv: any = await distributionOfflineService.sale(route.id, {
           stop_id: stop?.id, customer_id: customer?.id ?? null, customer_name: customer?.name, items,
-          subtotal: total, tax_amount: 0, total, payment_method: paymentMethod, issued_at,
+          subtotal: total, tax_amount: 0, total, payment_method: paymentMethod, payments, issued_at,
         });
         const now = new Date();
         const data = {
@@ -530,12 +556,13 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
           items: lines.map(l => ({ name: l.name, quantity: l.q, unitPrice: l.unit_price, subtotal: l.subtotal })),
           subtotal: total, tax: 0, total,
           paymentMethod: payLabel(paymentMethod),
+          payments,
           customerName: customer?.name,
           hideThanks: true,
         };
         onPrint?.({
           invoiceNumber: inv?.invoice_number, total,
-          print: () => printTicket(data, tenantId, paymentMethod === 'credit'),
+          print: () => printTicket(data, tenantId, paymentMethod),
         });
       } else {
         if (!customer?.id) { setErr('La preventa necesita un cliente'); setSaving(false); return; }
@@ -663,13 +690,35 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
           {filtered.length === 0 && <p className="text-center text-gray-400 text-sm py-10">{isAuto ? 'El camión no tiene carga' : 'Sin productos'}</p>}
         </div>
         {isAuto && (
-          <div className="px-4 py-2 border-t border-gray-100 flex gap-2">
-            {(['cash', 'card', 'sinpe', ...(customer?.id ? ['credit'] as const : [])] as const).map(m => (
-              <button key={m} onClick={() => setPaymentMethod(m)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
-                {payLabel(m)}
-              </button>
-            ))}
+          <div className="px-4 py-2 border-t border-gray-100 space-y-2">
+            <div className="flex flex-wrap gap-2">
+              {(['cash', 'card', 'sinpe', 'mixed', ...(customer?.id ? ['credit'] as const : [])] as const)
+                .filter(m => enabledPays.includes(m)).map(m => (
+                <button key={m} onClick={() => setPaymentMethod(m)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : m === 'mixed' ? 'bg-violet-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
+                  {payLabel(m)}
+                </button>
+              ))}
+            </div>
+            {paymentMethod === 'mixed' && (
+              <div className="space-y-1.5 bg-violet-50 border border-violet-200 rounded-xl p-2.5">
+                {(['cash', 'card', 'sinpe'] as const).map(m => (
+                  <div key={m} className="flex items-center gap-2">
+                    <span className="w-16 text-[11px] font-bold text-gray-600">{payLabel(m)}</span>
+                    <div className="relative flex-1">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₡</span>
+                      <input type="number" inputMode="decimal" value={mix[m] || ''} placeholder="0"
+                        onChange={e => setMix(prev => ({ ...prev, [m]: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                        className="w-full pl-5 pr-2 py-1 border border-gray-200 rounded-lg text-sm text-right" />
+                    </div>
+                  </div>
+                ))}
+                <div className={`flex justify-between text-[11px] font-bold ${Math.round((mix.cash + mix.card + mix.sinpe) * 100) / 100 === Math.round(total * 100) / 100 ? 'text-emerald-700' : 'text-red-600'}`}>
+                  <span>Suma: {fmt(Math.round((mix.cash + mix.card + mix.sinpe) * 100) / 100)}</span>
+                  <span>Total: {fmt(total)}</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
         <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-3">

@@ -203,6 +203,28 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
         </label>
       )}
 
+      {/* Métodos que imprimen doble factura (ORIGINAL/COPIA) */}
+      <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+        <p className="font-semibold text-slate-800 text-sm">Doble factura</p>
+        <p className="text-xs text-slate-400 mt-0.5 mb-2">Métodos de pago que imprimen 2 facturas (ORIGINAL cliente + COPIA vendedor).</p>
+        <div className="flex flex-wrap gap-2">
+          {(['cash', 'card', 'sinpe', 'credit', 'mixed'] as const).map(m => {
+            const label = m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : m === 'credit' ? 'Crédito' : 'Mixto';
+            const cur: string[] = config.doubleInvoiceMethods ?? ['credit'];
+            const on = cur.includes(m);
+            const toggle = () => setConfig({ ...config, doubleInvoiceMethods: on ? cur.filter(x => x !== m) : [...cur, m] });
+            return (
+              <button key={m} type="button" onClick={toggle}
+                className={`px-3 py-2 rounded-lg text-sm font-bold border transition ${
+                  on ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
+                }`}>
+                {on ? '✓ ' : ''}{label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {config.printerType === 'browser' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
           Al imprimir se abrirá el diálogo del navegador. Funciona con cualquier impresora del equipo.
