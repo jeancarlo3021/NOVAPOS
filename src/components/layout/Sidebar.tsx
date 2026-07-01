@@ -109,7 +109,6 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'system',
     label: 'Sistema',
     items: [
-      { name: 'Mi Plan',       to: '/info',         icon: BadgeInfo, feature: 'always'    },
       { name: 'Configuración', to: '/settings',     icon: Settings, feature: 'settings'   },
       { name: 'Panel Admin',   to: '/create-owner', icon: User2,    feature: 'admin_only' },
     ],
@@ -317,6 +316,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
             })}
           </nav>
         )}
+
+        {/* Mi Plan — SIEMPRE visible, de último y fuera de grupos colapsables. */}
+        <nav className={`mt-2 pt-2 border-t border-slate-800/60 ${isCompact ? 'px-2' : (assisted ? 'px-3' : 'px-2')}`}>
+          {renderNavItem({ name: 'Mi Plan', to: '/info', icon: BadgeInfo, feature: 'always' })}
+        </nav>
       </div>
 
       {/* User Info — minimalista */}
