@@ -24,6 +24,14 @@ export interface RouteCloseSummary {
   voids_count: number; returned_items: number;
   returned?: Array<{ name: string; quantity: number }>;
   by_method?: { cash: number; card: number; sinpe: number; credit: number };
+  /** Abonos de CxC cobrados por el repartidor ese día. */
+  ar_payments?: {
+    by_method: { cash: number; card: number; sinpe: number };
+    total: number;
+    list: Array<{ customer: string; amount: number; method: string }>;
+  };
+  /** Gastos del día del repartidor. */
+  expenses?: { total: number; list: Array<{ description: string; amount: number; payment_method?: string }> };
 }
 
 export const distributionService = {

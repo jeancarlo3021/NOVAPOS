@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Check } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
+import { useTenantId } from '@/hooks/useTenant';
+import { posPrinterService } from '@/services/pos/posPrinterService';
 import { ReceiptPreview } from './ReceiptPreview';
 import { ReceiptFormat } from './ReceiptFormat';
 import { ReceiptContent } from './ReceiptContent';
@@ -41,7 +43,8 @@ interface ReceiptConfig {
 }
 
 export const ReceiptSettings: React.FC = () => {
-  const { settings, updateSettings, loading, error } = useSettings('receipt');
+  const { settings, updateSettings, error } = useSettings('receipt');
+  const { tenantId } = useTenantId();
   const [activeTab, setActiveTab] = useState<'format' | 'content' | 'printer' | 'preview'>('format');
   const [config, setConfig] = useState<ReceiptConfig>({
     paperWidth: 80,
@@ -68,9 +71,11 @@ export const ReceiptSettings: React.FC = () => {
 
   useEffect(() => {
     if (settings) {
-      setConfig(settings);
+      // Mezcla la config de impresora LOCAL (por dispositivo) sobre la del tenant.
+      const localPrinter = tenantId ? posPrinterService.getLocalPrinterConfig(tenantId) : {};
+      setConfig({ ...settings, ...localPrinter } as any);
     }
-  }, [settings]);
+  }, [settings, tenantId]);
 
   // Auto-save con debounce
   useEffect(() => {
@@ -84,7 +89,10 @@ export const ReceiptSettings: React.FC = () => {
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        await updateSettings(config);
+        // La config de IMPRESORA es LOCAL por dispositivo (no se comparte entre equipos).
+        if (tenantId) posPrinterService.saveLocalPrinterConfig(tenantId, config as any);
+        // Al tenant se guarda solo el contenido/marca (sin campos de impresora).
+        await updateSettings(posPrinterService.withoutLocalPrinter(config as any) as any);
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       } catch {

@@ -258,6 +258,43 @@ export const DriverView: React.FC = () => {
               )}
               <div className="flex justify-between"><span className="text-gray-500">Anulaciones</span><span className="font-bold text-rose-600">{closeSummary.voids_count ?? 0}</span></div>
 
+              {/* Abonos de CxC del día (efectivo/tarjeta/SINPE por aparte + detalle) */}
+              {closeSummary.ar_payments && closeSummary.ar_payments.total > 0 && (
+                <div className="border border-blue-100 bg-blue-50/50 rounded-lg p-3 mt-2">
+                  <p className="text-xs font-black text-blue-700 mb-1.5">Abonos a crédito (CxC) — {fmt(closeSummary.ar_payments.total)}</p>
+                  <div className="text-xs space-y-1">
+                    <div className="flex justify-between"><span className="text-gray-500">Efectivo</span><span>{fmt(closeSummary.ar_payments.by_method.cash)}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(closeSummary.ar_payments.by_method.card)}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(closeSummary.ar_payments.by_method.sinpe)}</span></div>
+                  </div>
+                  {closeSummary.ar_payments.list.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-blue-100 space-y-0.5">
+                      {closeSummary.ar_payments.list.map((a: any, i: number) => (
+                        <div key={i} className="flex justify-between text-xs">
+                          <span className="text-gray-600 truncate">{a.customer} <span className="text-gray-400">· {a.method === 'card' ? 'Tarjeta' : a.method === 'sinpe' ? 'SINPE' : 'Efectivo'}</span></span>
+                          <span className="font-bold">{fmt(a.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Gastos del día */}
+              {closeSummary.expenses && closeSummary.expenses.total > 0 && (
+                <div className="border border-rose-100 bg-rose-50/50 rounded-lg p-3 mt-2">
+                  <p className="text-xs font-black text-rose-700 mb-1.5">Gastos del día — {fmt(closeSummary.expenses.total)}</p>
+                  <div className="space-y-0.5">
+                    {closeSummary.expenses.list.map((g: any, i: number) => (
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="text-gray-600 truncate">{g.description}</span>
+                        <span className="font-bold">{fmt(g.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {showReturned && (
                 <div className="border border-gray-100 rounded-lg p-3 mt-2">
                   <p className="text-xs font-black text-gray-500 mb-1.5">Inventario devuelto a bodega</p>

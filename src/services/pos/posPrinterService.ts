@@ -148,6 +148,43 @@ export class POSPrinterService {
   private cachedConfig: ReceiptConfig | null = null;
   private cachedConfigTenantId: string | null = null;
 
+  // Campos de IMPRESORA que son LOCALES por dispositivo (no del tenant): cada
+  // equipo elige su impresora, conexión, ancho de papel, autoimpresión, etc.
+  static LOCAL_PRINTER_FIELDS: (keyof ReceiptConfig)[] = [
+    'printers', 'printerType', 'printerName', 'autoprint', 'paperWidth', 'printCopies',
+  ];
+
+  private localPrinterKey(tenantId: string) { return `printer_local_${tenantId}`; }
+
+  /** Config de impresora guardada localmente (por dispositivo). */
+  getLocalPrinterConfig(tenantId: string): Partial<ReceiptConfig> {
+    try { return JSON.parse(localStorage.getItem(this.localPrinterKey(tenantId)) || '{}'); }
+    catch { return {}; }
+  }
+
+  /** Guarda SOLO los campos de impresora en localStorage (por dispositivo). */
+  saveLocalPrinterConfig(tenantId: string, cfg: Partial<ReceiptConfig>) {
+    const local: any = {};
+    for (const k of POSPrinterService.LOCAL_PRINTER_FIELDS) {
+      if (cfg[k] !== undefined) local[k] = cfg[k];
+    }
+    try { localStorage.setItem(this.localPrinterKey(tenantId), JSON.stringify(local)); } catch {}
+    // Invalidar cache en memoria para que la próxima impresión tome lo nuevo.
+    this.clearConfigCache();
+  }
+
+  /** Sobrepone la config de impresora LOCAL sobre la del tenant. */
+  private applyLocalPrinter(cfg: ReceiptConfig, tenantId: string): ReceiptConfig {
+    return { ...cfg, ...this.getLocalPrinterConfig(tenantId) };
+  }
+
+  /** Devuelve la config SIN los campos de impresora (para guardar en el tenant). */
+  withoutLocalPrinter(cfg: ReceiptConfig): ReceiptConfig {
+    const copy: any = { ...cfg };
+    for (const k of POSPrinterService.LOCAL_PRINTER_FIELDS) delete copy[k];
+    return copy;
+  }
+
   async loadReceiptConfig(tenantId: string): Promise<ReceiptConfig> {
     // Cache en memoria — evita API call en cada cobro
     if (this.cachedConfig && this.cachedConfigTenantId === tenantId) {
@@ -158,16 +195,16 @@ export class POSPrinterService {
     try {
       const cached = localStorage.getItem(`receipt_cfg_${tenantId}`);
       if (cached) {
-        const parsed = JSON.parse(cached);
+        const parsed = this.applyLocalPrinter(JSON.parse(cached), tenantId);
         this.cachedConfig = parsed;
         this.cachedConfigTenantId = tenantId;
         // Refrescar en background (no bloquear)
         apiFetch<ReceiptConfig>('/settings/receipt')
           .then(config => {
             if (config) {
-              const merged = { ...this.getDefaultConfig(), ...config };
+              const merged = this.applyLocalPrinter({ ...this.getDefaultConfig(), ...config }, tenantId);
               this.cachedConfig = merged;
-              localStorage.setItem(`receipt_cfg_${tenantId}`, JSON.stringify(merged));
+              localStorage.setItem(`receipt_cfg_${tenantId}`, JSON.stringify({ ...this.getDefaultConfig(), ...config }));
             }
           })
           .catch(() => {});
@@ -177,13 +214,14 @@ export class POSPrinterService {
 
     try {
       const config = await apiFetch<ReceiptConfig>('/settings/receipt');
-      const merged = config ? { ...this.getDefaultConfig(), ...config } : this.getDefaultConfig();
+      const base = config ? { ...this.getDefaultConfig(), ...config } : this.getDefaultConfig();
+      const merged = this.applyLocalPrinter(base, tenantId);
       this.cachedConfig = merged;
       this.cachedConfigTenantId = tenantId;
-      try { localStorage.setItem(`receipt_cfg_${tenantId}`, JSON.stringify(merged)); } catch {}
+      try { localStorage.setItem(`receipt_cfg_${tenantId}`, JSON.stringify(base)); } catch {}
       return merged;
     } catch {
-      return this.getDefaultConfig();
+      return this.applyLocalPrinter(this.getDefaultConfig(), tenantId);
     }
   }
 
@@ -219,6 +257,19 @@ export class POSPrinterService {
    * selector). Útil al entrar al POS / Distribución para que la primera
    * impresión del día sea instantánea, incluso tras el borrado de cache.
    */
+  /** Estado de la impresora Bluetooth configurada: si hay una y si está conectada. */
+  async bluetoothStatus(tenantId: string): Promise<{ configured: boolean; connected: boolean }> {
+    try {
+      const cfg = await this.loadReceiptConfig(tenantId);
+      if (cfg.printerType !== 'bluetooth') return { configured: false, connected: true };
+      const stations = (cfg.printers ?? []).filter((p: any) => p.is_active && p.connection === 'bluetooth');
+      if (stations.length === 0) return { configured: false, connected: true };
+      const { btIsConnectedFor } = await import('./bluetoothPrinterService');
+      const connected = stations.every((st: any) => btIsConnectedFor(st.id));
+      return { configured: true, connected };
+    } catch { return { configured: false, connected: true }; }
+  }
+
   async reconnectBluetooth(tenantId: string): Promise<void> {
     try {
       const cfg = await this.loadReceiptConfig(tenantId);
@@ -472,6 +523,8 @@ export class POSPrinterService {
     sales_count: number; sales_total: number; voids_count: number;
     by_method?: { cash: number; card: number; sinpe: number; credit: number };
     returned?: Array<{ name: string; quantity: number }>;
+    ar_payments?: { by_method: { cash: number; card: number; sinpe: number }; total: number; list: Array<{ customer: string; amount: number; method: string }> };
+    expenses?: { total: number; list: Array<{ description: string; amount: number; payment_method?: string }> };
   }, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
     const bytes = this.generateRouteCloseESCPOS(summary, cfg);
@@ -537,6 +590,31 @@ export class POSPrinterService {
     row('Anulaciones:', String(summary.voids_count ?? 0));
     center(`*** TOTAL: ${money(summary.sales_total)} ***`);
     sep();
+
+    // Abonos de CxC del día (efectivo/tarjeta/SINPE por aparte + detalle).
+    const ap = summary.ar_payments;
+    if (ap && ap.total > 0) {
+      center('ABONOS CREDITO (CxC)');
+      row('Efectivo:', money(ap.by_method.cash));
+      row('Tarjeta:', money(ap.by_method.card));
+      row('SINPE:', money(ap.by_method.sinpe));
+      for (const a of (ap.list ?? [])) {
+        const lbl = a.method === 'card' ? 'T' : a.method === 'sinpe' ? 'S' : 'E';
+        row(`${String(a.customer).substring(0, charWidth - 12)} (${lbl})`, money(a.amount));
+      }
+      row('Total abonos:', money(ap.total));
+      sep();
+    }
+
+    // Gastos del día del repartidor.
+    const ex = summary.expenses;
+    if (ex && ex.total > 0) {
+      center('GASTOS DEL DIA');
+      for (const g of (ex.list ?? [])) row(String(g.description).substring(0, charWidth - 10), money(g.amount));
+      row('Total gastos:', money(ex.total));
+      sep();
+    }
+
     center('INVENTARIO DEVUELTO');
     const ret = [...(summary.returned ?? [])].sort((a: any, b: any) => String(a.name).localeCompare(String(b.name), 'es'));
     if (ret.length === 0) { center('(sin sobrante)'); }

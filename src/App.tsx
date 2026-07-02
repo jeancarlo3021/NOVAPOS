@@ -9,6 +9,7 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/modules/dashboard/Dasboard';
 import { SyncIndicator } from '@/components/SyncIndicator';
 import { QzReconnectToast } from '@/components/QzReconnectToast';
+import { BluetoothReconnectButton } from '@/components/BluetoothReconnectButton';
 import { HelpCenter } from '@/components/HelpCenter';
 import { ClearCacheShortcut } from '@/components/ClearCacheShortcut';
 import { useTokenRefresh } from '@/hooks/useTokenRefresh';
@@ -174,6 +175,7 @@ function AppContent() {
         </Suspense>
         <SyncIndicator />
         <QzReconnectToast />
+        <BluetoothReconnectButton />
         <HelpCenter />
     </>
     );

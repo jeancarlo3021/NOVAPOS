@@ -286,6 +286,25 @@ export const DistributionDashboard: React.FC = () => {
                   <div className="flex justify-between"><span className="text-gray-500">Crédito</span><span>{fmt(closeSummary.sum.by_method.credit)}</span></div>
                 </div>
               )}
+              {closeSummary.sum.ar_payments && closeSummary.sum.ar_payments.total > 0 && (
+                <div className="border border-blue-100 bg-blue-50/50 rounded-lg px-3 py-2 text-xs">
+                  <p className="font-black text-blue-700 mb-1">Abonos CxC — {fmt(closeSummary.sum.ar_payments.total)}</p>
+                  <div className="flex justify-between"><span className="text-gray-500">Efectivo</span><span>{fmt(closeSummary.sum.ar_payments.by_method.cash)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(closeSummary.sum.ar_payments.by_method.card)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(closeSummary.sum.ar_payments.by_method.sinpe)}</span></div>
+                  {closeSummary.sum.ar_payments.list.map((a, i) => (
+                    <div key={i} className="flex justify-between mt-0.5 text-gray-600"><span className="truncate">{a.customer} · {a.method === 'card' ? 'Tarjeta' : a.method === 'sinpe' ? 'SINPE' : 'Efectivo'}</span><span className="font-bold">{fmt(a.amount)}</span></div>
+                  ))}
+                </div>
+              )}
+              {closeSummary.sum.expenses && closeSummary.sum.expenses.total > 0 && (
+                <div className="border border-rose-100 bg-rose-50/50 rounded-lg px-3 py-2 text-xs">
+                  <p className="font-black text-rose-700 mb-1">Gastos del día — {fmt(closeSummary.sum.expenses.total)}</p>
+                  {closeSummary.sum.expenses.list.map((g, i) => (
+                    <div key={i} className="flex justify-between text-gray-600"><span className="truncate">{g.description}</span><span className="font-bold">{fmt(g.amount)}</span></div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-500">Productos devueltos a central</span><span className="font-bold">{closeSummary.sum.returned_items}</span></div>
               {showReturned && (
                 <div className="border border-gray-100 rounded-lg p-3">
