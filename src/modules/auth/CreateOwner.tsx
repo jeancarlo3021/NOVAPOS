@@ -78,9 +78,23 @@ export const CreateOwner: React.FC = () => {
   const [showBranches, setShowBranches] = useState(false);
 
   const [formData, setFormData] = useState({
-    email: '', password: '', businessName: '', planId: '', withDemo: false,
+    email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '',
   });
   const [formErrors, setFormErrors] = useState({ email: '', password: '', businessName: '' });
+
+  // Catálogo de planes FE (para asignar en alta y en acciones).
+  const [fePlans, setFePlans] = useState<Array<{ id: string; name: string; docsPerMonth: number | null; extraDocPrice: number; is_active: boolean }>>([]);
+  useEffect(() => {
+    apiFetch<any[]>('/admin/fe-plans').then(l => setFePlans(Array.isArray(l) ? l : [])).catch(() => {});
+  }, []);
+
+  const assignFePlan = async (tenantId: string, fePlanId: string) => {
+    try {
+      await apiFetch(`/admin/tenants/${tenantId}/fe-plan`, { method: 'PUT', body: JSON.stringify({ fe_plan_id: fePlanId || null }) });
+      setSuccess(fePlanId ? 'Plan FE asignado' : 'Plan FE quitado');
+      fetchOwners();
+    } catch (err: any) { setError(err.message || 'Error al asignar el plan FE'); }
+  };
 
   const fetchOwners = useCallback(async () => {
     /*
@@ -375,8 +389,20 @@ export const CreateOwner: React.FC = () => {
       });
       if (fnError) throw new Error(fnError.message);
       if (data?.error) throw new Error(data.error);
+      // Asignar plan FE si se eligió (si queda vacío, el negocio no usa FE).
+      if (formData.fePlanId) {
+        try {
+          const tenantId = data?.tenant_id ?? data?.tenant?.id;
+          let tid = tenantId;
+          if (!tid) {
+            const list = await apiFetch<any[]>('/admin/owners').catch(() => []);
+            tid = (list ?? []).find(o => (o.email ?? '').toLowerCase() === formData.email.toLowerCase())?.id;
+          }
+          if (tid) await apiFetch(`/admin/tenants/${tid}/fe-plan`, { method: 'PUT', body: JSON.stringify({ fe_plan_id: formData.fePlanId }) });
+        } catch { /* no bloquear la creación por el FE */ }
+      }
       setSuccess(`✅ Negocio creado — Email: ${formData.email}`);
-      setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false });
+      setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '' });
       setShowForm(false);
       await new Promise(r => setTimeout(r, 800));
       fetchOwners();
@@ -612,6 +638,17 @@ export const CreateOwner: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
                   <option value="">Sin plan (opcional)</option>
                   {plans.map(p => <option key={p.id} value={p.id}>{p.name} — {fmt(p.price)}/mes</option>)}
+                </select>
+              </div>
+              {/* Plan de Facturación Electrónica (opcional) */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Plan Facturación Electrónica</label>
+                <select value={formData.fePlanId} onChange={e => setFormData({ ...formData, fePlanId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                  <option value="">Sin FE (dejar vacío)</option>
+                  {fePlans.filter(p => p.is_active).map(p => (
+                    <option key={p.id} value={p.id}>{p.name}{p.docsPerMonth == null ? ' — ilimitado' : ` — ${p.docsPerMonth}/mes`}</option>
+                  ))}
                 </select>
               </div>
               <div className="md:col-span-2 flex items-center gap-2 bg-blue-50 rounded-xl p-3">
@@ -908,6 +945,14 @@ export const CreateOwner: React.FC = () => {
                                       className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-600">
                                       <option value="">Cambiar plan…</option>
                                       {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="px-3 py-1.5">
+                                    <select onChange={e => { if (e.target.value) { assignFePlan(o.id, e.target.value === '__none__' ? '' : e.target.value); setOpenMenuId(null); } }} defaultValue=""
+                                      className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-600">
+                                      <option value="">Plan FE…</option>
+                                      <option value="__none__">— Quitar FE —</option>
+                                      {fePlans.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
                                   </div>
                                   <div className="my-1 border-t border-gray-100" />

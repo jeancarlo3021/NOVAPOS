@@ -539,7 +539,7 @@ export const POSMain = () => {
     paymentMethod: string,
     customerName?: string,
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[],
-    fe?: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string },
+    fe?: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string; customerEmail?: string },
   ) => {
     if (!tenantId) return;
     try {
@@ -601,6 +601,7 @@ export const POSMain = () => {
         feTipoLabel: fe?.tipoLabel,
         feQrDataUrl: fe?.qrDataUrl,
         feQrContent: fe?.qrContent,
+        customerEmail: fe?.customerEmail,
       };
 
       const dblMethods = (await posPrinterService.loadReceiptConfig(tenantId).catch(() => null) as any)?.doubleInvoiceMethods ?? ['credit'];
@@ -658,6 +659,12 @@ export const POSMain = () => {
       return;
     }
 
+    // Aviso de cuota agotada (pantalla emergente) antes de cobrar un electrónico.
+    if (documentType === 'factura_electronica' || documentType === 'tiquete_electronico') {
+      const { confirmFeQuota } = await import('@/services/hacienda/feQuotaGuard');
+      if (!(await confirmFeQuota())) return;
+    }
+
     setPaymentLoading(true);
     const notes = data.voucherNumber ? `Comprobante: ${data.voucherNumber}` : undefined;
 
@@ -666,6 +673,7 @@ export const POSMain = () => {
     const subSnapshot = subtotal;
     const taxSnapshot = taxAmount;
     const totSnapshot = total;
+    const customerEmailSnapshot = selectedCustomer?.email ?? undefined;
 
     try {
       if (isOnline) {
@@ -716,7 +724,7 @@ export const POSMain = () => {
         });
 
         // Emisión a Hacienda (Factura/Tiquete electrónico) al cobrar.
-        let feData: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string } | undefined;
+        let feData: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string; customerEmail?: string } | undefined;
         const isElectronic = documentType === 'factura_electronica' || documentType === 'tiquete_electronico';
         if (isElectronic) {
           try {
@@ -733,6 +741,8 @@ export const POSMain = () => {
                 clave: res.clave,
                 consecutivo: res.consecutivo ?? consecFromClave,
                 tipoLabel: esFactura ? 'FACTURA ELECTRÓNICA' : 'TIQUETE ELECTRÓNICO',
+                // En factura electrónica se muestra el correo al que se envió.
+                customerEmail: esFactura ? customerEmailSnapshot : undefined,
                 // QR oculto por ahora (no requerido aún).
               };
               setSuccess(`${esFactura ? 'Factura' : 'Tiquete'} electrónico ${invoice.invoice_number} emitido a Hacienda ✓`);
@@ -740,7 +750,8 @@ export const POSMain = () => {
               setSuccess(`Factura ${invoice.invoice_number} — comprobante en proceso`);
             }
           } catch (e) {
-            setError(`Venta guardada, pero falló la emisión a Hacienda: ${e instanceof Error ? e.message : 'error'}. Reintentá desde "Reimprimir facturas".`);
+            console.error('[FE emit] Error al emitir a Hacienda:', e);
+            setError(`Venta guardada, pero falló la emisión a Hacienda: ${e instanceof Error ? e.message : 'error'}`);
           }
         }
 

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
   TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
+  Receipt, FileText,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -41,6 +42,8 @@ interface Tile {
 
 const ALL_TILES: Tile[] = [
   { feature: 'pos',              label: 'Vender',          icon: ShoppingCart,  path: '/pos',              bg: 'from-emerald-500 to-emerald-600' },
+  { feature: 'fe_pos',           label: 'POS Electrónico', icon: Receipt,     path: '/fe-pos',           bg: 'from-blue-600 to-indigo-600'      },
+  { feature: 'electronic_invoice', label: 'FE Facturas',   icon: FileText,     path: '/fe-facturas',      bg: 'from-sky-500 to-blue-600'         },
   { feature: 'inventory',        label: 'Inventario',      icon: Package,       path: '/inventory',        bg: 'from-blue-500 to-blue-600'        },
   { feature: 'reports',          label: 'Reportes',        icon: BarChart2,     path: '/reports',          bg: 'from-indigo-500 to-indigo-600'    },
   { feature: 'expenses',         label: 'Gastos',          icon: TrendingDown,  path: '/expenses',         bg: 'from-rose-500 to-pink-600'        },

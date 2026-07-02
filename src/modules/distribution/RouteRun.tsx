@@ -5,6 +5,7 @@ import {
   CheckCircle2, Search, Loader2, PackageCheck, Truck, User, Scale, Ban, Package,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
 import { distributionService, type DeliveryRoute, type RouteStop } from '@/services/distribution/distributionService';
 import { distributionOfflineService } from '@/services/distribution/distributionOfflineService';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
@@ -84,6 +85,15 @@ export const RouteRun: React.FC = () => {
     setVoiding(inv.id);
     try {
       await distributionService.voidSale(inv.id);
+      // Si la factura era electrónica, emitir la Nota de Crédito a Hacienda.
+      if (inv.fe_clave && !inv.fe_nc_clave) {
+        try {
+          const { haciendaService } = await import('@/services/hacienda/haciendaService');
+          await haciendaService.creditNote(inv.id, 'Anulación por error en facturación');
+        } catch (ncErr) {
+          alert(`Factura anulada, pero falló la Nota de Crédito: ${ncErr instanceof Error ? ncErr.message : 'error'}. Podés reintentarla en FE Facturas.`);
+        }
+      }
       await loadSales();
       await load();   // refresca stock del camión
       // Reimprimir comprobante de ANULACIÓN (solo aviso + número + monto).
@@ -413,9 +423,12 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
   onPrint?: (info: { invoiceNumber?: string; total?: number; print: () => Promise<void>; receipt?: any }) => void;
 }) {
   const isAuto = mode === 'auto';
+  const { planFeatures } = useAuth();
+  const feEnabled = !!(planFeatures as any)?.electronic_invoice;
+  const [documentType, setDocumentType] = useState<'tiquete_electronico' | 'factura_electronica'>('tiquete_electronico');
   // Cliente: si viene de una parada, fijo; si es mostrador, seleccionable/opcional.
   const stopCust = stop ? (stop as any).customer : null;
-  const [customer, setCustomer] = useState<{ id?: string; name?: string } | null>(stopCust ?? null);
+  const [customer, setCustomer] = useState<{ id?: string; name?: string; identification?: string | null; email?: string | null } | null>(stopCust ?? null);
   const [pickOpen, setPickOpen] = useState(false);
   const [custList, setCustList] = useState<Customer[]>([]);
   const [custSearch, setCustSearch] = useState('');
@@ -557,10 +570,36 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
       const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
       const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
       if (isAuto) {
+        if (feEnabled && documentType === 'factura_electronica' && !customer?.identification) {
+          setErr('La factura electrónica requiere un cliente con cédula. Seleccioná un cliente registrado con identificación.');
+          setSaving(false); return;
+        }
+        if (feEnabled) {
+          const { confirmFeQuota } = await import('@/services/hacienda/feQuotaGuard');
+          if (!(await confirmFeQuota())) { setSaving(false); return; }
+        }
         const inv: any = await distributionOfflineService.sale(route.id, {
           stop_id: stop?.id, customer_id: customer?.id ?? null, customer_name: customer?.name, items,
           subtotal: total, tax_amount: 0, total, payment_method: paymentMethod, payments, issued_at,
+          document_type: feEnabled ? documentType : undefined,
         });
+
+        // Emisión electrónica a Hacienda (solo online y con factura real).
+        let feFields: any = {};
+        if (feEnabled && navigator.onLine && inv?.id && !inv.offline) {
+          try {
+            const { haciendaService } = await import('@/services/hacienda/haciendaService');
+            const res: any = await haciendaService.emit(inv.id);
+            if (res?.clave) {
+              const esFactura = (res.tipo ?? (documentType === 'factura_electronica' ? '01' : '04')) === '01';
+              const consec = res.consecutivo ?? (typeof res.clave === 'string' && res.clave.length === 50 ? res.clave.slice(21, 41) : undefined);
+              feFields = { feClave: res.clave, feConsecutivo: consec, feTipoLabel: esFactura ? 'FACTURA ELECTRÓNICA' : 'TIQUETE ELECTRÓNICO' };
+            }
+          } catch (e) {
+            console.error('[FE emit distribución] Error:', e);
+          }
+        }
+
         const now = new Date();
         const data = {
           invoiceNumber: inv?.invoice_number ?? '',
@@ -571,7 +610,9 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
           paymentMethod: payLabel(paymentMethod),
           payments,
           customerName: customer?.name,
+          customerEmail: (feEnabled && documentType === 'factura_electronica') ? (customer?.email ?? undefined) : undefined,
           hideThanks: true,
+          ...feFields,
         };
         onPrint?.({
           invoiceNumber: inv?.invoice_number, total,
@@ -630,7 +671,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
                   <input value={custSearch} onChange={e => setCustSearch(e.target.value)} placeholder="Buscar cliente…" className="w-full pl-7 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm" /></div>
                 <div className="max-h-40 overflow-y-auto divide-y divide-gray-50">
                   {filteredCust.map(c => (
-                    <button key={c.id} onClick={() => { setCustomer({ id: c.id, name: c.name }); setPickOpen(false); }}
+                    <button key={c.id} onClick={() => { setCustomer({ id: c.id, name: c.name, identification: c.identification, email: c.email }); setPickOpen(false); }}
                       className="w-full text-left px-3 py-2 text-sm hover:bg-cyan-50">{c.name}</button>
                   ))}
                   {filteredCust.length === 0 && <p className="text-center text-gray-400 text-xs py-3">Sin clientes</p>}
@@ -705,6 +746,16 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
         </div>
         {isAuto && (
           <div className="px-4 py-2 border-t border-gray-100 space-y-2">
+            {feEnabled && (
+              <div className="flex gap-2">
+                {(['tiquete_electronico', 'factura_electronica'] as const).map(dt => (
+                  <button key={dt} onClick={() => setDocumentType(dt)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold ${documentType === dt ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                    {dt === 'tiquete_electronico' ? 'Tiquete elec.' : 'Factura elec.'}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               {(['cash', 'card', 'sinpe', 'mixed', ...(customer?.id ? ['credit'] as const : [])] as const)
                 .filter(m => enabledPays.includes(m)).map(m => (

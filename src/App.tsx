@@ -44,6 +44,8 @@ const BranchesAdmin            = lazy(() => import('./modules/branches/BranchesA
 const TransfersDashboard       = lazy(() => import('./modules/branches/TransfersDashboard').then(m => ({ default: m.TransfersDashboard })));
 const CustomersList            = lazy(() => import('./modules/customers/CustomersList').then(m => ({ default: m.CustomersList })));
 const InfoDashboard            = lazy(() => import('./modules/info/InfoDashboard').then(m => ({ default: m.InfoDashboard })));
+const FeInvoicesDashboard      = lazy(() => import('./modules/hacienda/FeInvoicesDashboard').then(m => ({ default: m.FeInvoicesDashboard })));
+const FeposMain                = lazy(() => import('./modules/hacienda/FeposMain').then(m => ({ default: m.FeposMain })));
 
 function RouteFallback() {
   return (
@@ -155,6 +157,12 @@ function AppContent() {
               } />
 
               <Route path="/info" element={<InfoDashboard />} />
+              <Route path="/fe-facturas" element={
+                <PlanGuard feature="electronic_invoice"><FeInvoicesDashboard /></PlanGuard>
+              } />
+              <Route path="/fe-pos" element={
+                <PlanGuard feature="fe_pos"><FeposMain /></PlanGuard>
+              } />
 
               {/* Owner only */}
               <Route path="/create-owner" element={<CreateOwner />} />

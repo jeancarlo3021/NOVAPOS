@@ -55,6 +55,7 @@ export interface ReceiptData {
   time: string;
   customerName?: string;
   customerPhone?: string;
+  customerEmail?: string;   // correo del receptor (al que se envió la factura electrónica)
   items: Array<{
     name: string;
     quantity: number;
@@ -1210,7 +1211,14 @@ export class POSPrinterService {
       </div>
     ` : '';
 
-    const customerBlock = '';
+    const customerBlock = (receiptData.customerName || receiptData.customerPhone || receiptData.customerEmail)
+      ? `<div style="text-align:center;font-size:11px;margin:2px 0;">
+           <span style="font-weight:bold;">Cliente:</span> ${receiptData.customerName ?? ''}
+           ${receiptData.customerPhone ? `<br>Tel: ${receiptData.customerPhone}` : ''}
+           ${receiptData.customerEmail ? `<br>Correo: ${receiptData.customerEmail}` : ''}
+         </div>
+         <hr class="divider">`
+      : '';
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -1347,6 +1355,11 @@ export class POSPrinterService {
     })()}
     <div class="title">TICKET DE VENTA</div>
     ${cfg.showInvoiceNumber ? `<div class="subtitle">Factura #${receiptData.invoiceNumber}</div>` : ''}
+    ${receiptData.feClave ? `
+      <div class="subtitle" style="font-weight:900;">${receiptData.feTipoLabel ?? 'COMPROBANTE ELECTR&Oacute;NICO'}</div>
+      ${receiptData.feConsecutivo ? `<div style="font-size:10px;">Consecutivo: <span style="font-family:monospace;font-weight:bold;">${receiptData.feConsecutivo}</span></div>` : ''}
+      <div style="font-size:9px;font-family:monospace;word-break:break-all;line-height:1.2;">Clave: ${receiptData.feClave}</div>
+    ` : ''}
     ${cfg.showDateTime ? `<div class="subtitle">${receiptData.date} ${receiptData.time}</div>` : ''}
   </div>
 
@@ -1384,22 +1397,17 @@ export class POSPrinterService {
          return `${label}: ₡${Number(p.amount).toLocaleString('es-CR')}${v}`;
        }).join('<br>')}</div>`
     : `<div class="payment-block">${receiptData.paymentMethod}</div>`}
-<hr class="divider">
+${receiptData.simplificadoFooter && !receiptData.feClave ? `
+  <hr class="divider">
   <div style="text-align:center;font-size:11px;font-weight:bold;margin-top:4px;">
-    ${receiptData.simplificadoFooter
-      ? 'Autorizado mediante oficio 1197<br>r&eacute;gimen simplificado'
-      : 'R&eacute;gimen Tradicional'}
-  </div>
+    Autorizado mediante oficio 1197<br>r&eacute;gimen simplificado
+  </div>` : ''}
 
   ${receiptData.feClave ? `
   <hr class="divider">
   <div style="text-align:center;font-size:11px;">
-    <div style="font-weight:900;letter-spacing:0.5px;">${receiptData.feTipoLabel ?? 'COMPROBANTE ELECTR&Oacute;NICO'}</div>
-    ${receiptData.feConsecutivo ? `<div style="margin-top:2px;">Consecutivo:</div><div style="font-family:monospace;font-weight:bold;">${receiptData.feConsecutivo}</div>` : ''}
-    <div style="margin-top:2px;">Clave:</div>
-    <div style="font-family:monospace;font-size:9px;word-break:break-all;line-height:1.2;">${receiptData.feClave}</div>
-    ${receiptData.feQrDataUrl ? `<div style="margin-top:6px;"><img src="${receiptData.feQrDataUrl}" style="width:130px;height:130px;" alt="QR"/></div>` : ''}
-    <div style="margin-top:6px;font-size:9px;font-weight:normal;line-height:1.25;">${FE_RESOLUTION_FOOTER}</div>
+    ${receiptData.feQrDataUrl ? `<div style="margin-bottom:6px;"><img src="${receiptData.feQrDataUrl}" style="width:130px;height:130px;" alt="QR"/></div>` : ''}
+    <div style="font-weight:bold;">${FE_RESOLUTION_FOOTER}</div>
   </div>
   ` : ''}
 
@@ -1464,6 +1472,14 @@ export class POSPrinterService {
     centerText('=== TICKET DE VENTA ===');
     if (receiptData.copyLabel) { centerText(`** ${receiptData.copyLabel} **`); }
     if (cfg.showInvoiceNumber) { centerText(`#${receiptData.invoiceNumber}`); }
+    // Comprobante electrónico: tipo + consecutivo + clave, junto al nº de factura.
+    if (receiptData.feClave) {
+      push(0x1B, 0x45, 0x01);        // negrita ON
+      centerText(receiptData.feTipoLabel ?? 'COMPROBANTE ELECTRONICO');
+      push(0x1B, 0x45, 0x00);        // negrita OFF
+      if (receiptData.feConsecutivo) centerText(`Consecutivo: ${receiptData.feConsecutivo}`);
+      text('Clave:'); nl(); text(receiptData.feClave); nl();
+    }
     if (cfg.showDateTime) { centerText(`${receiptData.date} ${receiptData.time}`); }
     sep();
 
@@ -1476,11 +1492,12 @@ export class POSPrinterService {
     if (cfg.showStorePhone && receiptData.storePhone) { centerText(`Tel: ${receiptData.storePhone}`); }
 
     // Customer
-    if (cfg.showCustomerInfo && (receiptData.customerName || receiptData.customerPhone)) {
+    if (receiptData.customerName || receiptData.customerPhone || receiptData.customerEmail) {
       sep();
       text('CLIENTE:'); nl();
       if (receiptData.customerName) { centerText(receiptData.customerName); }
       if (receiptData.customerPhone) { centerText(`Tel: ${receiptData.customerPhone}`); }
+      if (receiptData.customerEmail) { centerText(receiptData.customerEmail); }
     }
 
     sep();
@@ -1514,25 +1531,19 @@ export class POSPrinterService {
       centerText(receiptData.paymentMethod);
     }
     sep();
-    // Régimen fiscal — justo debajo del método de pago.
-    nl();
-    if (receiptData.simplificadoFooter) {
+    // Régimen simplificado — solo si NO es comprobante electrónico (ese lleva
+    // su propia leyenda de resolución, no el oficio 1197).
+    if (receiptData.simplificadoFooter && !receiptData.feClave) {
+      nl();
       centerText('Autorizado mediante oficio 1197');
       centerText('regimen simplificado');
-    } else {
-      centerText('Regimen Tradicional');
+      sep();
     }
-    sep();
 
-    // ── Comprobante Electrónico (Hacienda): clave, consecutivo, QR y resolución ──
+    // ── Comprobante Electrónico (Hacienda): QR + leyenda (clave/consecutivo van arriba) ──
     if (receiptData.feClave) {
       const center = (on: boolean) => push(0x1B, 0x61, on ? 0x01 : 0x00); // ESC a
       center(true);
-      push(0x1B, 0x45, 0x01);                        // negrita ON
-      text(receiptData.feTipoLabel ?? 'COMPROBANTE ELECTRONICO'); nl();
-      push(0x1B, 0x45, 0x00);                        // negrita OFF
-      if (receiptData.feConsecutivo) { text('Consecutivo:'); nl(); text(receiptData.feConsecutivo); nl(); }
-      text('Clave:'); nl(); text(receiptData.feClave); nl();
 
       // QR nativo ESC/POS (GS ( k, modelo 2). Los printers sin soporte lo ignoran.
       const qr = receiptData.feQrContent;

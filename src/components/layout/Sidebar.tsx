@@ -61,6 +61,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Dashboard',      to: '/',             icon: LayoutDashboard, feature: 'always' },
       { name: 'Punto de Venta', to: '/pos',          icon: ShoppingCart,    feature: 'pos',          module: 'pos'          },
+      { name: 'POS Electrónico', to: '/fe-pos',      icon: Receipt,         feature: 'fe_pos' },
+      { name: 'FE Facturas',    to: '/fe-facturas',  icon: FileText,        feature: 'electronic_invoice' },
       { name: 'Distribución',   to: '/distribution', icon: Truck,           feature: 'distribution', module: 'distribution' },
       { name: 'Repartidor',     to: '/driver',       icon: PackageCheck,    feature: 'distribution', module: 'distribution' },
       { name: 'Inventario',     to: '/inventory',    icon: Package,         feature: 'always',       module: 'inventory'    },

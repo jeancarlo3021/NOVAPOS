@@ -7,9 +7,10 @@ import {
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Shield, CalendarDays, History,
-  FileText, User, Search, Building, KeyRound, UtensilsCrossed,
+  FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
+import { apiFetch } from '@/lib/api';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { PlanFeatures, DEFAULT_FEATURES, useAuth } from '@/context/AuthContext';
 
@@ -153,17 +154,22 @@ export default function Plans() {
     setFeIsNew(false);
     setShowFeModal(true);
   };
+  // Persistir en la BD (app_config key='fe_plans') vía admin.
+  const persistFePlans = (next: FePlan[]) => {
+    setFePlans(next);
+    apiFetch('/admin/fe-plans', { method: 'PUT', body: JSON.stringify({ plans: next }) }).catch(() => {});
+  };
   const saveFePlan = () => {
     const features = feFeaturesText.split(',').map(s => s.trim()).filter(Boolean);
     const plan: FePlan = { ...feForm, features };
-    setFePlans(prev => feIsNew ? [...prev, plan] : prev.map(p => p.id === plan.id ? plan : p));
+    persistFePlans(feIsNew ? [...fePlans, plan] : fePlans.map(p => p.id === plan.id ? plan : p));
     setShowFeModal(false);
   };
   const toggleFePlan = (id: string) =>
-    setFePlans(prev => prev.map(p => p.id === id ? { ...p, is_active: !p.is_active } : p));
+    persistFePlans(fePlans.map(p => p.id === id ? { ...p, is_active: !p.is_active } : p));
   const deleteFePlan = (id: string) => {
     if (!confirm('¿Eliminar este plan de facturación electrónica?')) return;
-    setFePlans(prev => prev.filter(p => p.id !== id));
+    persistFePlans(fePlans.filter(p => p.id !== id));
   };
 
   // Totales de ingresos/costo/ganancia (solo planes activos).
@@ -183,6 +189,13 @@ export default function Plans() {
   useOfflineSync();
 
   useEffect(() => { fetchPlans(); }, []);
+
+  // Cargar planes FE guardados en la BD (si hay); si no, quedan los por defecto.
+  useEffect(() => {
+    apiFetch<FePlan[]>('/admin/fe-plans')
+      .then(list => { if (Array.isArray(list) && list.length > 0) setFePlans(list); })
+      .catch(() => {});
+  }, []);
 
   const fetchPlans = async () => {
     try {
@@ -513,14 +526,6 @@ export default function Plans() {
       {/* ═══ TAB: Facturación Electrónica ═══ */}
       {viewTab === 'fe' && (
         <div className="space-y-6">
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
-            <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-sm text-amber-800">
-              <strong>Edición local.</strong> Podés ajustar los detalles de cada plan de facturación electrónica.
-              Los cambios todavía no se guardan en el servidor (pendiente de conexión al backend).
-            </p>
-          </div>
-
           {/* Totales: ingresos, costo del proveedor y ganancia (planes activos) */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -836,9 +841,14 @@ export default function Plans() {
                     description="Recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />
 
                   <FeatureRow icon={FileText} color="bg-blue-600" title="Facturación Electrónica"
-                    description="Emisión a Hacienda CR (tiquetes/facturas electrónicas) — Régimen simplificado y tipo de documento en POS"
+                    description="Emisión a Hacienda CR (tiquetes/facturas electrónicas), FE Facturas y tipo de documento en POS"
                     checked={(features as any).electronic_invoice ?? false}
                     onChange={v => set({ electronic_invoice: v } as any)} />
+
+                  <FeatureRow icon={Receipt} color="bg-indigo-600" title="POS Electrónico"
+                    description="Terminal dedicada de facturación electrónica (catálogo + precio/IVA editable)"
+                    checked={(features as any).fe_pos ?? false}
+                    onChange={v => set({ fe_pos: v } as any)} />
 
                   <FeatureRow icon={KeyRound} color="bg-amber-600" title="Modo Kiosk POS"
                     description="Terminal compartido: cajeros entran y salen con PIN sin re-loguearse"

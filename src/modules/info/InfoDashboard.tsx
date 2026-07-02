@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  BadgeInfo, CalendarClock, CreditCard, ShieldCheck, Users, Package,
-  ReceiptText, AlertTriangle, CheckCircle2,
+  BadgeInfo, CalendarClock, CreditCard, ShieldCheck,
+  AlertTriangle, CheckCircle2, FileText,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { haciendaService } from '@/services/hacienda/haciendaService';
 
 const fmtColones = (n?: number) =>
   n == null ? '—' : `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -18,9 +19,14 @@ const fmtDate = (iso?: string) =>
   iso ? new Date(iso).toLocaleDateString('es-CR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
 
 export const InfoDashboard: React.FC = () => {
-  const { tenant, planName } = useAuth();
+  const { tenant, planName, planFeatures } = useAuth();
   const sub = tenant?.subscription ?? null;
   const plan = sub?.plan ?? null;
+  const feEnabled = !!(planFeatures as any)?.electronic_invoice;
+  const [quota, setQuota] = useState<any | null>(null);
+  useEffect(() => {
+    if (feEnabled) haciendaService.quota().then(setQuota).catch(() => {});
+  }, [feEnabled]);
 
   const endsAt = sub?.ends_at;
   const daysLeft = endsAt
@@ -95,12 +101,26 @@ export const InfoDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Límites del plan */}
-      {(plan?.max_users != null || plan?.max_products != null || plan?.max_orders != null) && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <LimitCard Icon={Users} label="Usuarios" value={plan?.max_users} />
-          <LimitCard Icon={Package} label="Productos" value={plan?.max_products} />
-          <LimitCard Icon={ReceiptText} label="Ventas / mes" value={plan?.max_orders} />
+      {/* Facturación electrónica del plan — solo si el negocio tiene FE activa */}
+      {feEnabled && quota && (
+        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <FileText size={16} className="text-blue-600" />
+            <h2 className="text-sm font-black uppercase tracking-wider text-gray-700">Facturación electrónica</h2>
+          </div>
+          <QuotaCard label="Comprobantes (facturas, tiquetes y notas de crédito)"
+            available={quota.available} included={quota.included} used={quota.used} overage={quota.overage} />
+          {quota.extra_charge > 0 && (
+            <div className="mt-3 flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+              <AlertTriangle size={15} />
+              Excedente acumulado: <b>{quota.overage}</b> comprobante(s) · cobro extra <b>{fmtColones(quota.extra_charge)}</b>
+            </div>
+          )}
+          {quota.included > 0 && (
+            <p className="text-xs text-gray-400 mt-2">
+              La cuota se renueva cada mes y lo no usado se acumula. Superada la cuota, cada comprobante extra cuesta {fmtColones(quota.extra_fee)}.
+            </p>
+          )}
         </div>
       )}
 
@@ -128,17 +148,32 @@ export const InfoDashboard: React.FC = () => {
   );
 };
 
-function LimitCard({ Icon, label, value }: { Icon: React.ElementType; label: string; value?: number | null }) {
-  const unlimited = value == null || value === 0 || value < 0;
+function QuotaCard({ label, available, included, used, overage }: {
+  label: string; available: number | null; included: number; used: number; overage: number;
+}) {
+  const unlimited = included === 0 || available === null;
+  const out = !unlimited && (available as number) <= 0;
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 flex items-center gap-3">
-      <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-        <Icon size={17} className="text-gray-600" />
+    <div className={`rounded-2xl border p-4 ${out ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${out ? 'bg-red-100' : 'bg-blue-50'}`}>
+          <FileText size={16} className={out ? 'text-red-600' : 'text-blue-600'} />
+        </div>
+        <span className="text-sm font-bold text-gray-700">{label}</span>
       </div>
-      <div>
-        <p className="text-lg font-black text-gray-900">{unlimited ? 'Ilimitado' : value!.toLocaleString('es-CR')}</p>
-        <p className="text-xs text-gray-500">{label}</p>
-      </div>
+      {unlimited ? (
+        <p className="text-lg font-black text-gray-900">Ilimitado</p>
+      ) : (
+        <>
+          <p className={`text-2xl font-black ${out ? 'text-red-700' : 'text-emerald-600'}`}>
+            {Math.max(0, available as number).toLocaleString('es-CR')} <span className="text-sm font-bold text-gray-400">quedan</span>
+          </p>
+          <div className="mt-1 text-xs text-gray-500 space-y-0.5">
+            <div>Límite: <b>{included.toLocaleString('es-CR')}</b>/mes</div>
+            <div>Usadas: <b>{used.toLocaleString('es-CR')}</b>{overage > 0 ? ` · ${overage} extra` : ''}</div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

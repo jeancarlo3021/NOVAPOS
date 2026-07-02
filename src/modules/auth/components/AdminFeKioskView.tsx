@@ -9,12 +9,17 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { GroupDocCount } from './GroupDocCount';
+import { apiFetch } from '@/lib/api';
 
 interface FeConfig {
   enabled?:               boolean;
   simplificado?:          boolean;
   environment?:           'sandbox' | 'production';
   default_document_type?: 'ticket' | 'tiquete_electronico' | 'factura_electronica';
+  // Cuota de comprobantes (acumulable) + cobro por excedente.
+  fe_included_docs?:      number;   // facturas + tiquetes por mes (0 = ilimitado)
+  fe_included_nc?:        number;   // notas de crédito por mes (0 = ilimitado)
+  fe_extra_fee?:          number;   // ₡ por comprobante extra
 }
 
 interface KioskConfig {
@@ -43,6 +48,26 @@ export const AdminFeKioskView: React.FC = () => {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
   const [cards,    setCards]    = useState<Record<string, TenantCardState>>({});
+  // Cédula GLOBAL del proveedor de sistemas (misma para todos los tenants).
+  const [globalProv, setGlobalProv] = useState('');
+  const [savingProv, setSavingProv] = useState(false);
+  const [provMsg, setProvMsg] = useState('');
+
+  useEffect(() => {
+    apiFetch<{ proveedor_sistemas?: string }>('/admin/global-fe')
+      .then(v => setGlobalProv(v?.proveedor_sistemas ?? ''))
+      .catch(() => {});
+  }, []);
+
+  const saveGlobalProv = async () => {
+    setSavingProv(true); setProvMsg('');
+    try {
+      await apiFetch('/admin/global-fe', { method: 'PUT', body: JSON.stringify({ proveedor_sistemas: globalProv }) });
+      setProvMsg('Guardado ✓');
+    } catch (e) {
+      setProvMsg(e instanceof Error ? e.message : 'Error al guardar');
+    } finally { setSavingProv(false); setTimeout(() => setProvMsg(''), 3000); }
+  };
 
   const loadBranches = async () => {
     setLoading(true); setError('');
@@ -145,6 +170,22 @@ export const AdminFeKioskView: React.FC = () => {
         </button>
       </div>
 
+      {/* Cédula GLOBAL del proveedor de sistemas (aplica a TODOS los tenants) */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4">
+        <label className="block text-sm font-black text-gray-800 mb-1">Cédula del proveedor de sistemas (global)</label>
+        <p className="text-xs text-gray-500 mb-2">Se usa en todos los comprobantes electrónicos de todos los negocios.</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input value={globalProv} onChange={e => setGlobalProv(e.target.value.replace(/\D/g, ''))}
+            placeholder="Ej. 3101862189" inputMode="numeric"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-52" />
+          <button onClick={saveGlobalProv} disabled={savingProv}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50">
+            {savingProv ? 'Guardando…' : 'Guardar'}
+          </button>
+          {provMsg && <span className="text-sm font-semibold text-emerald-600">{provMsg}</span>}
+        </div>
+      </div>
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-start gap-2">
           <AlertCircle size={15} className="mt-0.5" />{error}
@@ -216,11 +257,11 @@ export const AdminFeKioskView: React.FC = () => {
                       )}
                       <div>
                         <label className="block text-[11px] font-bold text-gray-600 mb-1">Ambiente</label>
-                        <select value={card.fe.environment ?? 'sandbox'}
+                        <select value={card.fe.environment ?? 'production'}
                           onChange={e => setFe(b.tenant_id, 'environment', e.target.value)}
                           className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
-                          <option value="sandbox">Sandbox (pruebas)</option>
                           <option value="production">Producción</option>
+                          <option value="sandbox">Sandbox (pruebas)</option>
                         </select>
                       </div>
                       <div>
@@ -232,6 +273,26 @@ export const AdminFeKioskView: React.FC = () => {
                           <option value="tiquete_electronico">Tiquete electrónico</option>
                           <option value="factura_electronica">Factura electrónica</option>
                         </select>
+                      </div>
+
+                      {/* Cuota de comprobantes (acumulable) + cobro por excedente */}
+                      <div className="border-t border-gray-100 pt-2 mt-1">
+                        <p className="text-[11px] font-black text-gray-600 uppercase tracking-wider mb-1.5">Cuota mensual (0 = ilimitado)</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Comprobantes/mes</label>
+                            <input type="number" min={0} value={card.fe.fe_included_docs ?? 0}
+                              onChange={e => setFe(b.tenant_id, 'fe_included_docs', Math.max(0, parseInt(e.target.value) || 0))}
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 mb-1">₡ x extra</label>
+                            <input type="number" min={0} value={card.fe.fe_extra_fee ?? 0}
+                              onChange={e => setFe(b.tenant_id, 'fe_extra_fee', Math.max(0, parseFloat(e.target.value) || 0))}
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right" />
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">Facturas, tiquetes y notas de crédito cuentan al mismo contador. Lo no usado se acumula; superada la cuota, cada comprobante extra cobra ₡ x extra.</p>
                       </div>
                     </div>
 

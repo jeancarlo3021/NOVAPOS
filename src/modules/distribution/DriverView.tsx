@@ -11,6 +11,7 @@ import { PrintTicketModal } from './PrintTicketModal';
 import { useTenantId } from '@/hooks/useTenant';
 import { offlineQueue } from '@/services/offlineQueue';
 import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
@@ -297,6 +298,9 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
   onPrint: (info: { invoiceNumber?: string; total?: number; print: () => Promise<void>; receipt?: any }) => void;
 }) {
   const { tenantId } = useTenantId();
+  const { planFeatures } = useAuth();
+  const feEnabled = !!(planFeatures as any)?.electronic_invoice;
+  const [documentType, setDocumentType] = useState<'tiquete_electronico' | 'factura_electronica'>('tiquete_electronico');
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit' | 'mixed'>('cash');
   const [mix, setMix] = useState<{ cash: number; card: number; sinpe: number }>({ cash: 0, card: 0, sinpe: 0 });
@@ -321,6 +325,14 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
   const mixValid = paymentMethod !== 'mixed' || mixSum === orderTotal;
 
   const deliver = async () => {
+    if (feEnabled && documentType === 'factura_electronica' && !(order.customer?.identification || order.customer_identification)) {
+      alert('La factura electrónica requiere que el cliente tenga cédula. Usá tiquete electrónico o registrá la cédula del cliente.');
+      return;
+    }
+    if (feEnabled) {
+      const { confirmFeQuota } = await import('@/services/hacienda/feQuotaGuard');
+      if (!(await confirmFeQuota())) return;
+    }
     setSaving(true);
     try {
       const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
@@ -328,7 +340,27 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
       const payments = paymentMethod === 'mixed'
         ? (['cash', 'card', 'sinpe'] as const).filter(m => mix[m] > 0).map(m => ({ method: m, amount: mix[m] }))
         : undefined;
-      const inv: any = await distributionOfflineService.deliverOrder(order.route_id ?? '', order.id, { payment_method: paymentMethod, payments, issued_at });
+      const inv: any = await distributionOfflineService.deliverOrder(order.route_id ?? '', order.id, {
+        payment_method: paymentMethod, payments, issued_at,
+        document_type: feEnabled ? documentType : undefined,
+      });
+
+      // Emisión electrónica a Hacienda (solo online y con factura real).
+      let feFields: any = {};
+      if (feEnabled && navigator.onLine && inv?.id && !inv.offline) {
+        try {
+          const { haciendaService } = await import('@/services/hacienda/haciendaService');
+          const res: any = await haciendaService.emit(inv.id);
+          if (res?.clave) {
+            const esFactura = (res.tipo ?? (documentType === 'factura_electronica' ? '01' : '04')) === '01';
+            const consec = res.consecutivo ?? (typeof res.clave === 'string' && res.clave.length === 50 ? res.clave.slice(21, 41) : undefined);
+            feFields = { feClave: res.clave, feConsecutivo: consec, feTipoLabel: esFactura ? 'FACTURA ELECTRÓNICA' : 'TIQUETE ELECTRÓNICO' };
+          }
+        } catch (e) {
+          console.error('[FE emit distribución] Error:', e);
+        }
+      }
+
       const now = new Date();
       const data = {
         invoiceNumber: inv?.invoice_number ?? '',
@@ -339,7 +371,9 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
         paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : paymentMethod === 'mixed' ? 'Mixto' : 'Crédito',
         payments,
         customerName: order.customer?.name ?? order.customer_name,
+        customerEmail: (feEnabled && documentType === 'factura_electronica') ? (order.customer?.email ?? order.customer_email ?? undefined) : undefined,
         hideThanks: true,
+        ...feFields,
       };
       const doPrint = async () => {
         const cfg: any = await posPrinterService.loadReceiptConfig(tenantId ?? '').catch(() => null);
@@ -379,6 +413,22 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
           ))}
         </div>
         <div className="px-5 py-4 border-t border-gray-100 space-y-3">
+          {feEnabled && (
+            <div>
+              <p className="text-xs font-bold text-gray-500 mb-1.5">Tipo de comprobante</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(['tiquete_electronico', 'factura_electronica'] as const).map(d => (
+                  <button key={d} onClick={() => setDocumentType(d)}
+                    className={`py-2 rounded-lg text-xs font-bold ${documentType === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                    {d === 'tiquete_electronico' ? 'Tiquete electrónico' : 'Factura electrónica'}
+                  </button>
+                ))}
+              </div>
+              {documentType === 'factura_electronica' && (
+                <p className="text-[11px] text-amber-600 mt-1">La factura requiere que el cliente tenga cédula.</p>
+              )}
+            </div>
+          )}
           <div>
             <p className="text-xs font-bold text-gray-500 mb-1.5">¿Con qué pagó el cliente?</p>
             <div className="grid grid-cols-3 gap-2">

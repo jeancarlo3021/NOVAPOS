@@ -195,6 +195,8 @@ export interface PlanFeatures {
   /** Facturación Electrónica (Hacienda CR) — habilita tab en Settings,
    *  dropdown de tipo doc en el POS, y emisión a Hacienda. */
   electronic_invoice?: boolean;
+  /** POS Electrónico — terminal dedicada de facturación electrónica. */
+  fe_pos?: boolean;
   /** Modo Kiosk con PIN — habilita el toggle en Settings + modal de PIN
    *  en el POS para alternar entre cajeros sin re-loguearse. */
   pos_kiosk?: boolean;
@@ -270,6 +272,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   tables: false,
   restaurant: false,
   electronic_invoice: false,
+  fe_pos: false,
   pos_kiosk: false,
 };
 
@@ -325,6 +328,7 @@ export const FULL_FEATURES: PlanFeatures = {
   tables: true,
   restaurant: true,
   electronic_invoice: true,
+  fe_pos: true,
   pos_kiosk: true,
 };
 
