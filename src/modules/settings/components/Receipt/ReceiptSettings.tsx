@@ -14,7 +14,7 @@ import type { PrinterEntry } from './PrinterSettings';
 
 interface ReceiptConfig {
   // Formato
-  paperWidth: 32 | 40 | 48 | 56 | 80;
+  paperWidth: 32 | 40 | 48 | 56 | 80 | 'a4';
   showLogo: boolean;
   logoUrl?: string;
 

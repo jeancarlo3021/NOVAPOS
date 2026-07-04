@@ -108,7 +108,7 @@ export const FE_RESOLUTION_FOOTER =
   'Autorizada mediante resolución MH-DGT-RES-0027-2024 del 13 de noviembre del 2024 de la DGTD. Version 4.4';
 
 export interface ReceiptConfig {
-  paperWidth: 32 | 40 | 48 | 56 | 80;
+  paperWidth: 32 | 40 | 48 | 56 | 80 | 'a4';
   showLogo: boolean;
   logoUrl?: string;
   showStoreName: boolean;
@@ -321,6 +321,12 @@ export class POSPrinterService {
     // Copias configuradas (1 o 2). Los comprobantes que ya traen su propia copia
     // (ej. crédito ORIGINAL/COPIA) no se duplican de nuevo.
     const copies = receiptData.copyLabel ? 1 : Math.max(1, Math.min(2, Number(cfg.printCopies ?? 1)));
+
+    // A4 (hoja): impresora normal → HTML por navegador, no ESC/POS térmico.
+    if ((cfg.paperWidth as any) === 'a4') {
+      for (let i = 0; i < copies; i++) await this.printBrowser(receiptData, cfg);
+      return;
+    }
 
     // Bluetooth: enviar bytes ESC/POS a las estaciones de recibo (caja principal).
     // También entramos por acá si hay estaciones Bluetooth configuradas aunque
@@ -598,7 +604,7 @@ export class POSPrinterService {
   /** Imprime un documento genérico (comprobantes de CxC, históricos, listas). */
   async printDoc(lines: Array<{ t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string }>, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
-    const w = cfg.paperWidth;
+    const w = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
     const cmds: number[] = [];
     const push = (...b: number[]) => cmds.push(...b);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
@@ -607,33 +613,45 @@ export class POSPrinterService {
     const center = (s: string) => { text(String(s).padStart((w + s.length) / 2, ' ')); nl(); };
     const row = (l: string, v: string) => { const sp = Math.max(1, w - l.length - v.length); text(l + ' '.repeat(sp) + v); nl(); };
 
-    // Respetar ESTRICTAMENTE el tipo elegido (no inferir Bluetooth por impresoras
-    // viejas en la lista): navegador → HTML; bluetooth/qz/térmica → ESC/POS.
-    const useEscpos = cfg.printerType === 'bluetooth' || cfg.printerType === 'qztray' || cfg.printerType === 'thermal';
+    // A4 → HTML tamaño hoja; navegador (no A4) → HTML angosto (tiquete);
+    // bluetooth/qz/térmica → ESC/POS.
+    const isA4 = (cfg.paperWidth as any) === 'a4';
+    const useEscpos = !isA4 && (cfg.printerType === 'bluetooth' || cfg.printerType === 'qztray' || cfg.printerType === 'thermal');
 
-    // Navegador: HTML A4 + diálogo de impresión (no bytes ESC/POS crudos).
     if (!useEscpos) {
       const esc = (s: string) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
+      if (isA4) {
+        const body = lines.map(ln => {
+          if (ln.t === 'sep') return '<hr>';
+          if (ln.t === 'title') return `<div class="ttl">${esc(ln.a ?? '')}</div>`;
+          if (ln.t === 'center') return `<div class="ctr">${esc(ln.a ?? '')}</div>`;
+          if (ln.t === 'row') return `<div class="row"><span>${esc(ln.a ?? '')}</span><span>${esc(ln.b ?? '')}</span></div>`;
+          return `<div class="txt">${esc(ln.a ?? '')}</div>`;
+        }).join('');
+        const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
+          @page { size: A4; margin: 18mm; }
+          * { box-sizing: border-box; }
+          body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; }
+          .doc { max-width: 720px; margin: 0 auto; font-size: 13px; }
+          .ttl { text-align: center; font-weight: 900; font-size: 18px; margin: 4px 0; letter-spacing: .5px; }
+          .ctr { text-align: center; color: #6b7280; }
+          .txt { color: #6b7280; font-size: 12px; padding-left: 8px; }
+          .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-bottom: 1px solid #f0f0f0; }
+          .row span:last-child { font-weight: bold; white-space: nowrap; }
+          hr { border: none; border-top: 1.5px solid #cbd5e1; margin: 8px 0; }
+        </style></head><body><div class="doc">${body}</div></body></html>`;
+        await this.printHTMLContent(html);
+        return;
+      }
+      // Angosto (como antes del A4).
       const body = lines.map(ln => {
-        if (ln.t === 'sep') return '<hr>';
-        if (ln.t === 'title') return `<div class="ttl">${esc(ln.a ?? '')}</div>`;
-        if (ln.t === 'center') return `<div class="ctr">${esc(ln.a ?? '')}</div>`;
-        if (ln.t === 'row') return `<div class="row"><span>${esc(ln.a ?? '')}</span><span>${esc(ln.b ?? '')}</span></div>`;
-        return `<div class="txt">${esc(ln.a ?? '')}</div>`;
+        if (ln.t === 'sep') return '<hr style="border:none;border-top:1px dashed #999;margin:4px 0">';
+        if (ln.t === 'title') return `<div style="text-align:center;font-weight:900;font-size:14px;margin:2px 0">${esc(ln.a ?? '')}</div>`;
+        if (ln.t === 'center') return `<div style="text-align:center">${esc(ln.a ?? '')}</div>`;
+        if (ln.t === 'row') return `<div style="display:flex;justify-content:space-between;gap:8px"><span>${esc(ln.a ?? '')}</span><span>${esc(ln.b ?? '')}</span></div>`;
+        return `<div>${esc(ln.a ?? '')}</div>`;
       }).join('');
-      const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
-        @page { size: A4; margin: 18mm; }
-        * { box-sizing: border-box; }
-        body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; }
-        .doc { max-width: 720px; margin: 0 auto; font-size: 13px; }
-        .ttl { text-align: center; font-weight: 900; font-size: 18px; margin: 4px 0; letter-spacing: .5px; }
-        .ctr { text-align: center; color: #6b7280; }
-        .txt { color: #6b7280; font-size: 12px; padding-left: 8px; }
-        .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-bottom: 1px solid #f0f0f0; }
-        .row span:last-child { font-weight: bold; white-space: nowrap; }
-        hr { border: none; border-top: 1.5px solid #cbd5e1; margin: 8px 0; }
-      </style></head><body><div class="doc">${body}</div></body></html>`;
-      await this.printHTMLContent(html);
+      await this.printHTMLContent(`<div style="font-family:monospace;font-size:12px;width:280px;margin:0 auto">${body}</div>`);
       return;
     }
 
@@ -650,7 +668,7 @@ export class POSPrinterService {
   }
 
   private generateRouteCloseESCPOS(summary: any, cfg: ReceiptConfig): Uint8Array {
-    const charWidth = cfg.paperWidth;
+    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
     const cmds: number[] = [];
     const push = (...b: number[]) => cmds.push(...b);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
@@ -713,7 +731,7 @@ export class POSPrinterService {
 
   // ESC/POS raw para el cierre de caja — mismo motor que el ticket de venta.
   private generateCashCloseESCPOS(report: any, cfg: ReceiptConfig, general?: any): Uint8Array {
-    const charWidth = cfg.paperWidth;
+    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
     const cmds: number[] = [];
     const push = (...bytes: number[]) => cmds.push(...bytes);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
@@ -811,7 +829,7 @@ export class POSPrinterService {
   private generateCashCloseHTML(report: any, cfg: ReceiptConfig, general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
     const fmtDateTime = (s: string) => new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' });
-    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth] ?? '80mm';
+    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm';
 
     const storeName = general?.businessName || 'CIERRE DE CAJA';
     const diffColor = report.difference === 0 ? '#000' : report.difference > 0 ? '#16a34a' : '#dc2626';
@@ -973,7 +991,7 @@ export class POSPrinterService {
   }, cfg: ReceiptConfig, _general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
     const fmtDate = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('es-CR', { dateStyle: 'short' });
-    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth] ?? '80mm';
+    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm';
 
     const rows = order.items.map(i => `
       <tr>
@@ -1137,7 +1155,7 @@ export class POSPrinterService {
     total_amount: number;
     notes?: string | null;
   }, cfg: ReceiptConfig, general?: any): Uint8Array {
-    const charWidth = cfg.paperWidth;
+    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
     const cmds: number[] = [];
     const push = (...bytes: number[]) => cmds.push(...bytes);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
@@ -1342,7 +1360,8 @@ export class POSPrinterService {
   // ─── HTML receipt ─────────────────────────────────────────────────────────────
 
   generateHTML(receiptData: ReceiptData, cfg: ReceiptConfig): string {
-    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth] ?? '80mm';
+    const isA4 = (cfg.paperWidth as any) === 'a4';
+    const widthMM = isA4 ? '190mm' : (PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm');
 
     const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -1392,8 +1411,8 @@ export class POSPrinterService {
   <title>Ticket #${receiptData.invoiceNumber}</title>
   <style>
     @page {
-      size: ${widthMM} auto;
-      margin: 0;
+      size: ${isA4 ? 'A4' : `${widthMM} auto`};
+      margin: ${isA4 ? '15mm' : '0'};
     }
     *, *::before, *::after {
       box-sizing: border-box;
@@ -1403,15 +1422,15 @@ export class POSPrinterService {
       print-color-adjust: exact !important;
       color-adjust: exact !important;
     }
-    @media print {
-      /* Forzar threshold térmico en impresión */
+    ${isA4 ? '' : `@media print {
+      /* Forzar threshold térmico en impresión (solo térmica, no A4) */
       img {
         filter: url(#logoThermalThreshold) grayscale(1) contrast(5) brightness(0.4) saturate(0) !important;
         image-rendering: crisp-edges !important;
         image-rendering: -webkit-optimize-contrast !important;
         image-rendering: pixelated !important;
       }
-    }
+    }`}
     body {
       font-family: 'Courier New', Courier, monospace;
       font-size: 13px;
@@ -1419,6 +1438,7 @@ export class POSPrinterService {
       color: #000;
       background: #fff;
       width: ${widthMM};
+      margin: 0 auto;   /* centrado: evita que se corra a la derecha en papel más ancho */
       font-weight: 700;
     }
     .receipt {
@@ -1593,7 +1613,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
   // ─── ESC/POS commands ─────────────────────────────────────────────────────────
 
   private generateESCPOS(receiptData: ReceiptData, cfg: ReceiptConfig): Uint8Array {
-    const charWidth = cfg.paperWidth;
+    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
     const cmds: number[] = [];
 
     const push = (...bytes: number[]) => cmds.push(...bytes);

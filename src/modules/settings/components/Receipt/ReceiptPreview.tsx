@@ -7,7 +7,7 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
 import { useSettings } from '@/hooks/useSettings';
 
 interface ReceiptConfig {
-  paperWidth: number;
+  paperWidth: number | 'a4';
   showLogo: boolean;
   logoUrl?: string;
   showStoreName: boolean;

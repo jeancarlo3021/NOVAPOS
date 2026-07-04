@@ -6,7 +6,7 @@ import { storageService } from '@/services/storage/storageService';
 import { useAuth } from '@/context/AuthContext';
 
 interface ReceiptConfig {
-  paperWidth: 32 | 40 | 48 | 56 | 80;
+  paperWidth: 32 | 40 | 48 | 56 | 80 | 'a4';
   showLogo: boolean;
   logoUrl?: string;
   [key: string]: any;
@@ -22,9 +22,10 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const paperWidths = [
+  const paperWidths: { value: 32 | 48 | 'a4'; label: string }[] = [
     { value: 32, label: '58 mm' },
     { value: 48, label: '80 mm' },
+    { value: 'a4', label: 'A4 (hoja)' },
   ];
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,23 +81,27 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
       {/* Ancho de Papel */}
       <div>
         <h3 className="text-lg font-bold text-gray-900 mb-4">Ancho de Papel</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {paperWidths.map(width => (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {paperWidths.map(width => {
+            const current = (config.paperWidth as any) === 'a4' ? 'a4' : (Number(config.paperWidth) <= 32 ? 32 : 48);
+            const active = current === width.value;
+            return (
             <button
               key={width.value}
               onClick={() => setConfig({ ...config, paperWidth: width.value as any })}
               className={`p-4 border-2 rounded-lg text-left transition ${
-                (config.paperWidth <= 32 ? 32 : 48) === width.value
+                active
                   ? 'border-blue-600 bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
               <p className="font-semibold text-gray-900">{width.label}</p>
               <p className="text-sm text-gray-500">
-                {width.value === 48 ? 'Impresora térmica 80mm' : 'Impresora térmica 58mm'}
+                {width.value === 'a4' ? 'Hoja completa (impresora normal)' : width.value === 48 ? 'Impresora térmica 80mm' : 'Impresora térmica 58mm'}
               </p>
             </button>
-          ))}
+          );
+          })}
         </div>
       </div>
 

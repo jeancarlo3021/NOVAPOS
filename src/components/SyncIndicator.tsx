@@ -8,8 +8,8 @@ export function SyncIndicator() {
   const isPOS = pathname === '/pos' || pathname.startsWith('/pos/');
   const topClass = isPOS ? 'top-2' : 'top-14';
 
-  // Ocultar el indicador en Distribución/Repartidor (vistas de campo).
-  if (['/distribution', '/driver', '/repartidor'].some(p => pathname.startsWith(p))) return null;
+  // Ocultar el indicador en Distribución/Repartidor (vistas de campo) y en Reportes.
+  if (['/distribution', '/driver', '/repartidor', '/reports', '/branch-reports'].some(p => pathname.startsWith(p))) return null;
 
   // En tablets/dispositivos táctiles ocultamos el "En línea" (solo avisamos si NO hay conexión).
   const isTouch = typeof window !== 'undefined'
