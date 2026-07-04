@@ -11,6 +11,11 @@ export function SyncIndicator() {
   // Ocultar el indicador en Distribución/Repartidor (vistas de campo).
   if (['/distribution', '/driver', '/repartidor'].some(p => pathname.startsWith(p))) return null;
 
+  // En tablets/dispositivos táctiles ocultamos el "En línea" (solo avisamos si NO hay conexión).
+  const isTouch = typeof window !== 'undefined'
+    && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  if (isOnline && isTouch) return null;
+
   return (
     <div
       className={`fixed ${topClass} right-4 p-4 rounded-lg shadow-lg flex items-center gap-3 transition z-40 ${

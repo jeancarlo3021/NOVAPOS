@@ -9,6 +9,8 @@ export interface ExpenseFormModalProps {
   tenantId: string;
   categories: ExpenseCategory[];
   editing: Expense | null;
+  /** Valores prellenados (modo crear) — ej. al importar una factura XML. */
+  prefill?: Partial<ExpenseFormData>;
 }
 
 export interface CategoryFormModalProps {

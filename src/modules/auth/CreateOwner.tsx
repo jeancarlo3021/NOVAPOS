@@ -7,8 +7,9 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal,
+  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound,
 } from 'lucide-react';
+import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import type { OwnerData } from './components/RenewModal';
@@ -56,7 +57,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'receipts' | 'sandbox';
+type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'receipts' | 'sandbox' | 'team';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -87,6 +88,20 @@ export const CreateOwner: React.FC = () => {
   useEffect(() => {
     apiFetch<any[]>('/admin/fe-plans').then(l => setFePlans(Array.isArray(l) ? l : [])).catch(() => {});
   }, []);
+
+  const setEmisorApiKey = async (o: OwnerData) => {
+    try {
+      const cur = await apiFetch<any>(`/admin/tenants/${o.id}/fe-config`).catch(() => ({}));
+      const existing = cur?.fe ?? {};
+      const key = window.prompt(`ApiKey del emisor (Facturemos) para "${o.name}":`, existing.api_key_emisor ?? '');
+      if (key === null) return;
+      await apiFetch(`/admin/tenants/${o.id}/fe-config`, {
+        method: 'PUT',
+        body: JSON.stringify({ fe: { ...existing, api_key_emisor: key.trim() } }),
+      });
+      setSuccess('ApiKey del emisor guardada');
+    } catch (err: any) { setError(err.message || 'No se pudo guardar la ApiKey'); }
+  };
 
   const assignFePlan = async (tenantId: string, fePlanId: string) => {
     try {
@@ -470,6 +485,7 @@ export const CreateOwner: React.FC = () => {
             { id: 'groups'     as AdminTab, label: 'Grupos',       icon: Layers },
             { id: 'fe_kiosk'   as AdminTab, label: 'FE & Kiosk',   icon: FileText },
             { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
+            { id: 'team'       as AdminTab, label: 'Equipo',       icon: Users2 },
             { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
           ].map(t => {
             const Icon = t.icon;
@@ -495,6 +511,23 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'sandbox' && (
         <div className="max-w-5xl mx-auto p-6">
           <PrinterSandbox />
+        </div>
+      )}
+
+      {activeTab === 'team' && (
+        <div className="max-w-7xl mx-auto p-6">
+          <div className="mb-3">
+            <h2 className="text-lg font-black text-gray-900">Equipo del sistema</h2>
+            <p className="text-sm text-gray-500">Usuarios internos, roles y permisos del panel de administración.</p>
+          </div>
+          <div className="mb-4 flex items-start gap-2 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+            <Users2 size={16} className="text-indigo-600 mt-0.5 shrink-0" />
+            <p className="text-sm text-indigo-800">
+              <strong>Cuentas del sistema.</strong> Estas son las cuentas del <b>equipo interno</b> con acceso al Panel Admin.
+              No son los usuarios de los negocios (esos se gestionan dentro de cada negocio).
+            </p>
+          </div>
+          <UsersModule />
         </div>
       )}
 
@@ -955,6 +988,10 @@ export const CreateOwner: React.FC = () => {
                                       {fePlans.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
                                   </div>
+                                  <button onClick={() => { setOpenMenuId(null); setEmisorApiKey(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">
+                                    <KeyRound size={13} /> ApiKey del emisor
+                                  </button>
                                   <div className="my-1 border-t border-gray-100" />
                                   <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'new-business'); }} disabled={emailingId === o.id}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40">

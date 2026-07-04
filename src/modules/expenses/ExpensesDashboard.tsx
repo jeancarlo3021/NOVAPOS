@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Plus, Pencil, Trash2, Search, Filter, RefreshCw,
-  DollarSign, TrendingDown, Tag, Download,
+  DollarSign, TrendingDown, Tag, Download, FileText,
   Bell, RotateCw, Power, AlertCircle, Check,
 } from 'lucide-react';
+import { parseFeXml, medioPagoToMethod } from '@/services/hacienda/feReception';
 import { useTenantId } from '@/hooks/useTenant';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
@@ -76,6 +77,33 @@ export const ExpensesDashboard: React.FC = () => {
 
   const [showExpenseModal,    setShowExpenseModal]    = useState(false);
   const [editingExpense,      setEditingExpense]       = useState<Expense | null>(null);
+  const [expensePrefill,      setExpensePrefill]       = useState<Partial<ExpenseFormData> | undefined>(undefined);
+  const xmlInputRef = useRef<HTMLInputElement>(null);
+
+  // Importar factura electrónica (XML) del proveedor → prellenar un gasto.
+  const handleImportXml = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';   // permite re-subir el mismo archivo
+    if (!file) return;
+    try {
+      const xml = await file.text();
+      const fe = parseFeXml(xml);
+      const factura = fe.consecutivo || fe.clave.slice(-10) || 's/n';
+      const descLineas = fe.lineas.map(l => l.detalle).filter(Boolean).slice(0, 3).join(', ');
+      setEditingExpense(null);
+      setExpensePrefill({
+        description: `${fe.emisor.nombre || 'Proveedor'} · Factura ${factura}${descLineas ? ` (${descLineas})` : ''}`,
+        amount: String(fe.total || ''),
+        date: (fe.fecha || '').slice(0, 10) || undefined as any,
+        payment_method: medioPagoToMethod(fe.medioPago) as any,
+        reference: fe.clave || undefined as any,
+        notes: fe.lineas.map(l => `${l.cantidad} x ${l.detalle} = ${l.montoTotal}`).join('\n'),
+      });
+      setShowExpenseModal(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'No se pudo leer el XML');
+    }
+  };
   const [showCategoryModal,   setShowCategoryModal]   = useState(false);
   const [editingCategory,     setEditingCategory]     = useState<ExpenseCategory | null>(null);
   const [showGeneralPicker,   setShowGeneralPicker]   = useState(false);
@@ -243,13 +271,24 @@ export const ExpensesDashboard: React.FC = () => {
             </p>
           </div>
           {canCreate && (
-            <button
-              onClick={() => { setEditingExpense(null); setShowExpenseModal(true); }}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition"
-            >
-              <Plus size={16} /> Nuevo Gasto
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => xmlInputRef.current?.click()}
+                title="Registrar un gasto desde la factura electrónica (XML) del proveedor"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition"
+              >
+                <FileText size={16} /> Importar XML
+              </button>
+              <button
+                onClick={() => { setEditingExpense(null); setExpensePrefill(undefined); setShowExpenseModal(true); }}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition"
+              >
+                <Plus size={16} /> Nuevo Gasto
+              </button>
+            </div>
           )}
+          <input ref={xmlInputRef} type="file" accept=".xml,text/xml,application/xml" className="hidden"
+            onChange={handleImportXml} />
         </div>
 
         <div className="flex gap-1 mt-4 flex-wrap">
@@ -627,11 +666,12 @@ export const ExpensesDashboard: React.FC = () => {
       {/* Modals */}
       <ExpenseFormModal
         open={showExpenseModal}
-        onClose={() => { setShowExpenseModal(false); setEditingExpense(null); }}
+        onClose={() => { setShowExpenseModal(false); setEditingExpense(null); setExpensePrefill(undefined); }}
         onSaved={loadExpenses}
         tenantId={tenantId ?? ''}
         categories={categories}
         editing={editingExpense}
+        prefill={expensePrefill}
       />
       <CategoryFormModal
         open={showCategoryModal}

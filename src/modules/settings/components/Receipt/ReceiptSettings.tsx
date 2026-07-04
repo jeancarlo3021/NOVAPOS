@@ -89,10 +89,11 @@ export const ReceiptSettings: React.FC = () => {
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        // La config de IMPRESORA es LOCAL por dispositivo (no se comparte entre equipos).
+        // La config de IMPRESORA se guarda LOCAL por dispositivo (se sobrepone).
         if (tenantId) posPrinterService.saveLocalPrinterConfig(tenantId, config as any);
-        // Al tenant se guarda solo el contenido/marca (sin campos de impresora).
-        await updateSettings(posPrinterService.withoutLocalPrinter(config as any) as any);
+        // Al tenant se guarda TODO (incluida la impresora) para que los dispositivos
+        // sin config local tengan un printerType válido (no caer al diálogo de Chrome).
+        await updateSettings(config as any);
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       } catch {

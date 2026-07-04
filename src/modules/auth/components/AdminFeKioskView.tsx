@@ -15,6 +15,7 @@ interface FeConfig {
   enabled?:               boolean;
   simplificado?:          boolean;
   environment?:           'sandbox' | 'production';
+  api_key_emisor?:        string;   // llave del emisor (Facturemos) por negocio
   default_document_type?: 'ticket' | 'tiquete_electronico' | 'factura_electronica';
   // Cuota de comprobantes (acumulable) + cobro por excedente.
   fe_included_docs?:      number;   // facturas + tiquetes por mes (0 = ilimitado)

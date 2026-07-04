@@ -261,8 +261,9 @@ export class POSPrinterService {
   async bluetoothStatus(tenantId: string): Promise<{ configured: boolean; connected: boolean }> {
     try {
       const cfg = await this.loadReceiptConfig(tenantId);
-      if (cfg.printerType !== 'bluetooth') return { configured: false, connected: true };
       const stations = (cfg.printers ?? []).filter((p: any) => p.is_active && p.connection === 'bluetooth');
+      // Configurada si hay estaciones BT (aunque printerType se haya perdido).
+      if (stations.length === 0 && cfg.printerType !== 'bluetooth') return { configured: false, connected: true };
       if (stations.length === 0) return { configured: false, connected: true };
       const { btIsConnectedFor } = await import('./bluetoothPrinterService');
       const connected = stations.every((st: any) => btIsConnectedFor(st.id));
@@ -273,11 +274,11 @@ export class POSPrinterService {
   async reconnectBluetooth(tenantId: string): Promise<void> {
     try {
       const cfg = await this.loadReceiptConfig(tenantId);
-      if (cfg.printerType !== 'bluetooth') return;
-      const { btReconnectFor, btIsConnectedFor } = await import('./bluetoothPrinterService');
       const stations = (cfg.printers ?? []).filter(
         (p: any) => p.is_active && p.connection === 'bluetooth',
       );
+      if (stations.length === 0) return;   // no hay impresora BT configurada
+      const { btReconnectFor, btIsConnectedFor } = await import('./bluetoothPrinterService');
       for (const st of stations) {
         if (btIsConnectedFor(st.id)) continue;
         try { await btReconnectFor(st.id, (st as any).bt_mode ?? 'ble', (st as any).bt_device_id); }
@@ -322,13 +323,17 @@ export class POSPrinterService {
     const copies = receiptData.copyLabel ? 1 : Math.max(1, Math.min(2, Number(cfg.printCopies ?? 1)));
 
     // Bluetooth: enviar bytes ESC/POS a las estaciones de recibo (caja principal).
-    if (cfg.printerType === 'bluetooth') {
+    // También entramos por acá si hay estaciones Bluetooth configuradas aunque
+    // printerType no sea 'bluetooth' (evita caer al diálogo de Chrome si se
+    // perdió el tipo por sincronización de config).
+    const btStations = (cfg.printers ?? []).filter(
+      (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
+    );
+    if (cfg.printerType === 'bluetooth' || btStations.length > 0) {
       const bytes = this.generateESCPOS(receiptData, cfg);
       const { btPrint, btPrintTo, btReconnectFor, btIsConnectedFor } =
         await import('./bluetoothPrinterService');
-      const receiptStations = (cfg.printers ?? []).filter(
-        (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
-      );
+      const receiptStations = btStations;
       if (receiptStations.length > 0) {
         for (const st of receiptStations) {
           // Reconexión SILENCIOSA (sin selector): el permiso del dispositivo

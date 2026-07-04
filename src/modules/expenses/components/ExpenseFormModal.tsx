@@ -33,7 +33,7 @@ const EMPTY_FORM: ExpenseFormData = {
   notes: '',
 };
 
-function ExpenseFormModal({ open, onClose, onSaved, tenantId, categories, editing }: ExpenseFormModalProps) {
+function ExpenseFormModal({ open, onClose, onSaved, tenantId, categories, editing, prefill }: ExpenseFormModalProps) {
   const [form, setForm] = useState<ExpenseFormData>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -51,10 +51,11 @@ function ExpenseFormModal({ open, onClose, onSaved, tenantId, categories, editin
         notes: editing.notes ?? '',
       });
     } else {
-      setForm({ ...EMPTY_FORM, date: today() });
+      // Modo crear: base vacía + valores prellenados (ej. importados de un XML).
+      setForm({ ...EMPTY_FORM, date: today(), ...(prefill ?? {}) });
     }
     setError('');
-  }, [editing, open]);
+  }, [editing, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
 
