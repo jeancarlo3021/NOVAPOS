@@ -1,12 +1,73 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   HandCoins, Plus, X, Search, RefreshCw, Loader2,
-  CheckCircle2, Trash2, Wallet,
+  CheckCircle2, Trash2, Wallet, Printer, FileText, Clock,
 } from 'lucide-react';
 import { accountsReceivableService, type Receivable, type ReceivableSummary } from '@/services/accountsReceivable/accountsReceivableService';
 import { customersService, type Customer } from '@/services/customers/customersService';
+import { posPrinterService } from '@/services/pos/posPrinterService';
+import { useTenantId } from '@/hooks/useTenant';
+import { PrintTicketModal } from '@/modules/distribution/PrintTicketModal';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+
+type DocLine = { t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string };
+const METHOD_LABEL: Record<string, string> = { cash: 'Efectivo', card: 'Tarjeta', sinpe: 'SINPE', transfer: 'Transf.', check: 'Cheque' };
+const dateOnly = (iso?: string) => (iso ? String(iso).slice(0, 10) : '');
+
+/** Comprobante del ABONO recién registrado. */
+function docAbono(ar: Receivable, amount: number, method: string, newBalance: number): DocLine[] {
+  return [
+    { t: 'title', a: 'COMPROBANTE DE ABONO' },
+    { t: 'center', a: new Date().toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }) },
+    { t: 'sep' },
+    { t: 'row', a: 'Cliente:', b: (ar.customer_name ?? 'Cliente').slice(0, 20) },
+    ...(ar.invoice_number ? [{ t: 'row' as const, a: 'Factura:', b: ar.invoice_number }] : []),
+    { t: 'row', a: 'Método:', b: METHOD_LABEL[method] ?? method },
+    { t: 'sep' },
+    { t: 'title', a: `ABONO: ${fmt(amount)}` },
+    { t: 'row', a: 'Saldo anterior:', b: fmt(newBalance + amount) },
+    { t: 'row', a: 'Nuevo saldo:', b: fmt(newBalance) },
+    { t: 'sep' },
+    { t: 'center', a: 'Gracias por su pago' },
+  ];
+}
+
+/** Lista de facturas/cuentas pendientes, DESGLOSADAS por cliente y factura. */
+function docPendientes(rows: Receivable[]): DocLine[] {
+  const pend = rows.filter(r => Number(r.total_amount) - Number(r.paid_amount) > 0);
+  const total = pend.reduce((s, r) => s + (Number(r.total_amount) - Number(r.paid_amount)), 0);
+
+  // Agrupar por cliente.
+  const byCustomer = new Map<string, Receivable[]>();
+  for (const r of pend) {
+    const key = r.customer_name ?? 'Sin cliente';
+    (byCustomer.get(key) ?? byCustomer.set(key, []).get(key)!).push(r);
+  }
+
+  const lines: DocLine[] = [
+    { t: 'title', a: 'FACTURAS PENDIENTES' },
+    { t: 'center', a: new Date().toLocaleDateString('es-CR') },
+    { t: 'sep' },
+  ];
+  if (pend.length === 0) {
+    lines.push({ t: 'center', a: '(sin facturas pendientes)' });
+  } else {
+    for (const [cliente, cuentas] of [...byCustomer.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'))) {
+      const subtotal = cuentas.reduce((s, r) => s + (Number(r.total_amount) - Number(r.paid_amount)), 0);
+      lines.push({ t: 'row', a: cliente.slice(0, 26), b: fmt(subtotal) });
+      for (const r of cuentas) {
+        const saldo = Number(r.total_amount) - Number(r.paid_amount);
+        const ref = r.invoice_number ? `Fact. ${r.invoice_number}` : `Cuenta ${dateOnly(r.created_at)}`;
+        lines.push({ t: 'row', a: `  ${ref}`, b: fmt(saldo) });
+        lines.push({ t: 'text', a: `    Total ${fmt(r.total_amount)} · Abon. ${fmt(r.paid_amount)}` });
+      }
+    }
+    lines.push({ t: 'sep' });
+    lines.push({ t: 'row', a: `Cuentas: ${pend.length}`, b: `Saldo ${fmt(total)}` });
+  }
+  return lines;
+}
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   pending: { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700' },
@@ -25,6 +86,21 @@ export const AccountsReceivableDashboard: React.FC = () => {
   const [zoneFilter, setZoneFilter] = useState('');
   const [payTarget, setPayTarget] = useState<Receivable | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const { tenantId } = useTenantId();
+  const [printJob, setPrintJob] = useState<{ title: string; lines: DocLine[] } | null>(null);
+  const [pickMode, setPickMode] = useState<'pendientes' | 'historico' | null>(null);
+
+  // Bluetooth → modal de reintentar/reconexión; corriente (térmica/navegador/QZ) → directo.
+  const printDoc = async (title: string, lines: DocLine[]) => {
+    try {
+      const cfg: any = await posPrinterService.loadReceiptConfig(tenantId ?? '');
+      // Solo Bluetooth muestra el modal de reintentar; el resto imprime directo.
+      if (cfg.printerType === 'bluetooth') { setPrintJob({ title, lines }); return; }
+      await posPrinterService.printDoc(lines as any, tenantId ?? '');   // impresión directa (navegador/QZ)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudo imprimir');
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +137,14 @@ export const AccountsReceivableDashboard: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={load} className="p-2 rounded-lg bg-white/15 hover:bg-white/25"><RefreshCw size={18} /></button>
+            <button onClick={() => setPickMode('pendientes')}
+              className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-lg text-sm">
+              <FileText size={16} /> Pendientes
+            </button>
+            <button onClick={() => setPickMode('historico')}
+              className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-lg text-sm">
+              <Clock size={16} /> Histórico
+            </button>
             <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 bg-white text-emerald-700 font-bold px-3 py-2 rounded-lg text-sm">
               <Plus size={16} /> Nueva cuenta
             </button>
@@ -151,26 +235,46 @@ export const AccountsReceivableDashboard: React.FC = () => {
         )}
       </div>
 
-      {payTarget && <PayModal ar={payTarget} onClose={() => setPayTarget(null)} onDone={async () => { setPayTarget(null); await load(); }} />}
+      {payTarget && <PayModal ar={payTarget} onClose={() => setPayTarget(null)} onDone={async () => { setPayTarget(null); await load(); }} onPrint={printDoc} />}
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onDone={async () => { setShowCreate(false); await load(); }} />}
+
+      {pickMode && (
+        <PrintPickerModal mode={pickMode} rows={rows} onClose={() => setPickMode(null)} onPrint={printDoc} />
+      )}
+
+      {printJob && (
+        <PrintTicketModal
+          tenantId={tenantId ?? ''}
+          printFn={() => posPrinterService.printDoc(printJob.lines as any, tenantId ?? '')}
+          onClose={() => setPrintJob(null)}
+        />
+      )}
     </div>
   );
 };
 
 // ── Modal: abonar ────────────────────────────────────────────────────────────
-function PayModal({ ar, onClose, onDone }: { ar: Receivable; onClose: () => void; onDone: () => void }) {
+function PayModal({ ar, onClose, onDone, onPrint }: {
+  ar: Receivable; onClose: () => void; onDone: () => void;
+  onPrint: (title: string, lines: DocLine[]) => void;
+}) {
   const balance = Number(ar.total_amount) - Number(ar.paid_amount);
   const [amount, setAmount] = useState<string>(String(balance));
   const [method, setMethod] = useState<'cash' | 'card' | 'sinpe'>('cash');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  // Abono registrado (para ofrecer imprimir el comprobante del abono).
+  const [paid, setPaid] = useState<{ amount: number; method: string; newBalance: number } | null>(null);
 
   const pay = async () => {
     const n = Number(amount);
     if (!n || n <= 0) { setErr('Monto inválido'); return; }
     if (n > balance) { setErr('El abono supera el saldo'); return; }
     setSaving(true); setErr('');
-    try { await accountsReceivableService.pay(ar.id, n, method); onDone(); }
+    try {
+      await accountsReceivableService.pay(ar.id, n, method);
+      setPaid({ amount: n, method, newBalance: balance - n });   // muestra opción de imprimir
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Error'); }
     finally { setSaving(false); }
   };
@@ -180,11 +284,27 @@ function PayModal({ ar, onClose, onDone }: { ar: Receivable; onClose: () => void
       <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div>
-            <h2 className="font-black text-gray-900">Registrar abono</h2>
-            <p className="text-xs text-gray-400">{ar.customer_name ?? 'Cliente'} · saldo {fmt(balance)}</p>
+            <h2 className="font-black text-gray-900">{paid ? 'Abono registrado' : 'Registrar abono'}</h2>
+            <p className="text-xs text-gray-400">{ar.customer_name ?? 'Cliente'} · saldo {fmt(paid ? paid.newBalance : balance)}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+          <button onClick={paid ? onDone : onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
         </div>
+
+        {paid ? (
+          /* ── Éxito: imprimir el abono ── */
+          <div className="p-5 space-y-3 text-center">
+            <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto"><CheckCircle2 size={28} className="text-emerald-600" /></div>
+            <p className="text-sm text-gray-600">Abono de <b>{fmt(paid.amount)}</b> registrado. Nuevo saldo <b>{fmt(paid.newBalance)}</b>.</p>
+            <button onClick={() => onPrint('Comprobante de abono', docAbono(ar, paid.amount, paid.method, paid.newBalance))}
+              className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 rounded-xl text-sm">
+              <Printer size={16} /> Imprimir abono
+            </button>
+            <button onClick={onDone}
+              className="w-full flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-sm">
+              Cerrar
+            </button>
+          </div>
+        ) : (
         <div className="p-5 space-y-3">
           {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
           <div>
@@ -212,6 +332,7 @@ function PayModal({ ar, onClose, onDone }: { ar: Receivable; onClose: () => void
             {saving ? 'Guardando…' : <><CheckCircle2 size={16} /> Registrar abono</>}
           </button>
         </div>
+        )}
       </div>
     </div>
   );
@@ -287,6 +408,129 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           <button onClick={save} disabled={saving}
             className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black py-3 rounded-xl text-sm">
             {saving ? 'Guardando…' : <><Plus size={16} /> Crear cuenta</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: seleccionar cliente (y fechas) para imprimir ──────────────────────
+function PrintPickerModal({ mode, rows, onClose, onPrint }: {
+  mode: 'pendientes' | 'historico';
+  rows: Receivable[];
+  onClose: () => void;
+  onPrint: (title: string, lines: DocLine[]) => void;
+}) {
+  // Clientes únicos con cuentas.
+  const clientes = Array.from(
+    new Map(rows.map(r => [r.customer_id ?? r.customer_name ?? '—', { id: r.customer_id ?? '', name: r.customer_name ?? 'Sin cliente' }])).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+  const [cliente, setCliente] = useState('');   // '' = todos (solo pendientes)
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const rowsOf = () => cliente
+    ? rows.filter(r => (r.customer_id ?? r.customer_name ?? '') === cliente)
+    : rows;
+  const clienteName = clientes.find(c => (c.id || c.name) === cliente)?.name;
+
+  const doPrint = async () => {
+    setErr('');
+    if (mode === 'pendientes') {
+      onPrint(`Pendientes${clienteName ? ' · ' + clienteName : ''}`, docPendientes(rowsOf()));
+      onClose();
+      return;
+    }
+    // Histórico: requiere cliente. Junta los abonos de sus cuentas en el rango.
+    if (!cliente) { setErr('Elegí un cliente para el histórico'); return; }
+    setBusy(true);
+    try {
+      const custRows = rowsOf();
+      // Por cada CUENTA: sus abonos en el rango + estado (pagada / saldo).
+      const accounts: Array<{
+        inv: string; pays: Array<{ d: string; method: string; amount: number }>;
+        paidInRange: number; balance: number; settled: boolean;
+      }> = [];
+      let total = 0, cuentasPagadas = 0;
+      for (const r of custRows) {
+        const full = await accountsReceivableService.get(r.id).catch(() => null);
+        const pays = (full?.payments ?? [])
+          .map(p => ({ d: dateOnly(p.created_at), method: p.method, amount: Number(p.amount || 0) }))
+          .filter(p => (!from || p.d >= from) && (!to || p.d <= to))
+          .sort((a, b) => a.d.localeCompare(b.d));
+        if (pays.length === 0) continue;
+        const paidInRange = pays.reduce((s, p) => s + p.amount, 0);
+        const balance = Number(r.total_amount) - Number(r.paid_amount);
+        const settled = balance <= 0;
+        if (settled) cuentasPagadas++;
+        total += paidInRange;
+        const invNum = full?.invoice_number ?? r.invoice_number;
+        const label = invNum ? `Fact. ${invNum}` : `Cuenta ${dateOnly(r.created_at)}`;
+        accounts.push({ inv: label, pays, paidInRange, balance, settled });
+      }
+
+      const lines: DocLine[] = [
+        { t: 'title', a: 'HISTORICO DE ABONOS' },
+        { t: 'center', a: (clienteName ?? 'Cliente').slice(0, 24) },
+        { t: 'center', a: `${from || '...'} a ${to || '...'}` },
+        { t: 'sep' },
+      ];
+      if (accounts.length === 0) {
+        lines.push({ t: 'center', a: '(sin abonos en el periodo)' });
+      } else {
+        for (const a of accounts) {
+          lines.push({ t: 'row', a: a.inv, b: a.settled ? 'PAGADA' : `saldo ${fmt(a.balance)}` });
+          for (const p of a.pays) lines.push({ t: 'row', a: `  ${p.d} ${METHOD_LABEL[p.method] ?? p.method}`, b: fmt(p.amount) });
+        }
+        lines.push({ t: 'sep' });
+        lines.push({ t: 'row', a: 'Cuentas abonadas:', b: String(accounts.length) });
+        lines.push({ t: 'row', a: 'Cuentas pagadas:', b: String(cuentasPagadas) });
+        lines.push({ t: 'row', a: 'Total abonado:', b: fmt(total) });
+      }
+      onPrint(`Histórico · ${clienteName ?? ''}`, lines);
+      onClose();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Error'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-black text-gray-900">{mode === 'pendientes' ? 'Imprimir pendientes' : 'Imprimir histórico'}</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Cliente</label>
+            <select value={cliente} onChange={e => setCliente(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="">{mode === 'pendientes' ? 'Todos los clientes' : '— Elegí un cliente —'}</option>
+              {clientes.map(c => <option key={c.id || c.name} value={c.id || c.name}>{c.name}</option>)}
+            </select>
+          </div>
+          {mode === 'historico' && (
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Desde</label>
+                <input type="date" value={from} onChange={e => setFrom(e.target.value)} max={to || undefined}
+                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+              </div>
+              <div className="flex-1">
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Hasta</label>
+                <input type="date" value={to} onChange={e => setTo(e.target.value)} min={from || undefined}
+                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+              </div>
+            </div>
+          )}
+          <button onClick={doPrint} disabled={busy}
+            className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black py-3 rounded-xl text-sm">
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />} Imprimir
           </button>
         </div>
       </div>

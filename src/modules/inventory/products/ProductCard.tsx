@@ -3,6 +3,8 @@ import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader } f
 import { Card, Badge } from '@/components/ui/uiComponents';
 import { Product } from '@/types/Types_POS';
 import { useAuth } from '@/context/AuthContext';
+import { useTenantId } from '@/hooks/useTenant';
+import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { calcMargin, MARGIN_TEXT, MARGIN_BG } from '@/utils/priceUtils';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 
@@ -20,7 +22,19 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDelete, onUpdated }) => {
   const { planFeatures, isReadOnly } = useAuth();
+  const { tenantId } = useTenantId();
   const isProductsOnly = planFeatures?.inventory_products_only ?? false;
+
+  // IVA activado en la configuración → mostramos el IVA por producto.
+  const taxEnabled = (() => {
+    try {
+      const c = cacheGet<any>(cacheKey(tenantId ?? '', 'settings_general')) ?? cacheGet<any>(cacheKey(tenantId ?? '', 'general_settings'));
+      const cfg = c?.config ?? c;
+      return cfg?.taxEnabled !== false;   // por defecto activado
+    } catch { return true; }
+  })();
+  const ivaRate = (product as any).iva_rate;
+  const showIva = taxEnabled && ivaRate != null && ivaRate !== '';
 
   // ── Inline price editor ─────────────────────────────────────────────────────
   const [editingPrice, setEditingPrice] = useState(false);
@@ -95,7 +109,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           </div>
 
           {(onEdit || onDelete) && (
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity ml-2">
               {onEdit && (
                 <button onClick={onEdit} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition" title="Editar">
                   <Edit2 size={16} />
@@ -143,6 +157,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
                 {(product.cost_price ?? 0) > 0 && (
                   <span className="text-xs text-gray-400">
                     costo ₡{product.cost_price!.toLocaleString('es-CR', { minimumFractionDigits: 0 })}
+                  </span>
+                )}
+                {showIva && (
+                  <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700">
+                    IVA {Number(ivaRate) === 0 ? 'Exento' : `${Number(ivaRate)}%`}
                   </span>
                 )}
               </div>

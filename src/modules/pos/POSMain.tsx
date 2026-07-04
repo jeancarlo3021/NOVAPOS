@@ -344,8 +344,21 @@ export const POSMain = () => {
   }, []);
 
   const subtotal = Math.round(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
-  const effectiveTaxRate = taxEnabled ? taxRate : 0;
-  const taxAmount = Math.round(subtotal * effectiveTaxRate);
+  // IVA por producto (usa el iva_rate de cada producto; si no tiene, el IVA global).
+  // Desglosado por tasa para mostrar cada IVA por separado en el carrito.
+  const { taxAmount, taxBreakdown } = (() => {
+    if (!taxEnabled) return { taxAmount: 0, taxBreakdown: {} as Record<number, number> };
+    const bd: Record<number, number> = {};
+    let total = 0;
+    for (const item of cartItems) {
+      const raw = (item.product as any).iva_rate;
+      const ratePct = raw != null && raw !== '' ? Number(raw) : taxRate * 100;
+      const t = Math.round(item.subtotal * (ratePct / 100));
+      if (t !== 0 || ratePct > 0) bd[ratePct] = (bd[ratePct] ?? 0) + t;
+      total += t;
+    }
+    return { taxAmount: total, taxBreakdown: bd };
+  })();
   const total = subtotal + taxAmount;
 
   // ── Atajos de teclado estilo Eleventa ─────────────────────────────────
@@ -953,6 +966,7 @@ export const POSMain = () => {
             total={total}
             taxEnabled={taxEnabled}
             taxRate={taxRate}
+            taxBreakdown={taxBreakdown}
             currentSession={currentSession}
             loading={paymentLoading}
             canDiscount={planFeatures.pos_discount && maxDiscountPercent > 0}
@@ -983,6 +997,7 @@ export const POSMain = () => {
             total={total}
             taxEnabled={taxEnabled}
             taxRate={taxRate}
+            taxBreakdown={taxBreakdown}
             currentSession={currentSession}
             loading={paymentLoading}
             canDiscount={planFeatures.pos_discount && maxDiscountPercent > 0}

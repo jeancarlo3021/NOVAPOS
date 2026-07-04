@@ -12,6 +12,7 @@ import {
 } from '@/services/promotions/promotionsService';
 import { categoriesService } from '@/services/Inventory/categoriesService';
 import { useTenantId } from '@/hooks/useTenant';
+import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSLayout } from '@/hooks/usePOSLayout';
 import { ProductSearchModal } from './ProductSearchModal';
 
@@ -66,6 +67,15 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 }) => {
   const { tenantId } = useTenantId();
   const { layout } = usePOSLayout();
+
+  // IVA activado en la configuración → mostramos el IVA por producto en el POS.
+  const taxEnabled = (() => {
+    try {
+      const c = cacheGet<any>(cacheKey(tenantId ?? '', 'settings_general')) ?? cacheGet<any>(cacheKey(tenantId ?? '', 'general_settings'));
+      const cfg = c?.config ?? c;
+      return cfg?.taxEnabled !== false;
+    } catch { return true; }
+  })();
   // Categoría activa: 'all' o el id de la categoría seleccionada.
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [weightProduct, setWeightProduct]   = useState<Product | null>(null);
@@ -494,6 +504,11 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                         </span>
                         {hasSpecial && (
                           <span className="block text-[10px] font-bold text-violet-600 uppercase tracking-wide">Precio cliente</span>
+                        )}
+                        {taxEnabled && (product as any).iva_rate != null && (product as any).iva_rate !== '' && (
+                          <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700">
+                            IVA {Number((product as any).iva_rate) === 0 ? 'Exento' : `${Number((product as any).iva_rate)}%`}
+                          </span>
                         )}
                       </span>
                     );

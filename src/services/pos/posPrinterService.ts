@@ -567,6 +567,88 @@ export class POSPrinterService {
     await qzPrintDefault(bytes).catch(() => { throw new Error('Configurá una impresora para el cierre'); });
   }
 
+  /** Envía bytes ESC/POS a las estaciones configuradas (BT / QZ / default). */
+  private async sendBytes(bytes: Uint8Array, cfg: ReceiptConfig): Promise<void> {
+    const btStations = (cfg.printers ?? []).filter(
+      (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
+    );
+    if (cfg.printerType === 'bluetooth') {
+      const { btPrint, btPrintTo, btReconnectFor, btIsConnectedFor } = await import('./bluetoothPrinterService');
+      if (btStations.length > 0) {
+        for (const st of btStations) {
+          if (!btIsConnectedFor(st.id)) {
+            try { await btReconnectFor(st.id, (st as any).bt_mode ?? 'ble', (st as any).bt_device_id); } catch { /* el print dará el error */ }
+          }
+          await btPrintTo(st.id, bytes);
+        }
+      } else { await btPrint(bytes); }
+      return;
+    }
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
+      await qzConnect();
+      const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
+      if (receiptPrinters.length > 0) { for (const printer of receiptPrinters) await qzPrintToPrinter(printer, bytes); }
+      else await qzPrintDefault(bytes);
+      return;
+    }
+    await qzPrintDefault(bytes).catch(() => { throw new Error('Configurá una impresora'); });
+  }
+
+  /** Imprime un documento genérico (comprobantes de CxC, históricos, listas). */
+  async printDoc(lines: Array<{ t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string }>, tenantId: string): Promise<void> {
+    const cfg = await this.loadReceiptConfig(tenantId);
+    const w = cfg.paperWidth;
+    const cmds: number[] = [];
+    const push = (...b: number[]) => cmds.push(...b);
+    const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
+    const nl = () => push(0x0a);
+    const sep = () => { for (let i = 0; i < w; i++) push(0x2D); nl(); };
+    const center = (s: string) => { text(String(s).padStart((w + s.length) / 2, ' ')); nl(); };
+    const row = (l: string, v: string) => { const sp = Math.max(1, w - l.length - v.length); text(l + ' '.repeat(sp) + v); nl(); };
+
+    // Respetar ESTRICTAMENTE el tipo elegido (no inferir Bluetooth por impresoras
+    // viejas en la lista): navegador → HTML; bluetooth/qz/térmica → ESC/POS.
+    const useEscpos = cfg.printerType === 'bluetooth' || cfg.printerType === 'qztray' || cfg.printerType === 'thermal';
+
+    // Navegador: HTML A4 + diálogo de impresión (no bytes ESC/POS crudos).
+    if (!useEscpos) {
+      const esc = (s: string) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
+      const body = lines.map(ln => {
+        if (ln.t === 'sep') return '<hr>';
+        if (ln.t === 'title') return `<div class="ttl">${esc(ln.a ?? '')}</div>`;
+        if (ln.t === 'center') return `<div class="ctr">${esc(ln.a ?? '')}</div>`;
+        if (ln.t === 'row') return `<div class="row"><span>${esc(ln.a ?? '')}</span><span>${esc(ln.b ?? '')}</span></div>`;
+        return `<div class="txt">${esc(ln.a ?? '')}</div>`;
+      }).join('');
+      const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
+        @page { size: A4; margin: 18mm; }
+        * { box-sizing: border-box; }
+        body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; }
+        .doc { max-width: 720px; margin: 0 auto; font-size: 13px; }
+        .ttl { text-align: center; font-weight: 900; font-size: 18px; margin: 4px 0; letter-spacing: .5px; }
+        .ctr { text-align: center; color: #6b7280; }
+        .txt { color: #6b7280; font-size: 12px; padding-left: 8px; }
+        .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-bottom: 1px solid #f0f0f0; }
+        .row span:last-child { font-weight: bold; white-space: nowrap; }
+        hr { border: none; border-top: 1.5px solid #cbd5e1; margin: 8px 0; }
+      </style></head><body><div class="doc">${body}</div></body></html>`;
+      await this.printHTMLContent(html);
+      return;
+    }
+
+    push(0x1B, 0x40); push(0x1C, 0x2E); push(0x1B, 0x52, 0x00); push(0x1B, 0x74, 0x00); push(0x1B, 0x21, 0x00);
+    for (const ln of lines) {
+      if (ln.t === 'sep') sep();
+      else if (ln.t === 'title') { push(0x1B, 0x21, 0x08); center(ln.a ?? ''); push(0x1B, 0x21, 0x00); }
+      else if (ln.t === 'center') center(ln.a ?? '');
+      else if (ln.t === 'row') row(ln.a ?? '', ln.b ?? '');
+      else text((ln.a ?? '')), nl();
+    }
+    nl(); nl(); push(0x1D, 0x56, 0x00);
+    await this.sendBytes(new Uint8Array(cmds), cfg);
+  }
+
   private generateRouteCloseESCPOS(summary: any, cfg: ReceiptConfig): Uint8Array {
     const charWidth = cfg.paperWidth;
     const cmds: number[] = [];

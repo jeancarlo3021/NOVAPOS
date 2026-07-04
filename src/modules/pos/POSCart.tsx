@@ -9,6 +9,8 @@ interface POSCartPanelProps {
   total: number;
   taxEnabled?: boolean;
   taxRate?: number;
+  /** Desglose del IVA por tasa (ej. { 13: 1300, 1: 50 }). */
+  taxBreakdown?: Record<number, number>;
   currentSession: CashSession | null;
   loading: boolean;
   onRemoveFromCart: (productId: string) => void;
@@ -31,6 +33,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   total,
   taxEnabled = true,
   taxRate = 0.13,
+  taxBreakdown,
   currentSession,
   loading,
   onRemoveFromCart,
@@ -287,12 +290,24 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               <span className="text-gray-500 text-sm font-semibold">Subtotal</span>
               <span className="text-gray-800 text-sm font-bold">₡{subtotal.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 text-sm font-semibold">
-                IVA ({(taxRate * 100).toFixed(0)}%)
-              </span>
-              <span className="text-gray-800 text-sm font-bold">₡{taxAmount.toLocaleString()}</span>
-            </div>
+            {taxBreakdown && Object.keys(taxBreakdown).length > 0 ? (
+              // Desglose: una línea por cada tasa de IVA.
+              Object.entries(taxBreakdown)
+                .sort((a, b) => Number(b[0]) - Number(a[0]))
+                .map(([rate, amt]) => (
+                  <div key={rate} className="flex justify-between items-center">
+                    <span className="text-gray-500 text-sm font-semibold">
+                      IVA {Number(rate) === 0 ? 'Exento' : `(${Number(rate)}%)`}
+                    </span>
+                    <span className="text-gray-800 text-sm font-bold">₡{Number(amt).toLocaleString()}</span>
+                  </div>
+                ))
+            ) : (
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 text-sm font-semibold">IVA ({(taxRate * 100).toFixed(0)}%)</span>
+                <span className="text-gray-800 text-sm font-bold">₡{taxAmount.toLocaleString()}</span>
+              </div>
+            )}
           </>
         )}
         <div className="flex justify-between items-center pt-2 border-t-2 border-gray-200">
