@@ -21,6 +21,7 @@ export const TYPE_CFG = {
   percentage: { label: 'Porcentaje',  icon: '%', color: 'bg-violet-500' },
   fixed:      { label: 'Monto fijo',  icon: '₡', color: 'bg-blue-500'   },
   '2x1':      { label: '2×1',         icon: '2', color: 'bg-amber-500'  },
+  combo:      { label: 'Combo',       icon: '🍔', color: 'bg-rose-500'  },
 } as const;
 
 // ── Shared helpers ────────────────────────────────────────────────────────────

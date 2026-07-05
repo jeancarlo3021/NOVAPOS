@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
 import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
+import type { AppliedCombo } from '@/services/promotions/promotionsService';
 
 interface POSCartPanelProps {
   cartItems: CartItem[];
   subtotal: number;
   taxAmount: number;
   total: number;
+  /** Descuento total por combos/grupos de promos (nivel carrito). */
+  comboDiscount?: number;
+  /** Combos armados en el carrito (para mostrar cada uno). */
+  appliedCombos?: AppliedCombo[];
   taxEnabled?: boolean;
   taxRate?: number;
   /** Desglose del IVA por tasa (ej. { 13: 1300, 1: 50 }). */
@@ -31,6 +36,8 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   subtotal,
   taxAmount,
   total,
+  comboDiscount = 0,
+  appliedCombos = [],
   taxEnabled = true,
   taxRate = 0.13,
   taxBreakdown,
@@ -102,6 +109,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                 <th className="text-left px-3 py-2">Producto</th>
                 <th className="text-center px-2 py-2 w-32">Cantidad</th>
                 <th className="text-right px-2 py-2 w-24">P/U</th>
+                {canDiscount && <th className="text-center px-2 py-2 w-20">Desc. %</th>}
                 <th className="text-right px-2 py-2 w-28">Subtotal</th>
                 <th className="w-10"></th>
               </tr>
@@ -145,6 +153,21 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-600 font-semibold">
                       ₡{item.unit_price.toLocaleString()}
                     </td>
+                    {canDiscount && (
+                      <td className="px-2 py-1.5 text-center">
+                        {hasPromo ? (
+                          <span className="text-[10px] text-gray-300">—</span>
+                        ) : (
+                          <input
+                            type="number" inputMode="decimal" min={0} max={Math.min(100, maxDiscountPercent)}
+                            value={discountInputs[item.product_id] ?? (item.discount_percent ? String(item.discount_percent) : '')}
+                            onChange={(e) => handleDiscountChange(item.product_id, e.target.value)}
+                            placeholder="0"
+                            className="w-14 text-center px-1 py-1 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-emerald-400"
+                          />
+                        )}
+                      </td>
+                    )}
                     <td className="px-2 py-1.5 text-right tabular-nums">
                       {showOriginal && (
                         <div className="text-[10px] text-gray-300 line-through leading-none">
@@ -310,6 +333,17 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
             )}
           </>
         )}
+        {/* Combos / grupos de promos (discount>0 = ahorro, <0 = recargo hacia el precio fijo) */}
+        {appliedCombos.map((c, i) => (
+          <div key={i} className="flex justify-between items-center">
+            <span className="inline-flex items-center gap-1 text-rose-600 text-xs font-bold">
+              <Tag size={11} /> {c.label}{c.sets > 1 ? ` ×${c.sets}` : ''}
+            </span>
+            <span className="text-rose-600 text-xs font-bold">
+              {c.discount >= 0 ? '-' : '+'}₡{Math.abs(c.discount).toLocaleString()}
+            </span>
+          </div>
+        ))}
         <div className="flex justify-between items-center pt-2 border-t-2 border-gray-200">
           <span className="text-gray-900 font-black text-lg">Total</span>
           <span className="text-emerald-600 font-black text-2xl">₡{total.toLocaleString()}</span>

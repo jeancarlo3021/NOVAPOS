@@ -97,7 +97,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               {onCashIn && (
                 <button
                   onClick={onCashIn}
-                  className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
+                  className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
                   title="Entrada de efectivo"
                 >
                   <ArrowDownCircle size={17} />
@@ -107,7 +107,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               {onCashOut && (
                 <button
                   onClick={onCashOut}
-                  className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
+                  className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
                   title="Salida de efectivo"
                 >
                   <ArrowUpCircle size={17} />
@@ -117,7 +117,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               {onOpenDrawer && (
                 <button
                   onClick={onOpenDrawer}
-                  className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
+                  className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
                   title="Abrir cajón de dinero"
                 >
                   <Inbox size={17} />
@@ -126,7 +126,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               )}
               <button
                 onClick={onCloseCash}
-                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 active:bg-red-200 border border-red-200 text-red-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
+                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 active:bg-red-200 border border-red-200 text-red-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
               >
                 <LockKeyhole size={17} />
                 <span className="hidden sm:inline">Cerrar caja</span>
@@ -134,7 +134,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               {onVoidInvoice && (
                 <button
                   onClick={onVoidInvoice}
-                  className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 border border-orange-200 text-orange-700 text-sm font-semibold px-3 py-2.5 rounded-lg transition min-h-11"
+                  className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 border border-orange-200 text-orange-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
                   title="Anular factura"
                 >
                   <Ban size={17} />

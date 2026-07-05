@@ -23,9 +23,10 @@ import { apiFetch } from '@/lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type PromoType    = 'percentage' | 'fixed' | '2x1';
+export type PromoType    = 'percentage' | 'fixed' | '2x1' | 'combo';
 export type PromoScope   = 'all' | 'category' | 'products';
 export type PromoStatus  = 'active' | 'scheduled' | 'expired' | 'inactive';
+export type ComboMode    = 'price' | 'percent';   // precio fijo del combo / % de descuento
 
 export interface Promotion {
   id:          string;
@@ -34,6 +35,7 @@ export interface Promotion {
   description: string | null;
   type:        PromoType;
   value:       number;
+  combo_mode?: ComboMode | null;
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
@@ -51,6 +53,7 @@ export interface PromotionPayload {
   description: string | null;
   type:        PromoType;
   value:       number;
+  combo_mode?: ComboMode | null;
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
@@ -88,7 +91,76 @@ export function promoLabel(promo: Promotion): string {
   if (promo.type === 'percentage') return `${promo.value}% desc.`;
   if (promo.type === 'fixed')      return `-₡${Number(promo.value).toLocaleString('es-CR')}`;
   if (promo.type === '2x1')        return '2×1';
+  if (promo.type === 'combo')      return promo.combo_mode === 'percent'
+                                     ? `Combo -${promo.value}%`
+                                     : `Combo ₡${Number(promo.value).toLocaleString('es-CR')}`;
   return '';
+}
+
+// ── Combos / grupos de promos (nivel carrito) ───────────────────────────────────
+// Un combo es una promoción type='combo' cuyos product_ids son los productos que
+// deben estar juntos en el carrito. Cuando están todos, se aplica un precio único
+// (combo_mode='price') o un % de descuento (combo_mode='percent') sobre la suma de
+// los productos del combo. Se aplica por cada "set" completo presente en el carrito.
+
+export interface ComboCartItem {
+  product_id: string;
+  unit_price: number;
+  quantity:   number;
+}
+
+export interface AppliedCombo {
+  promo:    Promotion;
+  label:    string;
+  sets:     number;   // cuántos combos completos se armaron
+  discount: number;   // descuento total en ₡ que aporta este combo
+}
+
+/**
+ * Detecta combos completos en el carrito y calcula el descuento total.
+ * Asume 1 unidad de cada producto del combo por set.
+ */
+export function computeCartCombos(
+  items: ComboCartItem[],
+  promotions: Promotion[],
+): { discount: number; applied: AppliedCombo[] } {
+  const today = new Date().toISOString().slice(0, 10);
+  const combos = promotions.filter(
+    p => p.type === 'combo' &&
+      Array.isArray(p.product_ids) && p.product_ids.length >= 2 &&
+      p.is_active && p.starts_at <= today && p.ends_at >= today
+  );
+
+  const applied: AppliedCombo[] = [];
+  let discount = 0;
+
+  for (const promo of combos) {
+    // ¿Están todos los productos del combo en el carrito? ¿Cuántos sets completos?
+    let sets = Infinity;
+    let setUnitTotal = 0;
+    let missing = false;
+    for (const pid of promo.product_ids) {
+      const it = items.find(i => i.product_id === pid);
+      if (!it || it.quantity < 1) { missing = true; break; }
+      sets = Math.min(sets, Math.floor(it.quantity));
+      setUnitTotal += it.unit_price;
+    }
+    if (missing || !isFinite(sets) || sets < 1) continue;
+
+    // 'percent' → siempre descuento (≥0).
+    // 'price'   → el combo cuesta EXACTAMENTE promo.value por set; el ajuste puede
+    //             ser positivo (ahorro) o negativo (recargo) según el precio à la carte.
+    const perSet = promo.combo_mode === 'percent'
+      ? setUnitTotal * (promo.value / 100)
+      : setUnitTotal - promo.value;
+    const comboDiscount = Math.round(perSet * sets);
+    if (comboDiscount === 0) continue;
+
+    discount += comboDiscount;
+    applied.push({ promo, label: promo.name || promoLabel(promo), sets, discount: comboDiscount });
+  }
+
+  return { discount: Math.round(discount), applied };
 }
 
 /** Returns the first applicable promotion for a product (priority: products > category > all) */
@@ -99,7 +171,8 @@ export function getProductPromotion(
 ): Promotion | null {
   const today  = new Date().toISOString().slice(0, 10);
   const active = promotions.filter(
-    p => p.is_active && p.starts_at <= today && p.ends_at >= today
+    // Los combos se resuelven a nivel de carrito (computeCartCombos), no por producto.
+    p => p.type !== 'combo' && p.is_active && p.starts_at <= today && p.ends_at >= today
   );
   return (
     active.find(p => p.applies_to === 'products' && p.product_ids.includes(productId)) ??

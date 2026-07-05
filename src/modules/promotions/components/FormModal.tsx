@@ -9,7 +9,7 @@ import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { notifyPromotionsUpdated } from '@/hooks/POS/usePOSPromotions';
 import {
   promotionsService,
-  type Promotion, type PromotionPayload, type PromoType, type PromoScope,
+  type Promotion, type PromotionPayload, type PromoType, type PromoScope, type ComboMode,
 } from '@/services/promotions/promotionsService';
 import { apiFetch } from '@/lib/api';
 import { TYPE_CFG, today, type FormModalProps } from './types';
@@ -35,7 +35,7 @@ function enqueuePromoOp(tid: string, op: Record<string, unknown>) {
 // ── Default empty form ────────────────────────────────────────────────────────
 
 const EMPTY: PromotionPayload = {
-  name: '', description: null, type: 'percentage', value: 10,
+  name: '', description: null, type: 'percentage', value: 10, combo_mode: 'price',
   applies_to: 'all', category_id: null, product_ids: [],
   starts_at: today(), ends_at: today(), is_active: true,
 };
@@ -46,7 +46,8 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
   const [form, setForm]       = useState<PromotionPayload>(editing
     ? {
         name: editing.name, description: editing.description, type: editing.type,
-        value: editing.value, applies_to: editing.applies_to, category_id: editing.category_id,
+        value: editing.value, combo_mode: editing.combo_mode ?? 'price',
+        applies_to: editing.applies_to, category_id: editing.category_id,
         product_ids: editing.product_ids ?? [], starts_at: editing.starts_at,
         ends_at: editing.ends_at, is_active: editing.is_active,
       }
@@ -95,8 +96,9 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
     e.preventDefault();
     if (!form.name.trim()) { setError('El nombre es requerido'); return; }
     if (form.type !== '2x1' && form.value <= 0) { setError('El valor del descuento debe ser mayor a 0'); return; }
-    if (form.applies_to === 'category' && !form.category_id) { setError('Selecciona una categoría'); return; }
-    if (form.applies_to === 'products' && form.product_ids.length === 0) { setError('Selecciona al menos un producto'); return; }
+    if (form.type === 'combo' && form.product_ids.length < 2) { setError('Un combo necesita al menos 2 productos'); return; }
+    if (form.type !== 'combo' && form.applies_to === 'category' && !form.category_id) { setError('Selecciona una categoría'); return; }
+    if (form.type !== 'combo' && form.applies_to === 'products' && form.product_ids.length === 0) { setError('Selecciona al menos un producto'); return; }
     if (form.starts_at > form.ends_at) { setError('La fecha de inicio no puede ser posterior a la de fin'); return; }
     setSaving(true);
     setError('');
@@ -129,6 +131,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
             description: form.description ?? null,
             type: form.type,
             value: form.value,
+            combo_mode: form.combo_mode ?? null,
             applies_to: form.applies_to,
             category_id: form.category_id ?? null,
             product_ids: form.product_ids ?? [],
@@ -212,8 +215,8 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           {/* Tipo de descuento */}
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-2">Tipo de descuento *</label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['percentage', 'fixed', '2x1'] as PromoType[]).map(t => {
+            <div className="grid grid-cols-4 gap-2">
+              {(['percentage', 'fixed', '2x1', 'combo'] as PromoType[]).map(t => {
                 const cfg = TYPE_CFG[t];
                 return (
                   <button key={t} type="button" onClick={() => set('type', t)}
@@ -230,14 +233,38 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
             </div>
           </div>
 
-          {/* Valor (solo para porcentaje y fijo) */}
+          {/* Combo: modo (precio fijo / % descuento) */}
+          {form.type === 'combo' && (
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-2">¿Cómo se aplica el combo?</label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { v: 'price'   as ComboMode, label: 'Precio fijo',    hint: 'El combo cuesta ₡ …' },
+                  { v: 'percent' as ComboMode, label: '% de descuento', hint: 'Rebaja % del total' },
+                ] as const).map(({ v, label, hint }) => (
+                  <button key={v} type="button" onClick={() => set('combo_mode', v)}
+                    className={`flex flex-col items-start gap-0.5 p-3 rounded-xl border-2 transition text-left ${
+                      (form.combo_mode ?? 'price') === v ? 'border-rose-500 bg-rose-50' : 'border-gray-200 hover:border-rose-300'
+                    }`}>
+                    <span className="text-sm font-bold text-gray-700">{label}</span>
+                    <span className="text-[11px] text-gray-400">{hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Valor (porcentaje, fijo y combo) */}
           {form.type !== '2x1' && (
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1">
-                {form.type === 'percentage' ? 'Porcentaje de descuento (%)' : 'Monto a descontar (₡)'}
+                {form.type === 'combo'
+                  ? ((form.combo_mode ?? 'price') === 'percent' ? 'Descuento del combo (%)' : 'Precio total del combo (₡)')
+                  : form.type === 'percentage' ? 'Porcentaje de descuento (%)' : 'Monto a descontar (₡)'}
               </label>
-              <input type="number" min="0.01" step={form.type === 'percentage' ? '1' : '100'}
-                max={form.type === 'percentage' ? '100' : undefined}
+              <input type="number" min="0.01"
+                step={(form.type === 'percentage' || (form.type === 'combo' && form.combo_mode === 'percent')) ? '1' : '100'}
+                max={(form.type === 'percentage' || (form.type === 'combo' && form.combo_mode === 'percent')) ? '100' : undefined}
                 value={form.value} onChange={e => set('value', parseFloat(e.target.value) || 0)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
               {form.type === 'percentage' && (
@@ -251,7 +278,39 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
             </div>
           )}
 
-          {/* Aplica a */}
+          {/* Combo: productos que forman el grupo */}
+          {form.type === 'combo' && (
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">
+                Productos del combo * <span className="font-normal text-gray-400">({form.product_ids.length} seleccionados)</span>
+              </label>
+              <p className="text-[11px] text-gray-400 mb-2">
+                Cuando estos productos estén juntos en el carrito se aplicará el {(form.combo_mode ?? 'price') === 'percent' ? 'descuento' : 'precio único'} del combo.
+              </p>
+              <input type="text" value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                placeholder="Buscar producto..."
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 mb-2" />
+              <div className="border border-gray-200 rounded-xl overflow-y-auto max-h-40 divide-y divide-gray-50">
+                {filteredProducts.map(p => (
+                  <label key={p.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                    <input type="checkbox" checked={form.product_ids.includes(p.id)} onChange={() => toggleProduct(p.id)}
+                      className="w-4 h-4 rounded text-rose-600" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
+                      {p.sku && <p className="text-xs text-gray-400">{p.sku}</p>}
+                    </div>
+                    {p.price != null && <span className="text-xs font-mono text-gray-400">₡{Number(p.price).toLocaleString('es-CR')}</span>}
+                  </label>
+                ))}
+                {filteredProducts.length === 0 && (
+                  <p className="text-center py-4 text-sm text-gray-400">Sin resultados</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Aplica a (no aplica a combos: el combo define su propio grupo de productos) */}
+          {form.type !== 'combo' && (
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-2">¿A qué aplica? *</label>
             <div className="grid grid-cols-3 gap-2">
@@ -270,9 +329,10 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
               ))}
             </div>
           </div>
+          )}
 
           {/* Categoría */}
-          {form.applies_to === 'category' && (
+          {form.type !== 'combo' && form.applies_to === 'category' && (
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1">Categoría *</label>
               <select value={form.category_id ?? ''} onChange={e => set('category_id', e.target.value || null)}
@@ -284,7 +344,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           )}
 
           {/* Productos específicos */}
-          {form.applies_to === 'products' && (
+          {form.type !== 'combo' && form.applies_to === 'products' && (
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1">
                 Productos * <span className="font-normal text-gray-400">({form.product_ids.length} seleccionados)</span>

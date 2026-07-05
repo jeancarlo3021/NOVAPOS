@@ -16,6 +16,7 @@ import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
 import {
   getProductPromotion,
   calcPromoSubtotal,
+  computeCartCombos,
 } from '@/services/promotions/promotionsService';
 import { invoicesService, localNowISO } from '@/services/invoice/invoiceService';
 import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from '@/services/pos/posOfflineService';
@@ -359,7 +360,25 @@ export const POSMain = () => {
     }
     return { taxAmount: total, taxBreakdown: bd };
   })();
-  const total = subtotal + taxAmount;
+  // Combos / grupos de promos — descuento a nivel carrito (varios productos juntos
+  // por un precio único o un % de descuento).
+  const { discount: comboDiscount, applied: appliedCombos } = computeCartCombos(
+    cartItems.map(it => ({ product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity })),
+    activePromotions,
+  );
+  // DEBUG combos (temporal): loguea en consola qué promos combo llegan y por qué
+  // no matchean. Quitar cuando esté confirmado.
+  const _comboPromos = activePromotions.filter((p: any) => p.type === 'combo');
+  if (typeof window !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log('[COMBOS] combos=', JSON.stringify(_comboPromos.map((p: any) => ({
+        name: p.name, type: p.type, mode: p.combo_mode, value: p.value,
+        product_ids: p.product_ids, isArray: Array.isArray(p.product_ids), len: p.product_ids?.length,
+      }))),
+      '| cart=', JSON.stringify(cartItems.map(i => ({ id: i.product_id, price: i.unit_price }))),
+      '| comboDiscount=', comboDiscount);
+  }
+  const total = Math.max(0, subtotal + taxAmount - comboDiscount);
 
   // ── Atajos de teclado estilo Eleventa ─────────────────────────────────
   // F12 = Cobrar · F4 = Anular · Esc = Cerrar modal
@@ -596,6 +615,10 @@ export const POSMain = () => {
         subtotal: sub,
         tax,
         total: tot,
+        // Ajuste por combos = diferencia entre (sub+IVA) y el total.
+        // Positivo = ahorro (se resta), negativo = recargo a precio fijo (se suma).
+        discount: Math.round(sub + tax - tot),
+        discountLabel: 'Combos',
         paymentMethod: PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod,
         // Datos del local (sin email)
         storeName: general?.businessName,
@@ -964,6 +987,8 @@ export const POSMain = () => {
             subtotal={subtotal}
             taxAmount={taxAmount}
             total={total}
+            comboDiscount={comboDiscount}
+            appliedCombos={appliedCombos}
             taxEnabled={taxEnabled}
             taxRate={taxRate}
             taxBreakdown={taxBreakdown}
@@ -995,6 +1020,8 @@ export const POSMain = () => {
             subtotal={subtotal}
             taxAmount={taxAmount}
             total={total}
+            comboDiscount={comboDiscount}
+            appliedCombos={appliedCombos}
             taxEnabled={taxEnabled}
             taxRate={taxRate}
             taxBreakdown={taxBreakdown}

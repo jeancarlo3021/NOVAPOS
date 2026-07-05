@@ -66,7 +66,7 @@ export interface Product {
 export interface CartItemPromo {
   id:    string;
   name:  string;
-  type:  'percentage' | 'fixed' | '2x1';
+  type:  'percentage' | 'fixed' | '2x1' | 'combo';
   value: number;
 }
 

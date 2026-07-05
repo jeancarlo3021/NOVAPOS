@@ -65,6 +65,10 @@ export interface ReceiptData {
   subtotal: number;
   tax: number;
   total: number;
+  /** Descuento por combos/promos a nivel comprobante (se resta del total). */
+  discount?: number;
+  /** Etiqueta del descuento (ej. "Combos"). */
+  discountLabel?: string;
   paymentMethod: string;
   // Datos del local (negocio)
   storeName?: string;
@@ -500,6 +504,38 @@ export class POSPrinterService {
       }
     } catch {}
 
+    // A4 → documento de página entera (tipo PDF).
+    if ((cfg.paperWidth as any) === 'a4') {
+      const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+      const dt = (s: string) => { try { return new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; } };
+      const diffLabel = report.difference === 0 ? 'CUADRADO' : report.difference > 0 ? 'SOBRANTE' : 'FALTANTE';
+      const lines: Array<{ t: string; a?: string; b?: string }> = [
+        { t: 'title', a: 'CIERRE DE CAJA' },
+        ...(general?.businessName ? [{ t: 'center' as const, a: general.businessName }] : []),
+        ...(report.cashier_name ? [{ t: 'center' as const, a: `Cajero: ${report.cashier_name}` }] : []),
+        { t: 'center', a: `Abrió ${dt(report.opened_at)} · Cerró ${dt(report.closed_at)}` },
+        { t: 'sep' }, { t: 'title', a: 'VENTAS (SISTEMA)' },
+        { t: 'row', a: 'Efectivo', b: money(report.system_cash ?? 0) },
+        { t: 'row', a: 'Tarjeta', b: money(report.system_card ?? 0) },
+        { t: 'row', a: 'SINPE', b: money(report.system_sinpe ?? 0) },
+        { t: 'row', a: 'Otros', b: money(report.system_other ?? 0) },
+        { t: 'row', a: 'Facturas', b: `${report.invoices_count} · ${money(report.invoices_total)}` },
+        { t: 'sep' }, { t: 'title', a: 'ARQUEO DE EFECTIVO' },
+        { t: 'row', a: 'Fondo inicial', b: money(report.opening_amount) },
+        { t: 'row', a: 'Efectivo esperado', b: money(report.expected_amount) },
+        { t: 'row', a: 'Efectivo contado', b: money(report.closing_amount) },
+        { t: 'row', a: `Diferencia (${diffLabel})`, b: money(report.difference) },
+        { t: 'row', a: 'Tarjeta contada', b: money(report.card_total) },
+        { t: 'row', a: 'SINPE contado', b: money(report.sinpe_total) },
+      ];
+      if ((report.cash_movements ?? []).length > 0) {
+        lines.push({ t: 'sep' }, { t: 'title', a: 'MOVIMIENTOS DE CAJA' });
+        for (const m of report.cash_movements!) lines.push({ t: 'row', a: `${m.type === 'in' ? '↓ Entrada' : '↑ Salida'} · ${m.reason || '-'}`, b: money(m.amount) });
+      }
+      await this.printHTMLContent(this.renderA4FromLines(lines));
+      return;
+    }
+
     // Mismo ruteo que el cobro (printAuto): Bluetooth / QZ raw / navegador.
     if (cfg.printerType === 'bluetooth') {
       try {
@@ -538,6 +574,46 @@ export class POSPrinterService {
     expenses?: { total: number; list: Array<{ description: string; amount: number; payment_method?: string }> };
   }, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
+
+    // A4 → documento de página entera (tipo PDF).
+    if ((cfg.paperWidth as any) === 'a4') {
+      const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+      const bm = summary.by_method ?? { cash: 0, card: 0, sinpe: 0, credit: 0 };
+      const lines: Array<{ t: string; a?: string; b?: string }> = [
+        { t: 'title', a: 'CIERRE DE RUTA' },
+        ...(summary.truck ? [{ t: 'center' as const, a: summary.truck }] : []),
+        { t: 'center', a: `${summary.route_date ?? ''} · ${new Date().toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}` },
+        { t: 'sep' },
+        { t: 'row', a: 'Ventas', b: String(summary.sales_count ?? 0) },
+        { t: 'row', a: 'Total vendido', b: money(summary.sales_total) },
+        { t: 'row', a: 'Anulaciones', b: String(summary.voids_count ?? 0) },
+        { t: 'sep' },
+        { t: 'row', a: 'Efectivo', b: money(bm.cash) },
+        { t: 'row', a: 'Tarjeta', b: money(bm.card) },
+        { t: 'row', a: 'SINPE', b: money(bm.sinpe) },
+        { t: 'row', a: 'Crédito', b: money(bm.credit) },
+      ];
+      if (summary.ar_payments && summary.ar_payments.total > 0) {
+        lines.push({ t: 'sep' }, { t: 'title', a: 'ABONOS CxC' });
+        lines.push({ t: 'row', a: 'Efectivo', b: money(summary.ar_payments.by_method.cash) });
+        lines.push({ t: 'row', a: 'Tarjeta', b: money(summary.ar_payments.by_method.card) });
+        lines.push({ t: 'row', a: 'SINPE', b: money(summary.ar_payments.by_method.sinpe) });
+        for (const a of summary.ar_payments.list) lines.push({ t: 'row', a: `${a.customer} · ${a.method}`, b: money(a.amount) });
+        lines.push({ t: 'row', a: 'Total abonos', b: money(summary.ar_payments.total) });
+      }
+      if (summary.expenses && summary.expenses.total > 0) {
+        lines.push({ t: 'sep' }, { t: 'title', a: 'GASTOS DEL DÍA' });
+        for (const g of summary.expenses.list) lines.push({ t: 'row', a: g.description, b: money(g.amount) });
+        lines.push({ t: 'row', a: 'Total gastos', b: money(summary.expenses.total) });
+      }
+      lines.push({ t: 'sep' }, { t: 'title', a: 'INVENTARIO DEVUELTO' });
+      const ret = [...(summary.returned ?? [])].sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
+      if (ret.length === 0) lines.push({ t: 'center', a: '(sin sobrante)' });
+      else for (const r of ret) lines.push({ t: 'row', a: r.name, b: `x${r.quantity}` });
+      await this.printHTMLContent(this.renderA4FromLines(lines));
+      return;
+    }
+
     const bytes = this.generateRouteCloseESCPOS(summary, cfg);
 
     if (cfg.printerType === 'bluetooth') {
@@ -601,6 +677,30 @@ export class POSPrinterService {
     await qzPrintDefault(bytes).catch(() => { throw new Error('Configurá una impresora'); });
   }
 
+  /** Renderiza un documento A4 (página entera, tipo PDF) a partir de líneas. */
+  private renderA4FromLines(lines: Array<{ t: string; a?: string; b?: string }>): string {
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
+    const body = lines.map(ln => {
+      if (ln.t === 'sep') return '<hr>';
+      if (ln.t === 'title') return `<div class="ttl">${esc(ln.a ?? '')}</div>`;
+      if (ln.t === 'center') return `<div class="ctr">${esc(ln.a ?? '')}</div>`;
+      if (ln.t === 'row') return `<div class="row"><span>${esc(ln.a ?? '')}</span><span>${esc(ln.b ?? '')}</span></div>`;
+      return `<div class="txt">${esc(ln.a ?? '')}</div>`;
+    }).join('');
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
+      @page { size: A4; margin: 18mm; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; }
+      .doc { max-width: 720px; margin: 0 auto; font-size: 13px; }
+      .ttl { text-align: center; font-weight: 900; font-size: 18px; margin: 4px 0; letter-spacing: .5px; }
+      .ctr { text-align: center; color: #6b7280; }
+      .txt { color: #6b7280; font-size: 12px; padding-left: 8px; }
+      .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-bottom: 1px solid #f0f0f0; }
+      .row span:last-child { font-weight: bold; white-space: nowrap; }
+      hr { border: none; border-top: 1.5px solid #cbd5e1; margin: 8px 0; }
+    </style></head><body><div class="doc">${body}</div></body></html>`;
+  }
+
   /** Imprime un documento genérico (comprobantes de CxC, históricos, listas). */
   async printDoc(lines: Array<{ t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string }>, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
@@ -620,29 +720,7 @@ export class POSPrinterService {
 
     if (!useEscpos) {
       const esc = (s: string) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
-      if (isA4) {
-        const body = lines.map(ln => {
-          if (ln.t === 'sep') return '<hr>';
-          if (ln.t === 'title') return `<div class="ttl">${esc(ln.a ?? '')}</div>`;
-          if (ln.t === 'center') return `<div class="ctr">${esc(ln.a ?? '')}</div>`;
-          if (ln.t === 'row') return `<div class="row"><span>${esc(ln.a ?? '')}</span><span>${esc(ln.b ?? '')}</span></div>`;
-          return `<div class="txt">${esc(ln.a ?? '')}</div>`;
-        }).join('');
-        const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
-          @page { size: A4; margin: 18mm; }
-          * { box-sizing: border-box; }
-          body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; }
-          .doc { max-width: 720px; margin: 0 auto; font-size: 13px; }
-          .ttl { text-align: center; font-weight: 900; font-size: 18px; margin: 4px 0; letter-spacing: .5px; }
-          .ctr { text-align: center; color: #6b7280; }
-          .txt { color: #6b7280; font-size: 12px; padding-left: 8px; }
-          .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-bottom: 1px solid #f0f0f0; }
-          .row span:last-child { font-weight: bold; white-space: nowrap; }
-          hr { border: none; border-top: 1.5px solid #cbd5e1; margin: 8px 0; }
-        </style></head><body><div class="doc">${body}</div></body></html>`;
-        await this.printHTMLContent(html);
-        return;
-      }
+      if (isA4) { await this.printHTMLContent(this.renderA4FromLines(lines)); return; }
       // Angosto (como antes del A4).
       const body = lines.map(ln => {
         if (ln.t === 'sep') return '<hr style="border:none;border-top:1px dashed #999;margin:4px 0">';
@@ -1357,11 +1435,103 @@ export class POSPrinterService {
     return !!(window as any).qz;
   }
 
+  // ─── Documento A4 (página entera, tipo PDF, desglosado) ────────────────────────
+  private generateA4HTML(r: ReceiptData, cfg: ReceiptConfig): string {
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
+    const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const logo = (cfg.showLogo && r.logoUrl) ? r.logoUrl : '';
+    const tipoLabel = r.feTipoLabel ?? (r.feClave ? 'COMPROBANTE ELECTRÓNICO' : 'FACTURA');
+
+    const rows = r.items.map((it, i) => `
+      <tr>
+        <td class="c">${i + 1}</td>
+        <td>${esc(it.name)}</td>
+        <td class="r">${Number(it.quantity)}</td>
+        <td class="r">${money(it.unitPrice)}</td>
+        <td class="r">${money(it.subtotal)}</td>
+      </tr>`).join('');
+
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<title>${esc(tipoLabel)} ${esc(r.invoiceNumber)}</title>
+<style>
+  @page { size: A4; margin: 15mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; font-size: 12px; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2563eb; padding-bottom: 12px; }
+  .logo { max-height: 80px; max-width: 220px; object-fit: contain; }
+  .brand { font-weight: 900; font-size: 20px; }
+  .doc { text-align: right; }
+  .doc h1 { font-size: 16px; margin: 0 0 4px; color: #2563eb; letter-spacing: .5px; }
+  .doc .num { font-size: 13px; font-weight: bold; }
+  .doc .meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+  .parties { display: flex; gap: 16px; margin: 16px 0; }
+  .party { flex: 1; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+  .party-title { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; font-weight: bold; margin-bottom: 4px; }
+  .party-name { font-weight: bold; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: #f3f4f6; text-align: left; padding: 8px; font-size: 10px; text-transform: uppercase; color: #374151; }
+  td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
+  td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
+  .totals { margin-top: 12px; margin-left: auto; width: 280px; }
+  .totals div { display: flex; justify-content: space-between; padding: 3px 0; }
+  .totals .grand { border-top: 2px solid #111827; margin-top: 4px; padding-top: 6px; font-size: 16px; font-weight: 900; }
+  .fe { margin-top: 18px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; font-size: 11px; }
+  .fe .clave { font-family: monospace; word-break: break-all; }
+  .foot { margin-top: 20px; text-align: center; font-size: 11px; color: #6b7280; }
+</style></head><body>
+  <div class="head">
+    <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : `<div class="brand">${esc(r.storeName ?? '')}</div>`}
+      <div style="font-size:11px;color:#6b7280;margin-top:4px">
+        ${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
+        ${r.storeAddress ? esc(r.storeAddress) + '<br>' : ''}${r.storePhone ? 'Tel: ' + esc(r.storePhone) : ''}
+      </div>
+    </div>
+    <div class="doc">
+      <h1>${esc(tipoLabel)}</h1>
+      <div class="num">N° ${esc(r.invoiceNumber)}</div>
+      <div class="meta">${esc(r.date)} ${esc(r.time)}</div>
+      ${r.feConsecutivo ? `<div class="meta">Consecutivo: ${esc(r.feConsecutivo)}</div>` : ''}
+    </div>
+  </div>
+
+  ${(r.customerName || r.customerEmail) ? `
+  <div class="parties"><div class="party">
+    <div class="party-title">Cliente</div>
+    <div class="party-name">${esc(r.customerName ?? 'Cliente General')}</div>
+    ${r.customerPhone ? `<div>Tel: ${esc(r.customerPhone)}</div>` : ''}
+    ${r.customerEmail ? `<div>${esc(r.customerEmail)}</div>` : ''}
+  </div></div>` : ''}
+
+  <table>
+    <thead><tr><th class="c">#</th><th>Descripción</th><th class="r">Cant.</th><th class="r">P. Unit</th><th class="r">Subtotal</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#9ca3af">Sin líneas</td></tr>'}</tbody>
+  </table>
+
+  <div class="totals">
+    <div><span>Subtotal</span><span>${money(r.subtotal)}</span></div>
+    ${Number(r.tax) > 0 ? `<div><span>Impuesto (IVA)</span><span>${money(r.tax)}</span></div>` : ''}
+    ${Number(r.discount) ? `<div><span>${r.discountLabel || 'Combos / Descuentos'}</span><span>${Number(r.discount) >= 0 ? '-' : '+'}${money(Math.abs(Number(r.discount)))}</span></div>` : ''}
+    <div class="grand"><span>TOTAL</span><span>${money(r.total)}</span></div>
+  </div>
+
+  <div style="margin-top:10px;font-size:11px;color:#374151"><b>Forma de pago:</b> ${esc(r.paymentMethod)}</div>
+
+  ${r.feClave ? `<div class="fe">
+    <div><b>Clave numérica:</b></div>
+    <div class="clave">${esc(r.feClave)}</div>
+    ${r.feQrDataUrl ? `<div style="text-align:center;margin-top:8px"><img src="${esc(r.feQrDataUrl)}" style="width:120px;height:120px"/></div>` : ''}
+  </div>` : ''}
+
+  <div class="foot">${esc(r.footerMessage ?? '¡Gracias por su compra!')}</div>
+</body></html>`;
+  }
+
   // ─── HTML receipt ─────────────────────────────────────────────────────────────
 
   generateHTML(receiptData: ReceiptData, cfg: ReceiptConfig): string {
     const isA4 = (cfg.paperWidth as any) === 'a4';
-    const widthMM = isA4 ? '190mm' : (PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm');
+    if (isA4) return this.generateA4HTML(receiptData, cfg);
+    const widthMM = (PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm');
 
     const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -1561,10 +1731,11 @@ export class POSPrinterService {
 
   <hr class="divider">
 
-  ${receiptData.tax > 0 ? `
+  ${(receiptData.tax > 0 || Number(receiptData.discount)) ? `
   <table class="totals">
     <tr><td>Subtotal:</td><td>₡${fmt(receiptData.subtotal)}</td></tr>
-    <tr><td>Impuesto:</td><td>₡${fmt(receiptData.tax)}</td></tr>
+    ${receiptData.tax > 0 ? `<tr><td>Impuesto:</td><td>₡${fmt(receiptData.tax)}</td></tr>` : ''}
+    ${Number(receiptData.discount) ? `<tr><td>${receiptData.discountLabel || 'Combos/Desc.'}:</td><td>${Number(receiptData.discount) >= 0 ? '-' : '+'}₡${fmt(Math.abs(Number(receiptData.discount)))}</td></tr>` : ''}
   </table>
 
   <hr class="divider">
@@ -1700,6 +1871,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     const fmt = (n: number) => `${n.toLocaleString('es-CR')}`;
     rightAlign('Subtotal:', fmt(receiptData.subtotal));
     if (receiptData.tax > 0) { rightAlign('Impuesto:', fmt(receiptData.tax)); }
+    if (Number(receiptData.discount) > 0) { rightAlign(`${receiptData.discountLabel || 'Combos/Desc.'}:`, `-${fmt(Number(receiptData.discount))}`); }
     sep();
 
     centerText(`*** TOTAL: ${fmt(receiptData.total)} ***`);

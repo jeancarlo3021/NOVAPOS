@@ -330,9 +330,11 @@ export const PromotionsDashboard: React.FC = () => {
                       </span>
                       <span>·</span>
                       <span>
+                        {p.type === 'combo'            ? `🍔 Combo de ${p.product_ids.length} producto${p.product_ids.length !== 1 ? 's' : ''}` : <>
                         {p.applies_to === 'all'      && '✦ Todos los productos'}
                         {p.applies_to === 'category' && `📁 ${p.category?.icon ?? ''} ${p.category?.name ?? 'Categoría'}`}
                         {p.applies_to === 'products' && `📦 ${p.product_ids.length} producto${p.product_ids.length !== 1 ? 's' : ''}`}
+                        </>}
                       </span>
                     </div>
                     {p.description && (
