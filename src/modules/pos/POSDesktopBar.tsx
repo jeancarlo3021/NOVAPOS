@@ -44,6 +44,9 @@ export function POSDesktopBar({
 }: POSDesktopBarProps) {
   const [nextInvoice, setNextInvoice] = useState<string>(() => peekNextInvoiceNumber());
   const [showSearch, setShowSearch] = useState(false);
+  // En computadora (puntero fino) el buscador aparece como dropdown pegado al
+  // campo; en tablet/táctil (puntero grueso) se mantiene el modal a pantalla completa.
+  const isTouch = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
   // Recalcula el próximo nº cuando se confirma una factura nueva o cuando
   // otro tab abrió/cerró cosas (storage events del contador).
@@ -75,7 +78,7 @@ export function POSDesktopBar({
 
       {/* Cliente */}
       {showCustomerField && (
-      <div className="flex-1 flex items-center gap-2">
+      <div className="relative flex-1 flex items-center gap-2">
         <User size={15} className="text-gray-400 shrink-0" />
         {selectedCustomer ? (
           <div className="flex-1 max-w-md flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg">
@@ -121,6 +124,18 @@ export function POSDesktopBar({
           >
             limpiar
           </button>
+        )}
+
+        {showSearch && (
+          <POSCustomerSearch
+            selected={selectedCustomer}
+            variant={isTouch ? 'modal' : 'inline'}
+            onPick={(c) => {
+              onCustomerPick?.(c);
+              if (c) onCustomerNameChange(c.name);
+            }}
+            onClose={() => setShowSearch(false)}
+          />
         )}
       </div>
       )}
@@ -174,16 +189,6 @@ export function POSDesktopBar({
         </div>
       )}
 
-      {showSearch && (
-        <POSCustomerSearch
-          selected={selectedCustomer}
-          onPick={(c) => {
-            onCustomerPick?.(c);
-            if (c) onCustomerNameChange(c.name);
-          }}
-          onClose={() => setShowSearch(false)}
-        />
-      )}
     </div>
   );
 }

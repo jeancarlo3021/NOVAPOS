@@ -7,14 +7,18 @@ interface Props {
   onPick: (c: Customer | null) => void;
   selected?: Customer | null;
   onClose: () => void;
+  /** 'modal' = overlay a pantalla completa (táctil). 'inline' = dropdown pegado
+   *  al campo de cliente (vista de computadora). */
+  variant?: 'modal' | 'inline';
 }
 
-export function POSCustomerSearch({ onPick, selected, onClose }: Props) {
+export function POSCustomerSearch({ onPick, selected, onClose, variant = 'modal' }: Props) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -28,8 +32,20 @@ export function POSCustomerSearch({ onPick, selected, onClose }: Props) {
     return () => clearTimeout(t);
   }, [q]);
 
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-3 sm:p-4 pt-14 sm:pt-20">
+  // Inline: cerrar al hacer clic afuera o con Escape (no hay backdrop que capture).
+  useEffect(() => {
+    if (variant !== 'inline') return;
+    const onDown = (e: MouseEvent) => {
+      if (showCreate) return; // el sub-modal de crear maneja su propio cierre
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !showCreate) onClose(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [variant, onClose, showCreate]);
+
+  const panel = (
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[82vh] flex flex-col">
         <div className="px-3 sm:px-4 py-2.5 sm:py-3 border-b border-gray-100 flex items-center gap-2 shrink-0">
           <Search size={16} className="text-gray-400 shrink-0" />
@@ -94,6 +110,19 @@ export function POSCustomerSearch({ onPick, selected, onClose }: Props) {
           )}
         </div>
       </div>
+  );
+
+  return (
+    <>
+      {variant === 'inline' ? (
+        <div ref={rootRef} className="absolute left-0 top-full mt-1 z-50 w-full max-w-md">
+          {panel}
+        </div>
+      ) : (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-3 sm:p-4 pt-14 sm:pt-20">
+          {panel}
+        </div>
+      )}
 
       {showCreate && (
         <QuickCustomerCreate
@@ -106,7 +135,7 @@ export function POSCustomerSearch({ onPick, selected, onClose }: Props) {
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
