@@ -91,7 +91,7 @@ export function POSDesktopBar({
           </div>
         ) : (
           /* En tablet (táctil) ocultamos el campo de nombre: solo queda "Buscar". */
-          <div className="flex-1 flex items-center gap-2 pointer-coarse:hidden">
+          <div className="flex items-center gap-2 pointer-coarse:hidden">
             <label htmlFor="pos-customer" className="text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0">
               Cliente:
             </label>
@@ -101,7 +101,7 @@ export function POSDesktopBar({
               value={customerName}
               onChange={(e) => onCustomerNameChange(e.target.value)}
               placeholder="Nombre del cliente (opcional)"
-              className="flex-1 max-w-md px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+              className="w-56 lg:w-72 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
               autoComplete="off"
             />
           </div>
@@ -113,8 +113,7 @@ export function POSDesktopBar({
           className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-gray-200 hover:bg-emerald-50 text-emerald-600 hover:border-emerald-300 transition"
         >
           <Search size={14} />
-          {/* Etiqueta solo en tablet, donde el campo de nombre está oculto */}
-          {!selectedCustomer && <span className="hidden pointer-coarse:inline text-xs font-bold">Buscar cliente</span>}
+          {!selectedCustomer && <span className="text-xs font-bold whitespace-nowrap">Buscar cliente</span>}
         </button>
         {!selectedCustomer && customerName && (
           <button

@@ -13,7 +13,10 @@ export function BluetoothReconnectButton() {
   const [disconnected, setDisconnected] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [state, setState] = useState<'idle' | 'connecting' | 'ok'>('idle');
-  const wasConnected = useRef(true);
+  // ¿Alguna vez estuvo conectada en ESTA sesión? Web Bluetooth no reconecta solo
+  // al cargar la página, así que en el arranque en frío siempre está desconectada.
+  // Solo avisamos si hubo una caída real (estuvo conectada y se perdió), no al iniciar.
+  const everConnected = useRef(false);
 
   const check = useCallback(async () => {
     if (!tenantId) return;
@@ -22,11 +25,11 @@ export function BluetoothReconnectButton() {
     if (s.connected) {
       // Volvió a conectar → reseteamos el "cerrado" para avisar la próxima vez.
       setDisconnected(false);
-      if (!wasConnected.current) setDismissed(false);
-      wasConnected.current = true;
-    } else {
+      if (everConnected.current) setDismissed(false);
+      everConnected.current = true;
+    } else if (everConnected.current) {
+      // Caída real a mitad de sesión.
       setDisconnected(true);
-      wasConnected.current = false;
     }
   }, [tenantId]);
 
