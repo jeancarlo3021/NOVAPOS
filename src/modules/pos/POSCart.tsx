@@ -36,7 +36,6 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   subtotal,
   taxAmount,
   total,
-  comboDiscount = 0,
   appliedCombos = [],
   taxEnabled = true,
   taxRate = 0.13,

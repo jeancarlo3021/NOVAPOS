@@ -1871,7 +1871,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     const fmt = (n: number) => `${n.toLocaleString('es-CR')}`;
     rightAlign('Subtotal:', fmt(receiptData.subtotal));
     if (receiptData.tax > 0) { rightAlign('Impuesto:', fmt(receiptData.tax)); }
-    if (Number(receiptData.discount) > 0) { rightAlign(`${receiptData.discountLabel || 'Combos/Desc.'}:`, `-${fmt(Number(receiptData.discount))}`); }
+    if (Number(receiptData.discount)) { rightAlign(`${receiptData.discountLabel || 'Combos/Desc.'}:`, `${Number(receiptData.discount) >= 0 ? '-' : '+'}${fmt(Math.abs(Number(receiptData.discount)))}`); }
     sep();
 
     centerText(`*** TOTAL: ${fmt(receiptData.total)} ***`);

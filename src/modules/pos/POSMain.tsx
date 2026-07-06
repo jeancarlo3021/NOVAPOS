@@ -366,18 +366,6 @@ export const POSMain = () => {
     cartItems.map(it => ({ product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity })),
     activePromotions,
   );
-  // DEBUG combos (temporal): loguea en consola qué promos combo llegan y por qué
-  // no matchean. Quitar cuando esté confirmado.
-  const _comboPromos = activePromotions.filter((p: any) => p.type === 'combo');
-  if (typeof window !== 'undefined') {
-    // eslint-disable-next-line no-console
-    console.log('[COMBOS] combos=', JSON.stringify(_comboPromos.map((p: any) => ({
-        name: p.name, type: p.type, mode: p.combo_mode, value: p.value,
-        product_ids: p.product_ids, isArray: Array.isArray(p.product_ids), len: p.product_ids?.length,
-      }))),
-      '| cart=', JSON.stringify(cartItems.map(i => ({ id: i.product_id, price: i.unit_price }))),
-      '| comboDiscount=', comboDiscount);
-  }
   const total = Math.max(0, subtotal + taxAmount - comboDiscount);
 
   // ── Atajos de teclado estilo Eleventa ─────────────────────────────────

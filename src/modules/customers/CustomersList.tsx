@@ -7,9 +7,9 @@ import { CRLocationFields } from '@/components/CRLocationFields';
 
 export const CustomersList: React.FC = () => {
   const { canDo } = useRolePermissions();
-  const canCreate = canDo('users', 'create'); // reusamos permisos de users por ahora
-  const canEdit   = canDo('users', 'edit');
-  const canDelete = canDo('users', 'delete');
+  const canCreate = canDo('customers', 'create');
+  const canEdit   = canDo('customers', 'edit');
+  const canDelete = canDo('customers', 'delete');
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading]     = useState(false);
