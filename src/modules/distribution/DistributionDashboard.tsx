@@ -7,6 +7,7 @@ import {
 import { useTenantId } from '@/hooks/useTenant';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { PrintTicketModal } from './PrintTicketModal';
+import { FeQuotaWarning } from '@/components/FeQuotaWarning';
 import { distributionService, type DeliveryRoute, type Truck as TruckT } from '@/services/distribution/distributionService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { usersService } from '@/services/users/usersService';
@@ -103,6 +104,7 @@ export const DistributionDashboard: React.FC = () => {
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
+      <FeQuotaWarning />
       {/* Header con degradado */}
       <div className="bg-linear-to-r from-cyan-600 to-blue-600 rounded-2xl p-5 text-white">
         <div className="flex items-center justify-between flex-wrap gap-3">

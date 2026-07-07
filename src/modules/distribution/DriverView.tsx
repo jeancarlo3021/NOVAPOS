@@ -8,6 +8,7 @@ import { distributionService, type DeliveryRoute } from '@/services/distribution
 import { distributionOfflineService } from '@/services/distribution/distributionOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { PrintTicketModal } from './PrintTicketModal';
+import { FeQuotaWarning } from '@/components/FeQuotaWarning';
 import { useTenantId } from '@/hooks/useTenant';
 import { offlineQueue } from '@/services/offlineQueue';
 import { apiFetch } from '@/lib/api';
@@ -86,6 +87,7 @@ export const DriverView: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-6">
+      <FeQuotaWarning />
       {/* Header */}
       <div className="bg-linear-to-r from-cyan-600 to-blue-600 text-white px-4 pt-5 pb-4">
         <div className="flex items-center justify-between">

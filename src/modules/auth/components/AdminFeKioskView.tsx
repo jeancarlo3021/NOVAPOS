@@ -276,12 +276,12 @@ export const AdminFeKioskView: React.FC = () => {
                         </select>
                       </div>
 
-                      {/* Cuota de comprobantes (acumulable) + cobro por excedente */}
+                      {/* Bolsa de comprobantes (prepagada, se gasta) + cobro por excedente */}
                       <div className="border-t border-gray-100 pt-2 mt-1">
-                        <p className="text-[11px] font-black text-gray-600 uppercase tracking-wider mb-1.5">Cuota mensual (0 = ilimitado)</p>
+                        <p className="text-[11px] font-black text-gray-600 uppercase tracking-wider mb-1.5">Bolsa de comprobantes (0 = ilimitado)</p>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Comprobantes/mes</label>
+                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Comprobantes por bolsa</label>
                             <input type="number" min={0} value={card.fe.fe_included_docs ?? 0}
                               onChange={e => setFe(b.tenant_id, 'fe_included_docs', Math.max(0, parseInt(e.target.value) || 0))}
                               className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right" />
@@ -293,7 +293,20 @@ export const AdminFeKioskView: React.FC = () => {
                               className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right" />
                           </div>
                         </div>
-                        <p className="text-[10px] text-gray-400 mt-1">Facturas, tiquetes y notas de crédito cuentan al mismo contador. Lo no usado se acumula; superada la cuota, cada comprobante extra cobra ₡ x extra.</p>
+                        <p className="text-[10px] text-gray-400 mt-1">Facturas, tiquetes y NC cuentan al mismo contador. La bolsa se gasta hasta agotarse (puede durar un año). Al agotarse y pagar el cliente, renovala abajo. Superada la bolsa, cada extra cobra ₡ x extra.</p>
+                        <button type="button"
+                          onClick={async () => {
+                            if (!window.confirm('¿Renovar la bolsa de comprobantes de esta sucursal? Reinicia el contador a 0 (usar cuando el cliente pagó).')) return;
+                            try {
+                              await apiFetch(`/admin/tenants/${b.tenant_id}/fe-renew`, { method: 'POST' });
+                              window.alert('Bolsa renovada. El contador vuelve a 0.');
+                            } catch (err) {
+                              window.alert('No se pudo renovar: ' + (err instanceof Error ? err.message : 'error'));
+                            }
+                          }}
+                          className="mt-2 w-full text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2 py-1.5">
+                          🔄 Renovar bolsa (cliente pagó)
+                        </button>
                       </div>
                     </div>
 

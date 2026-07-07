@@ -35,6 +35,7 @@ import { DisplayTestModal } from './components/DisplayTestModal';
 import { CashOpenModal } from './cashManagement/CashOpenModal';
 import { CashCloseModal } from './cashManagement/CashCloseModal';
 import { PaymentConfirmationModal, PaymentData } from './cashManagement/PaymentConfirmationModal';
+import { FeQuotaWarning } from '@/components/FeQuotaWarning';
 import { LoadingState } from '@/components/ui/uiComponents';
 import type { CartItem, Product } from '@/types/Types_POS';
 
@@ -741,6 +742,10 @@ export const POSMain = () => {
         setLastInvoice(invoice);
         setPaymentData(data);
         setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
+        // Re-chequear la cuota de comprobantes (aviso de 50/20/10) tras emitir.
+        if (documentType === 'factura_electronica' || documentType === 'tiquete_electronico') {
+          setTimeout(() => window.dispatchEvent(new CustomEvent('fe:quota-changed')), 4000);
+        }
 
         // Operaciones en background (no bloquean UI)
         posOfflineService.addCachedInvoice({
@@ -1207,6 +1212,9 @@ export const POSMain = () => {
       {showDisplayTest && (
         <DisplayTestModal onClose={() => setShowDisplayTest(false)} />
       )}
+
+      {/* Aviso de cuota de comprobantes electrónicos (quedan 50/20/10 o agotados). */}
+      <FeQuotaWarning />
 
       {/* Hidden display test trigger button — press Ctrl+D to open */}
       {typeof window !== 'undefined' && (

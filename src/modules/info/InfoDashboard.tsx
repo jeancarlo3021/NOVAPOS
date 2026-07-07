@@ -118,7 +118,7 @@ export const InfoDashboard: React.FC = () => {
           )}
           {quota.included > 0 && (
             <p className="text-xs text-gray-400 mt-2">
-              La cuota se renueva cada mes y lo no usado se acumula. Superada la cuota, cada comprobante extra cuesta {fmtColones(quota.extra_fee)}.
+              Tenés un paquete de <b>{quota.included}</b> comprobantes que se van gastando hasta agotarse (puede durar meses). Se <b>renueva al pagar</b>. Te avisamos cuando queden 50, 20 y 10. Superado el paquete, cada comprobante extra cuesta {fmtColones(quota.extra_fee)}.
             </p>
           )}
         </div>
