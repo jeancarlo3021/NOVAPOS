@@ -117,7 +117,7 @@ export const POSMain = () => {
   // PIN y queda como "cajero activo" — todas las acciones que haga (facturas,
   // anular, mov. de caja) se atribuyen a él hasta que otro entre con su PIN.
   const KIOSK_KEY = 'novapos_pos_kiosk_cashier';
-  type ActiveCashier = { id: string; full_name: string; role: string };
+  type ActiveCashier = { id: string; full_name: string; role: string; ticket_alias?: string };
   const [activeCashier, setActiveCashier] = useState<ActiveCashier | null>(() => {
     try { const raw = localStorage.getItem(KIOSK_KEY); return raw ? JSON.parse(raw) : null; }
     catch { return null; }
@@ -424,7 +424,8 @@ export const POSMain = () => {
   useEffect(() => {
     let active = true;
     (async () => {
-      if (!selectedCustomer?.credit_enabled) { setCreditBalance(0); return; }
+      // El crédito depende del plan (accounts_receivable) + un cliente seleccionado.
+      if (!planFeatures.accounts_receivable || !selectedCustomer) { setCreditBalance(0); return; }
       try {
         const { accountsReceivableService } = await import('@/services/accountsReceivable/accountsReceivableService');
         const rows = await accountsReceivableService.list({ customer_id: selectedCustomer.id });
@@ -433,7 +434,7 @@ export const POSMain = () => {
       } catch { if (active) setCreditBalance(0); }
     })();
     return () => { active = false; };
-  }, [selectedCustomer]);
+  }, [selectedCustomer, planFeatures.accounts_receivable]);
 
   // Precio efectivo de un producto según el cliente (especial o normal).
   const priceFor = (product: Product): number =>
@@ -615,7 +616,10 @@ export const POSMain = () => {
         storeAddress: general?.address,
         storeCity: general?.city,
         storePhone: general?.phone,
-        cashierName: activeCashier?.full_name ?? user?.email ?? undefined,
+        // "Atendido por": preferimos el alias de ticket (control interno); si no,
+        // el nombre real; en último caso el email.
+        cashierName: activeCashier?.ticket_alias || activeCashier?.full_name
+                  || (user as any)?.ticket_alias || user?.full_name || user?.email || undefined,
         customerName,
         simplificadoFooter,
         payments,
@@ -1188,9 +1192,9 @@ export const POSMain = () => {
           enabledMethods={enabledPays}
           allowCard={planFeatures.pos_card}
           allowSinpe={planFeatures.pos_sinpe}
-          allowCredit={!!selectedCustomer?.credit_enabled}
+          allowCredit={!!planFeatures.accounts_receivable && !!selectedCustomer}
           creditAvailable={
-            selectedCustomer?.credit_enabled
+            selectedCustomer
               ? (Number(selectedCustomer.credit_limit ?? 0) > 0
                   ? Number(selectedCustomer.credit_limit) - creditBalance
                   : Infinity)

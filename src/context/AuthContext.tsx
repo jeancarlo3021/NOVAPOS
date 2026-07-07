@@ -99,6 +99,7 @@ export interface AuthUser {
   role: string;
   full_name?: string;
   business_name?: string;
+  ticket_alias?: string;   // alias para "Atendido por:" en el ticket
 }
 
 export interface TenantSubscription {
@@ -613,7 +614,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('id, email, tenant_id, role, full_name, business_name')
+        .select('id, email, tenant_id, role, full_name, business_name, ticket_alias')
         .eq('id', session.user.id)
         .maybeSingle();
 

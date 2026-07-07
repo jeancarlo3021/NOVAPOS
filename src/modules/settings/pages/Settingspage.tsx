@@ -11,8 +11,10 @@ import {
   X,
   MonitorSmartphone,
   FileText,
+  ShieldCheck,
 } from 'lucide-react';
 import { GeneralSettings } from '../components/General/GeneralSettings';
+import { AccountSettings } from '../components/Account/AccountSettings';
 import { PaymentSettings } from '../components/Payments/PaymentSettings';
 import { NotificationSettings } from '../components/Notifications/NotificationsSettings';
 import { ReceiptSettings } from '../components/Receipt/ReceiptSettings';
@@ -21,7 +23,7 @@ import { ElectronicInvoiceSettings } from '../components/ElectronicInvoice/Elect
 import { useAuth } from '@/context/AuthContext';
 import { MANAGER_ROLES } from '@/types/Types_Users';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'account';
 
 const SETTINGS_TABS = [
   {
@@ -60,6 +62,12 @@ const SETTINGS_TABS = [
     icon: Bell,
     description: 'Alertas y notificaciones',
   },
+  {
+    id: 'account' as SettingTab,
+    label: 'Cuenta',
+    icon: ShieldCheck,
+    description: 'Cambiar contraseña',
+  },
 ];
 
 export const SettingsPage: React.FC = () => {
@@ -80,6 +88,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
       if (!planFeatures?.electronic_invoice) return false;
       if (!isManager) return false;
     }
+    // Cuenta / cambio de contraseña: solo el propietario.
+    if (tab.id === 'account' && user?.role !== 'owner') return false;
     return true;
   });
 
@@ -104,6 +114,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
         return <NotificationSettings />;
       case 'electronic_invoice':
         return <ElectronicInvoiceSettings />;
+      case 'account':
+        return <AccountSettings />;
       default:
         return null;
     }

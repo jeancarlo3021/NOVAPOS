@@ -5,7 +5,7 @@ import { usersService } from '@/services/users/usersService';
 interface Props {
   /** True = bloquea el POS hasta validar PIN; false = modal cancelable */
   forced?: boolean;
-  onSuccess: (cashier: { id: string; full_name: string; role: string }) => void;
+  onSuccess: (cashier: { id: string; full_name: string; role: string; ticket_alias?: string }) => void;
   onClose?: () => void;
 }
 

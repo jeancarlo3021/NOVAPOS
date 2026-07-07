@@ -69,6 +69,7 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
         role: user.role as UserRole,
         phone: user.phone || '',
         zone: (user as any).zone || '',
+        ticket_alias: (user as any).ticket_alias || '',
       });
     } else {
       setForm({ ...EMPTY_FORM });
@@ -135,6 +136,7 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
           role: form.role as UserRole,
           phone: (form as any).phone || undefined,
           zone: (form as any).zone ?? '',
+          ticket_alias: (form as any).ticket_alias ?? '',
         };
         await usersService.updateUser(user.id, updateForm);
       } else {
@@ -329,6 +331,26 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
               el usuario (ej. repartidor) solo verá clientes y cuentas por cobrar de esa zona.
             </p>
           </div>
+
+          {/* Alias para el ticket ("Atendido por:") — control interno */}
+          {isEditing && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">
+                🎫 Alias en el ticket <span className="text-gray-400 font-normal">(control interno)</span>
+              </label>
+              <input
+                type="text"
+                maxLength={60}
+                value={(form as any).ticket_alias || ''}
+                onChange={(e) => set('ticket_alias', e.target.value)}
+                placeholder={`Ej. Paquito (por defecto: ${user?.full_name || 'nombre real'})`}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Nombre que aparece como <strong>“Atendido por:”</strong> en el ticket de este usuario. Si lo dejás vacío, se usa el nombre real. Requiere activar “Mostrar cajero” en Configuración → Factura.
+              </p>
+            </div>
+          )}
 
           {/* PIN para modo Kiosk del POS — solo al editar */}
           {isEditing && user && (

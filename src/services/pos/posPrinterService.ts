@@ -509,6 +509,14 @@ export class POSPrinterService {
       const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
       const dt = (s: string) => { try { return new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; } };
       const diffLabel = report.difference === 0 ? 'CUADRADO' : report.difference > 0 ? 'SOBRANTE' : 'FALTANTE';
+      // Diferencia venta vs sistema por método (Contado - Sistema).
+      const a4CashIn = (report.cash_movements ?? []).filter((m: any) => m.type === 'in').reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+      const a4CashOut = (report.cash_movements ?? []).filter((m: any) => m.type === 'out').reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+      const a4ExpCash = Number(report.opening_amount ?? 0) + Number(report.system_cash ?? 0) + a4CashIn - a4CashOut;
+      const a4dCash = Number(report.cash_total ?? 0) - a4ExpCash;
+      const a4dCard = Number(report.card_total ?? 0) - Number(report.system_card ?? 0);
+      const a4dSinpe = Number(report.sinpe_total ?? 0) - Number(report.system_sinpe ?? 0);
+      const sMoney = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${money(Math.abs(n))}`;
       const lines: Array<{ t: string; a?: string; b?: string }> = [
         { t: 'title', a: 'CIERRE DE CAJA' },
         ...(general?.businessName ? [{ t: 'center' as const, a: general.businessName }] : []),
@@ -527,6 +535,10 @@ export class POSPrinterService {
         { t: 'row', a: `Diferencia (${diffLabel})`, b: money(report.difference) },
         { t: 'row', a: 'Tarjeta contada', b: money(report.card_total) },
         { t: 'row', a: 'SINPE contado', b: money(report.sinpe_total) },
+        { t: 'sep' }, { t: 'title', a: 'DIFERENCIA VENTA vs SISTEMA' },
+        { t: 'row', a: 'Efectivo', b: sMoney(a4dCash) },
+        { t: 'row', a: 'Tarjeta', b: sMoney(a4dCard) },
+        { t: 'row', a: 'SINPE', b: sMoney(a4dSinpe) },
       ];
       if ((report.cash_movements ?? []).length > 0) {
         lines.push({ t: 'sep' }, { t: 'title', a: 'MOVIMIENTOS DE CAJA' });
@@ -883,6 +895,21 @@ export class POSPrinterService {
     row('TOTAL CONTADO:', fmt(report.closing_amount));
     sep();
 
+    // Diferencia venta vs sistema, por método (Contado - Sistema).
+    // Efectivo compara contra el esperado (fondo + ventas efectivo + movimientos).
+    const cashIn = movs.filter(m => m.type === 'in').reduce((s, m) => s + m.amount, 0);
+    const cashOut = movs.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0);
+    const expectedCash = Number(report.opening_amount ?? 0) + sCash + cashIn - cashOut;
+    const dCash = Number(report.cash_total ?? 0) - expectedCash;
+    const dCard = Number(report.card_total ?? 0) - sCard;
+    const dSinpe = Number(report.sinpe_total ?? 0) - sSinpe;
+    const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${fmt(Math.abs(n))}`;
+    centerText('DIFERENCIA VENTA VS SISTEMA');
+    row('Efectivo:', signed(dCash));
+    row('Datafono:', signed(dCard));
+    row('SINPE:', signed(dSinpe));
+    sep();
+
     // Faltante / sobrante (sobre el total)
     push(0x1B, 0x21, 0x10);         // ESC ! — doble alto
     const diff = Number(report.difference ?? 0);
@@ -921,6 +948,15 @@ export class POSPrinterService {
         </tr>
         <tr><td colspan="2" style="font-size:11px;padding-bottom:4px;">${m.reason || '-'}</td></tr>
       `).join('');
+
+    // Diferencia venta vs sistema por método (Contado - Sistema).
+    const cashIn = (report.cash_movements ?? []).filter((m: any) => m.type === 'in').reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+    const cashOut = (report.cash_movements ?? []).filter((m: any) => m.type === 'out').reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
+    const expCash = Number(report.opening_amount ?? 0) + Number(report.system_cash ?? 0) + cashIn - cashOut;
+    const dCash = Number(report.cash_total ?? 0) - expCash;
+    const dCard = Number(report.card_total ?? 0) - Number(report.system_card ?? 0);
+    const dSinpe = Number(report.sinpe_total ?? 0) - Number(report.system_sinpe ?? 0);
+    const diffCell = (n: number) => `<td style="text-align:right;color:${n === 0 ? '#000' : n > 0 ? '#16a34a' : '#dc2626'}">${n > 0 ? '+' : n < 0 ? '-' : ''}${fmt(Math.abs(n))}</td>`;
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -987,6 +1023,13 @@ export class POSPrinterService {
     <tr><td>Datáfono:</td><td style="text-align:right">${fmt(report.card_total)}</td></tr>
     <tr><td>SINPE:</td><td style="text-align:right">${fmt(report.sinpe_total)}</td></tr>
     <tr><td><strong>Total contado:</strong></td><td style="text-align:right"><strong>${fmt(report.closing_amount)}</strong></td></tr>
+  </table>
+
+  <div class="section">DIFERENCIA VENTA vs SISTEMA</div>
+  <table>
+    <tr><td>Efectivo:</td>${diffCell(dCash)}</tr>
+    <tr><td>Datáfono:</td>${diffCell(dCard)}</tr>
+    <tr><td>SINPE:</td>${diffCell(dSinpe)}</tr>
   </table>
 
   <div class="diff-line" style="color:${diffColor};border-color:${diffColor};">
@@ -1767,7 +1810,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
   </div>
   ` : ''}
 
-  ${cfg.showCashierName && receiptData.cashierName ? `<div class="cashier">Cajero: ${receiptData.cashierName}</div>` : ''}
+  ${cfg.showCashierName && receiptData.cashierName ? `<div class="cashier">Atendido por: ${receiptData.cashierName}</div>` : ''}
 
   <hr class="divider">
 
@@ -1927,7 +1970,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       sep();
     }
     if (cfg.showCashierName && receiptData.cashierName) {
-      centerText(`Cajero: ${receiptData.cashierName}`);
+      centerText(`Atendido por: ${receiptData.cashierName}`);
     }
 
     sep();

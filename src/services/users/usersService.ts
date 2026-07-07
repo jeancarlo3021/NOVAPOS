@@ -60,7 +60,7 @@ export const usersService = {
   /** Quick-switch del POS: valida un PIN contra los users del tenant y
    *  devuelve quién es. NO reemplaza la sesión — solo cambia el cashier
    *  activo del POS. */
-  async pinLogin(pin: string): Promise<{ id: string; full_name: string; role: string; email: string }> {
+  async pinLogin(pin: string): Promise<{ id: string; full_name: string; role: string; email: string; ticket_alias?: string }> {
     return apiFetch('/users/pin-login', {
       method: 'POST',
       body: JSON.stringify({ pin }),
