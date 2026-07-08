@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Printer, WifiOff, CheckCircle2 } from 'lucide-react';
+import { X, Search, Printer, WifiOff, CheckCircle2, Calendar, RefreshCw } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService, type Invoice, type InvoiceItem } from '@/services/invoice/invoiceService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -14,9 +14,13 @@ interface InvoiceRow {
   issued_at: string;
   total: number;
   payment_method: string;
+  status?: string;
   payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[] | null;
   fe_clave?: string | null;
 }
+
+/** Día (YYYY-MM-DD) de una factura leyendo el wall-clock literal de issued_at. */
+const invoiceDay = (issuedAt?: string) => String(issuedAt ?? '').slice(0, 10);
 
 const PAYMENT_LABELS: Record<string, string> = {
   cash: 'Efectivo',
@@ -43,10 +47,22 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState(''); // YYYY-MM-DD (vacío = sin límite inferior)
+  const [dateTo, setDateTo]     = useState(''); // YYYY-MM-DD (vacío = sin límite superior)
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [doneId, setDoneId] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  // ¿El día de una factura cae dentro del rango elegido? (rango abierto si falta un extremo)
+  const inRange = useCallback((issuedAt?: string) => {
+    const d = invoiceDay(issuedAt);
+    if (dateFrom && d < dateFrom) return false;
+    if (dateTo && d > dateTo) return false;
+    return true;
+  }, [dateFrom, dateTo]);
+
+  const hasRange = !!(dateFrom || dateTo);
 
   const load = useCallback(async () => {
     if (!tenantId) return;
@@ -54,28 +70,38 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
     try {
       let data: InvoiceRow[] = [];
       if (isOnline) {
-        const params = new URLSearchParams({ status: 'completed', limit: '300' });
-        const remote = await apiFetch<InvoiceRow[]>(`/invoices?${params.toString()}`);
-        data = remote ?? [];
+        const params = new URLSearchParams({ limit: '300' });
+        // Rango de fechas: el backend acepta from/to sobre issued_at (por separado).
+        if (dateFrom) params.set('from', dateFrom);
+        if (dateTo)   params.set('to', dateTo);
+        // El backend puede devolver el array directo O envuelto en
+        // { invoices, total, page, limit }. Soportamos ambas formas (igual que
+        // anular) — si no, en la tablet quedaba vacío y solo mostraba su caché.
+        const res = await apiFetch<any>(`/invoices?${params.toString()}`);
+        const arr: InvoiceRow[] = Array.isArray(res) ? res : Array.isArray(res?.invoices) ? res.invoices : [];
+        const remote = arr.filter(inv => inv.status !== 'cancelled');
 
-        const cached = posOfflineService.getCachedInvoices();
-        const combined = [
-          ...data,
-          ...cached.filter(c => !data.some(a => a.id === c.id)),
-        ];
-        posOfflineService.cacheInvoices(combined as any);
-        data = combined;
+        // Sumar facturas offline aún no sincronizadas (por número, evita duplicar
+        // la misma factura que ya está en el servidor con otro id local).
+        const seen = new Set(remote.map(r => r.invoice_number));
+        const cached = (posOfflineService.getCachedInvoices() as any as InvoiceRow[])
+          .filter(c => c.invoice_number && !seen.has(c.invoice_number) && inRange(c.issued_at));
+        data = [...remote, ...cached];
+
+        // Refrescar el caché solo con la lista completa (sin rango) para no pisar
+        // el caché offline con un subconjunto de fechas.
+        if (!hasRange) posOfflineService.cacheInvoices(data as any);
       } else {
-        data = posOfflineService.getCachedInvoices() as any;
+        data = (posOfflineService.getCachedInvoices() as any as InvoiceRow[]).filter(c => inRange(c.issued_at));
       }
       setInvoices(data);
     } catch {
-      const cached = posOfflineService.getCachedInvoices();
-      setInvoices(cached as any);
+      const cached = (posOfflineService.getCachedInvoices() as any as InvoiceRow[]).filter(c => inRange(c.issued_at));
+      setInvoices(cached);
     } finally {
       setLoadingList(false);
     }
-  }, [tenantId, isOnline]);
+  }, [tenantId, isOnline, dateFrom, dateTo, inRange, hasRange]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -170,9 +196,9 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
           </button>
         </div>
 
-        {/* Search */}
-        <div className="px-6 py-3 border-b border-gray-100 shrink-0">
-          <div className="relative">
+        {/* Search + filtro por día */}
+        <div className="px-6 py-3 border-b border-gray-100 shrink-0 flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
@@ -182,6 +208,43 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
               className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 transition"
               autoFocus
             />
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+            <Calendar size={15} className="text-gray-400 shrink-0" />
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={e => setDateFrom(e.target.value)}
+              title="Desde"
+              className="px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 transition"
+            />
+            <span className="text-gray-400 text-xs">a</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={e => setDateTo(e.target.value)}
+              title="Hasta"
+              className="px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 transition"
+            />
+            {hasRange && (
+              <button
+                onClick={() => { setDateFrom(''); setDateTo(''); }}
+                title="Quitar filtro de fechas"
+                className="px-2 py-1.5 rounded-lg text-xs font-bold text-gray-500 hover:bg-gray-100 transition"
+              >
+                Todos
+              </button>
+            )}
+            <button
+              onClick={load}
+              disabled={loadingList}
+              title="Actualizar lista"
+              className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition"
+            >
+              <RefreshCw size={15} className={loadingList ? 'animate-spin' : ''} />
+            </button>
           </div>
         </div>
 
@@ -199,7 +262,9 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
             </div>
           ) : filtered.length === 0 ? (
             <p className="text-gray-400 text-center py-14 text-sm">
-              {search ? 'No se encontraron facturas' : 'No hay facturas completadas'}
+              {search ? 'No se encontraron facturas'
+                : hasRange ? 'No hay facturas en ese rango de fechas'
+                : 'No hay facturas completadas'}
             </p>
           ) : (
             filtered.map(inv => {
@@ -259,7 +324,9 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
 
         <div className="px-6 py-3 border-t border-gray-100 shrink-0">
           <p className="text-xs text-gray-400 text-center">
-            Mostrando hasta las últimas 300 facturas (independiente de la caja actual)
+            {hasRange
+              ? `${dateFrom || '…'} a ${dateTo || '…'} · ${filtered.length} factura${filtered.length !== 1 ? 's' : ''}`
+              : 'Últimas 300 facturas (independiente de la caja actual)'}
           </p>
         </div>
       </div>

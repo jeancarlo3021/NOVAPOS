@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ShoppingBag, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useCashSession } from '@/hooks/useCashSession';
+import { createCashSession } from '@/services/cashManagement/cashSessionsService';
 import { useTenantId } from '@/hooks/useTenant';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
@@ -101,6 +102,8 @@ export const POSMain = () => {
 
   // Tax settings loaded from general config
   const [taxEnabled, setTaxEnabled]   = useState(true);
+  // Apertura/cierre de caja (config del negocio). Si false, se vende sin caja.
+  const [cashEnabled, setCashEnabled] = useState(true);
   const [taxRate, setTaxRate]         = useState(0.13);
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -208,6 +211,8 @@ export const POSMain = () => {
       if (cfg.taxEnabled === false || cfg.taxEnabled === true) {
         setTaxEnabled(cfg.taxEnabled);
       }
+      // Apertura/cierre de caja — default activo; solo false si está explícito.
+      setCashEnabled(cfg.cashManagementEnabled !== false);
       if (typeof cfg.taxPercentage === 'number' && cfg.taxPercentage >= 0)
         setTaxRate(cfg.taxPercentage / 100);
     };
@@ -229,6 +234,26 @@ export const POSMain = () => {
       })
       .catch(() => {/* ignore — cached config is already applied */});
   }, [tenantId]);
+
+  // Caja desactivada: abrimos una sesión silenciosa (monto 0) si no hay una
+  // abierta, para que las ventas funcionen sin apertura/cierre manual.
+  const silentOpenRef = useRef(false);
+  useEffect(() => {
+    if (cashEnabled || sessionLoading) return;
+    if (currentSession?.status === 'open') return;
+    if (!isOnline || silentOpenRef.current) return;
+    silentOpenRef.current = true;
+    (async () => {
+      try {
+        await createCashSession({
+          tenant_id: tenantId!, user_id: user?.id ?? '',
+          opening_amount: 0, notes: 'Caja automática (apertura/cierre desactivados)',
+        });
+        await refetchSession();
+      } catch { /* ignore */ }
+      finally { silentOpenRef.current = false; }
+    })();
+  }, [cashEnabled, sessionLoading, currentSession, isOnline, refetchSession]);
 
   // Keep pending invoice count up to date
   const refreshPendingCount = useCallback(async () => {
@@ -875,6 +900,7 @@ export const POSMain = () => {
         currentSession={currentSession}
         onClearError={() => setError('')}
         onClearSuccess={() => setSuccess('')}
+        hideCashSession={!cashEnabled}
         onOpenCash={() => setShowOpenModal(true)}
         onCloseCash={() => setShowCloseModal(true)}
         onVoidInvoice={(currentSession && canVoidInvoice) ? () => setShowVoidModal(true) : undefined}
@@ -990,6 +1016,7 @@ export const POSMain = () => {
             taxRate={taxRate}
             taxBreakdown={taxBreakdown}
             currentSession={currentSession}
+            cashDisabled={!cashEnabled}
             loading={paymentLoading}
             canDiscount={planFeatures.pos_discount && maxDiscountPercent > 0}
             maxDiscountPercent={maxDiscountPercent}
@@ -1023,6 +1050,7 @@ export const POSMain = () => {
             taxRate={taxRate}
             taxBreakdown={taxBreakdown}
             currentSession={currentSession}
+            cashDisabled={!cashEnabled}
             loading={paymentLoading}
             canDiscount={planFeatures.pos_discount && maxDiscountPercent > 0}
             maxDiscountPercent={maxDiscountPercent}

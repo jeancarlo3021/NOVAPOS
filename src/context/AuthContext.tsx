@@ -643,6 +643,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPlanFeatures(planData.features);
       setPlanName(planData.name);
 
+      // Módulos personalizados por empresa (override que el super-admin definió
+      // encima del plan base). Se guardan en settings type='feature-overrides'.
+      if (selectedTenant) {
+        try {
+          const { data: ovRow } = await supabase.from('settings')
+            .select('config').eq('tenant_id', selectedTenant.id).eq('type', 'feature-overrides').maybeSingle();
+          if (!isActive()) return;
+          const overrides = (ovRow as any)?.config;
+          if (overrides && typeof overrides === 'object' && Object.keys(overrides).length > 0) {
+            setPlanFeatures({ ...planData.features, ...overrides });
+          }
+        } catch { /* si falla, quedan las features del plan */ }
+      }
+
       // Identificar al usuario en Sentry — cualquier error futuro queda
       // taggeado con su email y tenant. No-op si Sentry no fue iniciado.
       try {

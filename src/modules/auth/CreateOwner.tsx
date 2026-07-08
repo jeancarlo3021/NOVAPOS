@@ -12,6 +12,8 @@ import {
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
+import { TenantUsersModal } from './components/TenantUsersModal';
+import { TenantModulesModal } from './components/TenantModulesModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
 import { CustomInvoiceModal } from './components/CustomInvoiceModal';
@@ -69,6 +71,8 @@ export const CreateOwner: React.FC = () => {
   const [showForm,  setShowForm]  = useState(false);
   const [renewing,  setRenewing]  = useState<OwnerData | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<OwnerData | null>(null);
+  const [manageUsersFor, setManageUsersFor] = useState<OwnerData | null>(null);
+  const [manageModulesFor, setManageModulesFor] = useState<OwnerData | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showCabys, setShowCabys] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
@@ -101,6 +105,26 @@ export const CreateOwner: React.FC = () => {
       });
       setSuccess('ApiKey del emisor guardada');
     } catch (err: any) { setError(err.message || 'No se pudo guardar la ApiKey'); }
+  };
+
+  // Habilitar / deshabilitar la emisión electrónica del negocio (ej. después de
+  // que el cliente paga el módulo de FE). Preserva el resto de la config.
+  const toggleFeEnabled = async (o: OwnerData) => {
+    try {
+      const cur = await apiFetch<any>(`/admin/tenants/${o.id}/fe-config`).catch(() => ({}));
+      const existing = cur?.fe ?? {};
+      const next = !existing.enabled;
+      if (next && !String(existing.api_key_emisor ?? '').trim()) {
+        if (!window.confirm(`"${o.name}" no tiene ApiKey del emisor configurada. ¿Habilitar FE igual? (podés ponerla después con "ApiKey del emisor")`)) return;
+      } else if (!window.confirm(`${next ? 'Habilitar' : 'Deshabilitar'} facturación electrónica para "${o.name}"?`)) {
+        return;
+      }
+      await apiFetch(`/admin/tenants/${o.id}/fe-config`, {
+        method: 'PUT',
+        body: JSON.stringify({ fe: { ...existing, enabled: next } }),
+      });
+      setSuccess(next ? 'Facturación electrónica habilitada' : 'Facturación electrónica deshabilitada');
+    } catch (err: any) { setError(err.message || 'No se pudo cambiar el estado de FE'); }
   };
 
   const assignFePlan = async (tenantId: string, fePlanId: string) => {
@@ -992,6 +1016,18 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">
                                     <KeyRound size={13} /> ApiKey del emisor
                                   </button>
+                                  <button onClick={() => { setOpenMenuId(null); toggleFeEnabled(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
+                                    <FileText size={13} /> Habilitar / deshabilitar FE
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setManageUsersFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-50">
+                                    <Users2 size={13} /> Usuarios de la empresa
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setManageModulesFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50">
+                                    <Layers size={13} /> Módulos personalizados
+                                  </button>
                                   <div className="my-1 border-t border-gray-100" />
                                   <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'new-business'); }} disabled={emailingId === o.id}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40">
@@ -1049,6 +1085,24 @@ export const CreateOwner: React.FC = () => {
           onClose={() => setInvoiceFor(null)}
           onSent={(msg) => { setInvoiceFor(null); showToast(msg, 'success'); }}
           onError={(msg) => showToast(msg, 'error')}
+        />
+      )}
+
+      {/* Usuarios de la empresa */}
+      {manageUsersFor && (
+        <TenantUsersModal
+          owner={manageUsersFor}
+          onClose={() => setManageUsersFor(null)}
+          onToast={showToast}
+        />
+      )}
+
+      {/* Módulos personalizados por empresa */}
+      {manageModulesFor && (
+        <TenantModulesModal
+          owner={manageModulesFor}
+          onClose={() => setManageModulesFor(null)}
+          onToast={showToast}
         />
       )}
 

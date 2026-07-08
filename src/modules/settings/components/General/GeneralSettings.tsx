@@ -16,6 +16,8 @@ const DEFAULTS = {
   city: '',
   taxEnabled: true,
   taxPercentage: 13,
+  // Apertura/cierre de caja. Si false, el POS vende sin caja (sesión automática).
+  cashManagementEnabled: true,
   currency: 'CRC',
   timezone: 'America/Costa_Rica',
   void_pin: '',
@@ -200,6 +202,33 @@ export const GeneralSettings: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Apertura / cierre de caja */}
+        <div className="border border-gray-200 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Apertura y cierre de caja</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {formData.cashManagementEnabled
+                  ? 'Activo — el POS pide abrir caja para cobrar y permite cerrarla con arqueo'
+                  : 'Desactivado — se vende sin abrir/cerrar caja (se maneja una sesión automática)'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFormData(prev => ({ ...prev, cashManagementEnabled: !prev.cashManagementEnabled }))}
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                formData.cashManagementEnabled ? 'bg-emerald-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                  formData.cashManagementEnabled ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

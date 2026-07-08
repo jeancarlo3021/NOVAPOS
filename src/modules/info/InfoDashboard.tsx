@@ -166,11 +166,11 @@ function QuotaCard({ label, available, included, used, overage }: {
       ) : (
         <>
           <p className={`text-2xl font-black ${out ? 'text-red-700' : 'text-emerald-600'}`}>
-            {Math.max(0, available as number).toLocaleString('es-CR')} <span className="text-sm font-bold text-gray-400">quedan</span>
+            {Math.max(0, available as number).toLocaleString('es-CR')} <span className="text-sm font-bold text-gray-400">disponibles</span>
           </p>
           <div className="mt-1 text-xs text-gray-500 space-y-0.5">
-            <div>Límite: <b>{included.toLocaleString('es-CR')}</b>/mes</div>
-            <div>Usadas: <b>{used.toLocaleString('es-CR')}</b>{overage > 0 ? ` · ${overage} extra` : ''}</div>
+            <div>Paquete: <b>{included.toLocaleString('es-CR')}</b> comprobantes</div>
+            <div>Usados: <b>{used.toLocaleString('es-CR')}</b>{overage > 0 ? ` · ${overage} extra` : ''}</div>
           </div>
         </>
       )}

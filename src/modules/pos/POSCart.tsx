@@ -18,6 +18,8 @@ interface POSCartPanelProps {
   taxBreakdown?: Record<number, number>;
   currentSession: CashSession | null;
   loading: boolean;
+  /** El negocio desactivó apertura/cierre de caja: no mostramos "Abre la caja". */
+  cashDisabled?: boolean;
   onRemoveFromCart: (productId: string) => void;
   onChangeQuantity: (productId: string, quantity: number) => void;
   canDiscount?: boolean;
@@ -42,6 +44,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   taxBreakdown,
   currentSession,
   loading,
+  cashDisabled = false,
   onRemoveFromCart,
   onChangeQuantity,
   canDiscount,
@@ -351,7 +354,14 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
 
       {/* ── Pay button ── */}
       <div className="px-3 py-3 bg-white border-t border-gray-200 shrink-0">
-        {!currentSession ? (
+        {cashDisabled ? (
+          // Caja desactivada: la sesión se abre sola. Si aún no está lista, aviso neutro.
+          (!currentSession || currentSession.status !== 'open') ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-2 text-center">
+              <p className="text-gray-500 text-sm font-bold">Preparando caja…</p>
+            </div>
+          ) : null
+        ) : !currentSession ? (
           <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2 text-center">
             <p className="text-amber-700 text-sm font-bold">
               Abre la caja para cobrar

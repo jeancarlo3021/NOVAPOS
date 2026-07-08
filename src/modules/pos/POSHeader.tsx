@@ -12,6 +12,9 @@ interface POSHeaderProps {
   productsCached: boolean;
   productsCachedAt?: Date | null;
   currentSession: CashSession | null;
+  /** Oculta el bloque de caja (apertura/cierre/entrada/salida) cuando el negocio
+   *  desactivó la gestión de caja. */
+  hideCashSession?: boolean;
   onClearError: () => void;
   onClearSuccess: () => void;
   onOpenCash: () => void;
@@ -33,6 +36,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   productsCached,
   productsCachedAt,
   currentSession,
+  hideCashSession,
   onClearError,
   onClearSuccess,
   onOpenCash,
@@ -83,7 +87,20 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           </button>
         )}
 
-        {/* Cash session */}
+        {/* Anular — cuando la caja está oculta, lo mostramos acá para no perderlo */}
+        {hideCashSession && onVoidInvoice && (
+          <button
+            onClick={onVoidInvoice}
+            className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+            title="Anular factura"
+          >
+            <Ban size={15} />
+            <span className="hidden lg:inline">Anular</span>
+          </button>
+        )}
+
+        {/* Cash session — se oculta si el negocio desactivó la gestión de caja */}
+        {hideCashSession ? <div className="flex-1" /> : (
         <div className="flex-1 flex justify-center min-w-full sm:min-w-0 mt-2 sm:mt-0">
           {currentSession && currentSession.status === 'open' ? (
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center">
@@ -166,6 +183,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
             </button>
           )}
         </div>
+        )}
       </div>
 
       {/* Status / alert bar */}
