@@ -1093,39 +1093,6 @@ export const POSMain = () => {
         </button>
       )}
 
-      {/* Cintillo de atajos F-keys estilo Eleventa — solo en modo escritorio */}
-      {posViewMode === 'desktop' && (
-        <div className="bg-gray-900 text-white px-4 py-1.5 flex items-center gap-3 text-[11px] font-mono shrink-0 overflow-x-auto pos-keyboard-hint">
-          <span className="font-bold text-emerald-400">
-            <span className="bg-emerald-600 text-white px-1.5 py-0.5 rounded mr-1.5">F12</span>
-            Cobrar
-          </span>
-          <span className="text-gray-400">·</span>
-          <span className="font-bold text-red-300">
-            <span className="bg-red-600 text-white px-1.5 py-0.5 rounded mr-1.5">F4</span>
-            Anular
-          </span>
-          <span className="text-gray-400">·</span>
-          <span className="font-bold text-blue-300">
-            <span className="bg-blue-600 text-white px-1.5 py-0.5 rounded mr-1.5">F2</span>
-            Pistola lectora
-          </span>
-          <span className="text-gray-400">·</span>
-          <span className="font-bold text-gray-300">
-            <span className="bg-gray-600 text-white px-1.5 py-0.5 rounded mr-1.5">Esc</span>
-            Cancelar
-          </span>
-          <span className="text-gray-400">·</span>
-          <span className="font-bold text-gray-300">
-            <span className="bg-gray-600 text-white px-1.5 py-0.5 rounded mr-1.5">Enter</span>
-            Confirmar
-          </span>
-          <span className="ml-auto text-gray-500">
-            ColònClick · {assisted ? 'Modo Asistido' : 'Escritorio'}
-          </span>
-        </div>
-      )}
-
       {/* POSModals only handles the receipt now */}
       <POSModals
         showOpenModal={false}
