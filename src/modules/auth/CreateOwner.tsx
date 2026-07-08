@@ -93,6 +93,12 @@ export const CreateOwner: React.FC = () => {
     apiFetch<any[]>('/admin/fe-plans').then(l => setFePlans(Array.isArray(l) ? l : [])).catch(() => {});
   }, []);
 
+  // Bolsa de comprobantes FE por negocio (límite, usados, vencimiento a 1 año).
+  const [feQuotas, setFeQuotas] = useState<Record<string, { included?: number; used?: number; available?: number; expires_at?: string; unlimited?: boolean }>>({});
+  useEffect(() => {
+    apiFetch<Record<string, any>>('/admin/fe-quotas').then(q => setFeQuotas(q ?? {})).catch(() => {});
+  }, []);
+
   const setEmisorApiKey = async (o: OwnerData) => {
     try {
       const cur = await apiFetch<any>(`/admin/tenants/${o.id}/fe-config`).catch(() => ({}));
@@ -817,6 +823,9 @@ export const CreateOwner: React.FC = () => {
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Facturas no anuladas emitidas este mes — para tracking de Facturación Electrónica">
                       <span className="inline-flex items-center gap-1"><FileText size={11} /> Facturas (mes)</span>
                     </th>
+                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Bolsa de comprobantes electrónicos: quedan / límite · vence al año del inicio">
+                      <span className="inline-flex items-center gap-1"><FileText size={11} /> Docs FE · Vence</span>
+                    </th>
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Facturas hechas por Distribución (ruta/camión) este mes">
                       <span className="inline-flex items-center gap-1"><Truck size={11} /> Distribución</span>
                     </th>
@@ -842,7 +851,7 @@ export const CreateOwner: React.FC = () => {
                     if (filtered.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={9} className="px-5 py-10 text-center text-gray-400 text-sm">
+                          <td colSpan={10} className="px-5 py-10 text-center text-gray-400 text-sm">
                             No se encontraron negocios con "{searchTerm}"
                           </td>
                         </tr>
@@ -854,8 +863,14 @@ export const CreateOwner: React.FC = () => {
                     const days      = o.is_admin_plan ? null : daysUntil(eff.date);
                     const isActive  = o.status === 'active';
                     const isBusy    = togglingId === o.id;
+                    // Bolsa FE por vencer/agotada → resaltar la fila.
+                    const fq = feQuotas[o.id];
+                    const feExpDays = (fq && !fq.unlimited && fq.expires_at)
+                      ? Math.ceil((new Date(fq.expires_at).getTime() - Date.now()) / 86400000) : null;
+                    const feAlert = !!fq && !fq.unlimited && isActive &&
+                      (((fq.available ?? 0) <= 0) || (feExpDays !== null && feExpDays <= 30));
                     return (
-                      <tr key={o.id} className={`hover:bg-gray-50/50 transition ${!isActive ? 'opacity-60' : ''} ${days !== null && days < 0 && isActive ? 'bg-red-50/20' : ''}`}>
+                      <tr key={o.id} className={`hover:bg-gray-50/50 transition ${!isActive ? 'opacity-60' : ''} ${days !== null && days < 0 && isActive ? 'bg-red-50/20' : feAlert ? 'bg-amber-50/40' : ''}`}>
                         {/* Negocio */}
                         <td className="px-5 py-4">
                           <p className="font-bold text-gray-900">{o.name}</p>
@@ -947,6 +962,37 @@ export const CreateOwner: React.FC = () => {
                             <FileText size={11} />
                             {(o.monthly_invoices ?? 0).toLocaleString('es-CR')}
                           </span>
+                        </td>
+                        {/* Docs electrónicos: bolsa (quedan/límite) + vencimiento a 1 año */}
+                        <td className="px-5 py-4 text-center">
+                          {(() => {
+                            const q = feQuotas[o.id];
+                            // Sin FE del todo → aviso claro (no un simple guion).
+                            if (!q) return <span className="text-[11px] font-semibold text-gray-400" title="Este negocio no tiene facturación electrónica activa">Sin FE</span>;
+                            // FE activa pero sin límite de bolsa.
+                            if (q.unlimited) return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700" title="Facturación electrónica ilimitada (sin bolsa)"><FileText size={11} /> Ilimitado</span>;
+                            const available = q.available ?? 0;
+                            const included = q.included ?? 0;
+                            const daysToExp = q.expires_at ? Math.ceil((new Date(q.expires_at).getTime() - Date.now()) / 86400000) : null;
+                            const lowDocs = available <= 10;
+                            const soon = daysToExp !== null && daysToExp <= 30;
+                            const expired = daysToExp !== null && daysToExp < 0;
+                            return (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold tabular-nums ${
+                                  available <= 0 ? 'bg-red-100 text-red-700' : lowDocs ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                                }`} title={`${available} disponibles de ${included} · usados ${q.used ?? 0}`}>
+                                  <FileText size={11} />
+                                  {Math.max(0, available).toLocaleString('es-CR')}/{included.toLocaleString('es-CR')}
+                                </span>
+                                <span className={`text-[10px] font-semibold ${expired ? 'text-red-600' : soon ? 'text-amber-600' : 'text-gray-400'}`}
+                                  title="Vence al año del inicio de la bolsa">
+                                  {expired ? '⚠ venció ' : soon ? `⚠ vence en ${daysToExp}d · ` : 'vence '}
+                                  {q.expires_at ? new Date(q.expires_at).toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </td>
                         {/* Facturas por Distribución */}
                         <td className="px-5 py-4 text-center">

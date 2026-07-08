@@ -162,24 +162,37 @@ export const POSMain = () => {
   // config de FE (Settings → Facturación Electrónica). Si no hay config, ticket.
   const [documentType, setDocumentType] =
     useState<import('./POSDesktopBar').DocumentType>('ticket');
+  // ¿Está lista la emisión electrónica? Requiere ApiKey del emisor configurada.
+  // Sin ApiKey no se puede facturar tiquete/factura electrónica.
+  const [feApiKeyReady, setFeApiKeyReady] = useState(false);
 
   useEffect(() => {
     // Si el plan no tiene FE, ni cargamos el default: siempre tiquete corriente.
-    if (!(planFeatures as any)?.electronic_invoice) return;
+    if (!(planFeatures as any)?.electronic_invoice) { setFeApiKeyReady(false); return; }
     let cancelled = false;
     (async () => {
       try {
         const { apiFetch } = await import('@/lib/api');
-        const cfg = await apiFetch<{ default_document_type?: string } | null>('/settings/electronic-invoice');
-        if (cancelled || !cfg?.default_document_type) return;
+        const raw = await apiFetch<any>('/settings/electronic-invoice');
+        if (cancelled) return;
+        const cfg = raw?.config ?? raw ?? {};
+        const apiKeyOk = !!String(cfg.api_key_emisor ?? '').trim();
+        setFeApiKeyReady(apiKeyOk);
         const allowed = ['ticket', 'tiquete_electronico', 'factura_electronica'];
-        if (allowed.includes(cfg.default_document_type)) {
-          setDocumentType(cfg.default_document_type as any);
+        if (cfg.default_document_type && allowed.includes(cfg.default_document_type)) {
+          const isElectronicDefault = cfg.default_document_type !== 'ticket';
+          // Solo aplicamos el default electrónico si hay ApiKey; si no, ticket corriente.
+          setDocumentType((isElectronicDefault && !apiKeyOk) ? 'ticket' : cfg.default_document_type);
         }
       } catch { /* sin config aún, dejamos ticket */ }
     })();
     return () => { cancelled = true; };
   }, [planFeatures]);
+
+  // Sin ApiKey no se puede emitir electrónico → forzar tiquete corriente.
+  useEffect(() => {
+    if (!feApiKeyReady && documentType !== 'ticket') setDocumentType('ticket');
+  }, [feApiKeyReady, documentType]);
 
   // Si eligieron Factura Electrónica y no hay cliente con cédula, se revierte a
   // tiquete electrónico (la factura exige receptor identificado por Hacienda).
@@ -920,6 +933,7 @@ export const POSMain = () => {
         selectedCustomer={selectedCustomer}
         onCustomerPick={setSelectedCustomer}
         documentType={documentType}
+        feApiKeyReady={feApiKeyReady}
         onDocumentTypeChange={(planFeatures as any)?.electronic_invoice ? setDocumentType : undefined}
         activeCashierName={activeCashier?.full_name ?? null}
         onChangeCashier={kioskEnabled ? () => setShowPinModal('switch') : undefined}

@@ -23,6 +23,8 @@ interface POSDesktopBarProps {
   onCustomerPick?: (c: Customer | null) => void;
   /** Tipo de documento elegido en la barra */
   documentType?: DocumentType;
+  /** ¿Hay ApiKey del emisor configurada? Sin ella no se puede emitir electrónico. */
+  feApiKeyReady?: boolean;
   onDocumentTypeChange?: (t: DocumentType) => void;
   /** Cajero activo (kiosk mode) */
   activeCashierName?: string | null;
@@ -38,6 +40,7 @@ export function POSDesktopBar({
   selectedCustomer = null,
   onCustomerPick,
   documentType = 'ticket',
+  feApiKeyReady = false,
   onDocumentTypeChange,
   activeCashierName,
   onChangeCashier,
@@ -166,6 +169,11 @@ export function POSDesktopBar({
             value={documentType}
             onChange={(e) => {
               const t = e.target.value as DocumentType;
+              // Sin ApiKey del emisor no se puede emitir electrónico.
+              if (t !== 'ticket' && !feApiKeyReady) {
+                alert('No podés emitir comprobantes electrónicos: falta configurar la ApiKey del emisor. Contactá al administrador.');
+                return;
+              }
               // Factura Electrónica exige cliente con cédula (receptor de Hacienda).
               if (t === 'factura_electronica' && !selectedCustomer?.identification) {
                 alert('Para emitir Factura Electrónica primero seleccioná un cliente con cédula (usá el buscador 🔍).');
@@ -180,9 +188,11 @@ export function POSDesktopBar({
             }`}
           >
             <option value="ticket">Tiquete corriente</option>
-            <option value="tiquete_electronico">Tiquete electrónico</option>
-            <option value="factura_electronica" disabled={!selectedCustomer?.identification}>
-              Factura electrónica{!selectedCustomer?.identification ? ' (requiere cliente)' : ''}
+            <option value="tiquete_electronico" disabled={!feApiKeyReady}>
+              Tiquete electrónico{!feApiKeyReady ? ' (falta ApiKey)' : ''}
+            </option>
+            <option value="factura_electronica" disabled={!feApiKeyReady || !selectedCustomer?.identification}>
+              Factura electrónica{!feApiKeyReady ? ' (falta ApiKey)' : !selectedCustomer?.identification ? ' (requiere cliente)' : ''}
             </option>
           </select>
         </div>
