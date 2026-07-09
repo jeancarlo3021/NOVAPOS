@@ -60,8 +60,14 @@ export const accountsReceivableService = {
     apiFetch<Receivable>('/accounts-receivable', { method: 'POST', body: JSON.stringify(r) }),
   update: (id: string, r: Partial<ReceivableInput>) =>
     apiFetch<Receivable>(`/accounts-receivable/${id}`, { method: 'PUT', body: JSON.stringify(r) }),
-  pay: (id: string, amount: number, method = 'cash', note?: string) =>
-    apiFetch<Receivable>(`/accounts-receivable/${id}/pay`, { method: 'POST', body: JSON.stringify({ amount, method, note }) }),
+  // createdAt = momento real del abono (para abonos offline; si no se pasa, el
+  // servidor usa "ahora"). Evita que un abono sincronizado tarde quede fuera de
+  // la ventana del cierre del repartidor.
+  pay: (id: string, amount: number, method = 'cash', note?: string, createdAt?: string) =>
+    apiFetch<Receivable>(`/accounts-receivable/${id}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ amount, method, note, created_at: createdAt ?? new Date().toISOString() }),
+    }),
   remove: (id: string) =>
     apiFetch(`/accounts-receivable/${id}`, { method: 'DELETE' }),
 };

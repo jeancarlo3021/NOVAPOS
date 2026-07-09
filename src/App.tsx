@@ -8,6 +8,7 @@ import { ResetPassword } from '@/modules/auth/ResetPassword';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/modules/dashboard/Dasboard';
 import { SyncIndicator } from '@/components/SyncIndicator';
+import { HelpCenter } from '@/components/HelpCenter';
 import { QzReconnectToast } from '@/components/QzReconnectToast';
 import { BluetoothReconnectButton } from '@/components/BluetoothReconnectButton';
 import { ClearCacheShortcut } from '@/components/ClearCacheShortcut';
@@ -175,6 +176,7 @@ function AppContent() {
         <SyncIndicator />
         <QzReconnectToast />
         <BluetoothReconnectButton />
+        <HelpCenter />
     </>
     );
 }

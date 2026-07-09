@@ -12,6 +12,8 @@ interface POSCartPanelProps {
   comboDiscount?: number;
   /** Combos armados en el carrito (para mostrar cada uno). */
   appliedCombos?: AppliedCombo[];
+  /** Ajuste por redondeo a ₡10 (total redondeado − total exacto). */
+  roundingAdjust?: number;
   taxEnabled?: boolean;
   taxRate?: number;
   /** Desglose del IVA por tasa (ej. { 13: 1300, 1: 50 }). */
@@ -39,6 +41,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   taxAmount,
   total,
   appliedCombos = [],
+  roundingAdjust = 0,
   taxEnabled = true,
   taxRate = 0.13,
   taxBreakdown,
@@ -346,6 +349,12 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
             </span>
           </div>
         ))}
+        {roundingAdjust !== 0 && (
+          <div className="flex justify-between items-center">
+            <span className="text-gray-500 text-xs font-semibold">Redondeo</span>
+            <span className="text-gray-600 text-xs font-bold">{roundingAdjust >= 0 ? '+' : '-'}₡{Math.abs(roundingAdjust).toLocaleString()}</span>
+          </div>
+        )}
         <div className="flex justify-between items-center pt-2 border-t-2 border-gray-200">
           <span className="text-gray-900 font-black text-lg">Total</span>
           <span className="text-emerald-600 font-black text-2xl">₡{total.toLocaleString()}</span>

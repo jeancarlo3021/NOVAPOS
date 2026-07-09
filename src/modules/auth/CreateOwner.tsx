@@ -14,6 +14,7 @@ import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import { TenantUsersModal } from './components/TenantUsersModal';
 import { TenantModulesModal } from './components/TenantModulesModal';
+import { TenantFeDataModal } from './components/TenantFeDataModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
 import { CustomInvoiceModal } from './components/CustomInvoiceModal';
@@ -73,6 +74,7 @@ export const CreateOwner: React.FC = () => {
   const [invoiceFor, setInvoiceFor] = useState<OwnerData | null>(null);
   const [manageUsersFor, setManageUsersFor] = useState<OwnerData | null>(null);
   const [manageModulesFor, setManageModulesFor] = useState<OwnerData | null>(null);
+  const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showCabys, setShowCabys] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
@@ -1058,9 +1060,13 @@ export const CreateOwner: React.FC = () => {
                                       {fePlans.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
                                   </div>
+                                  <button onClick={() => { setOpenMenuId(null); setManageFeFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
+                                    <FileText size={13} /> Datos de FE (ApiKey + emisor)
+                                  </button>
                                   <button onClick={() => { setOpenMenuId(null); setEmisorApiKey(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">
-                                    <KeyRound size={13} /> ApiKey del emisor
+                                    <KeyRound size={13} /> ApiKey del emisor (rápido)
                                   </button>
                                   <button onClick={() => { setOpenMenuId(null); toggleFeEnabled(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
@@ -1148,6 +1154,15 @@ export const CreateOwner: React.FC = () => {
         <TenantModulesModal
           owner={manageModulesFor}
           onClose={() => setManageModulesFor(null)}
+          onToast={showToast}
+        />
+      )}
+
+      {/* Datos de Facturación Electrónica por empresa */}
+      {manageFeFor && (
+        <TenantFeDataModal
+          owner={manageFeFor}
+          onClose={() => setManageFeFor(null)}
           onToast={showToast}
         />
       )}

@@ -10,17 +10,32 @@ import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { GroupDocCount } from './GroupDocCount';
 import { apiFetch } from '@/lib/api';
+import { CRLocationFields } from '@/components/CRLocationFields';
 
 interface FeConfig {
   enabled?:               boolean;
   simplificado?:          boolean;
   environment?:           'sandbox' | 'production';
-  api_key_emisor?:        string;   // llave del emisor (Facturemos) por negocio
+  api_key_emisor?:        string;   // legacy (fallback)
+  api_key_emisor_production?: string; // ApiKey de producción
+  api_key_emisor_sandbox?:    string; // ApiKey de QA / sandbox
   default_document_type?: 'ticket' | 'tiquete_electronico' | 'factura_electronica';
   // Cuota de comprobantes (acumulable) + cobro por excedente.
   fe_included_docs?:      number;   // facturas + tiquetes por mes (0 = ilimitado)
   fe_included_nc?:        number;   // notas de crédito por mes (0 = ilimitado)
   fe_extra_fee?:          number;   // ₡ por comprobante extra
+  // Datos del emisor (los pone el equipo del sistema, no el cliente).
+  emisor_identification_type?: string;
+  emisor_identification?:      string;
+  emisor_name?:                string;
+  emisor_commercial_name?:     string;
+  emisor_province_code?:       string;
+  emisor_canton_code?:         string;
+  emisor_district_code?:       string;
+  emisor_address?:             string;
+  emisor_phone?:               string;
+  emisor_email?:               string;
+  economic_activity_code?:     string;
 }
 
 interface KioskConfig {
@@ -274,6 +289,96 @@ export const AdminFeKioskView: React.FC = () => {
                           <option value="tiquete_electronico">Tiquete electrónico</option>
                           <option value="factura_electronica">Factura electrónica</option>
                         </select>
+                      </div>
+
+                      {/* ApiKey del emisor + datos del emisor (los pone el sistema) */}
+                      <div className="border-t border-gray-100 pt-2 mt-1 space-y-2">
+                        <p className="text-[11px] font-black text-gray-600 uppercase tracking-wider">ApiKey y datos del emisor</p>
+                        <div className="space-y-1.5">
+                          <div>
+                            <label className="block text-[10px] font-bold text-emerald-700 mb-1">ApiKey Producción</label>
+                            <input type="text" value={card.fe.api_key_emisor_production ?? ''}
+                              onChange={e => setFe(b.tenant_id, 'api_key_emisor_production', e.target.value)}
+                              name="fe_apikey_prod" autoComplete="off" spellCheck={false} data-1p-ignore
+                              placeholder="ApiKey de producción"
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-mono" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-amber-700 mb-1">ApiKey QA / Sandbox</label>
+                            <input type="text" value={card.fe.api_key_emisor_sandbox ?? ''}
+                              onChange={e => setFe(b.tenant_id, 'api_key_emisor_sandbox', e.target.value)}
+                              name="fe_apikey_qa" autoComplete="off" spellCheck={false} data-1p-ignore
+                              placeholder="ApiKey de pruebas (QA)"
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-mono" />
+                          </div>
+                          <p className="text-[10px] text-gray-400">Se usa según el ambiente elegido arriba.</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Tipo ID</label>
+                            <select value={card.fe.emisor_identification_type ?? '02'}
+                              onChange={e => setFe(b.tenant_id, 'emisor_identification_type', e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+                              <option value="01">Física</option>
+                              <option value="02">Jurídica</option>
+                              <option value="03">DIMEX</option>
+                              <option value="04">NITE</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Identificación</label>
+                            <input value={card.fe.emisor_identification ?? ''}
+                              onChange={e => setFe(b.tenant_id, 'emisor_identification', e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 mb-1">Nombre / Razón social</label>
+                          <input value={card.fe.emisor_name ?? ''}
+                            onChange={e => setFe(b.tenant_id, 'emisor_name', e.target.value)}
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 mb-1">Nombre comercial</label>
+                          <input value={card.fe.emisor_commercial_name ?? ''}
+                            onChange={e => setFe(b.tenant_id, 'emisor_commercial_name', e.target.value)}
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+                        </div>
+                        <CRLocationFields
+                          province={card.fe.emisor_province_code ?? ''}
+                          canton={card.fe.emisor_canton_code ?? ''}
+                          district={card.fe.emisor_district_code ?? ''}
+                          onChange={(f, v) => setFe(b.tenant_id,
+                            f === 'province' ? 'emisor_province_code' : f === 'canton' ? 'emisor_canton_code' : 'emisor_district_code', v)}
+                        />
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 mb-1">Dirección (otras señas, mín. 5)</label>
+                          <textarea value={card.fe.emisor_address ?? ''}
+                            onChange={e => setFe(b.tenant_id, 'emisor_address', e.target.value.slice(0, 250))}
+                            rows={2} maxLength={250}
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm resize-none" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Teléfono</label>
+                            <input value={card.fe.emisor_phone ?? ''}
+                              onChange={e => setFe(b.tenant_id, 'emisor_phone', e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Email</label>
+                            <input type="email" value={card.fe.emisor_email ?? ''}
+                              onChange={e => setFe(b.tenant_id, 'emisor_email', e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 mb-1">Actividad económica (código)</label>
+                          <input value={card.fe.economic_activity_code ?? ''}
+                            onChange={e => setFe(b.tenant_id, 'economic_activity_code', e.target.value.replace(/[^\d.]/g, ''))}
+                            placeholder="Ej. 620100" inputMode="numeric"
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+                        </div>
                       </div>
 
                       {/* Bolsa de comprobantes (prepagada, se gasta) + cobro por excedente */}

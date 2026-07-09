@@ -147,7 +147,8 @@ export const ExpensesDashboard: React.FC = () => {
       const pending = getPendingExpenses(tenantId);
       for (const p of pending) {
         try {
-          await expensesService.create(p.tenantId, p.form);
+          // Pasar el createdAt real del momento en que se registró offline.
+          await expensesService.create(p.tenantId, p.form, p.createdAt);
           removePendingExpense(tenantId, p.localId);
         } catch { /* leave in queue if sync fails */ }
       }

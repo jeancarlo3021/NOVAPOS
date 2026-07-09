@@ -67,6 +67,35 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
   const [uploadingImage, setUploadingImage] = useState(false);
+  // Precio "cerrado": el usuario ingresa el total CON IVA y se calcula la base.
+  const [closedPrice, setClosedPrice] = useState('');
+  // Tasa de IVA efectiva del producto (la elegida o la guía).
+  const effectiveIvaRate = () => parseFloat(formData.iva_rate || ivaGuide || '0') || 0;
+  // Total en caja de una base entera: base + IVA redondeado (igual que el POS).
+  const checkoutTotal = (base: number, rate: number) => base + Math.round((base * rate) / 100);
+  // Busca la BASE ENTERA cuyo total de caja sea múltiplo de ₡10 y lo más cercano
+  // al precio cerrado ingresado. Así el total no lleva línea de redondeo y cuadra
+  // también en factura/tiquete electrónico.
+  const bestClosed = (target: number, rate: number) => {
+    const base0 = Math.round(target / (1 + rate / 100));
+    let best = base0, bestDiff = Infinity;
+    for (let b = Math.max(1, base0 - 40); b <= base0 + 40; b++) {
+      const t = checkoutTotal(b, rate);
+      if (t % 10 !== 0) continue;             // el total debe terminar en 0
+      const diff = Math.abs(t - target);
+      // `<=` para que, en empate de cercanía, gane el total MAYOR (redondea a más).
+      if (diff <= bestDiff) { bestDiff = diff; best = b; }
+    }
+    const total = checkoutTotal(best, rate);
+    return { base: best, iva: total - best, total };
+  };
+  const applyClosedPrice = () => {
+    const target = parseFloat(closedPrice);
+    if (!target || target <= 0) return;
+    const r = bestClosed(target, effectiveIvaRate());
+    setFormData(prev => ({ ...prev, unit_price: String(r.base) }));
+    setClosedPrice(String(r.total)); // reflejar el total real logrado
+  };
   const [tracksStock, setTracksStock] = useState<boolean>(true);
   // Modificadores / adicionales del producto (grupos con opciones)
   const [modGroups, setModGroups] = useState<import('@/services/Inventory/modifiersService').ModifierGroup[]>([]);
@@ -147,7 +176,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
             .catch(() => {});
         });
       })
-      .catch((err) => {
+      .catch(() => {
         if (!active) return;
         setFormError('Error al cargar el producto');
       })
@@ -464,6 +493,43 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                         />
                       </div>
                     </div>
+                  </div>
+
+                  {/* Precio cerrado: ingresás el total CON IVA y calcula la base */}
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                    <label className="block text-xs font-bold text-blue-700 mb-1.5">
+                      Precio final con IVA incluido (cerrado)
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-black">₡</span>
+                        <input
+                          type="number" value={closedPrice}
+                          onChange={e => setClosedPrice(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyClosedPrice(); } }}
+                          placeholder="Ej. 12000" step="0.01" min="0" disabled={submitting}
+                          className="w-full pl-7 pr-3 py-2 border-2 border-blue-200 rounded-lg tabular-nums focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <button type="button" onClick={applyClosedPrice} disabled={submitting || !parseFloat(closedPrice)}
+                        className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg font-bold text-sm whitespace-nowrap">
+                        Calcular base
+                      </button>
+                    </div>
+                    {parseFloat(closedPrice) > 0 && (() => {
+                      const rate = effectiveIvaRate();
+                      const r = bestClosed(parseFloat(closedPrice), rate);
+                      const crc = (n: number) => `₡${n.toLocaleString('es-CR')}`;
+                      return (
+                        <p className="text-[11px] text-blue-600 mt-1.5">
+                          Con IVA {rate}%: base <b>{crc(r.base)}</b> + IVA <b>{crc(r.iva)}</b> = <b>{crc(r.total)}</b>
+                          <span className="text-gray-400"> (múltiplo de ₡10)</span>
+                        </p>
+                      );
+                    })()}
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Elegí primero el IVA abajo. Al calcular, la base se ajusta para que <b>base + IVA</b> caiga en un <b>múltiplo de ₡10</b> — así cuadra en caja y en factura electrónica sin línea de redondeo.
+                    </p>
                   </div>
 
                   {/* Categoría — visible junto al código para clasificar de una vez */}

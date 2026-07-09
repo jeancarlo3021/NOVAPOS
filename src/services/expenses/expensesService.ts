@@ -69,7 +69,10 @@ export const expensesService = {
     return apiFetch<Expense[]>('/expenses' + (qs ? '?' + qs : ''));
   },
 
-  async create(_tenantId: string, form: ExpenseFormData): Promise<Expense> {
+  // `createdAt` = momento REAL de creación. Para gastos offline se pasa el que se
+  // capturó al encolar, así al sincronizar tarde no queda con la hora del sync
+  // (y cae dentro de la ventana del cierre del repartidor).
+  async create(_tenantId: string, form: ExpenseFormData, createdAt?: string): Promise<Expense> {
     if (!form.category_id?.trim()) {
       throw new Error('Categoría de gasto es requerida');
     }
@@ -84,6 +87,7 @@ export const expensesService = {
         type:           form.type,
         reference:      form.reference || null,
         notes:          form.notes || null,
+        created_at:     createdAt ?? new Date().toISOString(),
       }),
     });
   },

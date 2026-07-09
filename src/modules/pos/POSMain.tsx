@@ -176,7 +176,12 @@ export const POSMain = () => {
         const raw = await apiFetch<any>('/settings/electronic-invoice');
         if (cancelled) return;
         const cfg = raw?.config ?? raw ?? {};
-        const apiKeyOk = !!String(cfg.api_key_emisor ?? '').trim();
+        // ApiKey según ambiente (producción vs QA/sandbox), con fallback a la legacy.
+        const env = cfg.environment === 'sandbox' ? 'sandbox' : 'production';
+        const envKey = env === 'sandbox'
+          ? (cfg.api_key_emisor_sandbox || cfg.api_key_emisor)
+          : (cfg.api_key_emisor_production || cfg.api_key_emisor);
+        const apiKeyOk = !!String(envKey ?? '').trim();
         setFeApiKeyReady(apiKeyOk);
         const allowed = ['ticket', 'tiquete_electronico', 'factura_electronica'];
         if (cfg.default_document_type && allowed.includes(cfg.default_document_type)) {
@@ -405,7 +410,14 @@ export const POSMain = () => {
     cartItems.map(it => ({ product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity })),
     activePromotions,
   );
-  const total = Math.max(0, subtotal + taxAmount - comboDiscount);
+  // Total. En comprobantes ELECTRÓNICOS va exacto (Hacienda exige que el total =
+  // suma de líneas + IVA). En tiquetes corrientes se redondea a múltiplos de ₡10
+  // (ya no circulan monedas de ₡5). Los productos con "precio cerrado" ya vienen
+  // pensados para dar múltiplos de 10, así que en electrónico también cuadra.
+  const rawTotal = Math.max(0, subtotal + taxAmount - comboDiscount);
+  const isElectronicDoc = documentType === 'factura_electronica' || documentType === 'tiquete_electronico';
+  const total = isElectronicDoc ? rawTotal : Math.round(rawTotal / 10) * 10;
+  const roundingAdjust = total - rawTotal;
 
   // ── Atajos de teclado estilo Eleventa ─────────────────────────────────
   // F12 = Cobrar · F4 = Anular · Esc = Cerrar modal
@@ -600,6 +612,7 @@ export const POSMain = () => {
     customerName?: string,
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[],
     fe?: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string; customerEmail?: string },
+    rounding: number = 0,
   ) => {
     if (!tenantId) return;
     try {
@@ -643,10 +656,11 @@ export const POSMain = () => {
         subtotal: sub,
         tax,
         total: tot,
-        // Ajuste por combos = diferencia entre (sub+IVA) y el total.
-        // Positivo = ahorro (se resta), negativo = recargo a precio fijo (se suma).
-        discount: Math.round(sub + tax - tot),
+        // Combos (sin el redondeo): sub+IVA−tot = combo − rounding → combo = (sub+IVA−tot) + rounding.
+        discount: Math.round((sub + tax - tot) + rounding),
         discountLabel: 'Combos',
+        // Redondeo a ₡10 (positivo = se sumó, negativo = se restó).
+        rounding: Math.round(rounding),
         paymentMethod: PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod,
         // Datos del local (sin email)
         storeName: general?.businessName,
@@ -740,6 +754,7 @@ export const POSMain = () => {
     const subSnapshot = subtotal;
     const taxSnapshot = taxAmount;
     const totSnapshot = total;
+    const roundSnapshot = roundingAdjust;
     const customerEmailSnapshot = selectedCustomer?.email ?? undefined;
 
     try {
@@ -826,7 +841,7 @@ export const POSMain = () => {
           }
         }
 
-        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData);
+        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot);
         setInvoiceCounterKey(k => k + 1);
         return;
       } else {
@@ -868,7 +883,7 @@ export const POSMain = () => {
           payment_method: data.paymentMethod,
         });
         refreshPendingCount();
-        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined);
+        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot);
         setInvoiceCounterKey(k => k + 1);
         return;
       }
@@ -1026,6 +1041,7 @@ export const POSMain = () => {
             total={total}
             comboDiscount={comboDiscount}
             appliedCombos={appliedCombos}
+            roundingAdjust={roundingAdjust}
             taxEnabled={taxEnabled}
             taxRate={taxRate}
             taxBreakdown={taxBreakdown}
@@ -1060,6 +1076,7 @@ export const POSMain = () => {
             total={total}
             comboDiscount={comboDiscount}
             appliedCombos={appliedCombos}
+            roundingAdjust={roundingAdjust}
             taxEnabled={taxEnabled}
             taxRate={taxRate}
             taxBreakdown={taxBreakdown}

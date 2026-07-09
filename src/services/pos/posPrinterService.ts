@@ -69,6 +69,8 @@ export interface ReceiptData {
   discount?: number;
   /** Etiqueta del descuento (ej. "Combos"). */
   discountLabel?: string;
+  /** Ajuste por redondeo a ₡10 (positivo = se sumó, negativo = se restó). */
+  rounding?: number;
   paymentMethod: string;
   // Datos del local (negocio)
   storeName?: string;
@@ -1554,6 +1556,7 @@ export class POSPrinterService {
     <div><span>Subtotal</span><span>${money(r.subtotal)}</span></div>
     ${Number(r.tax) > 0 ? `<div><span>Impuesto (IVA)</span><span>${money(r.tax)}</span></div>` : ''}
     ${Number(r.discount) ? `<div><span>${r.discountLabel || 'Combos / Descuentos'}</span><span>${Number(r.discount) >= 0 ? '-' : '+'}${money(Math.abs(Number(r.discount)))}</span></div>` : ''}
+    ${Number(r.rounding) ? `<div><span>Redondeo</span><span>${Number(r.rounding) >= 0 ? '+' : '-'}${money(Math.abs(Number(r.rounding)))}</span></div>` : ''}
     <div class="grand"><span>TOTAL</span><span>${money(r.total)}</span></div>
   </div>
 
@@ -1774,11 +1777,12 @@ export class POSPrinterService {
 
   <hr class="divider">
 
-  ${(receiptData.tax > 0 || Number(receiptData.discount)) ? `
+  ${(receiptData.tax > 0 || Number(receiptData.discount) || Number(receiptData.rounding)) ? `
   <table class="totals">
     <tr><td>Subtotal:</td><td>₡${fmt(receiptData.subtotal)}</td></tr>
     ${receiptData.tax > 0 ? `<tr><td>Impuesto:</td><td>₡${fmt(receiptData.tax)}</td></tr>` : ''}
     ${Number(receiptData.discount) ? `<tr><td>${receiptData.discountLabel || 'Combos/Desc.'}:</td><td>${Number(receiptData.discount) >= 0 ? '-' : '+'}₡${fmt(Math.abs(Number(receiptData.discount)))}</td></tr>` : ''}
+    ${Number(receiptData.rounding) ? `<tr><td>Redondeo:</td><td>${Number(receiptData.rounding) >= 0 ? '+' : '-'}₡${fmt(Math.abs(Number(receiptData.rounding)))}</td></tr>` : ''}
   </table>
 
   <hr class="divider">
@@ -1915,6 +1919,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     rightAlign('Subtotal:', fmt(receiptData.subtotal));
     if (receiptData.tax > 0) { rightAlign('Impuesto:', fmt(receiptData.tax)); }
     if (Number(receiptData.discount)) { rightAlign(`${receiptData.discountLabel || 'Combos/Desc.'}:`, `${Number(receiptData.discount) >= 0 ? '-' : '+'}${fmt(Math.abs(Number(receiptData.discount)))}`); }
+    if (Number(receiptData.rounding)) { rightAlign('Redondeo:', `${Number(receiptData.rounding) >= 0 ? '+' : '-'}${fmt(Math.abs(Number(receiptData.rounding)))}`); }
     sep();
 
     centerText(`*** TOTAL: ${fmt(receiptData.total)} ***`);

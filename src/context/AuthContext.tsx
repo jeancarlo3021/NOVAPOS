@@ -1,7 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { setRememberMe } from '@/lib/authStorage';
 import { globalCacheService } from '@/services/cache/globalCacheService';
 import { identifySentryUser, clearSentryUser } from '@/lib/sentry';
@@ -421,6 +422,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [planFeatures, setPlanFeatures] = useState<PlanFeatures>(DEFAULT_FEATURES);
+  // Módulos personalizados por empresa (override sobre el plan). Se mantienen
+  // aparte para que ningún otro setPlanFeatures (cache/refresh) los pise.
+  const [featureOverrides, setFeatureOverrides] = useState<Partial<PlanFeatures>>({});
+
+  // Cargar los overrides cada vez que cambia el tenant activo.
+  useEffect(() => {
+    const tid = tenant?.id;
+    if (!tid) { setFeatureOverrides({}); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const cfg = await apiFetch<any>('/settings/feature-overrides').catch(() => null);
+        if (cancelled) return;
+        const ov = cfg?.config ?? cfg;
+        setFeatureOverrides(ov && typeof ov === 'object' && !Array.isArray(ov) ? ov : {});
+      } catch { if (!cancelled) setFeatureOverrides({}); }
+    })();
+    return () => { cancelled = true; };
+  }, [tenant?.id]);
   const [branches, setBranches] = useState<BranchLite[]>([]);
   const [currentBranchId, setCurrentBranchIdState] = useState<string | null>(() => {
     try { return localStorage.getItem('novapos_current_branch_id'); } catch { return null; }
@@ -642,20 +662,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (selectedTenant) setTenant(selectedTenant);
       setPlanFeatures(planData.features);
       setPlanName(planData.name);
-
-      // Módulos personalizados por empresa (override que el super-admin definió
-      // encima del plan base). Se guardan en settings type='feature-overrides'.
-      if (selectedTenant) {
-        try {
-          const { data: ovRow } = await supabase.from('settings')
-            .select('config').eq('tenant_id', selectedTenant.id).eq('type', 'feature-overrides').maybeSingle();
-          if (!isActive()) return;
-          const overrides = (ovRow as any)?.config;
-          if (overrides && typeof overrides === 'object' && Object.keys(overrides).length > 0) {
-            setPlanFeatures({ ...planData.features, ...overrides });
-          }
-        } catch { /* si falla, quedan las features del plan */ }
-      }
+      // Los módulos personalizados por empresa (feature-overrides) se aplican en
+      // un efecto separado y se mergean en el valor del contexto (ver abajo), para
+      // que NO los pisen los otros setPlanFeatures (cache, refresh, cambio de tenant).
 
       // Identificar al usuario en Sentry — cualquier error futuro queda
       // taggeado con su email y tenant. No-op si Sentry no fue iniciado.
@@ -1090,13 +1099,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  // Features efectivas = plan base + overrides por empresa (los overrides mandan).
+  const mergedPlanFeatures = useMemo(
+    () => ({ ...planFeatures, ...featureOverrides }) as PlanFeatures,
+    [planFeatures, featureOverrides],
+  );
+
   return (
     <AuthContext.Provider
       value={{
         user,
         tenant,
         tenants,
-        planFeatures,
+        planFeatures: mergedPlanFeatures,
         planName,
         loading,
         error,
