@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { calcMargin, MARGIN_TEXT } from '@/utils/priceUtils';
 import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
+import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -25,6 +26,7 @@ interface FormData {
   description: string;
   category_id: string;
   unit_type_id: string;
+  supplier_id: string;
   unit_price: string;
   cost_price: string;
   stock_quantity: string;
@@ -58,6 +60,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     description: '',
     category_id: '',
     unit_type_id: '',
+    supplier_id: '',
     unit_price: '',
     cost_price: '',
     stock_quantity: '0',
@@ -141,6 +144,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   );
   const unitTypes = unitTypesData ?? [];
 
+  const { data: suppliersData } = useSafeFetch(
+    () => inventorySuppliersService.getAllSuppliers(tid),
+    { timeout: 15000, retries: 2, key: tid }
+  );
+  const suppliers = suppliersData ?? [];
+
   // Cargar producto si es edición
   useEffect(() => {
     if (!productId || !user?.tenant_id) {
@@ -161,6 +170,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           description: product.description || '',
           category_id: product.category_id || '',
           unit_type_id: product.unit_type_id || '',
+          supplier_id: (product as any).supplier_id || '',
           unit_price: product.unit_price?.toString() || '',
           cost_price: product.cost_price?.toString() || '',
           stock_quantity: product.stock_quantity?.toString() || '0',
@@ -324,6 +334,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         productData.min_stock_level = parseInt(formData.min_stock_level) || 10;
         productData.max_stock_level = parseInt(formData.max_stock_level) || 100;
       }
+      // Proveedor (relación opcional). null explícito para poder desasociar.
+      (productData as any).supplier_id = formData.supplier_id || null;
 
       let savedId = productId;
       if (productId) {
@@ -543,6 +555,26 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     <p className="text-[10px] text-gray-400 mt-0.5">
                       Elegí primero el IVA abajo. Al calcular, la base se ajusta para que <b>base + IVA</b> caiga en un <b>múltiplo de ₡10</b> — así cuadra en caja y en factura electrónica sin línea de redondeo.
                     </p>
+                  </div>
+
+                  {/* Proveedor — relación opcional del producto */}
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1.5">Proveedor</label>
+                    <select
+                      name="supplier_id"
+                      value={formData.supplier_id}
+                      onChange={handleChange}
+                      disabled={submitting}
+                      className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                    >
+                      <option value="">Sin proveedor</option>
+                      {suppliers.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                    {suppliers.length === 0 && (
+                      <p className="text-[10px] text-gray-400 mt-0.5">No hay proveedores. Podés crearlos en el módulo de Proveedores.</p>
+                    )}
                   </div>
 
                   {/* Categoría — visible junto al código para clasificar de una vez */}

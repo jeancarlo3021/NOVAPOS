@@ -26,6 +26,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
   ]},
   { group: 'Opcionales', items: [
     { key: 'promotions', label: 'Promociones' },
+    { key: 'labels', label: 'Etiquetas' },
     { key: 'recipes', label: 'Recetas' },
     { key: 'hr', label: 'Recursos Humanos' },
     { key: 'distribution', label: 'Distribución / Repartidor' },

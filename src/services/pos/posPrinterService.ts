@@ -92,6 +92,17 @@ export interface ReceiptData {
   payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[];
   /** Etiqueta de copia (ej. "ORIGINAL - CLIENTE" / "COPIA - VENDEDOR"). */
   copyLabel?: string;
+  // ── Multimoneda (cobro en dólares) ────────────────────────────────────────
+  /** Moneda del pago en efectivo: 'USD' imprime el equivalente en dólares. */
+  currency?: 'CRC' | 'USD';
+  /** Tipo de cambio ₡ por $1 usado. */
+  exchangeRate?: number;
+  /** Monto recibido (₡ equivalente). */
+  amountReceived?: number;
+  /** Vuelto (₡ equivalente). */
+  change?: number;
+  /** Moneda en que se dio el vuelto. */
+  changeCurrency?: 'CRC' | 'USD';
   /** Oculta el "Vuelva pronto" (ej. tickets de distribución/repartidor). */
   hideThanks?: boolean;
   /** Comprobante de anulación: imprime SOLO "FACTURA ANULADA" + número + monto. */
@@ -1800,6 +1811,15 @@ export class POSPrinterService {
          return `${label}: ₡${Number(p.amount).toLocaleString('es-CR')}${v}`;
        }).join('<br>')}</div>`
     : `<div class="payment-block">${receiptData.paymentMethod}</div>`}
+${receiptData.currency === 'USD' && receiptData.exchangeRate ? `
+  <hr class="divider">
+  <div class="section-label">PAGO EN DÓLARES</div>
+  <div class="payment-block">
+    Tipo de cambio: &#8353;${fmt(receiptData.exchangeRate)} / $1<br>
+    Total: $${(receiptData.total / receiptData.exchangeRate).toFixed(2)}
+    ${receiptData.amountReceived ? `<br>Recibido: $${(receiptData.amountReceived / receiptData.exchangeRate).toFixed(2)}` : ''}
+    ${Number(receiptData.change) > 0 ? `<br>Vuelto: ${receiptData.changeCurrency === 'USD' ? `$${(Number(receiptData.change) / receiptData.exchangeRate).toFixed(2)}` : `&#8353;${fmt(Number(receiptData.change))}`}` : ''}
+  </div>` : ''}
 ${receiptData.simplificadoFooter && !receiptData.feClave ? `
   <hr class="divider">
   <div style="text-align:center;font-size:11px;font-weight:bold;margin-top:4px;">
@@ -1934,6 +1954,20 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       }
     } else {
       centerText(receiptData.paymentMethod);
+    }
+    // Pago en dólares: tipo de cambio + total/recibido/vuelto en $.
+    if (receiptData.currency === 'USD' && receiptData.exchangeRate) {
+      const r = receiptData.exchangeRate;
+      sep();
+      centerText('PAGO EN DOLARES');
+      rightAlign('T.Cambio:', `${fmt(r)}/$1`);
+      rightAlign('Total $:', (receiptData.total / r).toFixed(2));
+      if (receiptData.amountReceived) rightAlign('Recibido $:', (receiptData.amountReceived / r).toFixed(2));
+      if (Number(receiptData.change) > 0) {
+        rightAlign('Vuelto:', receiptData.changeCurrency === 'USD'
+          ? `$${(Number(receiptData.change) / r).toFixed(2)}`
+          : fmt(Number(receiptData.change)));
+      }
     }
     sep();
     // Régimen simplificado — solo si NO es comprobante electrónico (ese lleva

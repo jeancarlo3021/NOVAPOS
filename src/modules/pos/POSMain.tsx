@@ -14,6 +14,7 @@ import { usePOSTabs } from '@/hooks/POS/usePOSTabs';
 import { POSTabs } from './POSTabs';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
+import { useExchangeRate } from '@/hooks/useExchangeRate';
 import {
   getProductPromotion,
   calcPromoSubtotal,
@@ -60,6 +61,7 @@ export const POSMain = () => {
   const isListLayout = posLayout === 'list';
   const { currentSession, loading: sessionLoading, refetchSession } = useCashSession();
   const { isOnline } = useOfflineSync();
+  const { rate: exchangeRate } = useExchangeRate();
   const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError } = usePOSProducts();
   const activePromotions = usePOSPromotions(tenantId);
 
@@ -613,6 +615,7 @@ export const POSMain = () => {
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[],
     fe?: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string; customerEmail?: string },
     rounding: number = 0,
+    currencyInfo?: { currency?: 'CRC' | 'USD'; exchangeRate?: number; amountReceived?: number; change?: number; changeCurrency?: 'CRC' | 'USD' },
   ) => {
     if (!tenantId) return;
     try {
@@ -683,6 +686,12 @@ export const POSMain = () => {
         feQrDataUrl: fe?.qrDataUrl,
         feQrContent: fe?.qrContent,
         customerEmail: fe?.customerEmail,
+        // Multimoneda (cobro en dólares).
+        currency: currencyInfo?.currency,
+        exchangeRate: currencyInfo?.exchangeRate,
+        amountReceived: currencyInfo?.amountReceived,
+        change: currencyInfo?.change,
+        changeCurrency: currencyInfo?.changeCurrency,
       };
 
       const dblMethods = (await posPrinterService.loadReceiptConfig(tenantId).catch(() => null) as any)?.doubleInvoiceMethods ?? ['credit'];
@@ -784,6 +793,7 @@ export const POSMain = () => {
           data.payments ?? null,
           documentType,
           selectedCustomer?.id ?? null,
+          { currency: data.currency, exchangeRate: data.exchangeRate, changeCurrency: data.changeCurrency },
         );
 
         // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
@@ -841,7 +851,7 @@ export const POSMain = () => {
           }
         }
 
-        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot);
+        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency });
         setInvoiceCounterKey(k => k + 1);
         return;
       } else {
@@ -883,7 +893,7 @@ export const POSMain = () => {
           payment_method: data.paymentMethod,
         });
         refreshPendingCount();
-        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot);
+        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency });
         setInvoiceCounterKey(k => k + 1);
         return;
       }
@@ -1232,6 +1242,8 @@ export const POSMain = () => {
               : 0
           }
           creditBalance={creditBalance}
+          exchangeRate={exchangeRate?.venta}
+          allowUsd={!!(planFeatures as any).pos_usd}
         />
       )}
 

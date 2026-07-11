@@ -23,6 +23,10 @@ interface PaymentConfirmationModalProps {
   creditBalance?: number;
   /** Métodos de pago habilitados en configuración (cash/card/sinpe/credit/mixed). */
   enabledMethods?: string[];
+  /** Tipo de cambio ₡ por $1 (BCCR). Si >0 y allowUsd, habilita cobro en dólares. */
+  exchangeRate?: number;
+  /** Habilita el switch de moneda (₡/$) en efectivo. */
+  allowUsd?: boolean;
 }
 
 export interface PaymentSplit {
@@ -38,6 +42,12 @@ export interface PaymentData {
   voucherNumber?: string;
   /** Si es pago mixto: array de splits. La suma debe igualar `total`. */
   payments?: PaymentSplit[];
+  /** Moneda del pago en efectivo: 'CRC' o 'USD'. */
+  currency?: 'CRC' | 'USD';
+  /** Tipo de cambio usado (₡ por $1) cuando currency='USD'. */
+  exchangeRate?: number;
+  /** Moneda en que se entrega el vuelto. */
+  changeCurrency?: 'CRC' | 'USD';
 }
 
 const QUICK_AMOUNTS = [1000, 2000, 5000, 10000, 20000];
@@ -96,6 +106,8 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   creditAvailable = Infinity,
   creditBalance = 0,
   enabledMethods,
+  exchangeRate,
+  allowUsd = false,
 }) => {
   const crc = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
   const creditExceeds = total > creditAvailable;
@@ -124,9 +136,22 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   // Válido: la suma cubre el total (puede sobrar = vuelto en efectivo).
   const mixedValid = mixedTotal >= total - 0.5;
 
+  // ── Moneda del pago en efectivo (₡ / $) ──────────────────────────────────
+  const rate = exchangeRate ?? 0;
+  const usdEnabled = !!allowUsd && rate > 0;
+  const [payCurrency, setPayCurrency] = useState<'CRC' | 'USD'>('CRC');
+  const [changeCurrency, setChangeCurrency] = useState<'CRC' | 'USD'>('CRC');
+  const isUsd = usdEnabled && method === 'cash' && payCurrency === 'USD';
+  const totalUsd = rate > 0 ? Math.ceil((total / rate) * 100) / 100 : 0;   // total en $
+  const usd = (crcAmt: number) => (rate > 0 ? crcAmt / rate : 0);
+  const fmtUsd = (n: number) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
   const receivedNum = parseFloat(received) || 0;
-  const change = receivedNum - total;
-  const cashOk = method === 'credit' ? !creditExceeds : (method !== 'cash' || receivedNum >= total);
+  // Recibido convertido a ₡ (si se paga en $, se multiplica por el tipo de cambio).
+  const receivedCrc = isUsd ? receivedNum * rate : receivedNum;
+  const changeCrc = receivedCrc - total;              // vuelto en ₡
+  const change = changeCrc;                            // compat (columna izquierda ₡)
+  const cashOk = method === 'credit' ? !creditExceeds : (method !== 'cash' || receivedCrc >= total - 0.5);
 
   const applyQuick = (amount: number) => {
     setReceived(String(amount));
@@ -157,7 +182,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       return;
     }
 
-    if (method === 'cash' && receivedNum < total) {
+    if (method === 'cash' && receivedCrc < total - 0.5) {
       setError('El monto recibido es menor al total');
       return;
     }
@@ -168,9 +193,14 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     // Comprobante de tarjeta/SINPE es opcional.
     onConfirm({
       paymentMethod: method,
-      amountReceived: method === 'cash' ? receivedNum : undefined,
-      change: method === 'cash' ? Math.max(0, change) : undefined,
+      // Guardamos el equivalente en ₡ para que caja/reportes cuadren; la moneda
+      // real se registra en `currency`/`changeCurrency`.
+      amountReceived: method === 'cash' ? Math.round(receivedCrc) : undefined,
+      change: method === 'cash' ? Math.max(0, Math.round(changeCrc)) : undefined,
       voucherNumber: voucherNumber.trim() || undefined,
+      ...(method === 'cash' && isUsd
+        ? { currency: 'USD' as const, exchangeRate: rate, changeCurrency }
+        : { currency: 'CRC' as const }),
     });
   };
 
@@ -351,10 +381,33 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             {/* ── Efectivo ── */}
             {!isMixed && method === 'cash' && (
               <div className="space-y-3">
+                {/* Switch de moneda ₡ / $ */}
+                {usdEnabled && (
+                  <div>
+                    <div className="flex items-center justify-between px-1 mb-1">
+                      <p className="text-gray-500 text-xs font-black uppercase tracking-wider">Moneda del pago</p>
+                      <span className="text-[11px] text-gray-400">TC ₡{rate.toLocaleString('es-CR')} / $1</span>
+                    </div>
+                    <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+                      {(['CRC', 'USD'] as const).map(cur => (
+                        <button key={cur} onPointerDown={() => { setPayCurrency(cur); setReceived(''); setError(''); }}
+                          className={`flex-1 py-2 rounded-lg text-sm font-black transition ${payCurrency === cur ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>
+                          {cur === 'CRC' ? '₡ Colones' : '$ Dólares'}
+                        </button>
+                      ))}
+                    </div>
+                    {isUsd && (
+                      <p className="text-center text-sm font-bold text-emerald-700 mt-2">
+                        Total en dólares: <b>{fmtUsd(totalUsd)}</b>
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div>
                   <p className="text-gray-500 text-xs font-black uppercase tracking-wider mb-2 px-1">Billetes rápidos</p>
                   <div className="grid grid-cols-5 gap-2">
-                    {QUICK_AMOUNTS.map(amt => (
+                    {(isUsd ? [5, 10, 20, 50, 100] : QUICK_AMOUNTS).map(amt => (
                       <button
                         key={amt}
                         onPointerDown={() => applyQuick(amt)}
@@ -364,23 +417,38 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                             : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'
                         }`}
                       >
-                        ₡{(amt / 1000).toFixed(0)}k
+                        {isUsd ? `$${amt}` : `₡${(amt / 1000).toFixed(0)}k`}
                       </button>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <p className="text-gray-500 text-xs font-black uppercase tracking-wider mb-2 px-1">Monto recibido</p>
+                  <p className="text-gray-500 text-xs font-black uppercase tracking-wider mb-2 px-1">Monto recibido {isUsd ? '(en dólares)' : ''}</p>
                   <input
                     type="number"
                     inputMode="numeric"
                     value={received}
                     onChange={e => { setReceived(e.target.value); setError(''); }}
-                    placeholder={`₡${total.toLocaleString()}`}
+                    placeholder={isUsd ? `$${totalUsd.toFixed(2)}` : `₡${total.toLocaleString()}`}
                     className="w-full text-right text-4xl font-black text-gray-900 bg-white border-2 border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-400 transition tabular-nums"
                   />
                 </div>
+
+                {/* Vuelto en ₡ o $ (solo si paga en dólares y hay vuelto) */}
+                {isUsd && changeCrc > 0.5 && (
+                  <div>
+                    <p className="text-gray-500 text-xs font-black uppercase tracking-wider mb-2 px-1">¿Vuelto en?</p>
+                    <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+                      {(['CRC', 'USD'] as const).map(cur => (
+                        <button key={cur} onPointerDown={() => setChangeCurrency(cur)}
+                          className={`flex-1 py-2 rounded-lg text-sm font-black transition ${changeCurrency === cur ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>
+                          {cur === 'CRC' ? `₡${Math.round(changeCrc).toLocaleString('es-CR')}` : fmtUsd(usd(changeCrc))}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

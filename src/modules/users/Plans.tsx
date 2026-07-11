@@ -824,6 +824,8 @@ export default function Plans() {
                       description="Permite asociar un cliente a la factura" checked={!!features.pos_customer_field} onChange={v => set({ pos_customer_field: v })} />
                     <SubFeatureRow icon={Search} color="bg-violet-500" title="Buscar por Código / Nombre"
                       description="Tabs separados de búsqueda en modo escritorio" checked={!!features.pos_search_tabs} onChange={v => set({ pos_search_tabs: v })} />
+                    <SubFeatureRow icon={Banknote} color="bg-emerald-500" title="Cobro en dólares"
+                      description="Switch ₡/$ en efectivo con tipo de cambio del BCCR y vuelto en ₡ o $" checked={!!(features as any).pos_usd} onChange={v => set({ pos_usd: v } as any)} />
                   </FeatureRow>
 
                   <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones"

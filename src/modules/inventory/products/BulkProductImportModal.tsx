@@ -18,6 +18,7 @@ interface ParsedRow {
   sku?: string;
   sku2?: string;
   description?: string;
+  supplier?: string;     // nombre, se resuelve/crea en la tabla suppliers
   unit_price: number;
   cost_price?: number;
   tracks_stock?: boolean;
@@ -32,7 +33,7 @@ interface ParsedRow {
 }
 
 const HEADERS = [
-  'name', 'sku', 'sku2', 'description', 'unit_price', 'cost_price',
+  'name', 'sku', 'sku2', 'description', 'supplier', 'unit_price', 'cost_price',
   'stock_infinito', 'stock_quantity', 'min_stock_level', 'max_stock_level',
   'category', 'unit_type', 'cabys_code', 'iva_rate',
 ];
@@ -40,9 +41,9 @@ const HEADERS = [
 // Plantilla con ';' — así Excel en español la divide en columnas al abrirla.
 const TEMPLATE_CSV =
   HEADERS.join(';') + '\n' +
-  'Café Americano;CAFE001;7501001;Café tradicional 8oz;1500;800;No;100;10;200;Bebidas;Unidad;;13\n' +
-  'Pan Tostado;PAN001;;Pan artesanal;800;400;No;50;5;100;Panadería;Unidad;;13\n' +
-  'Servicio de limpieza;SERV01;;Sin control de stock;5000;0;Sí;0;0;0;Servicios;Unidad;;13\n';
+  'Café Americano;CAFE001;7501001;Café tradicional 8oz;Proveedor ABC;1500;800;No;100;10;200;Bebidas;Unidad;;13\n' +
+  'Pan Tostado;PAN001;;Pan artesanal;Panificadora XYZ;800;400;No;50;5;100;Panadería;Unidad;;13\n' +
+  'Servicio de limpieza;SERV01;;Sin control de stock;;5000;0;Sí;0;0;0;Servicios;Unidad;;13\n';
 
 // ── Parser CSV (simple — soporta valores con comillas y comas escapadas) ──
 // delim: ',' o ';' (Excel en español usa ';'). Se auto-detecta antes de llamar.
@@ -142,6 +143,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
           sku:              (r[idx('sku')] ?? '').trim() || undefined,
           sku2:             idx('sku2') >= 0 ? (r[idx('sku2')] ?? '').trim() || undefined : undefined,
           description:      (r[idx('description')] ?? '').trim() || undefined,
+          supplier:         idx('supplier') >= 0 ? (r[idx('supplier')] ?? '').trim() || undefined : undefined,
           unit_price:       price ?? 0,
           cost_price:       num(r[idx('cost_price')]),
           tracks_stock:     !stockInfinito,
@@ -153,9 +155,9 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
           cabys_code:       (r[idx('cabys_code')] ?? '').trim() || undefined,
           iva_rate:         num(r[idx('iva_rate')]) ?? 13,
         };
-        // Validaciones
-        if (!row.name)              row._error = `Fila ${i + 2}: nombre vacío`;
-        else if (price === undefined || price < 0) row._error = `Fila ${i + 2}: precio inválido`;
+        // Validaciones — se permite precio 0 o vacío (queda en 0).
+        if (!row.name)                  row._error = `Fila ${i + 2}: nombre vacío`;
+        else if (price !== undefined && price < 0) row._error = `Fila ${i + 2}: precio inválido`;
         return row;
       });
       setRows(parsed);
@@ -177,6 +179,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
       try {
         const payload = validRows.map(r => ({
           name: r.name, sku: r.sku ?? '', sku2: r.sku2 ?? null, description: r.description,
+          supplier: r.supplier ?? null,
           unit_price: r.unit_price, cost_price: r.cost_price,
           stock_quantity: r.stock_quantity ?? 0, min_stock_level: r.min_stock_level ?? 0,
           max_stock_level: r.max_stock_level ?? 100, tracks_stock: r.tracks_stock !== false,
@@ -185,7 +188,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         }));
         const res = await apiFetch<{ created: number; errors: number; error_detail?: string | null }>(`/admin/tenants/${tenantId}/products-import`, {
           method: 'POST', body: JSON.stringify({ rows: payload }),
-        });
+        }, 180000);   // hasta 3 min: la importación puede ser de cientos de filas
         setProgress({ done: validRows.length, total: validRows.length, errors: res?.errors ?? 0 });
         setImporting(false);
         const detail = res?.error_detail ? ` Detalle: ${res.error_detail}` : '';
@@ -381,6 +384,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                       <th className="px-3 py-2 text-right font-bold text-gray-600">Precio</th>
                       <th className="px-3 py-2 text-right font-bold text-gray-600">Costo</th>
                       <th className="px-3 py-2 text-right font-bold text-gray-600">Stock</th>
+                      <th className="px-3 py-2 text-left font-bold text-gray-600">Proveedor</th>
                       <th className="px-3 py-2 text-left font-bold text-gray-600">Categoría</th>
                       <th className="px-3 py-2 text-left font-bold text-gray-600">Unidad</th>
                       <th className="px-3 py-2 text-left font-bold text-gray-600">CABYS</th>
@@ -398,6 +402,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                         <td className="px-3 py-1.5 text-right tabular-nums">₡{r.unit_price?.toLocaleString('es-CR')}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">{r.cost_price != null ? `₡${r.cost_price.toLocaleString('es-CR')}` : '—'}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{r.tracks_stock === false ? '∞' : (r.stock_quantity ?? 0)}</td>
+                        <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.supplier ?? '—'}</td>
                         <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.category ?? '—'}</td>
                         <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.unit_type ?? '—'}</td>
                         <td className="px-3 py-1.5 font-mono text-gray-500">{r.cabys_code || '—'}</td>
@@ -412,7 +417,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                       </tr>
                     ))}
                     {rows.length > 100 && (
-                      <tr><td colSpan={12} className="text-center text-gray-400 py-2 text-xs">
+                      <tr><td colSpan={13} className="text-center text-gray-400 py-2 text-xs">
                         +{rows.length - 100} filas más (no mostradas)
                       </td></tr>
                     )}

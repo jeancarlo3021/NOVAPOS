@@ -40,6 +40,8 @@ export interface ReportsSummary {
   avgTicket: number;
   dailyStats: DailyStat[];
   paymentStats: PaymentStat[];
+  /** Ventas cobradas en dólares: cantidad, total en ₡ y equivalente en $. */
+  usd?: { count: number; totalCrc: number; totalUsd: number };
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -77,6 +79,8 @@ export function useReportsData(tenantId: string | null) {
           total: number;
           payment_method: string;
           status: string;
+          currency?: string;
+          exchange_rate?: number;
         }>;
       }>(`/reports/sales?from=${from}&to=${to}`);
 
@@ -130,6 +134,14 @@ export function useReportsData(tenantId: string | null) {
       const periodTotal = all.reduce((s, r) => s + Number(r.total), 0);
       const periodCount = all.length;
 
+      // Ventas cobradas en dólares (moneda de la venta = USD).
+      const usdRows = all.filter(r => r.currency === 'USD');
+      const usd = {
+        count: usdRows.length,
+        totalCrc: usdRows.reduce((s, r) => s + Number(r.total), 0),
+        totalUsd: usdRows.reduce((s, r) => s + (Number(r.exchange_rate) > 0 ? Number(r.total) / Number(r.exchange_rate) : 0), 0),
+      };
+
       setSummary({
         todayTotal: today.reduce((s, r) => s + Number(r.total), 0),
         todayCount: today.length,
@@ -138,6 +150,7 @@ export function useReportsData(tenantId: string | null) {
         avgTicket: periodCount > 0 ? periodTotal / periodCount : 0,
         dailyStats,
         paymentStats,
+        usd,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error cargando reporte');
