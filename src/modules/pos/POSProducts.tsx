@@ -105,8 +105,10 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
       return;
     }
     const list = allProducts.length > 0 ? allProducts : filteredProducts;
+    const norm = code.trim().toLowerCase();
     const product = list.find(
-      p => p.sku?.trim().toLowerCase() === code.trim().toLowerCase()
+      p => p.sku?.trim().toLowerCase() === norm
+        || (p as any).sku2?.trim().toLowerCase() === norm
     );
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
     if (product) {
@@ -154,6 +156,35 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
     activeCategory === 'all'
       ? products
       : products.filter((p) => (p as any).category_id === activeCategory);
+
+  // Combos activos (promos type='combo'): se muestran como botones en la
+  // categoría "Promociones", y al tocarlos agregan sus productos de una.
+  const PROMOS_CAT = '__promos__';
+  const activeCombos = (activePromotions ?? []).filter(
+    (p: any) => p.type === 'combo' && Array.isArray(p.product_ids) && p.product_ids.length >= 2,
+  );
+  const comboPrice = (c: any): string => {
+    if (c.combo_mode === 'percent') return `-${c.value}%`;
+    return `₡${Number(c.value).toLocaleString('es-CR')}`;
+  };
+  // Agrega TODOS los productos del combo (sin que el cajero los busque uno a uno).
+  const handleAddCombo = (combo: any) => {
+    if (!currentSession || currentSession.status !== 'open') {
+      setScanFeedback({ code: '', found: false, productName: 'Abre una caja primero' });
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = setTimeout(() => setScanFeedback(null), 2500);
+      return;
+    }
+    const pool = allProducts.length > 0 ? allProducts : products;
+    let added = 0;
+    for (const pid of combo.product_ids) {
+      const prod = pool.find((p) => p.id === pid);
+      if (prod) { onAddToCart(prod, 1); added++; }
+    }
+    setScanFeedback({ code: '', found: added > 0, productName: added > 0 ? `Combo: ${combo.name}` : 'Faltan productos del combo' });
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = setTimeout(() => setScanFeedback(null), 2000);
+  };
 
   const handleAdd = (product: Product) => {
     if (!currentSession || currentSession.status !== 'open') {
@@ -349,9 +380,13 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
           />
         </div>
 
-        {categories.length > 0 && (
+        {(categories.length > 0 || activeCombos.length > 0) && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-2">
-            {[{ id: 'all', name: 'Todos' }, ...categories].map((cat) => {
+            {[
+              { id: 'all', name: 'Todos' },
+              ...(activeCombos.length > 0 ? [{ id: PROMOS_CAT, name: '🍔 Promociones' }] : []),
+              ...categories,
+            ].map((cat) => {
               const active = activeCategory === cat.id;
               return (
                 <button
@@ -373,7 +408,27 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
       {/* ── Products area (solo layout grid) ── */}
       <div className="flex-1 overflow-y-auto p-3 pos-scroll">
-        {displayed.length === 0 ? (
+        {activeCategory === PROMOS_CAT ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {activeCombos.map((combo: any) => (
+              <button
+                key={combo.id}
+                type="button"
+                onPointerDown={() => handleAddCombo(combo)}
+                className="relative flex flex-col justify-between h-32 sm:h-36 p-3 rounded-2xl border-2 border-rose-200 bg-linear-to-br from-rose-50 to-white hover:border-rose-400 active:scale-95 transition text-left shadow-sm"
+              >
+                <span className="absolute top-2 right-2 text-lg">🍔</span>
+                <span className="font-black text-gray-900 text-sm leading-tight pr-6 line-clamp-3">{combo.name}</span>
+                <div>
+                  <span className="inline-block bg-rose-500 text-white text-xs font-black px-2 py-0.5 rounded-full">
+                    {comboPrice(combo)}
+                  </span>
+                  <p className="text-[10px] text-gray-400 mt-1">{combo.product_ids.length} productos · toca para agregar</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : displayed.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-4">
             <Package size={64} className="text-gray-300" />
             <p className="text-2xl font-semibold">No hay productos disponibles</p>

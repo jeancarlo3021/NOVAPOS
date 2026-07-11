@@ -829,6 +829,9 @@ export default function Plans() {
                   <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones"
                     description="Descuentos y ofertas en el POS" checked={features.promotions ?? false} onChange={v => set({ promotions: v })} />
 
+                  <FeatureRow icon={Tag} color="bg-fuchsia-500" title="Etiquetas"
+                    description="Plantillas de etiquetas de producto e impresión con etiquetadora" checked={features.labels ?? false} onChange={v => set({ labels: v })} />
+
                   <FeatureRow icon={LayoutGrid} color="bg-blue-500" title="Mapa de Mesas"
                     description="Editor del plano: crear mesas, sillas y zonas del local" checked={features.tables ?? false} onChange={v => set({ tables: v })} />
 
@@ -929,6 +932,8 @@ export default function Plans() {
                       description="Reporte de gastos" checked={features.report_expenses ?? true} onChange={v => set({ report_expenses: v })} />
                     <SubFeatureRow icon={ClipboardList} color="bg-cyan-500" title="Compras"
                       description="Reporte de compras" checked={features.report_purchases ?? true} onChange={v => set({ report_purchases: v })} />
+                    <SubFeatureRow icon={Percent} color="bg-violet-500" title="Impuestos"
+                      description="IVA y cierre mensual" checked={features.report_taxes ?? true} onChange={v => set({ report_taxes: v })} />
                   </FeatureRow>
 
                   <FeatureRow icon={Users} color="bg-amber-500" title="Usuarios"

@@ -176,6 +176,7 @@ export interface PlanFeatures {
   report_cash_sessions?: boolean;
   report_expenses?: boolean;
   report_purchases?: boolean;
+  report_taxes?: boolean;         // Reporte de impuestos (IVA) + cierre mensual
   // ── Usuarios ───────────────────────────────────────────────────────────────
   users_roles?: boolean;     // Tab Roles
   users_teams?: boolean;     // Tab Equipos
@@ -188,6 +189,7 @@ export interface PlanFeatures {
   recipes?: boolean;
   hr?: boolean;
   promotions?: boolean;
+  labels?: boolean;           // Etiquetas de productos (plantillas + impresión)
   customers?: boolean;        // Módulo de clientes
   distribution?: boolean;     // Distribución (rutas de reparto en camión)
   tables?: boolean;
@@ -256,6 +258,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   report_cash_sessions: false,
   report_expenses: false,
   report_purchases: false,
+  report_taxes: true,
   users_roles: false,
   users_teams: false,
   users_shifts: false,
@@ -271,6 +274,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   customers: true,
   distribution: true,
   promotions: false,
+  labels: false,
   tables: false,
   restaurant: false,
   electronic_invoice: false,
@@ -312,6 +316,7 @@ export const FULL_FEATURES: PlanFeatures = {
   report_cash_sessions: true,
   report_expenses: true,
   report_purchases: true,
+  report_taxes: true,
   users_roles: true,
   users_teams: true,
   users_shifts: true,
@@ -327,6 +332,7 @@ export const FULL_FEATURES: PlanFeatures = {
   customers: true,
   distribution: true,
   promotions: true,
+  labels: true,
   tables: true,
   restaurant: true,
   electronic_invoice: true,

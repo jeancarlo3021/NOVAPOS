@@ -26,7 +26,8 @@ export const TYPE_CFG = {
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-export const today = () => new Date().toISOString().slice(0, 10);
+// HOY en hora de Costa Rica (YYYY-MM-DD), no en UTC.
+export const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
 
 export const fmtDate = (s: string) =>
   new Date(s + 'T12:00:00').toLocaleDateString('es-CR', { dateStyle: 'medium' });

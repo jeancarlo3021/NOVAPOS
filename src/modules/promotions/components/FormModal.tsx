@@ -49,7 +49,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
         value: editing.value, combo_mode: editing.combo_mode ?? 'price',
         applies_to: editing.applies_to, category_id: editing.category_id,
         product_ids: editing.product_ids ?? [], starts_at: editing.starts_at,
-        ends_at: editing.ends_at, is_active: editing.is_active,
+        ends_at: editing.ends_at ?? '', is_active: editing.is_active,
       }
     : { ...EMPTY, starts_at: today(), ends_at: today() }
   );
@@ -99,7 +99,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
     if (form.type === 'combo' && form.product_ids.length < 2) { setError('Un combo necesita al menos 2 productos'); return; }
     if (form.type !== 'combo' && form.applies_to === 'category' && !form.category_id) { setError('Selecciona una categoría'); return; }
     if (form.type !== 'combo' && form.applies_to === 'products' && form.product_ids.length === 0) { setError('Selecciona al menos un producto'); return; }
-    if (form.starts_at > form.ends_at) { setError('La fecha de inicio no puede ser posterior a la de fin'); return; }
+    if (form.ends_at && form.starts_at > form.ends_at) { setError('La fecha de inicio no puede ser posterior a la de fin'); return; }
     setSaving(true);
     setError('');
     try {
@@ -115,7 +115,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           const todayS = today();
           const acKey = cacheKey(tenantId, 'active_promotions');
           const acCached = cacheGet<Promotion[]>(acKey) ?? [];
-          const isActiveToday = form.is_active && form.starts_at <= todayS && form.ends_at >= todayS;
+          const isActiveToday = form.is_active && form.starts_at <= todayS && (!form.ends_at || form.ends_at >= todayS);
           let newAc = acCached.filter(p => p.id !== editing.id);
           if (isActiveToday) newAc = [{ ...editing, ...form } as Promotion, ...newAc];
           cacheSet(acKey, newAc);
@@ -145,7 +145,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           cacheSet(listCk, [localPromo, ...cached]);
           // If promo is active today, add it to the POS active-promotions cache
           const todayS = today();
-          if (form.is_active && form.starts_at <= todayS && form.ends_at >= todayS) {
+          if (form.is_active && form.starts_at <= todayS && (!form.ends_at || form.ends_at >= todayS)) {
             const acKey = cacheKey(tenantId, 'active_promotions');
             const acCached = cacheGet<Promotion[]>(acKey) ?? [];
             cacheSet(acKey, [localPromo, ...acCached]);
@@ -371,16 +371,26 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           )}
 
           {/* Fechas */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Desde *</label>
-              <input type="date" value={form.starts_at} onChange={e => set('starts_at', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Hasta *</label>
-              <input type="date" value={form.ends_at} onChange={e => set('ends_at', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+          <div>
+            <label className="flex items-center gap-2 mb-2 cursor-pointer select-none">
+              <input type="checkbox" checked={!form.ends_at}
+                onChange={e => set('ends_at', e.target.checked ? '' : today())}
+                className="w-4 h-4 rounded text-violet-600" />
+              <span className="text-xs font-bold text-gray-700">Permanente <span className="font-normal text-gray-400">(sin fecha de fin)</span></span>
+            </label>
+            <div className={`grid gap-3 ${form.ends_at ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Desde *</label>
+                <input type="date" value={form.starts_at} onChange={e => set('starts_at', e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+              </div>
+              {form.ends_at !== '' && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Hasta *</label>
+                  <input type="date" value={form.ends_at} onChange={e => set('ends_at', e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+                </div>
+              )}
             </div>
           </div>
 

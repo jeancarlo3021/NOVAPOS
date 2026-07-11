@@ -13,9 +13,11 @@ interface Props {
 interface ParsedRow {
   name: string;
   sku?: string;
+  sku2?: string;
   description?: string;
   unit_price: number;
   cost_price?: number;
+  tracks_stock?: boolean;
   stock_quantity?: number;
   min_stock_level?: number;
   max_stock_level?: number;
@@ -27,19 +29,21 @@ interface ParsedRow {
 }
 
 const HEADERS = [
-  'name', 'sku', 'description', 'unit_price', 'cost_price',
-  'stock_quantity', 'min_stock_level', 'max_stock_level',
+  'name', 'sku', 'sku2', 'description', 'unit_price', 'cost_price',
+  'stock_infinito', 'stock_quantity', 'min_stock_level', 'max_stock_level',
   'category', 'unit_type', 'cabys_code', 'iva_rate',
 ];
 
+// Plantilla con ';' — así Excel en español la divide en columnas al abrirla.
 const TEMPLATE_CSV =
-  HEADERS.join(',') + '\n' +
-  'Café Americano,CAFE001,Café tradicional 8oz,1500,800,100,10,200,Bebidas,Unidad,,13\n' +
-  'Pan Tostado,PAN001,Pan artesanal,800,400,50,5,100,Panadería,Unidad,,13\n' +
-  'Azúcar Blanca,AZU001,Bolsa 1 kg,1200,700,80,5,150,Insumos,Kilogramo,,13\n';
+  HEADERS.join(';') + '\n' +
+  'Café Americano;CAFE001;7501001;Café tradicional 8oz;1500;800;No;100;10;200;Bebidas;Unidad;;13\n' +
+  'Pan Tostado;PAN001;;Pan artesanal;800;400;No;50;5;100;Panadería;Unidad;;13\n' +
+  'Servicio de limpieza;SERV01;;Sin control de stock;5000;0;Sí;0;0;0;Servicios;Unidad;;13\n';
 
 // ── Parser CSV (simple — soporta valores con comillas y comas escapadas) ──
-function parseCSV(text: string): string[][] {
+// delim: ',' o ';' (Excel en español usa ';'). Se auto-detecta antes de llamar.
+function parseCSV(text: string, delim: ',' | ';' = ','): string[][] {
   const rows: string[][] = [];
   let cur = '', row: string[] = [], inQuotes = false;
   for (let i = 0; i < text.length; i++) {
@@ -47,7 +51,7 @@ function parseCSV(text: string): string[][] {
     if (c === '"') {
       if (inQuotes && next === '"') { cur += '"'; i++; }
       else inQuotes = !inQuotes;
-    } else if (c === ',' && !inQuotes) {
+    } else if (c === delim && !inQuotes) {
       row.push(cur); cur = '';
     } else if ((c === '\n' || c === '\r') && !inQuotes) {
       if (cur !== '' || row.length > 0) { row.push(cur); rows.push(row); }
@@ -95,7 +99,10 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     }
     try {
       const text = await file.text();
-      const grid = parseCSV(text).filter(r => r.some(c => c.trim() !== ''));
+      // Auto-detectar delimitador según la primera línea (Excel ES exporta con ';').
+      const firstLine = text.split(/\r?\n/)[0] ?? '';
+      const delim: ',' | ';' = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+      const grid = parseCSV(text, delim).filter(r => r.some(c => c.trim() !== ''));
       if (grid.length === 0) { setError('Archivo vacío'); return; }
       // Primera fila = headers
       const headerRow = grid[0].map(h => h.trim().toLowerCase());
@@ -112,12 +119,17 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
       const parsed: ParsedRow[] = dataRows.map((r, i) => {
         const name = (r[idx('name')] ?? '').trim();
         const price = num(r[idx('unit_price')]);
+        // Stock infinito: "Sí"/"si"/"true"/"x" → NO rastrea stock (tracks_stock=false).
+        const infRaw = (idx('stock_infinito') >= 0 ? (r[idx('stock_infinito')] ?? '') : '').trim().toLowerCase();
+        const stockInfinito = ['si', 'sí', 'true', 'x', '1', 'yes'].includes(infRaw);
         const row: ParsedRow = {
           name,
           sku:              (r[idx('sku')] ?? '').trim() || undefined,
+          sku2:             idx('sku2') >= 0 ? (r[idx('sku2')] ?? '').trim() || undefined : undefined,
           description:      (r[idx('description')] ?? '').trim() || undefined,
           unit_price:       price ?? 0,
           cost_price:       num(r[idx('cost_price')]),
+          tracks_stock:     !stockInfinito,
           stock_quantity:   num(r[idx('stock_quantity')]) ?? 0,
           min_stock_level:  num(r[idx('min_stock_level')]) ?? 0,
           max_stock_level:  num(r[idx('max_stock_level')]) ?? 100,
@@ -203,13 +215,14 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         await createProduct(tenantId, {
           name:            r.name,
           sku:             r.sku ?? '',
+          sku2:            r.sku2 ?? null,
           description:     r.description,
           unit_price:      r.unit_price,
           cost_price:      r.cost_price,
           stock_quantity:  r.stock_quantity ?? 0,
           min_stock_level: r.min_stock_level ?? 0,
           max_stock_level: r.max_stock_level ?? 100,
-          tracks_stock:    true,
+          tracks_stock:    r.tracks_stock !== false,
           category_id,
           unit_type_id,
           cabys_code:      r.cabys_code ?? null,

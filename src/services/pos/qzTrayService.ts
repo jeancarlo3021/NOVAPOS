@@ -403,6 +403,32 @@ export async function qzPrintDefault(data: Uint8Array): Promise<void> {
 }
 
 /**
+ * Imprime HTML rasterizado a un tamaño físico exacto (para etiquetas).
+ * QZ soporta `type:'pixel', format:'html'`: renderiza el HTML y lo manda
+ * a la impresora al tamaño indicado en mm. Ideal para rotuladoras.
+ */
+export async function qzPrintHTML(
+  printerName: string,
+  html: string,
+  opts: { widthMm: number; heightMm: number; copies?: number },
+): Promise<void> {
+  const q = getQZ();
+  const config = q.configs.create(printerName, {
+    size: { width: opts.widthMm, height: opts.heightMm },
+    units: 'mm',
+    margins: 0,
+    colorType: 'blackwhite',
+    rasterize: true,
+    copies: opts.copies && opts.copies > 1 ? opts.copies : 1,
+  });
+  await q.print(config, [{
+    type: 'pixel', format: 'html', flavor: 'plain',
+    data: html,
+    options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
+  }]);
+}
+
+/**
  * Print to a PrinterEntry — handles USB vs network automatically.
  */
 export async function qzPrintToPrinter(printer: PrinterEntry, data: Uint8Array): Promise<void> {

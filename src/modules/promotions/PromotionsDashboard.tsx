@@ -142,7 +142,7 @@ export const PromotionsDashboard: React.FC = () => {
         const acCached = cacheGet<Promotion[]>(acKey) ?? [];
         const todayS = today();
         const updated = newActive
-          ? (p.starts_at <= todayS && p.ends_at >= todayS ? [...acCached, { ...p, is_active: true }] : acCached)
+          ? (p.starts_at <= todayS && (!p.ends_at || p.ends_at >= todayS) ? [...acCached, { ...p, is_active: true }] : acCached)
           : acCached.filter(x => x.id !== p.id);
         cacheSet(acKey, updated);
       }
@@ -176,7 +176,7 @@ export const PromotionsDashboard: React.FC = () => {
   };
 
   const todayStr    = today();
-  const activeToday = promotions.filter(p => p.is_active && p.starts_at <= todayStr && p.ends_at >= todayStr);
+  const activeToday = promotions.filter(p => p.is_active && p.starts_at <= todayStr && (!p.ends_at || p.ends_at >= todayStr));
 
   const filtered = filterTab === 'all' ? promotions : promotions.filter(p => getPromoStatus(p) === filterTab);
 
@@ -326,7 +326,7 @@ export const PromotionsDashboard: React.FC = () => {
                       <span>·</span>
                       <span className="flex items-center gap-1">
                         <Calendar size={11} />
-                        {fmtDate(p.starts_at)} — {fmtDate(p.ends_at)}
+                        {fmtDate(p.starts_at)} — {p.ends_at ? fmtDate(p.ends_at) : 'Permanente'}
                       </span>
                       <span>·</span>
                       <span>

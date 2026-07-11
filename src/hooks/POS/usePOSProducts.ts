@@ -194,6 +194,7 @@ export function usePOSProducts() {
     return products.filter(p =>
       p.name.toLowerCase().includes(term) ||
       p.sku?.toLowerCase().includes(term) ||
+      (p as any).sku2?.toLowerCase().includes(term) ||
       p.description?.toLowerCase().includes(term)
     );
   }, [products, searchTerm]);

@@ -19,6 +19,7 @@ interface ProductFormProps {
 }
 
 interface FormData {
+  sku2?: string;   // segundo código (alterno / de barras)
   name: string;
   sku: string;
   description: string;
@@ -53,6 +54,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const [formData, setFormData] = useState<FormData>({
     name: '',
     sku: '',
+    sku2: '',
     description: '',
     category_id: '',
     unit_type_id: '',
@@ -155,6 +157,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         setFormData({
           name: product.name,
           sku: product.sku,
+          sku2: (product as any).sku2 ?? '',
           description: product.description || '',
           category_id: product.category_id || '',
           unit_type_id: product.unit_type_id || '',
@@ -301,6 +304,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       const productData: any = {
         name: formData.name,
         sku: formData.sku,
+        sku2: formData.sku2?.trim() || null,
         description: formData.description || undefined,
         unit_price: formData.unit_price ? parseFloat(formData.unit_price) : 0,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
@@ -474,6 +478,15 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                         required
                         disabled={submitting}
                         className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                      />
+                      <input
+                        type="text"
+                        name="sku2"
+                        value={formData.sku2 ?? ''}
+                        onChange={handleChange}
+                        placeholder="Segundo código (opcional)"
+                        disabled={submitting}
+                        className="w-full mt-2 px-4 py-2 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
                       />
                     </div>
                     <div>

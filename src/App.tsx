@@ -38,6 +38,7 @@ const HRDashboard              = lazy(() => import('./modules/hr/HRDashboard').t
 const AccountsPayableDashboard = lazy(() => import('./modules/accountsPayable/AccountsPayableDashboard').then(m => ({ default: m.AccountsPayableDashboard })));
 const AccountsReceivableDashboard = lazy(() => import('./modules/accountsReceivable/AccountsReceivableDashboard').then(m => ({ default: m.AccountsReceivableDashboard })));
 const PromotionsDashboard      = lazy(() => import('./modules/promotions/PromotionsDashboard').then(m => ({ default: m.PromotionsDashboard })));
+const LabelsDashboard          = lazy(() => import('./modules/labels/LabelsDashboard').then(m => ({ default: m.LabelsDashboard })));
 const CreateOwner              = lazy(() => import('./modules/auth/CreateOwner').then(m => ({ default: m.CreateOwner })));
 const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashboard').then(m => ({ default: m.TablesDashboard })));
 const BillingDashboard         = lazy(() => import('./modules/billing/BillingDashboard').then(m => ({ default: m.BillingDashboard })));
@@ -97,6 +98,9 @@ function AppContent() {
               } />
               <Route path="/unit-types" element={
                 <PlanGuard feature="inventory"><UnitTypesManagement /></PlanGuard>
+              } />
+              <Route path="/labels" element={
+                <PlanGuard feature="labels"><LabelsDashboard /></PlanGuard>
               } />
               <Route path="/users" element={
                 <PlanGuard feature="users"><Users /></PlanGuard>

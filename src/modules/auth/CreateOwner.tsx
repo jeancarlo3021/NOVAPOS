@@ -75,6 +75,7 @@ export const CreateOwner: React.FC = () => {
   const [manageUsersFor, setManageUsersFor] = useState<OwnerData | null>(null);
   const [manageModulesFor, setManageModulesFor] = useState<OwnerData | null>(null);
   const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
+  const [testingAlanube, setTestingAlanube] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showCabys, setShowCabys] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
@@ -496,6 +497,19 @@ export const CreateOwner: React.FC = () => {
             <button onClick={() => setShowCabys(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition">
               <FileText size={15} /> CABYS
+            </button>
+            <button onClick={async () => {
+                setTestingAlanube(true);
+                try {
+                  const r = await apiFetch<any>('/admin/alanube/ping');
+                  showToast(`Alanube OK · ${r?.env ?? ''} · ${r?.note ?? 'token válido'}`, 'success');
+                } catch (e) {
+                  showToast(e instanceof Error ? e.message : 'Falló la conexión con Alanube', 'error');
+                } finally { setTestingAlanube(false); }
+              }}
+              disabled={testingAlanube}
+              className="flex items-center gap-1.5 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition">
+              <Sparkles size={15} /> {testingAlanube ? 'Probando…' : 'Probar Alanube'}
             </button>
             <Link to="/plans"
               className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition">

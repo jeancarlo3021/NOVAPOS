@@ -12,6 +12,7 @@ import {
   MonitorSmartphone,
   FileText,
   ShieldCheck,
+  Tag,
 } from 'lucide-react';
 import { GeneralSettings } from '../components/General/GeneralSettings';
 import { AccountSettings } from '../components/Account/AccountSettings';
@@ -20,10 +21,11 @@ import { NotificationSettings } from '../components/Notifications/NotificationsS
 import { ReceiptSettings } from '../components/Receipt/ReceiptSettings';
 import { POSViewSettings } from '../components/POSView/POSViewSettings';
 import { ElectronicInvoiceSettings } from '../components/ElectronicInvoice/ElectronicInvoiceSettings';
+import { LabelPrinterSettings } from '../components/LabelPrinter/LabelPrinterSettings';
 import { useAuth } from '@/context/AuthContext';
 import { MANAGER_ROLES } from '@/types/Types_Users';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'account';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'account';
 
 const SETTINGS_TABS = [
   {
@@ -49,6 +51,12 @@ const SETTINGS_TABS = [
     label: 'Facturación Electrónica',
     icon: FileText,
     description: 'Hacienda CR, certificado, ATV',
+  },
+  {
+    id: 'labels' as SettingTab,
+    label: 'Etiquetadora',
+    icon: Tag,
+    description: 'Impresora de etiquetas y calibración',
   },
   {
     id: 'pos_view' as SettingTab,
@@ -88,6 +96,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
       if (!planFeatures?.electronic_invoice) return false;
       if (!isManager) return false;
     }
+    // Etiquetadora: solo si el plan tiene el módulo de etiquetas.
+    if (tab.id === 'labels' && !planFeatures?.labels) return false;
     // Cuenta / cambio de contraseña: solo el propietario.
     if (tab.id === 'account' && user?.role !== 'owner') return false;
     return true;
@@ -114,6 +124,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
         return <NotificationSettings />;
       case 'electronic_invoice':
         return <ElectronicInvoiceSettings />;
+      case 'labels':
+        return <LabelPrinterSettings />;
       case 'account':
         return <AccountSettings />;
       default:

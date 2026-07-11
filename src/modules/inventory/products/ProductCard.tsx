@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader } from 'lucide-react';
+import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer } from 'lucide-react';
+import { PrintLabelModal } from '@/modules/labels/PrintLabelModal';
 import { Card, Badge } from '@/components/ui/uiComponents';
 import { Product } from '@/types/Types_POS';
 import { useAuth } from '@/context/AuthContext';
@@ -38,6 +39,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
 
   // ── Inline price editor ─────────────────────────────────────────────────────
   const [editingPrice, setEditingPrice] = useState(false);
+  const [showPrint, setShowPrint]       = useState(false);
   const [priceInput, setPriceInput]     = useState('');
   const [saving, setSaving]             = useState(false);
   const [saveError, setSaveError]       = useState('');
@@ -110,6 +112,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
 
           {(onEdit || onDelete) && (
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity ml-2">
+              {planFeatures?.labels && (
+                <button onClick={() => setShowPrint(true)} className="p-2 text-fuchsia-600 hover:bg-fuchsia-100 rounded-lg transition" title="Imprimir etiqueta">
+                  <Printer size={16} />
+                </button>
+              )}
               {onEdit && (
                 <button onClick={onEdit} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition" title="Editar">
                   <Edit2 size={16} />
@@ -284,6 +291,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           </div>
         )}
       </div>
+
+      {showPrint && tenantId && (
+        <PrintLabelModal
+          tenantId={tenantId}
+          product={{
+            name: product.name,
+            price: product.unit_price,
+            code: (product as any).barcode || (product as any).sku2 || product.sku || '',
+          }}
+          onClose={() => setShowPrint(false)}
+        />
+      )}
     </Card>
   );
 };

@@ -39,8 +39,8 @@ export interface Promotion {
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
-  starts_at:   string;  // YYYY-MM-DD
-  ends_at:     string;  // YYYY-MM-DD
+  starts_at:   string;         // YYYY-MM-DD
+  ends_at:     string | null;  // YYYY-MM-DD · null/'' = permanente
   is_active:   boolean;
   created_at:  string;
   updated_at:  string;
@@ -64,10 +64,16 @@ export interface PromotionPayload {
 
 // ── Status helper ─────────────────────────────────────────────────────────────
 
+/** Fecha de HOY en hora de Costa Rica (YYYY-MM-DD). Evita que las promos se
+ *  corran de día cerca de medianoche por usar UTC. */
+export const todayCR = (): string =>
+  new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+
 export function getPromoStatus(p: Promotion): PromoStatus {
   if (!p.is_active) return 'inactive';
-  const today = new Date().toISOString().slice(0, 10);
-  if (p.ends_at < today) return 'expired';
+  const today = todayCR();
+  // ends_at vacío/null = permanente (no vence).
+  if (p.ends_at && p.ends_at < today) return 'expired';
   if (p.starts_at > today) return 'scheduled';
   return 'active';
 }
@@ -124,11 +130,11 @@ export function computeCartCombos(
   items: ComboCartItem[],
   promotions: Promotion[],
 ): { discount: number; applied: AppliedCombo[] } {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayCR();
   const combos = promotions.filter(
     p => p.type === 'combo' &&
       Array.isArray(p.product_ids) && p.product_ids.length >= 2 &&
-      p.is_active && p.starts_at <= today && p.ends_at >= today
+      p.is_active && p.starts_at <= today && (!p.ends_at || p.ends_at >= today)
   );
 
   const applied: AppliedCombo[] = [];
@@ -169,10 +175,10 @@ export function getProductPromotion(
   categoryId: string | null | undefined,
   promotions: Promotion[],
 ): Promotion | null {
-  const today  = new Date().toISOString().slice(0, 10);
+  const today  = todayCR();
   const active = promotions.filter(
     // Los combos se resuelven a nivel de carrito (computeCartCombos), no por producto.
-    p => p.type !== 'combo' && p.is_active && p.starts_at <= today && p.ends_at >= today
+    p => p.type !== 'combo' && p.is_active && p.starts_at <= today && (!p.ends_at || p.ends_at >= today)
   );
   return (
     active.find(p => p.applies_to === 'products' && p.product_ids.includes(productId)) ??
