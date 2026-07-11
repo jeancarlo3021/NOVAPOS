@@ -429,6 +429,32 @@ export async function qzPrintHTML(
 }
 
 /**
+ * Imprime VARIAS etiquetas HTML en un solo trabajo (impresión masiva).
+ * Cada string de `htmls` es una etiqueta; se envían todas juntas al mismo tamaño.
+ */
+export async function qzPrintHTMLMany(
+  printerName: string,
+  htmls: string[],
+  opts: { widthMm: number; heightMm: number },
+): Promise<void> {
+  if (!htmls.length) return;
+  const q = getQZ();
+  const config = q.configs.create(printerName, {
+    size: { width: opts.widthMm, height: opts.heightMm },
+    units: 'mm',
+    margins: 0,
+    colorType: 'blackwhite',
+    rasterize: true,
+  });
+  const data = htmls.map(html => ({
+    type: 'pixel', format: 'html', flavor: 'plain',
+    data: html,
+    options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
+  }));
+  await q.print(config, data);
+}
+
+/**
  * Print to a PrinterEntry — handles USB vs network automatically.
  */
 export async function qzPrintToPrinter(printer: PrinterEntry, data: Uint8Array): Promise<void> {

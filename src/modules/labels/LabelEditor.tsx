@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeft, Save, Trash2, Type, DollarSign, Barcode, Tag, Bold, AlignLeft, AlignCenter, AlignRight,
+  ArrowLeft, Save, Trash2, Type, DollarSign, Barcode, QrCode, Tag, Bold, AlignLeft, AlignCenter, AlignRight,
   Square, Minus, Plus as PlusIcon, AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
   AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Image as ImageIcon,
 } from 'lucide-react';
@@ -10,9 +10,11 @@ import {
   labelTemplatesService, DESIGN_SCALE,
   type LabelTemplate, type LabelElement, type LabelElementType,
 } from '@/services/labels/labelTemplatesService';
+import { SYSTEM_FONTS, GOOGLE_FONTS, ensureFontLoaded } from '@/services/labels/fontsService';
+import { codeOf, qrSvg, type LabelProduct } from '@/services/labels/labelRenderService';
 
 // Producto de muestra por defecto para previsualizar la plantilla.
-const DEFAULT_SAMPLE = { name: 'Café Americano 8oz', price: 1500, sku: '7501055309948' };
+const DEFAULT_SAMPLE: LabelProduct = { name: 'Café Americano 8oz', price: 1500, sku: '7501055309948', sku2: '1042' };
 
 const crc = (n: number) => `₡${n.toLocaleString('es-CR')}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -23,19 +25,22 @@ interface Props {
   onBack: () => void;
   onSaved: (t: LabelTemplate) => void;
   /** Producto real para previsualizar (si no, se usa uno de ejemplo). */
-  sample?: { name: string; price: number; sku: string };
+  sample?: LabelProduct;
 }
 
 const NEW_ELEMENT: Record<Exclude<LabelElementType, 'image'>, () => LabelElement> = {
   product_name: () => ({ id: uid(), type: 'product_name', x: 6, y: 6, fontSize: 13, bold: true, align: 'left' }),
   price:        () => ({ id: uid(), type: 'price', x: 6, y: 40, fontSize: 20, bold: true, align: 'left' }),
   sku:          () => ({ id: uid(), type: 'sku', x: 6, y: 70, fontSize: 10, align: 'left' }),
-  barcode:      () => ({ id: uid(), type: 'barcode', x: 6, y: 50, width: 140, height: 26 }),
+  barcode:      () => ({ id: uid(), type: 'barcode', x: 6, y: 50, width: 140, height: 30, fontSize: 20, codeSource: 'sku' }),
+  qr:           () => ({ id: uid(), type: 'qr', x: 6, y: 6, width: 90, height: 90, codeSource: 'sku' }),
   text:         () => ({ id: uid(), type: 'text', x: 6, y: 20, fontSize: 11, value: 'Texto', align: 'left' }),
 };
 
 export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSaved, sample }) => {
   const SAMPLE = sample ?? DEFAULT_SAMPLE;
+  // Cargar las Google Fonts ya usadas en la plantilla para que se vean en el canvas.
+  useEffect(() => { template.elements.forEach(e => ensureFontLoaded(e.fontFamily)); }, []);
   const [name, setName] = useState(template.name);
   const [elements, setElements] = useState<LabelElement[]>(template.elements);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -74,8 +79,9 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
       : el.type === 'price' ? crc(SAMPLE.price).length
       : el.type === 'sku' ? SAMPLE.sku.length
       : (el.value || 'Texto').length;
-  const elW = (el: LabelElement) => (el.type === 'barcode' || el.type === 'image') ? (el.width ?? 140) : Math.round(contentLen(el) * (el.fontSize ?? 12) * 0.55);
-  const elH = (el: LabelElement) => (el.type === 'barcode' || el.type === 'image') ? (el.height ?? 26) : Math.round((el.fontSize ?? 12) * 1.2);
+  const isBox = (el: LabelElement) => el.type === 'barcode' || el.type === 'image' || el.type === 'qr';
+  const elW = (el: LabelElement) => isBox(el) ? (el.width ?? 140) : Math.round(contentLen(el) * (el.fontSize ?? 12) * 0.55);
+  const elH = (el: LabelElement) => isBox(el) ? (el.height ?? 26) : Math.round((el.fontSize ?? 12) * 1.2);
 
   const alignInCanvas = (dir: 'left' | 'hcenter' | 'right' | 'top' | 'vmiddle' | 'bottom') => {
     if (!selected) return;
@@ -93,7 +99,7 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
   // Achicar / agrandar el elemento seleccionado.
   const resizeSel = (delta: number) => {
     if (!selected) return;
-    if (selected.type === 'barcode' || selected.type === 'image') {
+    if (isBox(selected)) {
       update(selected.id, { width: Math.max(16, (selected.width ?? 140) + delta * 10), height: Math.max(10, (selected.height ?? 26) + delta * 4) });
     } else {
       update(selected.id, { fontSize: Math.max(6, Math.min(60, (selected.fontSize ?? 12) + delta)) });
@@ -110,7 +116,7 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
   // Empezar a redimensionar arrastrando la esquina del objeto.
   const onPointerDownResize = (e: React.PointerEvent, el: LabelElement) => {
     e.stopPropagation();
-    const kind: 'wh' | 'font' = (el.type === 'barcode' || el.type === 'image') ? 'wh' : 'font';
+    const kind: 'wh' | 'font' = isBox(el) ? 'wh' : 'font';
     resize.current = {
       id: el.id, sx: e.clientX, sy: e.clientY,
       w: el.width ?? 100, h: el.height ?? 26, font: el.fontSize ?? 12, kind,
@@ -162,15 +168,19 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
     switch (el.type) {
       case 'product_name': return SAMPLE.name;
       case 'price':        return crc(SAMPLE.price);
-      case 'sku':          return SAMPLE.sku;
+      case 'sku':          return codeOf(el, SAMPLE);
       case 'text':         return el.value || 'Texto';
       case 'barcode':
         return (
-          <div style={{ width: (el.width ?? 140) * z, height: (el.height ?? 26) * z }} className="flex flex-col items-center justify-center">
+          <div style={{ width: (el.width ?? 140) * z, height: (el.height ?? 30) * z }} className="flex flex-col items-center justify-center">
             <div className="w-full flex-1 bg-[repeating-linear-gradient(90deg,#000_0,#000_2px,#fff_2px,#fff_4px)]" />
-            <span className="font-mono mt-0.5 tracking-wider" style={{ fontSize: 8 * z }}>{SAMPLE.sku}</span>
+            <span className="font-mono font-bold mt-0.5 tracking-wider leading-none" style={{ fontSize: (el.fontSize ?? 20) * 0.5 * z }}>{codeOf(el, SAMPLE)}</span>
           </div>
         );
+      case 'qr': {
+        const s = (el.width ?? el.height ?? 90) * z;
+        return <div style={{ width: s, height: s }} dangerouslySetInnerHTML={{ __html: qrSvg(codeOf(el, SAMPLE)) }} />;
+      }
       case 'image':
         return el.src
           ? <img src={el.src} alt="" draggable={false} style={{ width: (el.width ?? 60) * z, height: (el.height ?? 60) * z, objectFit: 'contain' }} />
@@ -212,6 +222,7 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
             ['product_name', 'Nombre', Tag],
             ['price', 'Precio', DollarSign],
             ['barcode', 'Código de barras', Barcode],
+            ['qr', 'Código QR', QrCode],
             ['sku', 'SKU (texto)', Type],
             ['text', 'Texto libre', Type],
           ] as [Exclude<LabelElementType, 'image'>, string, React.ElementType][]).map(([t, label, Icon]) => (
@@ -245,7 +256,7 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
                   style={{
                     left: el.x * zoom, top: el.y * zoom,
                     fontSize: (el.fontSize ?? 12) * zoom, fontWeight: el.bold ? 800 : 400,
-                    textAlign: el.align, lineHeight: 1.1,
+                    fontFamily: el.fontFamily, textAlign: el.align, lineHeight: 1.1,
                     padding: el.border ? 2 * zoom : 0,
                   }}
                 >
@@ -278,7 +289,21 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
                     className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
                 </div>
               )}
-              {(selected.type === 'barcode' || selected.type === 'image') ? (
+              {/* Selección de código: SKU 1 o SKU 2 (barcode / QR) */}
+              {(selected.type === 'barcode' || selected.type === 'qr') && (
+                <div>
+                  <label className="text-[11px] font-bold text-gray-600">Código a usar</label>
+                  <div className="flex gap-1 mt-0.5">
+                    {([['sku', 'SKU 1'], ['sku2', 'SKU 2']] as const).map(([src, lbl]) => (
+                      <button key={src} onClick={() => update(selected.id, { codeSource: src })}
+                        className={`flex-1 py-1.5 rounded-lg border text-sm font-bold ${(selected.codeSource ?? 'sku') === src ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500'}`}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {isBox(selected) ? (
                 <>
                   <div>
                     <label className="text-[11px] font-bold text-gray-600">Ancho: {selected.width}px</label>
@@ -290,6 +315,13 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
                     <input type="range" min={10} max={H} value={selected.height ?? 26}
                       onChange={e => update(selected.id, { height: Number(e.target.value) })} className="w-full" />
                   </div>
+                  {selected.type === 'barcode' && (
+                    <div>
+                      <label className="text-[11px] font-bold text-gray-600">Tamaño del número: {selected.fontSize ?? 20}px</label>
+                      <input type="range" min={0} max={48} value={selected.fontSize ?? 20}
+                        onChange={e => update(selected.id, { fontSize: Number(e.target.value) })} className="w-full" />
+                    </div>
+                  )}
                   {selected.type === 'image' && (
                     <button onClick={() => { replaceRef.current = selected.id; imageInputRef.current?.click(); }}
                       className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-bold hover:bg-gray-50">
@@ -315,6 +347,23 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
                         <Icon size={14} />
                       </button>
                     ))}
+                  </div>
+                  {/* Fuente */}
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-600">Fuente</label>
+                    <select
+                      value={selected.fontFamily ?? SYSTEM_FONTS[0].css}
+                      onChange={e => { ensureFontLoaded(e.target.value); update(selected.id, { fontFamily: e.target.value }); }}
+                      style={{ fontFamily: selected.fontFamily }}
+                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm mt-0.5">
+                      <optgroup label="Del sistema">
+                        {SYSTEM_FONTS.map(f => <option key={f.name} value={f.css} style={{ fontFamily: f.css }}>{f.name}</option>)}
+                      </optgroup>
+                      <optgroup label="Google Fonts">
+                        {GOOGLE_FONTS.map(f => <option key={f.name} value={f.css}>{f.name}</option>)}
+                      </optgroup>
+                    </select>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Las Google Fonts se incrustan al imprimir.</p>
                   </div>
                 </>
               )}

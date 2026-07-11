@@ -7,6 +7,7 @@ import { CRLocationFields } from '@/components/CRLocationFields';
 
 interface FeData {
   enabled?: boolean;
+  fe_provider?: 'facturemos' | 'alanube';   // proveedor de FE activo
   environment?: 'sandbox' | 'production';
   api_key_emisor?: string;               // legacy (fallback)
   api_key_emisor_production?: string;     // ApiKey de PRODUCCIÓN
@@ -26,6 +27,9 @@ interface FeData {
   // Certificado criptográfico (.p12) — el archivo va a Storage; acá solo metadata.
   certificate?: { path: string; filename: string; uploaded_at: string };
   p12_password?: string;
+  atv_username?: string;                 // usuario API generado en ATV
+  atv_password?: string;                 // contraseña API generada en ATV
+  alanube_company_id?: string;           // id de la empresa creada en Alanube
   hacienda_pin?: string;
   // Numeración de comprobantes electrónicos.
   sucursal?: string;
@@ -66,6 +70,9 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
   const save = async () => {
     setSaving(true);
     try {
+      // Si hay un .p12 seleccionado sin subir, subilo ANTES de guardar (así el
+      // usuario no tiene que acordarse de tocar "Subir" por separado).
+      if (certFile) await doUploadCert();
       await apiFetch(`/admin/tenants/${owner.id}/fe-config`, {
         method: 'PUT', body: JSON.stringify({ fe }),
       });
@@ -76,28 +83,34 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
     } finally { setSaving(false); }
   };
 
-  // Sube el .p12 a Storage (vía backend). Guarda ANTES la config actual para no
-  // perder los cambios en pantalla, luego sube el archivo + PIN/clave.
+  // Sube el .p12 a Storage (vía backend) y devuelve la metadata del certificado.
+  // NO recarga toda la config (para no borrar lo que el usuario escribió sin
+  // guardar); solo actualiza el bloque `certificate` en el estado local.
+  const doUploadCert = async () => {
+    if (!certFile) return;
+    const b64 = await new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result));
+      r.onerror = () => rej(new Error('No se pudo leer el archivo'));
+      r.readAsDataURL(certFile);
+    });
+    const resp = await apiFetch<{ ok: boolean; certificate: any }>(`/admin/tenants/${owner.id}/fe-certificate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        file_base64: b64, filename: certFile.name,
+        p12_password: fe.p12_password ?? '', hacienda_pin: fe.hacienda_pin ?? '',
+      }),
+    });
+    if (resp?.certificate) set('certificate', resp.certificate);
+    setCertFile(null);
+  };
+
   const uploadCert = async () => {
     if (!certFile) { onToast('Elegí el archivo .p12', 'error'); return; }
     setUploadingCert(true);
     try {
-      const b64 = await new Promise<string>((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result));
-        r.onerror = () => rej(new Error('No se pudo leer el archivo'));
-        r.readAsDataURL(certFile);
-      });
-      await apiFetch(`/admin/tenants/${owner.id}/fe-certificate`, {
-        method: 'POST',
-        body: JSON.stringify({
-          file_base64: b64, filename: certFile.name,
-          p12_password: fe.p12_password ?? '', hacienda_pin: fe.hacienda_pin ?? '',
-        }),
-      });
+      await doUploadCert();
       onToast('Certificado subido', 'success');
-      setCertFile(null);
-      load();
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'No se pudo subir el certificado', 'error');
     } finally { setUploadingCert(false); }
@@ -133,6 +146,22 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
           <div className="flex justify-center py-14"><RefreshCw size={22} className="animate-spin text-gray-300" /></div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {/* Proveedor de FE — cada empresa usa Facturemos O Alanube */}
+            <div>
+              <label className={labelCls}>Proveedor de Facturación Electrónica</label>
+              <div className="grid grid-cols-2 gap-2">
+                {([['facturemos', 'Facturemos'], ['alanube', 'Alanube']] as const).map(([val, lbl]) => (
+                  <button key={val} type="button" onClick={() => set('fe_provider', val)}
+                    className={`py-2 rounded-lg border-2 text-sm font-bold transition ${(fe.fe_provider ?? 'facturemos') === val ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-blue-300'}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Se emite con el proveedor elegido. Podés dejar cargadas las credenciales de ambos; solo se usa el activo.
+              </p>
+            </div>
+
             {/* Estado */}
             <div className="grid grid-cols-2 gap-3">
               <label className="flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-3 py-2">
@@ -152,7 +181,7 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
 
             {/* ApiKeys por ambiente */}
             <div className="space-y-2">
-              <label className={`${labelCls} flex items-center gap-1`}><KeyRound size={11} /> ApiKeys del emisor</label>
+              <label className={`${labelCls} flex items-center gap-1`}><KeyRound size={11} /> ApiKeys del emisor <span className="text-blue-500">· Facturemos</span></label>
               <div>
                 <span className="text-[10px] font-bold text-emerald-700">Producción</span>
                 <input type="text" value={fe.api_key_emisor_production ?? ''} onChange={e => set('api_key_emisor_production', e.target.value)}
@@ -244,7 +273,7 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
             {/* Certificado criptográfico (.p12) — se guarda en Storage privado */}
             <div className="border-t border-gray-100 pt-3">
               <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <ShieldCheck size={13} /> Certificado criptográfico (.p12)
+                <ShieldCheck size={13} /> Certificado criptográfico (.p12) <span className="text-cyan-600">· Alanube</span>
               </p>
               {fe.certificate?.filename ? (
                 <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mb-2">
@@ -279,6 +308,26 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                 </button>
               </div>
               <p className="text-[10px] text-gray-400 mt-1">El archivo se guarda cifrado en Storage privado; nunca se expone al cliente.</p>
+            </div>
+
+            {/* Credenciales de API de ATV (token de Hacienda para Alanube) */}
+            <div className="border-t border-gray-100 pt-3">
+              <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <KeyRound size={13} /> Credenciales API de ATV (token de Hacienda) <span className="text-cyan-600">· Alanube</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={labelCls}>Usuario API</label>
+                  <input type="text" value={fe.atv_username ?? ''} onChange={e => set('atv_username', e.target.value)}
+                    name="fe_atv_user" autoComplete="off" spellCheck={false} data-1p-ignore className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Contraseña API</label>
+                  <input type="password" value={fe.atv_password ?? ''} onChange={e => set('atv_password', e.target.value)}
+                    name="fe_atv_pass" autoComplete="off" className={inputCls} />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">Se generan en ATV → Comprobantes electrónicos → Generar credenciales. Alanube las usa para transmitir a Hacienda.</p>
             </div>
 
             {/* Numeración / consecutivos (20 dígitos de Hacienda) */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FileDown } from 'lucide-react';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
@@ -60,6 +60,21 @@ export const FeInvoicesDashboard: React.FC = () => {
     finally { setSyncing(false); }
   }, [load]);
   useEffect(() => { refreshPending(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Polling automático: mientras haya comprobantes "en proceso" (emitidos pero
+  // sin respuesta de Hacienda), reconsulta cada 20s hasta que se resuelvan
+  // (aceptado/rechazado) o se llegue al tope de intentos.
+  const pollAttempts = useRef(0);
+  const hasPending = rows.some(r => r.fe_clave && (r.fe_status ?? '') === 'sent');
+  useEffect(() => {
+    if (!hasPending) { pollAttempts.current = 0; return; }
+    const id = setInterval(() => {
+      if (pollAttempts.current >= 20) { clearInterval(id); return; }  // ~7 min máx
+      pollAttempts.current += 1;
+      refreshPending();
+    }, 20000);
+    return () => clearInterval(id);
+  }, [hasPending, rows, refreshPending]);
 
   const refreshStatus = async (row: FeRow) => {
     setBusyId(row.id);
@@ -133,8 +148,13 @@ export const FeInvoicesDashboard: React.FC = () => {
           <h1 className="text-xl font-black text-gray-900">Facturas electrónicas</h1>
           <p className="text-sm text-gray-500">Estatus ante Hacienda, errores y reenvíos.</p>
         </div>
+        {hasPending && (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold">
+            <RefreshCw size={12} className="animate-spin" /> Consultando estado en Hacienda…
+          </span>
+        )}
         <button onClick={refreshPending} disabled={syncing}
-          className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 text-sm font-bold disabled:opacity-50">
+          className={`${hasPending ? '' : 'ml-auto'} inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 text-sm font-bold disabled:opacity-50`}>
           <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Actualizando…' : 'Actualizar estados'}
         </button>
         <button onClick={load} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, RotateCw, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, RotateCw, FileSpreadsheet, Tag, Printer, X } from 'lucide-react';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
@@ -9,6 +9,7 @@ import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { ProductForm } from './ProductsForm';
 import { ProductCard } from './ProductCard';
 import { BulkProductImportModal } from './BulkProductImportModal';
+import { BulkPrintLabelsModal } from '@/modules/labels/BulkPrintLabelsModal';
 import { Alert, LoadingState, Badge, Button, Card, CardContent } from '@/components/ui/uiComponents';
 
 export const ProductsList: React.FC = () => {
@@ -25,6 +26,15 @@ export const ProductsList: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Impresión masiva de etiquetas
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showPrintLabels, setShowPrintLabels] = useState(false);
+  const canLabels = !!planFeatures?.labels;
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()); };
 
   const {
     products,
@@ -73,33 +83,63 @@ export const ProductsList: React.FC = () => {
           <h1 className="text-3xl font-bold">Productos</h1>
           <p className="text-gray-600">Administra tu inventario de productos</p>
         </div>
-        {!isReadOnly && canCreate && (
-          <div className="flex gap-2">
+        <div className="flex gap-2">
+          {canLabels && !selectMode && (
             <Button
-              onClick={() => setShowBulk(true)}
+              onClick={() => setSelectMode(true)}
               size="lg"
               variant="secondary"
-              className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+              className="bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100 border border-fuchsia-200"
               disabled={loading}
             >
-              <FileSpreadsheet className="w-5 h-5 mr-2" /> Importar Excel
+              <Tag className="w-5 h-5 mr-2" /> Etiquetas
             </Button>
-            <Button
-              onClick={() => { setEditingId(null); setShowForm(true); }}
-              size="lg"
-              className="bg-blue-600 hover:bg-blue-700"
-              disabled={loading}
-            >
-              <Plus className="w-5 h-5 mr-2" /> Nuevo Producto
-            </Button>
-          </div>
-        )}
+          )}
+          {!isReadOnly && canCreate && (
+            <>
+              <Button
+                onClick={() => setShowBulk(true)}
+                size="lg"
+                variant="secondary"
+                className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                disabled={loading}
+              >
+                <FileSpreadsheet className="w-5 h-5 mr-2" /> Importar Excel
+              </Button>
+              <Button
+                onClick={() => { setEditingId(null); setShowForm(true); }}
+                size="lg"
+                className="bg-blue-600 hover:bg-blue-700"
+                disabled={loading}
+              >
+                <Plus className="w-5 h-5 mr-2" /> Nuevo Producto
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Estado de conexión */}
       <Badge variant={isOnline ? 'success' : 'warning'}>
         {isOnline ? 'En línea' : 'Sin conexión'}
       </Badge>
+
+      {/* Barra de selección para etiquetas */}
+      {selectMode && (
+        <div className="sticky top-2 z-20 flex flex-wrap items-center gap-3 bg-fuchsia-600 text-white rounded-xl px-4 py-3 shadow-lg">
+          <span className="font-bold text-sm">{selectedIds.size} seleccionado{selectedIds.size === 1 ? '' : 's'}</span>
+          <button onClick={() => setSelectedIds(new Set(filteredProducts.map(p => p.id)))}
+            className="text-xs font-bold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5">Seleccionar todos ({filteredProducts.length})</button>
+          <button onClick={() => setSelectedIds(new Set())}
+            className="text-xs font-bold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5">Limpiar</button>
+          <div className="flex-1" />
+          <button onClick={() => setShowPrintLabels(true)} disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 text-sm font-bold bg-white text-fuchsia-700 rounded-lg px-4 py-1.5 disabled:opacity-50">
+            <Printer size={15} /> Imprimir etiquetas
+          </button>
+          <button onClick={exitSelectMode} className="p-1.5 rounded-lg hover:bg-white/20"><X size={18} /></button>
+        </div>
+      )}
 
       {/* Modal de Formulario */}
       {showForm && (
@@ -123,6 +163,22 @@ export const ProductsList: React.FC = () => {
             setShowBulk(false);
             if (count > 0) retry();
           }}
+        />
+      )}
+
+      {/* Modal de impresión masiva de etiquetas */}
+      {showPrintLabels && tenantId && (
+        <BulkPrintLabelsModal
+          tenantId={tenantId}
+          products={products
+            .filter(p => selectedIds.has(p.id))
+            .map(p => ({
+              name: p.name,
+              price: p.unit_price,
+              sku: p.sku || '',
+              sku2: (p as any).sku2 || '',
+            }))}
+          onClose={() => setShowPrintLabels(false)}
         />
       )}
 
@@ -196,9 +252,12 @@ export const ProductsList: React.FC = () => {
               <ProductCard
                 key={product.id}
                 product={product}
-                onEdit={(isReadOnly || !canEdit) ? undefined : () => { setEditingId(product.id); setShowForm(true); }}
-                onDelete={(isReadOnly || !canDelete) ? undefined : () => handleDelete(product.id)}
+                onEdit={(selectMode || isReadOnly || !canEdit) ? undefined : () => { setEditingId(product.id); setShowForm(true); }}
+                onDelete={(selectMode || isReadOnly || !canDelete) ? undefined : () => handleDelete(product.id)}
                 onUpdated={() => retry()}
+                selectable={selectMode}
+                selected={selectedIds.has(product.id)}
+                onToggleSelect={() => toggleSelect(product.id)}
               />
             ))}
           </div>

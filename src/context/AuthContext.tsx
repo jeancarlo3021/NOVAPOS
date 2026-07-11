@@ -375,6 +375,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   clearError: () => void;
   getRoleLabel: (role: string) => string;
+  /** Actualiza en memoria el alias de ticket del usuario logueado. */
+  updateAlias: (alias: string) => void;
   switchTenant: (tenantId: string) => Promise<void>;
   refreshPlan: (tenantId: string) => Promise<void>;
   // ── Multi-sucursal ────────────────────────────────────────────────────
@@ -1125,6 +1127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         clearError,
         getRoleLabel,
+        updateAlias: (alias: string) => setUser(u => (u ? { ...u, ticket_alias: alias } : u)),
         switchTenant,
         refreshPlan,
         branches,

@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { KeyRound, Eye, EyeOff, Check, RefreshCw, ShieldCheck } from 'lucide-react';
+import { KeyRound, Eye, EyeOff, Check, RefreshCw, ShieldCheck, Tag } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { usersService } from '@/services/users/usersService';
 
 /**
  * Cambio de contraseña del propietario (self-service). Verifica la contraseña
@@ -11,7 +12,26 @@ import { useAuth } from '@/context/AuthContext';
  * El tab que lo monta ya restringe la visibilidad al rol 'owner'.
  */
 export const AccountSettings: React.FC = () => {
-  const { user } = useAuth();
+  const { user, updateAlias } = useAuth();
+  // ── Alias del propietario ("Atendido por:" en el ticket) ──────────────────
+  const [alias, setAlias] = useState(user?.ticket_alias ?? '');
+  const [savingAlias, setSavingAlias] = useState(false);
+  const [aliasOk, setAliasOk] = useState(false);
+  const [aliasErr, setAliasErr] = useState('');
+
+  const saveAlias = async () => {
+    if (!user?.id) { setAliasErr('No se pudo determinar tu usuario'); return; }
+    setSavingAlias(true); setAliasErr(''); setAliasOk(false);
+    try {
+      const clean = alias.trim().slice(0, 60);
+      await usersService.updateUser(user.id, { ticket_alias: clean });
+      updateAlias(clean);
+      setAliasOk(true); setTimeout(() => setAliasOk(false), 2000);
+    } catch (err) {
+      setAliasErr(err instanceof Error ? err.message : 'No se pudo guardar el alias');
+    } finally { setSavingAlias(false); }
+  };
+
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -61,6 +81,35 @@ export const AccountSettings: React.FC = () => {
         <div>
           <h2 className="text-xl font-black text-gray-900">Cuenta y seguridad</h2>
           <p className="text-sm text-gray-500">Cambiá la contraseña de tu cuenta de propietario.</p>
+        </div>
+      </div>
+
+      {/* Alias del propietario para el ticket */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-5 space-y-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Tag size={18} className="text-fuchsia-600" />
+          <div>
+            <h3 className="font-black text-gray-900 text-sm">Alias para el ticket</h3>
+            <p className="text-xs text-gray-500">Aparece como «Atendido por: {alias.trim() || '…'}» en el ticket y reportes.</p>
+          </div>
+        </div>
+        {aliasErr && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{aliasErr}</div>}
+        {aliasOk && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded-lg px-3 py-2 flex items-center gap-2"><Check size={15} /> Alias guardado.</div>}
+        <div className="flex gap-2">
+          <input
+            value={alias}
+            onChange={(e) => setAlias(e.target.value.slice(0, 60))}
+            placeholder="Ej. Don José, Caja 1…"
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+          />
+          <button
+            type="button"
+            onClick={saveAlias}
+            disabled={savingAlias || alias.trim() === (user?.ticket_alias ?? '').trim()}
+            className="px-4 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-sm font-bold disabled:opacity-50 transition flex items-center gap-2 shrink-0"
+          >
+            {savingAlias ? <RefreshCw size={15} className="animate-spin" /> : <Check size={15} />} Guardar
+          </button>
         </div>
       </div>
 

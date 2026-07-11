@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Printer, WifiOff, CheckCircle2, Calendar, RefreshCw } from 'lucide-react';
+import { X, Search, Printer, WifiOff, CheckCircle2, Calendar, RefreshCw, Send } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService, type Invoice, type InvoiceItem } from '@/services/invoice/invoiceService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -53,6 +53,9 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [doneId, setDoneId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  // Prueba de emisión a Hacienda (FE)
+  const [emittingId, setEmittingId] = useState<string | null>(null);
+  const [feMsg, setFeMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // ¿El día de una factura cae dentro del rango elegido? (rango abierto si falta un extremo)
   const inRange = useCallback((issuedAt?: string) => {
@@ -119,6 +122,32 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
   const filtered = invoices.filter(inv =>
     inv.invoice_number.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Emite la factura a Hacienda (FE) para probar el flujo (Facturemos/Alanube).
+  const handleEmitFE = async (row: InvoiceRow) => {
+    setFeMsg(null);
+    setEmittingId(row.id);
+    try {
+      const res = await apiFetch<any>('/hacienda/emit', {
+        method: 'POST', body: JSON.stringify({ invoice_id: row.id }),
+      });
+      const clave = res?.clave ?? res?.alanube_doc_id ?? null;
+      const prov = res?.provider ? ` · ${res.provider}` : '';
+      const st = res?.alanube_status ? ` · ${res.alanube_status}` : '';
+      if (clave) {
+        setFeMsg({ ok: true, text: `✅ Factura ${row.invoice_number} emitida${prov}${st} · ${clave}` });
+      } else {
+        // Emitió pero no encontró id/clave: mostramos la respuesta cruda.
+        console.log('[FE emit] respuesta:', res?.response ?? res);
+        setFeMsg({ ok: true, text: `✅ ${row.invoice_number} emitida${prov}, sin id detectado. Resp: ${JSON.stringify(res?.response ?? res).slice(0, 300)}` });
+      }
+      load();
+    } catch (e) {
+      setFeMsg({ ok: false, text: `❌ ${row.invoice_number}: ${e instanceof Error ? e.message : 'error al emitir'}` });
+    } finally {
+      setEmittingId(null);
+    }
+  };
 
   const handleReprint = async (row: InvoiceRow) => {
     if (!tenantId) return;
@@ -254,6 +283,13 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
           </div>
         )}
 
+        {feMsg && (
+          <div className={`mx-6 mt-3 rounded-lg px-3 py-2 text-sm shrink-0 flex items-start justify-between gap-2 ${feMsg.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+            <span className="break-all">{feMsg.text}</span>
+            <button onClick={() => setFeMsg(null)} className="shrink-0 text-current opacity-60 hover:opacity-100"><X size={15} /></button>
+          </div>
+        )}
+
         {/* List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {loadingList ? (
@@ -296,6 +332,20 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-gray-800 text-sm">{fmt(inv.total)}</span>
+                    {inv.fe_clave ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700" title={`Clave: ${inv.fe_clave}`}>
+                        <CheckCircle2 size={12} /> FE
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleEmitFE(inv)}
+                        disabled={emittingId === inv.id}
+                        title="Emitir a Hacienda (prueba)"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition text-cyan-700 border border-cyan-300 bg-white hover:bg-cyan-600 hover:text-white disabled:opacity-50"
+                      >
+                        <Send size={13} /> {emittingId === inv.id ? 'Emitiendo…' : 'Probar FE'}
+                      </button>
+                    )}
                     <button
                       onClick={() => handleReprint(inv)}
                       disabled={isPrinting}

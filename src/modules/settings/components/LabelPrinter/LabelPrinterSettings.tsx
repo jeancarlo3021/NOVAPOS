@@ -8,10 +8,10 @@ import { labelPrinterConfig } from '@/services/labels/labelPrinterConfig';
 import {
   labelTemplatesService, DESIGN_SCALE, type LabelTemplate,
 } from '@/services/labels/labelTemplatesService';
-import { renderLabelHTML } from '@/services/labels/labelRenderService';
+import { renderLabelPrintHTML } from '@/services/labels/labelRenderService';
 import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTML } from '@/services/pos/qzTrayService';
 
-const TEST_PRODUCT = { name: 'Producto de prueba', price: 1990, code: '7501234567890' };
+const TEST_PRODUCT = { name: 'Producto de prueba', price: 1990, sku: '1001', sku2: '7501234567890' };
 
 // Plantilla mínima de prueba si el tenant aún no creó ninguna.
 const fallbackTemplate = (): LabelTemplate => ({
@@ -64,7 +64,7 @@ export const LabelPrinterSettings: React.FC = () => {
       labelPrinterConfig.setPrinter(printer);
       labelPrinterConfig.setOffset(offset);
       const tpl = (tenantId && templates[0]) || fallbackTemplate();
-      const html = renderLabelHTML(tpl, TEST_PRODUCT, offset);
+      const html = await renderLabelPrintHTML(tpl, TEST_PRODUCT, offset);
       await qzPrintHTML(printer, html, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: 1 });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al imprimir la prueba');

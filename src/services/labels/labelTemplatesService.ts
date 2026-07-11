@@ -1,7 +1,7 @@
 // Plantillas de etiquetas de producto. Por ahora se guardan en localStorage por
 // tenant (rápido, para iterar el diseño); luego se puede mover al backend.
 
-export type LabelElementType = 'product_name' | 'price' | 'barcode' | 'sku' | 'text' | 'image';
+export type LabelElementType = 'product_name' | 'price' | 'barcode' | 'qr' | 'sku' | 'text' | 'image';
 
 export interface LabelElement {
   id: string;
@@ -9,6 +9,7 @@ export interface LabelElement {
   x: number;              // px dentro del canvas (a la escala de diseño)
   y: number;
   fontSize?: number;      // px (no aplica a barcode)
+  fontFamily?: string;    // familia CSS (system o Google Fonts)
   bold?: boolean;
   align?: 'left' | 'center' | 'right';
   value?: string;         // solo para 'text'
@@ -16,6 +17,7 @@ export interface LabelElement {
   height?: number;        // alto (px) — para barcode / imagen
   border?: boolean;       // borde alrededor del elemento
   src?: string;           // dataURL (base64) — para 'image'
+  codeSource?: 'sku' | 'sku2';  // barcode/qr: cuál código usar (SKU 1 o SKU 2)
 }
 
 export interface LabelTemplate {

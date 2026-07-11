@@ -23,6 +23,7 @@ import { TenantGroupView } from './components/TenantGroupView';
 import { AdminFeKioskView } from './components/AdminFeKioskView';
 import { GroupDocCount } from './components/GroupDocCount';
 import { CabysImport } from './components/CabysImport';
+import { BulkProductImportModal } from '@/modules/inventory/products/BulkProductImportModal';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -74,8 +75,10 @@ export const CreateOwner: React.FC = () => {
   const [invoiceFor, setInvoiceFor] = useState<OwnerData | null>(null);
   const [manageUsersFor, setManageUsersFor] = useState<OwnerData | null>(null);
   const [manageModulesFor, setManageModulesFor] = useState<OwnerData | null>(null);
+  const [importProductsFor, setImportProductsFor] = useState<OwnerData | null>(null);
   const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
   const [testingAlanube, setTestingAlanube] = useState(false);
+  const [creatingAlanubeId, setCreatingAlanubeId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showCabys, setShowCabys] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>('businesses');
@@ -142,6 +145,23 @@ export const CreateOwner: React.FC = () => {
       setSuccess(fePlanId ? 'Plan FE asignado' : 'Plan FE quitado');
       fetchOwners();
     } catch (err: any) { setError(err.message || 'Error al asignar el plan FE'); }
+  };
+
+  // Da de alta la empresa (emisor) en Alanube con los datos de FE del tenant.
+  const createAlanubeCompany = async (o: any) => {
+    setCreatingAlanubeId(o.id);
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${o.id}/alanube/company`, { method: 'POST' });
+      if (r?.company_id) {
+        showToast(`Empresa creada en Alanube · id ${r.company_id} · ${r?.env ?? ''}`, 'success');
+      } else {
+        // No se encontró el id automáticamente: mostramos la respuesta cruda.
+        console.log('[Alanube createCompany] respuesta:', r?.result);
+        showToast(`Creada pero SIN id detectado. Respuesta: ${JSON.stringify(r?.result ?? {}).slice(0, 300)}`, 'error');
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo crear la empresa en Alanube', 'error');
+    } finally { setCreatingAlanubeId(null); }
   };
 
   const fetchOwners = useCallback(async () => {
@@ -1078,6 +1098,10 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
                                     <FileText size={13} /> Datos de FE (ApiKey + emisor)
                                   </button>
+                                  <button onClick={() => { setOpenMenuId(null); createAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
+                                    <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Creando en Alanube…' : 'Crear empresa en Alanube'}
+                                  </button>
                                   <button onClick={() => { setOpenMenuId(null); setEmisorApiKey(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">
                                     <KeyRound size={13} /> ApiKey del emisor (rápido)
@@ -1093,6 +1117,10 @@ export const CreateOwner: React.FC = () => {
                                   <button onClick={() => { setOpenMenuId(null); setManageModulesFor(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50">
                                     <Layers size={13} /> Módulos personalizados
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setImportProductsFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
+                                    <FileText size={13} /> Importar productos (Excel)
                                   </button>
                                   <div className="my-1 border-t border-gray-100" />
                                   <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'new-business'); }} disabled={emailingId === o.id}
@@ -1169,6 +1197,19 @@ export const CreateOwner: React.FC = () => {
           owner={manageModulesFor}
           onClose={() => setManageModulesFor(null)}
           onToast={showToast}
+        />
+      )}
+
+      {/* Importar productos por Excel para una empresa (modo admin) */}
+      {importProductsFor && (
+        <BulkProductImportModal
+          adminMode
+          tenantId={importProductsFor.id}
+          onClose={() => setImportProductsFor(null)}
+          onDone={(count) => {
+            setImportProductsFor(null);
+            showToast(count > 0 ? `${count} producto(s) importado(s)` : 'No se importó ningún producto', count > 0 ? 'success' : 'error');
+          }}
         />
       )}
 

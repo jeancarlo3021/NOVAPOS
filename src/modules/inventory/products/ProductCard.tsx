@@ -19,9 +19,13 @@ interface ProductCardProps {
   onEdit?: () => void;
   onDelete?: () => void;
   onUpdated?: () => void;
+  /** Modo selección para impresión masiva de etiquetas. */
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDelete, onUpdated }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDelete, onUpdated, selectable, selected, onToggleSelect }) => {
   const { planFeatures, isReadOnly } = useAuth();
   const { tenantId } = useTenantId();
   const isProductsOnly = planFeatures?.inventory_products_only ?? false;
@@ -91,11 +95,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
   const stockStatus = stockPercentage > 100 ? 'optimal' : stockPercentage > 50 ? 'warning' : 'critical';
 
   return (
-    <Card className={`hover:shadow-xl transition-all duration-300 overflow-hidden group border-0 ${
+    <Card
+      onClick={selectable ? onToggleSelect : undefined}
+      className={`hover:shadow-xl transition-all duration-300 overflow-hidden group border-0 relative ${
+      selectable ? 'cursor-pointer' : ''
+    } ${selected ? 'ring-2 ring-fuchsia-500' : ''} ${
       isLowStock && !isProductsOnly
         ? 'bg-linear-to-br from-orange-50 to-orange-100'
         : 'bg-linear-to-br from-white to-gray-50'
     }`}>
+      {selectable && (
+        <div className={`absolute top-3 left-3 z-10 w-6 h-6 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-fuchsia-600 border-fuchsia-600' : 'bg-white border-gray-300'}`}>
+          {selected && <Check size={15} className="text-white" />}
+        </div>
+      )}
       <div className="p-5">
 
         {/* Header */}
@@ -151,8 +164,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
               /* Vista normal — clic para editar (deshabilitado en solo-lectura) */
               <div className="flex items-baseline gap-2">
                 <button
-                  onClick={isReadOnly ? undefined : startPriceEdit}
-                  disabled={isReadOnly}
+                  onClick={(isReadOnly || selectable) ? undefined : startPriceEdit}
+                  disabled={isReadOnly || selectable}
                   title={isReadOnly ? 'Modo solo lectura' : 'Clic para ajustar el precio'}
                   className="flex items-baseline gap-1.5 group/price disabled:cursor-not-allowed"
                 >
@@ -298,7 +311,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           product={{
             name: product.name,
             price: product.unit_price,
-            code: (product as any).barcode || (product as any).sku2 || product.sku || '',
+            sku: product.sku || '',
+            sku2: (product as any).sku2 || '',
           }}
           onClose={() => setShowPrint(false)}
         />

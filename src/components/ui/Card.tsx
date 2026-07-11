@@ -1,14 +1,16 @@
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 
 // ============ CARD ============
 export const Card = ({
   children,
   className = '',
+  onClick,
 }: {
   children: ReactNode;
   className?: string;
+  onClick?: () => void;
 }) => (
-  <div className={`bg-white rounded-lg border border-gray-200 shadow-sm ${className}`}>
+  <div onClick={onClick} className={`bg-white rounded-lg border border-gray-200 shadow-sm ${className}`}>
     {children}
   </div>
 );

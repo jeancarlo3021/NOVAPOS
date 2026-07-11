@@ -3,11 +3,14 @@ import {
   X, Upload, Download, AlertCircle, CheckCircle2, Loader2, FileSpreadsheet, Trash2,
 } from 'lucide-react';
 import { createProduct, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
+import { apiFetch } from '@/lib/api';
 
 interface Props {
   tenantId: string;
   onClose: () => void;
   onDone: (createdCount: number) => void;
+  /** Modo panel admin: importa para OTRO tenant vía endpoint admin (server-side). */
+  adminMode?: boolean;
 }
 
 interface ParsedRow {
@@ -43,7 +46,7 @@ const TEMPLATE_CSV =
 
 // ── Parser CSV (simple — soporta valores con comillas y comas escapadas) ──
 // delim: ',' o ';' (Excel en español usa ';'). Se auto-detecta antes de llamar.
-function parseCSV(text: string, delim: ',' | ';' = ','): string[][] {
+function parseCSV(text: string, delim: string = ','): string[][] {
   const rows: string[][] = [];
   let cur = '', row: string[] = [], inQuotes = false;
   for (let i = 0; i < text.length; i++) {
@@ -66,12 +69,18 @@ function parseCSV(text: string, delim: ',' | ';' = ','): string[][] {
 }
 
 function num(v: string | undefined, def?: number): number | undefined {
-  if (v === undefined || v === '') return def;
-  const n = parseFloat(v.replace(/[^\d.\-]/g, ''));
+  if (v === undefined || v === null || String(v).trim() === '') return def;
+  let s = String(v).trim();
+  // Formato CR/europeo: la coma es decimal. "1.325,39" → miles con punto, decimal coma;
+  // "1325,39" → coma decimal. "1325.39" → punto decimal (se deja).
+  if (s.includes(',') && s.includes('.')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (s.includes(',')) s = s.replace(',', '.');
+  s = s.replace(/[^\d.\-]/g, '');
+  const n = parseFloat(s);
   return isNaN(n) ? def : n;
 }
 
-export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onDone }) => {
+export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onDone, adminMode }) => {
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState('');
   const [importing, setImporting] = useState(false);
@@ -99,9 +108,15 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     }
     try {
       const text = await file.text();
-      // Auto-detectar delimitador según la primera línea (Excel ES exporta con ';').
+      // Auto-detectar delimitador según la primera línea: ';' (Excel ES), tab (pegado
+      // desde Excel/Sheets) o ','. Elegimos el que más columnas produce.
       const firstLine = text.split(/\r?\n/)[0] ?? '';
-      const delim: ',' | ';' = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+      const counts: Array<[string, number]> = [
+        [';', firstLine.split(';').length],
+        ['\t', firstLine.split('\t').length],
+        [',', firstLine.split(',').length],
+      ];
+      const delim = counts.sort((a, b) => b[1] - a[1])[0][1] > 1 ? counts[0][0] : ',';
       const grid = parseCSV(text, delim).filter(r => r.some(c => c.trim() !== ''));
       if (grid.length === 0) { setError('Archivo vacío'); return; }
       // Primera fila = headers
@@ -155,6 +170,41 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
   const doImport = async () => {
     setImporting(true);
     setProgress({ done: 0, total: validRows.length, errors: 0 });
+
+    // Modo admin: enviamos TODAS las filas al backend, que resuelve categorías/
+    // unidades y crea los productos para el tenant destino (service-role).
+    if (adminMode) {
+      try {
+        const payload = validRows.map(r => ({
+          name: r.name, sku: r.sku ?? '', sku2: r.sku2 ?? null, description: r.description,
+          unit_price: r.unit_price, cost_price: r.cost_price,
+          stock_quantity: r.stock_quantity ?? 0, min_stock_level: r.min_stock_level ?? 0,
+          max_stock_level: r.max_stock_level ?? 100, tracks_stock: r.tracks_stock !== false,
+          category: r.category ?? null, unit_type: r.unit_type ?? null,
+          cabys_code: r.cabys_code ?? null, iva_rate: r.iva_rate ?? 13,
+        }));
+        const res = await apiFetch<{ created: number; errors: number; error_detail?: string | null }>(`/admin/tenants/${tenantId}/products-import`, {
+          method: 'POST', body: JSON.stringify({ rows: payload }),
+        });
+        setProgress({ done: validRows.length, total: validRows.length, errors: res?.errors ?? 0 });
+        setImporting(false);
+        const detail = res?.error_detail ? ` Detalle: ${res.error_detail}` : '';
+        const created = res?.created ?? 0;
+        if (created === 0) {
+          // Dejamos el modal ABIERTO con el error visible (no llamamos onDone,
+          // que lo cerraría desde el panel admin).
+          setError(`No se creó ningún producto (errores: ${res?.errors ?? '?'}).${detail}`);
+        } else {
+          if ((res?.errors ?? 0) > 0) setError(`Se importaron ${created}, pero ${res.errors} fila(s) fallaron.${detail}`);
+          onDone(created);
+        }
+      } catch (e) {
+        setImporting(false);
+        setError(e instanceof Error ? e.message : 'No se pudo importar (¿backend sin desplegar?).');
+        // No cerramos: el usuario necesita ver el error.
+      }
+      return;
+    }
 
     // 1. Pre-cargar categorías y unidades existentes (cache por nombre normalizado)
     const norm = (s: string) => s.trim().toLowerCase();
@@ -327,10 +377,13 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                       <th className="px-3 py-2 text-left font-bold text-gray-600">#</th>
                       <th className="px-3 py-2 text-left font-bold text-gray-600">Nombre</th>
                       <th className="px-3 py-2 text-left font-bold text-gray-600">SKU</th>
+                      <th className="px-3 py-2 text-left font-bold text-gray-600">SKU2</th>
                       <th className="px-3 py-2 text-right font-bold text-gray-600">Precio</th>
+                      <th className="px-3 py-2 text-right font-bold text-gray-600">Costo</th>
                       <th className="px-3 py-2 text-right font-bold text-gray-600">Stock</th>
                       <th className="px-3 py-2 text-left font-bold text-gray-600">Categoría</th>
                       <th className="px-3 py-2 text-left font-bold text-gray-600">Unidad</th>
+                      <th className="px-3 py-2 text-left font-bold text-gray-600">CABYS</th>
                       <th className="px-3 py-2 text-right font-bold text-gray-600">IVA</th>
                       <th className="px-3 py-2 text-left font-bold text-gray-600">Estado</th>
                     </tr>
@@ -341,10 +394,13 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                         <td className="px-3 py-1.5 text-gray-400">{i + 1}</td>
                         <td className="px-3 py-1.5 font-semibold text-gray-800 truncate max-w-48">{r.name || '—'}</td>
                         <td className="px-3 py-1.5 font-mono text-gray-500">{r.sku || '—'}</td>
+                        <td className="px-3 py-1.5 font-mono text-gray-500">{r.sku2 || '—'}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">₡{r.unit_price?.toLocaleString('es-CR')}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{r.stock_quantity ?? 0}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">{r.cost_price != null ? `₡${r.cost_price.toLocaleString('es-CR')}` : '—'}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{r.tracks_stock === false ? '∞' : (r.stock_quantity ?? 0)}</td>
                         <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.category ?? '—'}</td>
                         <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.unit_type ?? '—'}</td>
+                        <td className="px-3 py-1.5 font-mono text-gray-500">{r.cabys_code || '—'}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{r.iva_rate ?? 13}%</td>
                         <td className="px-3 py-1.5">
                           {r._error ? (
@@ -356,7 +412,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                       </tr>
                     ))}
                     {rows.length > 100 && (
-                      <tr><td colSpan={9} className="text-center text-gray-400 py-2 text-xs">
+                      <tr><td colSpan={12} className="text-center text-gray-400 py-2 text-xs">
                         +{rows.length - 100} filas más (no mostradas)
                       </td></tr>
                     )}
