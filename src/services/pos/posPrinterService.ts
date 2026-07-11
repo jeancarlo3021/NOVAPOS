@@ -345,10 +345,18 @@ export class POSPrinterService {
       return;
     }
 
+    // El TIPO configurado manda. Si es QZ Tray / térmica, imprimimos por QZ
+    // ANTES de mirar Bluetooth — así una cuenta QZ que tenga una estación
+    // Bluetooth vieja en la config NO se desvía al flujo Bluetooth (bug: aparecía
+    // el mensaje de Bluetooth y no imprimía en cuentas de QZ).
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      for (let i = 0; i < copies; i++) await this.printQZTray(receiptData, cfg);
+      return;
+    }
+
     // Bluetooth: enviar bytes ESC/POS a las estaciones de recibo (caja principal).
-    // También entramos por acá si hay estaciones Bluetooth configuradas aunque
-    // printerType no sea 'bluetooth' (evita caer al diálogo de Chrome si se
-    // perdió el tipo por sincronización de config).
+    // También entramos por acá si hay estaciones Bluetooth configuradas y el tipo
+    // NO es QZ/térmica (evita caer al diálogo de Chrome si se perdió el tipo).
     const btStations = (cfg.printers ?? []).filter(
       (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
     );
@@ -371,13 +379,6 @@ export class POSPrinterService {
       } else {
         for (let i = 0; i < copies; i++) await btPrint(bytes);   // modo simple (una sola impresora)
       }
-      return;
-    }
-
-    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
-      // En modo QZ NO caemos al diálogo del navegador: si falla, mostramos el
-      // error para diagnosticar (caer a Chrome confundía al usuario).
-      for (let i = 0; i < copies; i++) await this.printQZTray(receiptData, cfg);
       return;
     }
 
