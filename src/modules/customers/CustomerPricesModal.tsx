@@ -5,8 +5,11 @@ import { inventoryProductsService } from '@/services/Inventory/InventoryProducts
 import { customerPricesService } from '@/services/customers/customerPricesService';
 import type { Customer } from '@/services/customers/customersService';
 import type { Product } from '@/types/Types_POS';
+import { closedPriceBase, checkoutTotal } from '@/utils/priceUtils';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+// Tasa de IVA del producto (default 13 si no está definida).
+const rateOf = (p: Product) => { const r = Number((p as any).iva_rate); return isNaN(r) ? 13 : r; };
 
 export const CustomerPricesModal: React.FC<{ customer: Customer; onClose: () => void }> = ({ customer, onClose }) => {
   const { tenantId } = useTenantId();
@@ -17,6 +20,8 @@ export const CustomerPricesModal: React.FC<{ customer: Customer; onClose: () => 
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [onlyCustom, setOnlyCustom] = useState(false);
+  // Ingresar el precio CON IVA (cerrado): se calcula la base como en productos.
+  const [withIva, setWithIva] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -50,8 +55,11 @@ export const CustomerPricesModal: React.FC<{ customer: Customer; onClose: () => 
   const save = async (p: Product) => {
     const raw = drafts[p.id];
     if (raw == null || raw === '') return;
-    const val = parseFloat(raw);
-    if (isNaN(val) || val < 0) return;
+    const entered = parseFloat(raw);
+    if (isNaN(entered) || entered < 0) return;
+    // Si es "con IVA", lo ingresado es el total final → calculamos la BASE (igual
+    // que el precio cerrado en productos). Si no, es la base directa.
+    const val = withIva ? closedPriceBase(entered, rateOf(p)).base : entered;
     setSavingId(p.id);
     try {
       await customerPricesService.upsert(customer.id, p.id, val);
@@ -99,6 +107,10 @@ export const CustomerPricesModal: React.FC<{ customer: Customer; onClose: () => 
             className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${onlyCustom ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
             Solo especiales
           </button>
+          <button onClick={() => setWithIva(s => !s)} title="Ingresar el precio final con IVA; se calcula la base (múltiplo de ₡10)"
+            className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${withIva ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
+            Precio con IVA
+          </button>
         </div>
 
         {/* List */}
@@ -119,24 +131,33 @@ export const CustomerPricesModal: React.FC<{ customer: Customer; onClose: () => 
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(p => {
                   const special = prices[p.id];
+                  const rate = rateOf(p);
+                  // Valor mostrado del especial según el modo (base o con IVA).
+                  const shown = special != null ? (withIva ? checkoutTotal(special, rate) : special) : null;
                   const draft = drafts[p.id];
-                  const hasDraft = draft != null && draft !== '' && parseFloat(draft) !== special;
+                  const hasDraft = draft != null && draft !== '' && parseFloat(draft) !== shown;
                   return (
                     <tr key={p.id} className="hover:bg-gray-50/60">
                       <td className="px-3 py-2">
                         <p className="font-semibold text-gray-800">{p.name}</p>
-                        {special != null && <span className="text-[10px] font-bold text-emerald-600">Especial: {fmt(special)}</span>}
+                        {special != null && (
+                          <span className="text-[10px] font-bold text-emerald-600">
+                            Especial: {fmt(special)}{rate > 0 ? ` · c/IVA ${fmt(checkoutTotal(special, rate))}` : ''}
+                          </span>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-right text-gray-500">{fmt(p.unit_price)}</td>
+                      <td className="px-3 py-2 text-right text-gray-500">
+                        {fmt(p.unit_price)}{withIva && rate > 0 ? <span className="block text-[10px] text-gray-400">c/IVA {fmt(checkoutTotal(Math.round(p.unit_price), rate))}</span> : null}
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5 justify-end">
                           <input
                             type="number"
                             inputMode="numeric"
-                            value={draft ?? (special != null ? String(special) : '')}
+                            value={draft ?? (shown != null ? String(shown) : '')}
                             onChange={e => setDrafts(prev => ({ ...prev, [p.id]: e.target.value }))}
                             onKeyDown={e => { if (e.key === 'Enter') save(p); }}
-                            placeholder={String(Math.round(p.unit_price))}
+                            placeholder={String(withIva && rate > 0 ? checkoutTotal(Math.round(p.unit_price), rate) : Math.round(p.unit_price))}
                             className="w-24 text-right border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
                           />
                           <button onClick={() => save(p)} disabled={savingId === p.id || !hasDraft}
