@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer } from 'lucide-react';
+import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer, Star } from 'lucide-react';
 import { PrintLabelModal } from '@/modules/labels/PrintLabelModal';
 import { Card, Badge } from '@/components/ui/uiComponents';
 import { Product } from '@/types/Types_POS';
@@ -44,7 +44,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
   // ── Inline price editor ─────────────────────────────────────────────────────
   const [editingPrice, setEditingPrice] = useState(false);
   const [showPrint, setShowPrint]       = useState(false);
+  const [favBusy, setFavBusy]           = useState(false);
   const [priceInput, setPriceInput]     = useState('');
+
+  // Favorito: aparece de primero en el POS.
+  const isFavorite = (product as any).is_favorite === true;
+  const toggleFavorite = async () => {
+    setFavBusy(true);
+    try {
+      await inventoryProductsService.updateProduct(product.id, { is_favorite: !isFavorite } as any);
+      onUpdated?.();
+    } catch { /* noop */ } finally { setFavBusy(false); }
+  };
   const [saving, setSaving]             = useState(false);
   const [saveError, setSaveError]       = useState('');
 
@@ -123,8 +134,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             <p className="text-xs text-gray-500 font-mono">SKU: {product.sku}</p>
           </div>
 
+          {/* Favorito — siempre visible; aparece de primero en el POS */}
+          <button onClick={toggleFavorite} disabled={favBusy || isReadOnly}
+            title={isFavorite ? 'Quitar de favoritos' : 'Marcar como favorito (aparece primero en el POS)'}
+            className={`p-2 rounded-lg transition ml-1 ${isFavorite ? 'text-amber-400 hover:bg-amber-50' : 'text-gray-300 hover:text-amber-400 hover:bg-amber-50'} disabled:opacity-40`}>
+            <Star size={18} fill={isFavorite ? 'currentColor' : 'none'} />
+          </button>
+
           {(onEdit || onDelete) && (
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity ml-2">
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity ml-1">
               {planFeatures?.labels && (
                 <button onClick={() => setShowPrint(true)} className="p-2 text-fuchsia-600 hover:bg-fuchsia-100 rounded-lg transition" title="Imprimir etiqueta">
                   <Printer size={16} />

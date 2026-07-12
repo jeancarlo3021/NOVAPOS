@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound,
+  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package,
 } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
@@ -24,6 +24,7 @@ import { AdminFeKioskView } from './components/AdminFeKioskView';
 import { GroupDocCount } from './components/GroupDocCount';
 import { CabysImport } from './components/CabysImport';
 import { BulkProductImportModal } from '@/modules/inventory/products/BulkProductImportModal';
+import { TenantProductsModal } from './components/TenantProductsModal';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ export const CreateOwner: React.FC = () => {
   const [manageUsersFor, setManageUsersFor] = useState<OwnerData | null>(null);
   const [manageModulesFor, setManageModulesFor] = useState<OwnerData | null>(null);
   const [importProductsFor, setImportProductsFor] = useState<OwnerData | null>(null);
+  const [previewProductsFor, setPreviewProductsFor] = useState<OwnerData | null>(null);
   const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
   const [testingAlanube, setTestingAlanube] = useState(false);
   const [creatingAlanubeId, setCreatingAlanubeId] = useState<string | null>(null);
@@ -1126,6 +1128,10 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
                                     <FileText size={13} /> Importar productos (Excel)
                                   </button>
+                                  <button onClick={() => { setOpenMenuId(null); setPreviewProductsFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
+                                    <Package size={13} /> Ver productos cargados
+                                  </button>
                                   <div className="my-1 border-t border-gray-100" />
                                   <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'new-business'); }} disabled={emailingId === o.id}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40">
@@ -1213,8 +1219,14 @@ export const CreateOwner: React.FC = () => {
           onDone={(count) => {
             setImportProductsFor(null);
             showToast(count > 0 ? `${count} producto(s) importado(s)` : 'No se importó ningún producto', count > 0 ? 'success' : 'error');
+            if (count > 0) setPreviewProductsFor(importProductsFor);  // preview automático tras cargar
           }}
         />
+      )}
+
+      {/* Preview de los productos cargados (Excel) de una empresa */}
+      {previewProductsFor && (
+        <TenantProductsModal owner={previewProductsFor} onClose={() => setPreviewProductsFor(null)} />
       )}
 
       {/* Datos de Facturación Electrónica por empresa */}

@@ -52,10 +52,13 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
   const resize = useRef<{ id: string; sx: number; sy: number; w: number; h: number; font: number; kind: 'wh' | 'font' } | null>(null);
   const replaceRef = useRef<string | null>(null);   // id de imagen a reemplazar (null = agregar nueva)
+  // Tamaño editable de la etiqueta (mm).
+  const [widthMm, setWidthMm] = useState(template.widthMm);
+  const [heightMm, setHeightMm] = useState(template.heightMm);
 
   // Dimensiones en px de DISEÑO (coordenadas guardadas); el zoom solo escala la vista.
-  const W = template.widthMm * DESIGN_SCALE;
-  const H = template.heightMm * DESIGN_SCALE;
+  const W = widthMm * DESIGN_SCALE;
+  const H = heightMm * DESIGN_SCALE;
   const selected = elements.find(e => e.id === selectedId) ?? null;
 
   const update = (id: string, patch: Partial<LabelElement>) =>
@@ -159,7 +162,10 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
   };
 
   const save = () => {
-    const next = labelTemplatesService.save(tenantId, { ...template, name: name.trim() || 'Sin nombre', elements, border: labelBorder });
+    const next = labelTemplatesService.save(tenantId, {
+      ...template, name: name.trim() || 'Sin nombre', elements, border: labelBorder,
+      widthMm: Math.max(10, Math.round(widthMm)), heightMm: Math.max(10, Math.round(heightMm)),
+    });
     setSaved(true); setTimeout(() => setSaved(false), 1500);
     onSaved(next);
   };
@@ -195,7 +201,16 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
         <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"><ArrowLeft size={18} /></button>
         <input value={name} onChange={e => setName(e.target.value)}
           className="font-black text-gray-900 text-lg border border-transparent hover:border-gray-200 focus:border-blue-400 rounded-lg px-2 py-1 focus:outline-none" />
-        <span className="text-xs text-gray-400">{template.widthMm} × {template.heightMm} mm</span>
+        <div className="flex items-center gap-1 text-xs text-gray-500">
+          <input type="number" min={10} value={widthMm}
+            onChange={e => setWidthMm(Math.max(10, Number(e.target.value) || 10))}
+            className="w-14 border border-gray-200 rounded-md px-1.5 py-1 text-center font-bold" title="Ancho (mm)" />
+          <span className="text-gray-400">×</span>
+          <input type="number" min={10} value={heightMm}
+            onChange={e => setHeightMm(Math.max(10, Number(e.target.value) || 10))}
+            className="w-14 border border-gray-200 rounded-md px-1.5 py-1 text-center font-bold" title="Alto (mm)" />
+          <span className="text-gray-400">mm</span>
+        </div>
         <div className="flex-1" />
         {/* Zoom */}
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-1">
@@ -239,9 +254,10 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
             onChange={e => { const f = e.target.files?.[0]; if (f) onPickImage(f); e.target.value = ''; }} />
         </div>
 
-        {/* Canvas */}
-        <div className="flex-1 flex items-center justify-center bg-gray-100 overflow-auto p-6" onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
-          <div className="flex flex-col items-center gap-3">
+        {/* Canvas — overflow-auto con contenido de ancho/alto mínimo = contenedor,
+            así las etiquetas grandes NO se cortan (se puede hacer scroll a todo). */}
+        <div className="flex-1 bg-gray-100 overflow-auto" onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+          <div className="min-w-max min-h-full flex flex-col items-center justify-center gap-3 p-6">
             <div
               ref={canvasRef}
               onPointerDown={() => setSelectedId(null)}

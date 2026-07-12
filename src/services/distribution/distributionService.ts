@@ -84,6 +84,11 @@ export const distributionService = {
 
   centralStock: () => apiFetch<Record<string, number>>('/routes/central-stock'),
 
+  /** Sugerencia de carga por histórico: cantidad promedio vendida por producto. */
+  loadSuggestion: (warehouseId: string, days = 30) =>
+    apiFetch<{ suggestion: Record<string, number>; routes: number; days: number }>(
+      `/routes/load-suggestion?warehouse_id=${warehouseId}&days=${days}`),
+
   /** Borra la carga del camión (devuelve todo al inventario). Solo si no hay ventas. */
   clearLoad: (id: string) => apiFetch<{ returned_items: number }>(`/routes/${id}/clear-load`, { method: 'POST' }),
 

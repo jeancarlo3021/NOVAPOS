@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Search, Package, Plus, CheckCircle2, XCircle } from 'lucide-react';
+import { Search, Package, Plus, CheckCircle2, XCircle, Star } from 'lucide-react';
 import { Product, CashSession } from '@/types/Types_POS';
 import { WeightInputModal } from './WeightInputModal';
 import { useBarcodeScanner } from '@/hooks/POS/useBarcodeScanner';
@@ -152,10 +152,18 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
         ).values(),
       );
 
-  const displayed =
+  const FAV_CAT = '__favorites__';
+  const hasFavorites = products.some((p) => (p as any).is_favorite);
+  const displayed = (
     activeCategory === 'all'
       ? products
-      : products.filter((p) => (p as any).category_id === activeCategory);
+      : activeCategory === FAV_CAT
+      ? products.filter((p) => (p as any).is_favorite)
+      : products.filter((p) => (p as any).category_id === activeCategory)
+  )
+    // Favoritos primero (mantiene el orden relativo dentro de cada grupo).
+    .slice()
+    .sort((a, b) => (((b as any).is_favorite ? 1 : 0) - ((a as any).is_favorite ? 1 : 0)));
 
   // Combos activos (promos type='combo'): se muestran como botones en la
   // categoría "Promociones", y al tocarlos agregan sus productos de una.
@@ -380,10 +388,11 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
           />
         </div>
 
-        {(categories.length > 0 || activeCombos.length > 0) && (
+        {(categories.length > 0 || activeCombos.length > 0 || hasFavorites) && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-2">
             {[
               { id: 'all', name: 'Todos' },
+              ...(hasFavorites ? [{ id: FAV_CAT, name: '⭐ Favoritos' }] : []),
               ...(activeCombos.length > 0 ? [{ id: PROMOS_CAT, name: '🍔 Promociones' }] : []),
               ...categories,
             ].map((cat) => {
@@ -493,6 +502,12 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                         : 'bg-gray-100 text-gray-500'
                     }`}>
                       {stock}
+                    </span>
+                  )}
+                  {/* Estrella de favorito */}
+                  {(product as any).is_favorite && (
+                    <span className="absolute top-2 left-2 text-amber-400" title="Favorito">
+                      <Star size={16} fill="currentColor" />
                     </span>
                   )}
                   {/* Badge "∞" si el producto no maneja stock */}

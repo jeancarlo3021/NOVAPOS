@@ -525,6 +525,13 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [weightFor, setWeightFor] = useState<{ id: string; name: string; price: number; available: number; abbr: string } | null>(null);
+  // Plantilla / sugerencia / revisión + conteo ciego.
+  const tplKey = `truck_load_tpl_${route.warehouse_id}`;
+  const [showReview, setShowReview] = useState(false);
+  const [blind, setBlind] = useState(false);
+  const [recount, setRecount] = useState<Record<string, string>>({});
+  const [suggesting, setSuggesting] = useState(false);
+  const [info, setInfo] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -557,8 +564,61 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
     setQty(prev => ({ ...prev, [id]: Math.max(0, Math.min(cap, Number(n) || 0)) }));
   };
 
-  const save = async () => {
+  const nameOf = (id: string) => products.find(p => p.id === id)?.name ?? id;
+  const abbrOf = (id: string) => unitMap[id]?.abbreviation ?? 'u';
+
+  // Aplica un mapa de cantidades capando al stock disponible.
+  const applyMap = (m: Record<string, number>) => {
+    const next: Record<string, number> = {};
+    for (const [id, v] of Object.entries(m)) {
+      const avail = availOf(id);
+      const cap = avail === -1 ? Infinity : avail;
+      next[id] = Math.max(0, Math.min(cap, Number(v) || 0));
+    }
+    setQty(next);
+  };
+  const flash = (msg: string) => { setInfo(msg); setTimeout(() => setInfo(''), 2000); };
+
+  // #3 Plantilla de carga (por bodega, en el equipo).
+  const saveTemplate = () => {
+    try { localStorage.setItem(tplKey, JSON.stringify(Object.fromEntries(items.map(i => [i.product_id, i.quantity])))); flash('Plantilla guardada ✓'); } catch { /* noop */ }
+  };
+  const useTemplate = () => {
+    try { const m = JSON.parse(localStorage.getItem(tplKey) || '{}'); if (Object.keys(m).length) { applyMap(m); flash('Plantilla aplicada'); } else flash('No hay plantilla guardada'); } catch { /* noop */ }
+  };
+
+  // #6 Sugerencia por histórico (promedio vendido en rutas de esta bodega).
+  const suggestHistory = async () => {
+    setSuggesting(true); setErr('');
+    try {
+      const r = await distributionService.loadSuggestion(route.warehouse_id, 30);
+      if (Object.keys(r.suggestion).length) { applyMap(r.suggestion); flash(`Sugerido según ${r.routes} ruta(s) de ${r.days} días`); }
+      else flash('Sin historial suficiente para sugerir');
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Error al sugerir'); }
+    finally { setSuggesting(false); }
+  };
+
+  // #5 Imprimir la lista de carga (ventana del navegador → cualquier impresora/PDF).
+  const printLoad = () => {
+    const rows = items.map(i => `<tr><td>${nameOf(i.product_id)}</td><td style="text-align:right;font-weight:bold">${i.quantity} ${abbrOf(i.product_id)}</td></tr>`).join('');
+    const html = `<html><head><title>Carga de camión</title></head><body style="font-family:Arial;padding:16px;max-width:420px;margin:0 auto">
+      <h2 style="text-align:center;border-top:3px solid #000;border-bottom:3px solid #000;padding:6px 0">CARGA DE CAMIÓN</h2>
+      <p style="text-align:center">${route.warehouse?.name ?? ''} · Ruta ${route.route_date}<br>${new Date().toLocaleString('es-CR')}</p>
+      <table style="width:100%;border-collapse:collapse">${rows}
+      <tr><td style="border-top:2px solid #000;padding-top:6px;font-weight:900">TOTAL</td><td style="border-top:2px solid #000;text-align:right;font-weight:900">${totalUnits} u.</td></tr></table>
+      <p style="margin-top:40px">Firma: ____________________</p>
+      </body></html>`;
+    const w = window.open('', '_blank', 'width=420,height=640');
+    if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => { w.print(); }, 250); }
+  };
+
+  // #4 Confirmar la carga (validando el conteo ciego si está activo).
+  const doLoad = async () => {
     if (items.length === 0) { setErr('Agregá cantidades'); return; }
+    if (blind) {
+      const mism = items.filter(i => Math.abs((parseFloat(recount[i.product_id] || '') || 0) - i.quantity) > 0.001);
+      if (mism.length > 0) { setErr(`Hay ${mism.length} diferencia(s) entre el conteo y lo cargado. Revisá los rojos.`); return; }
+    }
     setSaving(true); setErr('');
     try { await distributionService.load(route.id, items); onDone(); }
     catch (e) { setErr(e instanceof Error ? e.message : 'Error al cargar'); }
@@ -575,11 +635,20 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-white/15 rounded-lg"><X size={18} /></button>
         </div>
-        <div className="px-4 py-3 border-b border-gray-100">
+        <div className="px-4 py-3 border-b border-gray-100 space-y-2">
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto…"
               className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={suggestHistory} disabled={suggesting}
+              className="px-2.5 py-1.5 rounded-lg bg-cyan-50 text-cyan-700 text-xs font-bold hover:bg-cyan-100 disabled:opacity-50">
+              {suggesting ? 'Calculando…' : '📊 Sugerir por histórico'}
+            </button>
+            <button onClick={useTemplate} className="px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-xs font-bold hover:bg-violet-100">📋 Usar plantilla</button>
+            <button onClick={saveTemplate} disabled={items.length === 0} className="px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200 disabled:opacity-50">💾 Guardar plantilla</button>
+            {info && <span className="text-xs font-bold text-emerald-600 self-center">{info}</span>}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
@@ -631,9 +700,9 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
             <p className="text-xs text-gray-400">A cargar</p>
             <p className="font-black text-gray-900">{items.length} productos · {totalUnits} u.</p>
           </div>
-          <button onClick={save} disabled={saving || items.length === 0}
+          <button onClick={() => { setErr(''); setRecount({}); setShowReview(true); }} disabled={items.length === 0}
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white font-black px-6 py-3 rounded-xl text-sm flex items-center justify-center gap-2">
-            {saving ? 'Cargando…' : <><CheckCircle2 size={16} /> Cargar camión</>}
+            <CheckCircle2 size={16} /> Revisar y cargar
           </button>
         </div>
       </div>
@@ -642,6 +711,57 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
         <LoadWeightModal entry={weightFor}
           onClose={() => setWeightFor(null)}
           onConfirm={(v) => { setQ(weightFor.id, v); setWeightFor(null); }} />
+      )}
+
+      {/* #4 Revisión + conteo ciego antes de confirmar la carga */}
+      {showReview && (
+        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[60]" onClick={() => !saving && setShowReview(false)}>
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md h-[90vh] sm:h-auto sm:max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-black text-lg flex items-center gap-2"><CheckCircle2 size={18} className="text-blue-600" /> Revisar carga</h3>
+              <button onClick={() => setShowReview(false)} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} /></button>
+            </div>
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+              <label className="flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer">
+                <input type="checkbox" checked={blind} onChange={e => { setBlind(e.target.checked); setRecount({}); }} className="w-4 h-4 rounded" />
+                Conteo ciego
+              </label>
+              <button onClick={printLoad} className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200 flex items-center gap-1"><Package size={13} /> Imprimir lista</button>
+            </div>
+            {blind && <p className="px-5 pt-2 text-[11px] text-amber-600 font-bold">Contá físicamente cada producto y anotá lo que ves. Las diferencias se marcan en rojo.</p>}
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {items.map(i => {
+                const rc = parseFloat(recount[i.product_id] || '');
+                const mism = blind && recount[i.product_id] !== undefined && recount[i.product_id] !== '' && Math.abs((rc || 0) - i.quantity) > 0.001;
+                return (
+                  <div key={i.product_id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${mism ? 'border-red-300 bg-red-50' : 'border-gray-100'}`}>
+                    <span className="flex-1 text-sm font-bold text-gray-800">{nameOf(i.product_id)}</span>
+                    {blind ? (
+                      <>
+                        <input type="number" inputMode="decimal" step="any" value={recount[i.product_id] ?? ''} onChange={e => setRecount(r => ({ ...r, [i.product_id]: e.target.value }))}
+                          placeholder="conteo" className={`w-20 text-center border rounded-lg py-1 text-sm ${mism ? 'border-red-400' : 'border-gray-200'}`} />
+                        {mism && <span className="text-[10px] font-black text-red-600 w-14 text-right">≠ {i.quantity}</span>}
+                      </>
+                    ) : (
+                      <span className="text-sm font-black text-gray-900">{i.quantity} {abbrOf(i.product_id)}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {err && <div className="mx-3 mb-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2">{err}</div>}
+            <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-3">
+              <div className="flex-1">
+                <p className="text-xs text-gray-400">Total</p>
+                <p className="font-black text-gray-900">{items.length} productos · {totalUnits} u.</p>
+              </div>
+              <button onClick={doLoad} disabled={saving}
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black px-6 py-3 rounded-xl text-sm flex items-center justify-center gap-2">
+                {saving ? 'Cargando…' : <><CheckCircle2 size={16} /> Confirmar carga</>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
