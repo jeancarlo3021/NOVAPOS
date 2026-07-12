@@ -80,6 +80,27 @@ export const DriverView: React.FC = () => {
       const summary = await distributionService.close(r.id);
       setCloseSummary({ ...summary, truck: r.warehouse?.name });
       await load();
+      // Enviar el cierre de la ruta por correo a los correos configurados (fire-and-forget).
+      try {
+        const m = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+        const bm = (summary as any).by_method ?? { cash: 0, card: 0, sinpe: 0, credit: 0 };
+        const sections: any[] = [
+          { heading: 'Ventas de la ruta', rows: [
+            ['Ventas', `${summary.sales_count} · ${m(summary.sales_total)}`],
+            ...(summary.voids_count > 0 ? [['Anulaciones', String(summary.voids_count)]] : []),
+            ['Efectivo', m(bm.cash)], ['Tarjeta', m(bm.card)], ['SINPE', m(bm.sinpe)], ['Crédito', m(bm.credit)],
+          ] },
+          ...((summary as any).ar_payments ? [{ heading: 'Abonos', rows: [['Total abonos', m((summary as any).ar_payments.total)]] }] : []),
+          ...((summary as any).expenses ? [{ heading: 'Gastos', rows: [['Total gastos', m((summary as any).expenses.total)]] }] : []),
+        ];
+        const { apiFetch } = await import('@/lib/api');
+        apiFetch('/email/report', { method: 'POST', body: JSON.stringify({
+          subject: `Cierre de ruta ${r.route_date} — ${r.warehouse?.name ?? ''}`,
+          title: 'Cierre de distribución',
+          subtitle: `Ruta ${r.route_date}${r.warehouse?.name ? ` · ${r.warehouse.name}` : ''}`,
+          sections,
+        }) }).catch(() => {});
+      } catch { /* no bloquear el cierre */ }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'No se pudo cerrar la ruta');
     } finally { setClosingId(null); }
