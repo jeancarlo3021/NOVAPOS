@@ -483,20 +483,26 @@ export const CreateOwner: React.FC = () => {
 
   // ── KPIs ───────────────────────────────────────────────────────────────────
 
-  const activeOwners   = owners.filter(o => o.status === 'active');
+  // Las SUCURSALES (group_role='branch') pertenecen a un grupo con su propio
+  // propietario (la "matriz"). Por defecto NO cuentan ni aparecen en la vista del
+  // super-admin — solo la matriz representa al grupo. El toggle "Mostrar
+  // sucursales" las trae de vuelta a KPIs, alertas, conteo y tabla.
+  const visibleOwners = showBranches ? owners : owners.filter(o => o.group_role !== 'branch');
+
+  const activeOwners   = visibleOwners.filter(o => o.status === 'active');
   // El plan Admin NO factura — no debe contar en vencidos ni en alertas.
-  const overdueOwners  = owners.filter(o => {
+  const overdueOwners  = visibleOwners.filter(o => {
     if (o.is_admin_plan) return false;
     const d = daysUntil(effectiveEndsAt(o).date);
     return d !== null && d < 0 && o.status === 'active';
   });
-  const dueSoonOwners  = owners.filter(o => {
+  const dueSoonOwners  = visibleOwners.filter(o => {
     if (o.is_admin_plan) return false;
     const d = daysUntil(effectiveEndsAt(o).date);
     return d !== null && d >= 0 && d <= 7 && o.status === 'active';
   });
   const monthlyRevenue = activeOwners.reduce((s, o) => s + (o.plan_price ?? 0), 0);
-  const totalMonthlyInvoices = owners.reduce((s, o) => s + (o.monthly_invoices ?? 0), 0);
+  const totalMonthlyInvoices = visibleOwners.reduce((s, o) => s + (o.monthly_invoices ?? 0), 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -777,7 +783,7 @@ export const CreateOwner: React.FC = () => {
           <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3 flex-wrap">
             <p className="font-black text-gray-800 shrink-0">
               {(() => {
-                const filteredCount = owners.filter(o => {
+                const filteredCount = visibleOwners.filter(o => {
                   const t = searchTerm.trim().toLowerCase();
                   if (!t) return true;
                   return o.name?.toLowerCase().includes(t)
@@ -785,8 +791,8 @@ export const CreateOwner: React.FC = () => {
                       || o.subscription_status?.toLowerCase().includes(t);
                 }).length;
                 return searchTerm
-                  ? `${filteredCount} de ${owners.length} negocio${owners.length !== 1 ? 's' : ''}`
-                  : `${owners.length} negocio${owners.length !== 1 ? 's' : ''} registrado${owners.length !== 1 ? 's' : ''}`;
+                  ? `${filteredCount} de ${visibleOwners.length} negocio${visibleOwners.length !== 1 ? 's' : ''}`
+                  : `${visibleOwners.length} negocio${visibleOwners.length !== 1 ? 's' : ''} registrado${visibleOwners.length !== 1 ? 's' : ''}`;
               })()}
             </p>
 
@@ -872,11 +878,9 @@ export const CreateOwner: React.FC = () => {
                 <tbody className="divide-y divide-gray-50">
                   {(() => {
                     const t = searchTerm.trim().toLowerCase();
-                    // Filtrá las sucursales (branches) por defecto: la matriz
-                    // del grupo ya las representa en la vista consolidada.
-                    const baseList = showBranches
-                      ? owners
-                      : owners.filter(o => o.group_role !== 'branch');
+                    // Las sucursales ya están excluidas en `visibleOwners` (salvo
+                    // que el toggle "Mostrar sucursales" esté activo).
+                    const baseList = visibleOwners;
                     const filtered = !t
                       ? baseList
                       : baseList.filter(o =>

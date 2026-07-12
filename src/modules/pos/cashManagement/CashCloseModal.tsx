@@ -51,6 +51,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
   // ── Tarjeta ──
   const [cardAmount, setCardAmount] = useState('');
+  const [usd, setUsd] = useState('');   // dólares en efectivo contados al cerrar
 
   // ── SINPE ──
   const [sinpeEntries, setSinpeEntries] = useState<SinpeEntry[]>([
@@ -62,12 +63,16 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   interface SysTotals {
     cash: number; card: number; sinpe: number; other: number;
     invoicesCount: number; invoicesTotal: number;
+    voidsCount: number; voidsTotal: number;
     cashIn: number; cashOut: number; movements: SysMovement[];
+    usdReceived: number;   // dólares recibidos en ventas en efectivo $
+    usdChangeOut: number;  // dólares entregados como vuelto
     loaded: boolean;
   }
   const [sys, setSys] = useState<SysTotals>({
     cash: 0, card: 0, sinpe: 0, other: 0, invoicesCount: 0, invoicesTotal: 0,
-    cashIn: 0, cashOut: 0, movements: [], loaded: false,
+    voidsCount: 0, voidsTotal: 0,
+    cashIn: 0, cashOut: 0, movements: [], usdReceived: 0, usdChangeOut: 0, loaded: false,
   });
 
   useEffect(() => {
@@ -79,9 +84,25 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           apiFetch<any[]>(`/cash-sessions/${session.id}/movements`).catch(() => []),
         ]);
         if (cancel) return;
-        const invoices = (invRes?.invoices ?? []).filter((i: any) => i.status !== 'cancelled');
+        const allInv = (invRes?.invoices ?? []);
+        const invoices = allInv.filter((i: any) => i.status !== 'cancelled');
+        const voidedInv = allInv.filter((i: any) => i.status === 'cancelled');
+        const voidsCount = voidedInv.length;
+        const voidsTotal = voidedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
         let sCash = 0, sCard = 0, sSinpe = 0, sOther = 0;
+        let usdReceived = 0, usdChangeOut = 0, usdCrcChangeOut = 0;
         for (const inv of invoices) {
+          // Venta pagada en DÓLARES efectivo: no entran colones por la venta.
+          // Entran dólares (recibido) y, si el vuelto fue en ₡, salen colones.
+          if (inv.currency === 'USD' && inv.payment_method === 'cash') {
+            const rate = Number(inv.exchange_rate) || 0;
+            if (rate > 0) {
+              usdReceived += Number(inv.amount_received || 0) / rate;   // amount_received está en ₡ equiv
+              if (inv.change_currency === 'USD') usdChangeOut += Number(inv.change_amount || 0) / rate;
+            }
+            if (inv.change_currency !== 'USD') usdCrcChangeOut += Number(inv.change_amount || 0); // ₡ que salieron de vuelto
+            continue;
+          }
           const pays = Array.isArray(inv.payments) ? inv.payments : null;
           if (pays && pays.length) {
             for (const p of pays) {
@@ -111,12 +132,14 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           reason: m.description ?? '',
         }));
         const cashIn = movements.filter(m => m.type === 'in').reduce((s, m) => s + m.amount, 0);
-        const cashOut = movements.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0);
+        // El vuelto en ₡ de ventas pagadas en $ también es efectivo que SALE de la caja.
+        const cashOut = movements.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0) + usdCrcChangeOut;
         setSys({
           cash: sCash, card: sCard, sinpe: sSinpe, other: sOther,
           invoicesCount: invoices.length,
           invoicesTotal: invoices.reduce((s: number, i: any) => s + Number(i.total || 0), 0),
-          cashIn, cashOut, movements, loaded: true,
+          voidsCount, voidsTotal,
+          cashIn, cashOut, movements, usdReceived, usdChangeOut, loaded: true,
         });
       } catch {
         if (!cancel) setSys(prev => ({ ...prev, loaded: true }));
@@ -170,9 +193,11 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         system: { cash: sys.cash, card: sys.card, sinpe: sys.sinpe, other: sys.other },
         expectedTotal, difference, sinpeEntries,
       });
+      const closingUsd = parseFloat(usd) || 0;
       const closeData = {
         id: session.id,
         closing_amount: grandTotal,
+        closing_usd: closingUsd,
         notes: `Desglose: ${breakdown}`,
       };
 
@@ -210,6 +235,12 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             closed_at: updatedSession.closed_at ?? new Date().toISOString(),
             cashier_name: user?.email,
             opening_amount: openingAmount,
+            // Dólares en efectivo: apertura + recibidos − vuelto = esperado, vs contado.
+            opening_usd: Number((session as any).opening_usd ?? 0),
+            usd_received: sys.usdReceived,
+            usd_change_out: sys.usdChangeOut,
+            expected_usd: Number((session as any).opening_usd ?? 0) + sys.usdReceived - sys.usdChangeOut,
+            closing_usd: closingUsd,
             // Lo que registró el sistema (ventas por método)
             system_cash: sys.cash,
             system_card: sys.card,
@@ -225,12 +256,51 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             difference,
             invoices_count: sys.invoicesCount,
             invoices_total: sys.invoicesTotal,
+            voids_count: sys.voidsCount,
+            voids_total: sys.voidsTotal,
             cash_movements: sys.movements,
           }, tenantId).catch(() => {});
         }
       } catch {
         // No bloquear el cierre por error en impresión
       }
+
+      // Enviar el cierre por correo a los correos configurados (fire-and-forget).
+      try {
+        const m = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+        const usdV = Number((session as any).opening_usd ?? 0) > 0 || sys.usdReceived > 0 || closingUsd > 0;
+        const sections: any[] = [
+          { heading: 'Ventas del sistema', rows: [
+            ['Efectivo', m(sys.cash)], ['Tarjeta', m(sys.card)], ['SINPE', m(sys.sinpe)],
+            ['Facturas', `${sys.invoicesCount} · ${m(sys.invoicesTotal)}`],
+            ...(sys.voidsCount > 0 ? [['Anulaciones', `${sys.voidsCount} · ${m(sys.voidsTotal)}`]] : []),
+          ] },
+          { heading: 'Contado', rows: [
+            ['Efectivo', m(cashTotal)], ['Tarjeta', m(cardTotal)], ['SINPE', m(sinpeTotal)],
+            ['Total contado', m(grandTotal)],
+          ] },
+          { heading: 'Arqueo de efectivo', rows: [
+            ['Fondo inicial', m(openingAmount)], ['Efectivo esperado', m(expectedTotal)], ['Efectivo contado', m(cashTotal)],
+            [difference === 0 ? 'Cuadrado' : difference > 0 ? 'Sobrante' : 'Faltante', m(Math.abs(difference))],
+          ] },
+          ...(usdV ? [{ heading: 'Dólares en efectivo', rows: [
+            ['Apertura', `$${Number((session as any).opening_usd ?? 0).toFixed(2)}`],
+            ['Recibido en ventas', `$${sys.usdReceived.toFixed(2)}`],
+            ['Esperado', `$${(Number((session as any).opening_usd ?? 0) + sys.usdReceived - sys.usdChangeOut).toFixed(2)}`],
+            ['Contado', `$${closingUsd.toFixed(2)}`],
+          ] }] : []),
+        ];
+        const { apiFetch } = await import('@/lib/api');
+        apiFetch('/email/report', {
+          method: 'POST',
+          body: JSON.stringify({
+            subject: `Cierre de caja — ${new Date().toLocaleDateString('es-CR')}`,
+            title: 'Cierre de caja',
+            subtitle: `Cajero: ${user?.email ?? ''} · ${new Date().toLocaleString('es-CR')}`,
+            sections,
+          }),
+        }).catch(() => {});
+      } catch { /* no bloquear el cierre */ }
 
       onSuccess(updatedSession);
     } catch (err) {
@@ -465,6 +535,22 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         <div className="bg-white border-t border-gray-200 px-4 sm:px-6 py-3 sm:py-5 shrink-0 space-y-3">
           {/* Las ventas del sistema y el faltante/sobrante NO se muestran en pantalla:
               solo aparecen en el ticket impreso del cierre. */}
+
+          {/* Dólares en efectivo contados (opcional — 0 si no maneja dólares) */}
+          <div className="flex items-center justify-between gap-3 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2.5">
+            <span className="text-gray-600 font-bold text-sm">
+              Dólares en efectivo <span className="text-gray-400 font-normal">(opcional)</span>
+              {Number((session as any).opening_usd ?? 0) > 0 && (
+                <span className="block text-[11px] text-gray-400">Apertura: ${Number((session as any).opening_usd).toFixed(2)}</span>
+              )}
+            </span>
+            <div className="relative w-36">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-black">$</span>
+              <input type="number" inputMode="decimal" min={0} step="0.01"
+                value={usd} onChange={e => setUsd(e.target.value)} placeholder="0.00"
+                className="w-full text-right text-lg font-black bg-white border-2 border-gray-200 rounded-xl pl-7 pr-3 py-1.5 focus:outline-none focus:border-rose-400 tabular-nums" />
+            </div>
+          </div>
 
           {/* Grand total */}
           <div className="flex items-center justify-between bg-rose-500 rounded-2xl px-6 py-4">

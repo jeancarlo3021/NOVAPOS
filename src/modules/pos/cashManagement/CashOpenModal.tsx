@@ -39,6 +39,7 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [usd, setUsd] = useState('');   // dólares en efectivo al abrir (opcional)
 
   const set = (value: number, qty: number) =>
     setQuantities(prev => ({ ...prev, [value]: Math.max(0, qty) }));
@@ -58,20 +59,23 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
     try {
       let session: CashSession;
 
+      const openingUsd = parseFloat(usd) || 0;
       if (!navigator.onLine) {
         // Offline: Queue the operation
         session = await cashSessionOfflineService.queueOpenSession({
           tenant_id: tenantId,
           user_id: userId,
           opening_amount: totalAmount,
-        });
+          opening_usd: openingUsd,
+        } as any);
       } else {
         // Online: Create session immediately
         session = await cashSessionService.createCashSession({
           tenant_id: tenantId,
           user_id: userId,
           opening_amount: totalAmount,
-        });
+          opening_usd: openingUsd,
+        } as any);
 
         // Pre-cache essential POS data for offline functionality
         cashSessionCacheService.preCacheSessionData(tenantId)
@@ -209,6 +213,17 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
 
         {/* ── Footer ── */}
         <div className="bg-white border-t border-gray-200 px-6 py-5 shrink-0 space-y-4">
+          {/* Dólares en efectivo (opcional — 0 si no maneja dólares) */}
+          <div className="flex items-center justify-between gap-3 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
+            <span className="text-gray-600 font-bold">Dólares en efectivo <span className="text-gray-400 font-normal">(opcional)</span></span>
+            <div className="relative w-40">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-black">$</span>
+              <input type="number" inputMode="decimal" min={0} step="0.01"
+                value={usd} onChange={e => setUsd(e.target.value)} placeholder="0.00"
+                className="w-full text-right text-xl font-black bg-white border-2 border-gray-200 rounded-xl pl-7 pr-3 py-2 focus:outline-none focus:border-emerald-400 tabular-nums" />
+            </div>
+          </div>
+
           {/* Total */}
           <div className="flex items-center justify-between bg-emerald-500 rounded-2xl px-6 py-4">
             <span className="text-emerald-100 text-lg font-bold">Total en caja</span>

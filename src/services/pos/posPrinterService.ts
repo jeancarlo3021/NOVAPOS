@@ -504,7 +504,15 @@ export class POSPrinterService {
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
     invoices_count: number;
     invoices_total: number;
+    voids_count?: number;
+    voids_total?: number;
     cash_movements?: Array<{ type: 'in' | 'out'; amount: number; reason: string }>;
+    // Dólares en efectivo: apertura + recibidos − vuelto = esperado, vs contado.
+    opening_usd?: number;
+    usd_received?: number;
+    usd_change_out?: number;
+    expected_usd?: number;
+    closing_usd?: number;
   }, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
 
@@ -542,6 +550,9 @@ export class POSPrinterService {
         { t: 'row', a: 'SINPE', b: money(report.system_sinpe ?? 0) },
         { t: 'row', a: 'Otros', b: money(report.system_other ?? 0) },
         { t: 'row', a: 'Facturas', b: `${report.invoices_count} · ${money(report.invoices_total)}` },
+        ...(((report.voids_count ?? 0) > 0) ? [
+          { t: 'row' as const, a: 'Anulaciones', b: `${report.voids_count} · ${money(report.voids_total ?? 0)}` },
+        ] : []),
         { t: 'sep' }, { t: 'title', a: 'ARQUEO DE EFECTIVO' },
         { t: 'row', a: 'Fondo inicial', b: money(report.opening_amount) },
         { t: 'row', a: 'Efectivo esperado', b: money(report.expected_amount) },
@@ -549,6 +560,15 @@ export class POSPrinterService {
         { t: 'row', a: `Diferencia (${diffLabel})`, b: money(report.difference) },
         { t: 'row', a: 'Tarjeta contada', b: money(report.card_total) },
         { t: 'row', a: 'SINPE contado', b: money(report.sinpe_total) },
+        ...(((report.opening_usd ?? 0) > 0 || (report.closing_usd ?? 0) > 0 || (report.usd_received ?? 0) > 0) ? [
+          { t: 'sep' as const }, { t: 'title' as const, a: 'DÓLARES EN EFECTIVO' },
+          { t: 'row' as const, a: 'Apertura', b: `$${Number(report.opening_usd ?? 0).toFixed(2)}` },
+          { t: 'row' as const, a: 'Recibido en ventas', b: `$${Number(report.usd_received ?? 0).toFixed(2)}` },
+          { t: 'row' as const, a: 'Vuelto en $', b: `$${Number(report.usd_change_out ?? 0).toFixed(2)}` },
+          { t: 'row' as const, a: 'Esperado', b: `$${Number(report.expected_usd ?? 0).toFixed(2)}` },
+          { t: 'row' as const, a: 'Contado', b: `$${Number(report.closing_usd ?? 0).toFixed(2)}` },
+          { t: 'row' as const, a: 'Diferencia', b: `$${(Number(report.closing_usd ?? 0) - Number(report.expected_usd ?? 0)).toFixed(2)}` },
+        ] : []),
         { t: 'sep' }, { t: 'title', a: 'DIFERENCIA VENTA vs SISTEMA' },
         { t: 'row', a: 'Efectivo', b: sMoney(a4dCash) },
         { t: 'row', a: 'Tarjeta', b: sMoney(a4dCard) },
@@ -879,6 +899,7 @@ export class POSPrinterService {
     sep();
     row('Total ventas:', fmt(systemTotal));
     row('Facturas:', String(report.invoices_count ?? 0));
+    if ((report.voids_count ?? 0) > 0) row('Anulaciones:', `${report.voids_count} · ${fmt(report.voids_total ?? 0)}`);
     sep();
 
     // Movimientos de efectivo
@@ -907,6 +928,16 @@ export class POSPrinterService {
     row('Datafono:', fmt(report.card_total));
     row('SINPE:', fmt(report.sinpe_total));
     row('TOTAL CONTADO:', fmt(report.closing_amount));
+    if ((report.opening_usd ?? 0) > 0 || (report.closing_usd ?? 0) > 0 || (report.usd_received ?? 0) > 0) {
+      sep();
+      centerText('DOLARES EN EFECTIVO');
+      row('Apertura:', `$${Number(report.opening_usd ?? 0).toFixed(2)}`);
+      row('Recibido ventas:', `$${Number(report.usd_received ?? 0).toFixed(2)}`);
+      row('Vuelto en $:', `$${Number(report.usd_change_out ?? 0).toFixed(2)}`);
+      row('Esperado:', `$${Number(report.expected_usd ?? 0).toFixed(2)}`);
+      row('Contado:', `$${Number(report.closing_usd ?? 0).toFixed(2)}`);
+      row('Diferencia:', `$${(Number(report.closing_usd ?? 0) - Number(report.expected_usd ?? 0)).toFixed(2)}`);
+    }
     sep();
 
     // Diferencia venta vs sistema, por método (Contado - Sistema).
@@ -1017,6 +1048,7 @@ export class POSPrinterService {
     ${(report.system_other ?? 0) > 0 ? `<tr><td>Otros:</td><td style="text-align:right">${fmt(report.system_other)}</td></tr>` : ''}
     <tr><td><strong>Total ventas:</strong></td><td style="text-align:right"><strong>${fmt((report.system_cash ?? 0) + (report.system_card ?? 0) + (report.system_sinpe ?? 0) + (report.system_other ?? 0))}</strong></td></tr>
     <tr><td>Facturas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
+    ${(report.voids_count ?? 0) > 0 ? `<tr><td>Anulaciones:</td><td style="text-align:right">${report.voids_count} · ${fmt(report.voids_total ?? 0)}</td></tr>` : ''}
   </table>
 
   ${report.cash_movements && report.cash_movements.length > 0 ? `
@@ -1038,6 +1070,17 @@ export class POSPrinterService {
     <tr><td>SINPE:</td><td style="text-align:right">${fmt(report.sinpe_total)}</td></tr>
     <tr><td><strong>Total contado:</strong></td><td style="text-align:right"><strong>${fmt(report.closing_amount)}</strong></td></tr>
   </table>
+
+  ${((report.opening_usd ?? 0) > 0 || (report.closing_usd ?? 0) > 0 || (report.usd_received ?? 0) > 0) ? `
+  <div class="section">DÓLARES EN EFECTIVO</div>
+  <table>
+    <tr><td>Apertura:</td><td style="text-align:right">$${Number(report.opening_usd ?? 0).toFixed(2)}</td></tr>
+    <tr><td>Recibido en ventas:</td><td style="text-align:right">$${Number(report.usd_received ?? 0).toFixed(2)}</td></tr>
+    <tr><td>Vuelto en $:</td><td style="text-align:right">$${Number(report.usd_change_out ?? 0).toFixed(2)}</td></tr>
+    <tr><td><strong>Esperado:</strong></td><td style="text-align:right"><strong>$${Number(report.expected_usd ?? 0).toFixed(2)}</strong></td></tr>
+    <tr><td>Contado:</td><td style="text-align:right">$${Number(report.closing_usd ?? 0).toFixed(2)}</td></tr>
+    <tr><td>Diferencia:</td><td style="text-align:right">$${(Number(report.closing_usd ?? 0) - Number(report.expected_usd ?? 0)).toFixed(2)}</td></tr>
+  </table>` : ''}
 
   <div class="section">DIFERENCIA VENTA vs SISTEMA</div>
   <table>

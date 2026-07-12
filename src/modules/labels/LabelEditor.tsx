@@ -258,6 +258,8 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
                     fontSize: (el.fontSize ?? 12) * zoom, fontWeight: el.bold ? 800 : 400,
                     fontFamily: el.fontFamily, textAlign: el.align, lineHeight: 1.1,
                     padding: el.border ? 2 * zoom : 0,
+                    transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+                    transformOrigin: 'top left',
                   }}
                 >
                   {renderContent(el, zoom)}
@@ -386,6 +388,18 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
                     <button key={d} onClick={() => alignInCanvas(d)}
                       className="flex items-center justify-center py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-blue-50 hover:text-blue-600">
                       <Icon size={14} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Girar (para etiquetas altas: 0/90/180/270°) */}
+              <div>
+                <label className="text-[11px] font-bold text-gray-600">Girar: {selected.rotation ?? 0}°</label>
+                <div className="grid grid-cols-4 gap-1 mt-0.5">
+                  {[0, 90, 180, 270].map(deg => (
+                    <button key={deg} onClick={() => update(selected.id, { rotation: deg })}
+                      className={`py-1.5 rounded-lg border text-xs font-bold ${(selected.rotation ?? 0) === deg ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500'}`}>
+                      {deg}°
                     </button>
                   ))}
                 </div>

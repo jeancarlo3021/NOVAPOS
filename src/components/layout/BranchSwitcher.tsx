@@ -15,9 +15,12 @@ export function BranchSwitcher() {
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
+  // El super-admin gestiona todo desde el Panel Admin — sin selector de sucursal.
+  if ((planFeatures as any).admin_dashboard) return null;
   // Si el plan no tiene multi-sucursal activado, no se muestra el selector.
   if (!(planFeatures as any).multi_branch) return null;
-  if (branches.length === 0) return null;
+  // Solo tiene sentido con 2+ sucursales (nada que cambiar con 0 o 1).
+  if (branches.length <= 1) return null;
   const current = branches.find(b => b.id === currentBranchId) ?? branches[0];
 
   return (

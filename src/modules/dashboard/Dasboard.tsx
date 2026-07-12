@@ -324,7 +324,7 @@ export const Dashboard = () => {
           const Icon = t.icon;
           return (
             <button
-              key={t.feature}
+              key={t.path}
               type="button"
               onClick={() => navigate(t.path)}
               className={`relative overflow-hidden rounded-3xl p-5 sm:p-6 text-left bg-linear-to-br ${t.bg} text-white shadow-md hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] transition-all duration-150 min-h-40 sm:min-h-48 flex flex-col justify-between`}

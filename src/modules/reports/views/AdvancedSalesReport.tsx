@@ -80,6 +80,16 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
         ))}
       </div>
 
+      {/* Ventas cobradas en dólares */}
+      {!loading && summary?.usd && summary.usd.count > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 flex flex-wrap items-center gap-x-8 gap-y-2">
+          <div className="flex items-center gap-2 font-black text-emerald-800"><span className="text-lg">$</span> Cobrado en dólares</div>
+          <div><span className="text-emerald-600 text-xs font-bold uppercase">Ventas</span><p className="font-black text-emerald-900">{summary.usd.count}</p></div>
+          <div><span className="text-emerald-600 text-xs font-bold uppercase">Total (₡)</span><p className="font-black text-emerald-900">{fmt(summary.usd.totalCrc)}</p></div>
+          <div><span className="text-emerald-600 text-xs font-bold uppercase">Equivalente ($)</span><p className="font-black text-emerald-900">${summary.usd.totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div>
+        </div>
+      )}
+
       {/* Daily chart */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
         <h2 className="text-base font-black text-gray-900 mb-4">Ventas por día</h2>

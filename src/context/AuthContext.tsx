@@ -178,6 +178,7 @@ export interface PlanFeatures {
   report_expenses?: boolean;
   report_purchases?: boolean;
   report_taxes?: boolean;         // Reporte de impuestos (IVA) + cierre mensual
+  report_vouchers?: boolean;      // Comprobantes de pagos y anulaciones
   // ── Usuarios ───────────────────────────────────────────────────────────────
   users_roles?: boolean;     // Tab Roles
   users_teams?: boolean;     // Tab Equipos
@@ -261,6 +262,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   report_expenses: false,
   report_purchases: false,
   report_taxes: true,
+  report_vouchers: true,
   users_roles: false,
   users_teams: false,
   users_shifts: false,
@@ -320,6 +322,7 @@ export const FULL_FEATURES: PlanFeatures = {
   report_expenses: true,
   report_purchases: true,
   report_taxes: true,
+  report_vouchers: true,
   users_roles: true,
   users_teams: true,
   users_shifts: true,
@@ -973,7 +976,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setError(null);
 
-      const selectedTenant = tenants.find(t => t.id === tenantId);
+      let selectedTenant = tenants.find(t => t.id === tenantId);
+      // La lista local (`my_tenants`) puede no incluir TODAS las sucursales del
+      // grupo (bug: con varias sucursales, al "Entrar" fallaba con "Tenant not
+      // found" y no cargaba). Si no está, la traemos directo y la agregamos.
+      if (!selectedTenant) {
+        const { data: raw } = await supabase
+          .from('tenants').select(TENANT_SELECT).eq('id', tenantId).maybeSingle();
+        if (raw) {
+          selectedTenant = {
+            ...(raw as any),
+            subscription: Array.isArray((raw as any).subscription)
+              ? (raw as any).subscription[0] ?? null
+              : (raw as any).subscription ?? null,
+          } as Tenant;
+          setTenants(prev => (prev.some(t => t.id === tenantId) ? prev : [...prev, selectedTenant as Tenant]));
+        }
+      }
       if (!selectedTenant) throw new Error('Tenant not found');
 
       if (user) {
@@ -986,12 +1005,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUser({ ...user, tenant_id: tenantId });
         setTenant(selectedTenant);
-        
-        // ✅ USAR EL NUEVO OBJETO PlanData
-        const planData = await loadPlanFeatures(tenantId);
-        setPlanFeatures(planData.features);
-        setPlanName(planData.name);
-        
+
+        // Plan de la sucursal: RLS impide leer la suscripción de OTRO tenant desde
+        // el cliente (devolvía 'demo' → plan incorrecto, sobre todo con varias
+        // sucursales). Lo pedimos al backend (service-role); si falla, caemos al
+        // join local del tenant.
+        try {
+          const { apiFetch } = await import('@/lib/api');
+          const p = await apiFetch<{ name: string; features: Partial<PlanFeatures> | null }>(`/tenant-groups/my/tenant-plan/${tenantId}`);
+          if (p?.features) {
+            setPlanFeatures({ ...DEFAULT_FEATURES, ...p.features });
+            setPlanName(p.name ?? 'demo');
+          } else {
+            const pd = extractPlanData(selectedTenant, DEFAULT_FEATURES);
+            setPlanFeatures(pd.features); setPlanName(pd.name);
+          }
+        } catch {
+          const pd = extractPlanData(selectedTenant, DEFAULT_FEATURES);
+          setPlanFeatures(pd.features); setPlanName(pd.name);
+        }
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al cambiar tenant';

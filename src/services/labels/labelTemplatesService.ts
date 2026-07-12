@@ -18,6 +18,7 @@ export interface LabelElement {
   border?: boolean;       // borde alrededor del elemento
   src?: string;           // dataURL (base64) — para 'image'
   codeSource?: 'sku' | 'sku2';  // barcode/qr: cuál código usar (SKU 1 o SKU 2)
+  rotation?: number;      // grados 0/90/180/270 (para etiquetas altas)
 }
 
 export interface LabelTemplate {

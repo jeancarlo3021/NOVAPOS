@@ -78,28 +78,30 @@ export function renderLabelHTML(
   const mm = (px: number) => (px / DESIGN_SCALE).toFixed(2);
   const pt = (px: number) => ((px / DESIGN_SCALE) * 2.83465).toFixed(1); // mm → pt
 
+  const rot = (el: LabelElement) => el.rotation ? `transform:rotate(${el.rotation}deg);transform-origin:top left;` : '';
+
   const els = tpl.elements.map(el => {
     const left = mm(el.x), top = mm(el.y);
     const border = el.border ? 'border:0.2mm solid #000;' : '';
     if (el.type === 'barcode') {
       const url = barcodeDataURL(codeOf(el, p), el.fontSize ?? 20);
       if (!url) return '';
-      return `<img src="${url}" style="position:absolute;left:${left}mm;top:${top}mm;width:${mm(el.width ?? 140)}mm;height:${mm(el.height ?? 26)}mm;${border}"/>`;
+      return `<img src="${url}" style="position:absolute;left:${left}mm;top:${top}mm;width:${mm(el.width ?? 140)}mm;height:${mm(el.height ?? 26)}mm;${border}${rot(el)}"/>`;
     }
     if (el.type === 'qr') {
       const svg = qrSvg(codeOf(el, p));
       if (!svg) return '';
       const s = mm(el.width ?? el.height ?? 80);
-      return `<div style="position:absolute;left:${left}mm;top:${top}mm;width:${s}mm;height:${s}mm;${border}">${svg}</div>`;
+      return `<div style="position:absolute;left:${left}mm;top:${top}mm;width:${s}mm;height:${s}mm;${border}${rot(el)}">${svg}</div>`;
     }
     if (el.type === 'image') {
       if (!el.src) return '';
-      return `<img src="${el.src}" style="position:absolute;left:${left}mm;top:${top}mm;width:${mm(el.width ?? 60)}mm;height:${mm(el.height ?? 60)}mm;object-fit:contain;${border}"/>`;
+      return `<img src="${el.src}" style="position:absolute;left:${left}mm;top:${top}mm;width:${mm(el.width ?? 60)}mm;height:${mm(el.height ?? 60)}mm;object-fit:contain;${border}${rot(el)}"/>`;
     }
     const align = el.align || 'left';
     const font = el.fontFamily || DEFAULT_FONT_CSS;
     return `<div style="position:absolute;left:${left}mm;top:${top}mm;font-size:${pt(el.fontSize ?? 12)}pt;` +
-      `font-family:${font};font-weight:${el.bold ? 700 : 400};text-align:${align};line-height:1.1;white-space:nowrap;${border}">` +
+      `font-family:${font};font-weight:${el.bold ? 700 : 400};text-align:${align};line-height:1.1;white-space:nowrap;${border}${rot(el)}">` +
       `${elText(el, p)}</div>`;
   }).join('');
 

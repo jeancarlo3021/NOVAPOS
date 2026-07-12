@@ -936,6 +936,8 @@ export default function Plans() {
                       description="Reporte de compras" checked={features.report_purchases ?? true} onChange={v => set({ report_purchases: v })} />
                     <SubFeatureRow icon={Percent} color="bg-violet-500" title="Impuestos"
                       description="IVA y cierre mensual" checked={features.report_taxes ?? true} onChange={v => set({ report_taxes: v })} />
+                    <SubFeatureRow icon={Receipt} color="bg-blue-500" title="Comprobantes"
+                      description="Pagos y anulaciones" checked={(features as any).report_vouchers ?? true} onChange={v => set({ report_vouchers: v } as any)} />
                   </FeatureRow>
 
                   <FeatureRow icon={Users} color="bg-amber-500" title="Usuarios"

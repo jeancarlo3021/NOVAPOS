@@ -46,6 +46,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [voiding, setVoiding] = useState(false);
+  const [reason, setReason] = useState('Anulación por error en facturación');
 
   const load = useCallback(async () => {
     if (!tenantId) return;
@@ -132,6 +133,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
       setPin('');
       return;
     }
+    const motivo = reason.trim() || 'Anulación por error en facturación';
     setVoiding(true);
     let ncWarning = '';
     try {
@@ -141,7 +143,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
         if (selected.fe_clave && !selected.fe_nc_clave) {
           try {
             const { haciendaService } = await import('@/services/hacienda/haciendaService');
-            await haciendaService.creditNote(selected.id, 'Anulación por error en facturación');
+            await haciendaService.creditNote(selected.id, motivo);
           } catch (ncErr) {
             // La factura ya quedó anulada localmente; avisamos que la NC falló.
             ncWarning = `Factura anulada, pero falló la Nota de Crédito en Hacienda: ${ncErr instanceof Error ? ncErr.message : 'error'}`;
@@ -213,6 +215,21 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                 <p className="text-xs text-red-700 font-semibold pt-1 border-t border-red-200 mt-1">
                   Factura electrónica: se emitirá una <b>Nota de Crédito</b> a Hacienda.
                 </p>
+              )}
+            </div>
+
+            {/* Motivo de la anulación (va como razón de la Nota de Crédito en FE) */}
+            <div>
+              <label className="text-sm font-semibold text-gray-700 mb-2 block">Motivo de la anulación</label>
+              <textarea
+                value={reason}
+                onChange={e => setReason(e.target.value.slice(0, 160))}
+                rows={2}
+                placeholder="Ej. Error en el monto, producto equivocado…"
+                className="w-full px-3 py-2 border-2 border-gray-300 rounded-xl text-sm outline-none focus:border-red-500 transition resize-none"
+              />
+              {selected.fe_clave && !selected.fe_nc_clave && (
+                <p className="text-[11px] text-gray-400 mt-1">Se usará como razón de la Nota de Crédito ante Hacienda.</p>
               )}
             </div>
 

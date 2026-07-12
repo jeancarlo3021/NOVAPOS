@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, BarChart2, ShoppingCart, Package, Users,
   Lock, RefreshCw, ChevronDown, TrendingDown, Vault, Target, WifiOff, Clock,
-  FileText, ChevronRight, ChevronLeft, Truck, HandCoins, Percent,
+  FileText, ChevronRight, ChevronLeft, Truck, HandCoins, Percent, Receipt,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -23,6 +23,7 @@ import { StockAdjustmentsReport } from './views/StockAdjustmentsReport';
 import { DistributionReport } from './views/DistributionReport';
 import { ReceivablesReport } from './views/ReceivablesReport';
 import { TaxReport } from './views/TaxReport';
+import { VouchersReport } from './views/VouchersReport';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ function getDateRange(days: number) {
 
 type TabId =
   | 'basic' | 'advanced' | 'hourly' | 'purchases' | 'stock' | 'stock_adjustments'
-  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit' | 'distribution' | 'receivables' | 'taxes';
+  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers';
 
 interface Tab {
   id: TabId;
@@ -68,6 +69,7 @@ const TABS: Tab[] = [
   { id: 'profit',   label: 'Ganancias',         description: 'Margen y rentabilidad',     icon: Target,        featureKey: 'report_profit',       group: 'finanzas' },
   { id: 'receivables', label: 'Cuentas por Cobrar', description: 'Créditos y saldos de clientes', icon: HandCoins, featureKey: 'accounts_receivable', group: 'finanzas' },
   { id: 'taxes',    label: 'Impuestos',         description: 'IVA y cierre mensual',      icon: Percent,       featureKey: 'report_taxes',        group: 'finanzas' },
+  { id: 'vouchers', label: 'Comprobantes',      description: 'Pagos y anulaciones',       icon: Receipt,       featureKey: 'report_vouchers',     group: 'finanzas' },
 
   // Operacional
   { id: 'sellers',  label: 'Por Vendedor',      description: 'Desempeño del equipo',      icon: Users,         featureKey: 'report_sellers',      group: 'operacional' },
@@ -385,6 +387,7 @@ const ReportsDashboard: React.FC = () => {
               case 'distribution':      return <DistributionReport key={`dist-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'receivables':       return <ReceivablesReport key={`rec-${refreshKey}`} />;
               case 'taxes':             return <TaxReport key={`tax-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'vouchers':          return <VouchersReport key={`vou-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               default:                  return null;
             }
           })()}

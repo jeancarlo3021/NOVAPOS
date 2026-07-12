@@ -77,6 +77,27 @@ export const DistributionDashboard: React.FC = () => {
       const sum = await distributionService.close(r.id);
       setCloseSummary({ route: r, sum });
       await load();
+      // Enviar el cierre de la ruta por correo (fire-and-forget).
+      try {
+        const m = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+        const bm = sum.by_method ?? { cash: 0, card: 0, sinpe: 0, credit: 0 };
+        const sections: any[] = [
+          { heading: 'Ventas de la ruta', rows: [
+            ['Ventas', `${sum.sales_count} · ${m(sum.sales_total)}`],
+            ...(sum.voids_count > 0 ? [['Anulaciones', String(sum.voids_count)]] : []),
+            ['Efectivo', m(bm.cash)], ['Tarjeta', m(bm.card)], ['SINPE', m(bm.sinpe)], ['Crédito', m(bm.credit)],
+          ] },
+          ...(sum.ar_payments ? [{ heading: 'Abonos', rows: [['Total abonos', m(sum.ar_payments.total)]] }] : []),
+          ...(sum.expenses ? [{ heading: 'Gastos', rows: [['Total gastos', m(sum.expenses.total)]] }] : []),
+        ];
+        const { apiFetch } = await import('@/lib/api');
+        apiFetch('/email/report', { method: 'POST', body: JSON.stringify({
+          subject: `Cierre de ruta ${r.route_date} — ${r.warehouse?.name ?? ''}`,
+          title: 'Cierre de distribución',
+          subtitle: `Ruta ${r.route_date}${r.warehouse?.name ? ` · ${r.warehouse.name}` : ''}`,
+          sections,
+        }) }).catch(() => {});
+      } catch { /* no bloquear el cierre */ }
     } catch (e) { setError(e instanceof Error ? e.message : 'Error al cerrar'); }
   };
 

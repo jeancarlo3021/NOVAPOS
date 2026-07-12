@@ -53,7 +53,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ tenant }) => {
 };
 
 export const TenantSwitcher: React.FC = () => {
-  const { tenant, tenants, switchTenant, user } = useAuth();
+  const { tenant, tenants, switchTenant, user, planFeatures } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -71,6 +71,11 @@ export const TenantSwitcher: React.FC = () => {
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  // El super-admin (plan admin) gestiona los negocios desde el Panel Admin, no
+  // con este selector — si no, le aparecen todos los tenants/sucursales de los
+  // clientes arriba a la derecha.
+  if ((planFeatures as any)?.admin_dashboard) return null;
 
   // Si solo hay 1 negocio, mostramos un chip pasivo con info — no dropdown.
   if (tenants.length <= 1) {

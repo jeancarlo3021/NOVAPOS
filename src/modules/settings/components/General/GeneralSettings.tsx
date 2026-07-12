@@ -21,6 +21,7 @@ const DEFAULTS = {
   currency: 'CRC',
   timezone: 'America/Costa_Rica',
   void_pin: '',
+  close_report_emails: '',
   // Régimen simplificado: imprime "Autorizado mediante oficio 1197" al pie.
   // Solo aplica si NO se emite Facturación Electrónica.
   simplificado: false,
@@ -145,6 +146,14 @@ export const GeneralSettings: React.FC = () => {
           <input type="text" name="address" value={formData.address} onChange={handleChange}
             placeholder="Calle Principal 123"
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1">Correos para el cierre diario</label>
+          <input type="text" name="close_report_emails" value={(formData as any).close_report_emails ?? ''} onChange={handleChange}
+            placeholder="correo1@x.com, correo2@y.com"
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+          <p className="text-xs text-gray-400 mt-1">Se envía el cierre de caja (y distribución) por correo. Separá varios con coma.</p>
         </div>
 
         <div>

@@ -107,6 +107,7 @@ export async function createCashSession(
         method: 'POST',
         body: JSON.stringify({
           opening_amount: input.opening_amount,
+          opening_usd: (input as any).opening_usd ?? 0,
           notes: input.notes || null,
         }),
       });
@@ -132,6 +133,7 @@ export async function closeCashSession(
         method: 'POST',
         body: JSON.stringify({
           closing_amount: input.closing_amount,
+          closing_usd: (input as any).closing_usd ?? null,
           notes: input.notes || null,
         }),
       });
