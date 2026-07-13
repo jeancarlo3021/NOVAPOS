@@ -34,6 +34,15 @@ export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose })
   const tpl = useMemo(() => templates.find(t => t.id === tplId) ?? null, [templates, tplId]);
   const previewHTML = useMemo(() => (tpl ? renderLabelHTML(tpl, product, offset) : ''), [tpl, product, offset.x, offset.y]);
 
+  // El preview se renderiza en milímetros reales; para que etiquetas grandes no
+  // desborden el modal, se auto-escala para caber en la caja (con tope de 2x en
+  // etiquetas pequeñas para que no queden diminutas).
+  const MM_PX = 96 / 25.4;
+  const BOX_W = 420, BOX_H = 240;
+  const pxW = tpl ? tpl.widthMm * MM_PX : 0;
+  const pxH = tpl ? tpl.heightMm * MM_PX : 0;
+  const previewScale = tpl && pxW > 0 && pxH > 0 ? Math.min(BOX_W / pxW, BOX_H / pxH, 2) : 1;
+
   // Cargar las Google Fonts usadas para que la vista previa las muestre.
   useEffect(() => { tpl?.elements.forEach(e => ensureFontLoaded(e.fontFamily)); }, [tpl]);
 
@@ -102,11 +111,14 @@ export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose })
             </div>
           ) : (
             <>
-              {/* Preview */}
-              <div className="bg-gray-100 rounded-xl p-4 flex items-center justify-center min-h-32">
-                {previewHTML
-                  ? <div style={{ transform: 'scale(1.6)', transformOrigin: 'center' }} dangerouslySetInnerHTML={{ __html: previewHTML }} />
-                  : <span className="text-gray-400 text-sm">Sin vista previa</span>}
+              {/* Preview — auto-ajustado a la caja, sin desbordar el modal */}
+              <div className="bg-gray-100 rounded-xl p-4 flex items-center justify-center overflow-hidden" style={{ minHeight: 128 }}>
+                {previewHTML ? (
+                  <div style={{ width: pxW * previewScale, height: pxH * previewScale }} className="flex items-center justify-center">
+                    <div style={{ transform: `scale(${previewScale})`, transformOrigin: 'center', flex: 'none' }}
+                      dangerouslySetInnerHTML={{ __html: previewHTML }} />
+                  </div>
+                ) : <span className="text-gray-400 text-sm">Sin vista previa</span>}
               </div>
               <button onClick={() => setEditing(true)} disabled={!tpl}
                 className="w-full flex items-center justify-center gap-2 bg-fuchsia-50 hover:bg-fuchsia-100 text-fuchsia-700 font-bold py-2 rounded-xl text-sm disabled:opacity-50">

@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import {
   Lock, ChevronLeft, Package, Boxes, AlertTriangle, FolderTree,
-  Ruler, Truck, BarChart3,
+  Ruler, Truck, BarChart3, BookOpen,
 } from 'lucide-react';
 import { ProductsList } from './products/ProductsList';
 import { SuppliersList } from './suppliers/SuppliersList';
 import { StockMovements } from './stock/StockMovements';
+import { KardexView } from './stock/KardexView';
 import { LowStockAlerts } from './stock/LowStockAlerts';
 import { InventoryStats } from './stock/InventoryStats';
 import { CategoriesManagement } from './categories/CategoriesManagement';
 import { UnitTypesManagement } from './categories/UnitTypesManagement';
 import { useAuth } from '@/context/AuthContext';
 
-type TabType = 'dashboard' | 'products' | 'suppliers' | 'stock' | 'alerts' | 'categories' | 'unitTypes';
+type TabType = 'dashboard' | 'products' | 'suppliers' | 'stock' | 'kardex' | 'alerts' | 'categories' | 'unitTypes';
 
 interface TabConfig {
   id: TabType;
@@ -30,6 +31,7 @@ export const InventoryDashboard: React.FC = () => {
     { id: 'products', label: 'Productos', requiredFeature: 'inventory' },
     { id: 'suppliers', label: 'Proveedores', requiredFeature: 'inventory' },
     { id: 'stock', label: 'Stock', requiredFeature: 'inventory' },
+    { id: 'kardex', label: 'Kardex', requiredFeature: 'inventory' },
     { id: 'alerts', label: 'Alertas', requiredFeature: 'inventory' },
     { id: 'categories', label: 'Categorías', requiredFeature: 'inventory' },
     { id: 'unitTypes', label: 'Tipo de unidades', requiredFeature: 'inventory' },
@@ -51,6 +53,7 @@ export const InventoryDashboard: React.FC = () => {
       if (tab.id === 'categories' && !flagOn(pf.inventory_categories))        return false;
       if (tab.id === 'unitTypes'  && !flagOn(pf.inventory_unit_types))        return false;
       if (tab.id === 'stock'      && !flagOn(pf.inventory_stock_view))        return false;
+      if (tab.id === 'kardex'     && !flagOn(pf.inventory_stock_view))        return false;
       if (tab.id === 'alerts'     && !flagOn(pf.inventory_low_stock_alerts))  return false;
 
       // Plan solo-productos sigue ocultando stock + alertas. El "dashboard"
@@ -129,6 +132,16 @@ export const InventoryDashboard: React.FC = () => {
       description: 'Entradas, salidas y ajustes de existencias.',
       icon: Boxes,
       bg: 'from-emerald-500 to-emerald-600',
+      iconBg: 'bg-white/20',
+      iconColor: 'text-white',
+      show: hasInventoryAccess && !hasProductsOnlyAccess && flagOn(pf.inventory_stock_view),
+    },
+    {
+      id: 'kardex',
+      label: 'Kardex',
+      description: 'Tarjeta de existencias con saldo corrido por producto.',
+      icon: BookOpen,
+      bg: 'from-indigo-500 to-indigo-600',
       iconBg: 'bg-white/20',
       iconColor: 'text-white',
       show: hasInventoryAccess && !hasProductsOnlyAccess && flagOn(pf.inventory_stock_view),
@@ -267,6 +280,11 @@ export const InventoryDashboard: React.FC = () => {
               hasInventoryAccess && !hasProductsOnlyAccess
                 ? <StockMovements />
                 : <LockedTab tabLabel="Stock" />
+            )}
+            {activeTab === 'kardex' && (
+              hasInventoryAccess && !hasProductsOnlyAccess
+                ? <KardexView />
+                : <LockedTab tabLabel="Kardex" />
             )}
             {activeTab === 'alerts' && (
               hasInventoryAccess && !hasProductsOnlyAccess

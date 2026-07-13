@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { RotateCw, Sliders, Search, X } from 'lucide-react';
+import { RotateCw, Sliders, Search, X, ClipboardCheck } from 'lucide-react';
 import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { useTenantId } from '@/hooks/useTenant';
 import { StockAdjustModal } from '../products/StockAdjustModal';
+import { PhysicalCountModal } from './PhysicalCountModal';
 import {
   Card,
   CardContent,
@@ -15,6 +16,7 @@ import {
 export const StockMovements: React.FC = () => {
   const { tenantId } = useTenantId();
   const [adjustProductId, setAdjustProductId] = useState<string | null>(null);
+  const [showPhysicalCount, setShowPhysicalCount] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'low' | 'critical' | 'ok'>('all');
 
@@ -73,9 +75,16 @@ export const StockMovements: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold text-gray-900">Stock de Productos</h2>
-        <p className="text-gray-500 mt-1">Revisa el stock actual y realiza ajustes con motivo</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900">Stock de Productos</h2>
+          <p className="text-gray-500 mt-1">Revisa el stock actual y realiza ajustes con motivo</p>
+        </div>
+        <button
+          onClick={() => setShowPhysicalCount(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm">
+          <ClipboardCheck size={17} /> Toma física
+        </button>
       </div>
 
       {error && !loading && (
@@ -284,6 +293,13 @@ export const StockMovements: React.FC = () => {
           />
         );
       })()}
+
+      {showPhysicalCount && (
+        <PhysicalCountModal
+          onClose={() => setShowPhysicalCount(false)}
+          onApplied={() => { void retry(); }}
+        />
+      )}
     </div>
   );
 };

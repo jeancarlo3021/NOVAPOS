@@ -55,4 +55,55 @@ export const stockAdjustmentsService = {
       body: JSON.stringify(payload),
     });
   },
+
+  /** Toma física: aplica un conteo completo en lote (ajustes tipo 'count'). */
+  async physicalCount(payload: {
+    counts: Array<{ product_id: string; counted: number }>;
+    notes?: string;
+    user_email?: string;
+  }): Promise<PhysicalCountResult> {
+    return apiFetch<PhysicalCountResult>('/stock-adjustments/physical-count', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /** Kardex (tarjeta de existencias) de un producto con saldo corrido. */
+  async kardex(productId: string, from?: string, to?: string): Promise<KardexResult> {
+    const qs = new URLSearchParams({ product_id: productId });
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    return apiFetch<KardexResult>(`/stock-adjustments/kardex?${qs.toString()}`);
+  },
 };
+
+export interface KardexRow {
+  date: string;
+  kind: string;      // tipo de movimiento (sale, count, increase, damage…)
+  label: string;
+  ref: string;       // # de documento (factura, etc.)
+  in: number;
+  out: number;
+  balance: number;   // saldo después del movimiento
+}
+
+export interface KardexResult {
+  product: { id: string; name: string; sku?: string; tracks_stock?: boolean };
+  opening: number;
+  closing: number;
+  total_in: number;
+  total_out: number;
+  rows: KardexRow[];
+}
+
+export interface PhysicalCountResult {
+  counted: number;
+  adjusted: number;
+  units_before: number;
+  units_after: number;
+  diff_units: number;
+  items: Array<{
+    product_id: string; name: string; sku?: string;
+    stock_before: number; counted: number; diff: number;
+  }>;
+}
