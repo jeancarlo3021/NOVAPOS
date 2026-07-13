@@ -126,11 +126,13 @@ export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose })
             </div>
           ) : (
             <>
-              {/* Preview — auto-ajustado al ancho real de la caja, sin recortar */}
+              {/* Preview — auto-ajustado al ancho real de la caja, sin recortar.
+                  Patrón "scale-to-fit": wrapper del tamaño exacto ya escalado +
+                  contenido en position absolute con origen top-left. */}
               <div ref={measureRef} className="bg-gray-100 rounded-xl p-4 flex items-center justify-center overflow-hidden" style={{ minHeight: 128 }}>
                 {previewHTML ? (
-                  <div style={{ width: pxW * previewScale, height: pxH * previewScale, flex: 'none' }} className="flex items-center justify-center">
-                    <div style={{ transform: `scale(${previewScale})`, transformOrigin: 'center', flex: 'none' }}
+                  <div style={{ width: Math.round(pxW * previewScale), height: Math.round(pxH * previewScale), position: 'relative', flex: 'none' }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, transform: `scale(${previewScale})`, transformOrigin: 'top left' }}
                       dangerouslySetInnerHTML={{ __html: previewHTML }} />
                   </div>
                 ) : <span className="text-gray-400 text-sm">Sin vista previa</span>}
