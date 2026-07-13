@@ -4,47 +4,118 @@
 // mm), TSPL define la etiqueta en milímetros reales (8 puntos/mm a 203 dpi) y la
 // impresora respeta el tamaño exacto y detecta el GAP entre etiquetas.
 //
-// Pipeline: renderLabelPrintHTML → SVG(foreignObject) → canvas 1-bit → BITMAP.
+// Pipeline: se DIBUJA cada elemento directo en un <canvas> (texto con fillText,
+// barcode/QR/imagen con drawImage) → 1-bit → BITMAP. Antes se usaba un SVG con
+// <foreignObject>, pero su rasterización era inestable entre equipos: el onload
+// del SVG se dispara antes de pintar el código de barras y las fuentes, dejando
+// SOLO los bordes. Dibujar en canvas es determinista.
 
-import { renderLabelPrintHTML, type LabelProduct } from './labelRenderService';
-import type { LabelTemplate } from './labelTemplatesService';
+import { codeOf, barcodeDataURL, qrSvg, type LabelProduct } from './labelRenderService';
+import { DESIGN_SCALE, type LabelTemplate, type LabelElement } from './labelTemplatesService';
 import { qzPrintUSB } from '@/services/pos/qzTrayService';
 
 const DPI = 203;                       // densidad típica de etiquetadoras térmicas
 const MM_PER_IN = 25.4;
 const mmToDots = (mm: number) => Math.round((mm / MM_PER_IN) * DPI);
-const mmToCss = (mm: number) => (mm / MM_PER_IN) * 96;   // px CSS (96 dpi)
+// Coordenadas de diseño (px @ DESIGN_SCALE por mm) → puntos de impresión (203dpi).
+const designToDots = (px: number) => mmToDots(px / DESIGN_SCALE);
 
-/** Rasteriza el HTML de la etiqueta a un canvas monocromo al tamaño físico. */
+const crc = (n: number) => `₡${(n ?? 0).toLocaleString('es-CR')}`;
+
+function elPlainText(el: LabelElement, p: LabelProduct): string {
+  switch (el.type) {
+    case 'product_name': return p.name ?? '';
+    case 'price':        return crc(p.price);
+    case 'sku':          return codeOf(el, p);
+    case 'text':         return el.value || '';
+    default:             return '';
+  }
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error('No se pudo cargar una imagen de la etiqueta'));
+    im.src = url;
+  });
+}
+const svgToUrl = (svg: string) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+
+/** Dibuja la etiqueta directamente en un canvas monocromo al tamaño físico. */
 async function rasterizeLabel(
   tpl: LabelTemplate, product: LabelProduct, offset?: { x: number; y: number },
 ): Promise<ImageData> {
-  const inner = await renderLabelPrintHTML(tpl, product, offset);
-  const cssW = mmToCss(tpl.widthMm), cssH = mmToCss(tpl.heightMm);
   const dotW = mmToDots(tpl.widthMm), dotH = mmToDots(tpl.heightMm);
-
-  // El contenido está en mm (96dpi en el navegador). El viewBox en espacio 96dpi
-  // se escala al tamaño en puntos (203dpi) → nítido y a tamaño real.
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${dotW}" height="${dotH}" viewBox="0 0 ${cssW} ${cssH}">` +
-    `<foreignObject width="${cssW}" height="${cssH}">` +
-    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${tpl.widthMm}mm;height:${tpl.heightMm}mm;background:#fff;">${inner}</div>` +
-    `</foreignObject></svg>`;
-
-  const img = new Image();
-  img.width = dotW; img.height = dotH;
-  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error('No se pudo rasterizar la etiqueta'));
-    img.src = url;
-  });
-
   const canvas = document.createElement('canvas');
   canvas.width = dotW; canvas.height = dotH;
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, dotW, dotH);
-  ctx.drawImage(img, 0, 0, dotW, dotH);
+
+  // Asegurar que las fuentes cargadas estén listas antes de dibujar texto.
+  try { await (document as any).fonts?.ready; } catch { /* noop */ }
+
+  const offX = mmToDots(offset?.x ?? 0), offY = mmToDots(offset?.y ?? 0);
+  const borderPx = Math.max(1, mmToDots(0.2));
+
+  // Borde de la etiqueta.
+  if (tpl.border) {
+    ctx.strokeStyle = '#000'; ctx.lineWidth = borderPx;
+    ctx.strokeRect(borderPx / 2, borderPx / 2, dotW - borderPx, dotH - borderPx);
+  }
+
+  for (const el of tpl.elements) {
+    const left = offX + designToDots(el.x);
+    const top = offY + designToDots(el.y);
+    ctx.save();
+    if (el.rotation) {
+      ctx.translate(left, top);
+      ctx.rotate((el.rotation * Math.PI) / 180);
+      ctx.translate(-left, -top);
+    }
+
+    let boxW = 0, boxH = 0;
+    try {
+      if (el.type === 'barcode') {
+        const url = barcodeDataURL(codeOf(el, product), el.fontSize ?? 20);
+        if (url) {
+          boxW = designToDots(el.width ?? 140); boxH = designToDots(el.height ?? 26);
+          ctx.drawImage(await loadImage(url), left, top, boxW, boxH);
+        }
+      } else if (el.type === 'qr') {
+        const svg = qrSvg(codeOf(el, product));
+        if (svg) {
+          boxW = boxH = designToDots(el.width ?? el.height ?? 80);
+          ctx.drawImage(await loadImage(svgToUrl(svg)), left, top, boxW, boxH);
+        }
+      } else if (el.type === 'image') {
+        if (el.src) {
+          boxW = designToDots(el.width ?? 60); boxH = designToDots(el.height ?? 60);
+          ctx.drawImage(await loadImage(el.src), left, top, boxW, boxH);
+        }
+      } else {
+        const text = elPlainText(el, product);
+        const px = designToDots(el.fontSize ?? 12);
+        const family = el.fontFamily || 'Arial, Helvetica, sans-serif';
+        ctx.font = `${el.bold ? '700' : '400'} ${px}px ${family}`;
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = '#000';
+        ctx.fillText(text, left, top);
+        boxW = Math.ceil(ctx.measureText(text).width);
+        boxH = Math.ceil(px * 1.1);
+      }
+
+      if (el.border && boxW > 0 && boxH > 0) {
+        ctx.strokeStyle = '#000'; ctx.lineWidth = borderPx;
+        ctx.strokeRect(left, top, boxW, boxH);
+      }
+    } catch (e) {
+      ctx.restore();
+      throw e;
+    }
+    ctx.restore();
+  }
+
   try {
     return ctx.getImageData(0, 0, dotW, dotH);
   } catch {

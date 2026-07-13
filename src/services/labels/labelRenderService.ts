@@ -28,7 +28,7 @@ function escapeHtml(s: string): string {
 }
 
 /** Genera un PNG dataURL del código de barras Code128. `textPx` = tamaño del número. */
-function barcodeDataURL(value: string, textPx = 20): string {
+export function barcodeDataURL(value: string, textPx = 20): string {
   try {
     const canvas = document.createElement('canvas');
     JsBarcode(canvas, value || '0000000000', {
