@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Printer, RefreshCw, Loader, Check, Tag, Crosshair, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Printer, RefreshCw, Loader, Check, Tag, Crosshair, ExternalLink, AlertTriangle, Ruler } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTenantId } from '@/hooks/useTenant';
 import { labelPrinterConfig } from '@/services/labels/labelPrinterConfig';
@@ -9,7 +9,7 @@ import {
   labelTemplatesService, DESIGN_SCALE, type LabelTemplate,
 } from '@/services/labels/labelTemplatesService';
 import { renderLabelPrintHTML } from '@/services/labels/labelRenderService';
-import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTML } from '@/services/pos/qzTrayService';
+import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTML, qzCalibrateGap } from '@/services/pos/qzTrayService';
 
 const TEST_PRODUCT = { name: 'Producto de prueba', price: 1990, sku: '1001', sku2: '7501234567890' };
 
@@ -34,6 +34,12 @@ export const LabelPrinterSettings: React.FC = () => {
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
+  // Calibración de gap (detección del espacio entre etiquetas — TSPL/Xprinter).
+  const [gapW, setGapW] = useState(75);
+  const [gapH, setGapH] = useState(98);
+  const [gapMm, setGapMm] = useState(2);
+  const [calibrating, setCalibrating] = useState(false);
+  const [calibrated, setCalibrated] = useState(false);
 
   const templates = tenantId ? labelTemplatesService.list(tenantId) : [];
 
@@ -55,6 +61,18 @@ export const LabelPrinterSettings: React.FC = () => {
     labelPrinterConfig.setPrinter(printer);
     labelPrinterConfig.setOffset(offset);
     setSaved(true); setTimeout(() => setSaved(false), 1500);
+  };
+
+  const calibrateGap = async () => {
+    if (!printer) { setError('Elegí una impresora'); return; }
+    setError(''); setCalibrating(true);
+    try {
+      if (!qzIsConnected()) await qzConnect();
+      await qzCalibrateGap(printer, { widthMm: gapW, heightMm: gapH, gapMm });
+      setCalibrated(true); setTimeout(() => setCalibrated(false), 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al calibrar el gap');
+    } finally { setCalibrating(false); }
   };
 
   const printTest = async () => {
@@ -128,6 +146,39 @@ export const LabelPrinterSettings: React.FC = () => {
             {testing ? <Loader size={15} className="animate-spin" /> : <Printer size={15} />} Imprimir prueba
           </button>
         </div>
+      </div>
+
+      {/* Calibración de gap (detección de saltos entre etiquetas) */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
+        <h3 className="font-black text-gray-800 text-sm flex items-center gap-2"><Ruler size={15} className="text-fuchsia-600" /> Detección de gap (saltos entre etiquetas)</h3>
+        <p className="text-xs text-gray-400">
+          Para etiquetadoras <b>Xprinter / TSC / Gprinter</b>. Enseña a la impresora el tamaño de la etiqueta y el espacio entre ellas para que se detenga justo en el corte y no imprima a media etiqueta. Poné las etiquetas cargadas y presioná <b>Calibrar</b> — la impresora avanzará 1-2 etiquetas midiendo.
+        </p>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-gray-600">Ancho (mm)</label>
+            <input type="number" step="0.5" min={5} value={gapW}
+              onChange={e => setGapW(Number(e.target.value) || 0)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-gray-600">Alto (mm)</label>
+            <input type="number" step="0.5" min={5} value={gapH}
+              onChange={e => setGapH(Number(e.target.value) || 0)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-gray-600">Gap (mm)</label>
+            <input type="number" step="0.5" min={0} value={gapMm}
+              onChange={e => setGapMm(Number(e.target.value) || 0)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" title="Alto del espacio entre una etiqueta y la siguiente (típico 2-3mm)" />
+          </div>
+        </div>
+        <button onClick={calibrateGap} disabled={calibrating || !printer}
+          className="flex items-center gap-1.5 bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold px-4 py-2 rounded-xl text-sm disabled:opacity-50">
+          {calibrating ? <Loader size={15} className="animate-spin" /> : calibrated ? <Check size={15} /> : <Ruler size={15} />}
+          {calibrating ? 'Calibrando…' : calibrated ? 'Calibrada ✓' : 'Calibrar gap'}
+        </button>
       </div>
 
       {/* Plantillas */}

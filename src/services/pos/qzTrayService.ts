@@ -407,6 +407,20 @@ export async function qzPrintDefault(data: Uint8Array): Promise<void> {
  * QZ soporta `type:'pixel', format:'html'`: renderiza el HTML y lo manda
  * a la impresora al tamaño indicado en mm. Ideal para rotuladoras.
  */
+/**
+ * Envuelve el HTML de la etiqueta en un documento completo con `@page` del
+ * tamaño físico exacto. Sin esto, el rasterizador de QZ usa un alto por defecto
+ * y las etiquetas altas (ej. 75×98) salen cortadas a ~70mm.
+ */
+function wrapLabelDoc(inner: string, wMm: number, hMm: number): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>` +
+    `@page{size:${wMm}mm ${hMm}mm;margin:0;}` +
+    `html,body{margin:0;padding:0;}` +
+    `body{width:${wMm}mm;height:${hMm}mm;overflow:hidden;}` +
+    `*{box-sizing:border-box;}` +
+    `</style></head><body>${inner}</body></html>`;
+}
+
 export async function qzPrintHTML(
   printerName: string,
   html: string,
@@ -419,11 +433,12 @@ export async function qzPrintHTML(
     margins: 0,
     colorType: 'blackwhite',
     rasterize: true,
+    scaleContent: false,
     copies: opts.copies && opts.copies > 1 ? opts.copies : 1,
   });
   await q.print(config, [{
     type: 'pixel', format: 'html', flavor: 'plain',
-    data: html,
+    data: wrapLabelDoc(html, opts.widthMm, opts.heightMm),
     options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
   }]);
 }
@@ -445,10 +460,11 @@ export async function qzPrintHTMLMany(
     margins: 0,
     colorType: 'blackwhite',
     rasterize: true,
+    scaleContent: false,
   });
   const data = htmls.map(html => ({
     type: 'pixel', format: 'html', flavor: 'plain',
-    data: html,
+    data: wrapLabelDoc(html, opts.widthMm, opts.heightMm),
     options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
   }));
   await q.print(config, data);
@@ -457,6 +473,36 @@ export async function qzPrintHTMLMany(
 /**
  * Print to a PrinterEntry — handles USB vs network automatically.
  */
+/**
+ * Envía comandos TSPL crudos a una etiquetadora (Xprinter / TSC / Gprinter…).
+ * Los comandos van en texto plano, uno por línea (CRLF).
+ */
+export async function qzSendTSPL(printerName: string, commands: string): Promise<void> {
+  const bytes = new TextEncoder().encode(commands);
+  await qzPrintUSB(printerName, bytes);
+}
+
+/**
+ * Calibra el sensor de GAP (espacio entre etiquetas) de una etiquetadora TSPL.
+ * Tras esto la impresora detecta el corte de cada etiqueta y se posiciona en el
+ * borde de la siguiente, evitando que corte a media etiqueta.
+ * `gapMm` = alto del espacio entre etiquetas (típico 2–3 mm).
+ */
+export async function qzCalibrateGap(
+  printerName: string,
+  opts: { widthMm: number; heightMm: number; gapMm?: number },
+): Promise<void> {
+  const gap = opts.gapMm ?? 2;
+  const cmd =
+    `SIZE ${opts.widthMm} mm, ${opts.heightMm} mm\r\n` +
+    `GAP ${gap} mm, 0 mm\r\n` +
+    `DIRECTION 1\r\n` +
+    `CLS\r\n` +
+    `GAPDETECT\r\n` +      // mide y memoriza el gap avanzando etiquetas
+    `HOME\r\n`;            // se posiciona en el inicio de la siguiente etiqueta
+  await qzSendTSPL(printerName, cmd);
+}
+
 export async function qzPrintToPrinter(printer: PrinterEntry, data: Uint8Array): Promise<void> {
   if (printer.connection === 'network') {
     if (!printer.ip) throw new Error(`Impresora "${printer.label}": IP no configurada`);
