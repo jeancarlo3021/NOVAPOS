@@ -4,11 +4,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, Printer, Loader, RefreshCw, Check, AlertTriangle, Pencil } from 'lucide-react';
 import { labelTemplatesService, type LabelTemplate } from '@/services/labels/labelTemplatesService';
 import { labelPrinterConfig } from '@/services/labels/labelPrinterConfig';
-import { renderLabelHTML, renderLabelPrintHTML, type LabelProduct } from '@/services/labels/labelRenderService';
-import { printLabelTSPL } from '@/services/labels/labelTsplService';
+import { renderLabelHTML, type LabelProduct } from '@/services/labels/labelRenderService';
+import { printLabelTSPL, renderLabelPngBase64 } from '@/services/labels/labelTsplService';
 import { ensureFontLoaded } from '@/services/labels/fontsService';
 import {
-  qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTML,
+  qzIsConnected, qzConnect, qzGetPrinters, qzPrintImage,
 } from '@/services/pos/qzTrayService';
 import { LabelEditor } from './LabelEditor';
 
@@ -90,8 +90,10 @@ export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose })
           gapMm: labelPrinterConfig.getGapMm(), copies: qty, offset: labelPrinterConfig.getOffset(),
         });
       } else {
-        const html = await renderLabelPrintHTML(tpl, product, labelPrinterConfig.getOffset());
-        await qzPrintHTML(printer, html, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: qty });
+        // Modo HTML/driver: renderizamos la etiqueta a PNG (determinista) y la
+        // mandamos como imagen — QZ ya no rasteriza HTML (evita "solo bordes").
+        const png = await renderLabelPngBase64(tpl, product, labelPrinterConfig.getOffset());
+        await qzPrintImage(printer, png, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: qty });
       }
       setDone(true); setTimeout(() => setDone(false), 2000);
     } catch (e) {

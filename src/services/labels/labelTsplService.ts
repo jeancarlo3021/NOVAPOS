@@ -42,10 +42,11 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 }
 const svgToUrl = (svg: string) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 
-/** Dibuja la etiqueta directamente en un canvas monocromo al tamaño físico. */
-async function rasterizeLabel(
+/** Dibuja la etiqueta directamente en un <canvas> al tamaño físico (203dpi).
+ *  Se usa tanto para TSPL (→ bitmap 1-bit) como para el modo HTML/QZ (→ PNG). */
+export async function renderLabelCanvas(
   tpl: LabelTemplate, product: LabelProduct, offset?: { x: number; y: number },
-): Promise<ImageData> {
+): Promise<HTMLCanvasElement> {
   const dotW = mmToDots(tpl.widthMm), dotH = mmToDots(tpl.heightMm);
   const canvas = document.createElement('canvas');
   canvas.width = dotW; canvas.height = dotH;
@@ -116,12 +117,32 @@ async function rasterizeLabel(
     ctx.restore();
   }
 
+  return canvas;
+}
+
+/** Rasteriza la etiqueta a ImageData 1-bit (para TSPL). */
+async function rasterizeLabel(
+  tpl: LabelTemplate, product: LabelProduct, offset?: { x: number; y: number },
+): Promise<ImageData> {
+  const canvas = await renderLabelCanvas(tpl, product, offset);
+  const ctx = canvas.getContext('2d')!;
   try {
-    return ctx.getImageData(0, 0, dotW, dotH);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
   } catch {
     // getImageData falla si el canvas quedó "tainted" por una imagen remota.
-    throw new Error('La etiqueta tiene una imagen externa que impide la impresión directa. Quitá la imagen o usá el modo HTML.');
+    throw new Error('La etiqueta tiene una imagen externa que impide la impresión directa. Quitá la imagen del diseño.');
   }
+}
+
+/** PNG (base64, sin prefijo data:) de la etiqueta al tamaño físico — para QZ. */
+export async function renderLabelPngBase64(
+  tpl: LabelTemplate, product: LabelProduct, offset?: { x: number; y: number },
+): Promise<string> {
+  const canvas = await renderLabelCanvas(tpl, product, offset);
+  let url: string;
+  try { url = canvas.toDataURL('image/png'); }
+  catch { throw new Error('La etiqueta tiene una imagen externa que impide imprimirla. Quitá la imagen del diseño.'); }
+  return url.split(',')[1] ?? '';
 }
 
 /** Empaqueta el ImageData en datos de BITMAP TSPL (bit 0 = negro, 1 = blanco). */

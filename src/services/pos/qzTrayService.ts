@@ -429,6 +429,51 @@ export async function qzPrintHTML(
 }
 
 /**
+ * Imprime una imagen PNG (base64, sin prefijo) a un tamaño físico exacto en mm.
+ * Más confiable que enviar HTML: el navegador ya rasterizó todo el contenido
+ * (texto, código de barras, precio), y QZ solo imprime la imagen tal cual.
+ */
+export async function qzPrintImage(
+  printerName: string,
+  pngBase64: string,
+  opts: { widthMm: number; heightMm: number; copies?: number },
+): Promise<void> {
+  const q = getQZ();
+  const config = q.configs.create(printerName, {
+    size: { width: opts.widthMm, height: opts.heightMm },
+    units: 'mm',
+    margins: 0,
+    colorType: 'blackwhite',
+    rasterize: true,
+    copies: opts.copies && opts.copies > 1 ? opts.copies : 1,
+  });
+  await q.print(config, [{
+    type: 'pixel', format: 'image', flavor: 'base64',
+    data: pngBase64,
+  }]);
+}
+
+/** Imprime VARIAS imágenes PNG (base64) en un solo trabajo. */
+export async function qzPrintImageMany(
+  printerName: string,
+  pngs: string[],
+  opts: { widthMm: number; heightMm: number },
+): Promise<void> {
+  if (!pngs.length) return;
+  const q = getQZ();
+  const config = q.configs.create(printerName, {
+    size: { width: opts.widthMm, height: opts.heightMm },
+    units: 'mm',
+    margins: 0,
+    colorType: 'blackwhite',
+    rasterize: true,
+  });
+  await q.print(config, pngs.map(data => ({
+    type: 'pixel', format: 'image', flavor: 'base64', data,
+  })));
+}
+
+/**
  * Imprime VARIAS etiquetas HTML en un solo trabajo (impresión masiva).
  * Cada string de `htmls` es una etiqueta; se envían todas juntas al mismo tamaño.
  */

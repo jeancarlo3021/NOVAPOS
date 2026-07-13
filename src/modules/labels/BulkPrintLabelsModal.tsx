@@ -4,10 +4,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { X, Printer, Loader, RefreshCw, Check, AlertTriangle, Minus, Plus } from 'lucide-react';
 import { labelTemplatesService, type LabelTemplate } from '@/services/labels/labelTemplatesService';
 import { labelPrinterConfig } from '@/services/labels/labelPrinterConfig';
-import { renderLabelHTML, type LabelProduct } from '@/services/labels/labelRenderService';
-import { buildFontFaceCss } from '@/services/labels/fontsService';
-import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTMLMany } from '@/services/pos/qzTrayService';
-import { printLabelsTSPL } from '@/services/labels/labelTsplService';
+import { type LabelProduct } from '@/services/labels/labelRenderService';
+import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintImageMany } from '@/services/pos/qzTrayService';
+import { printLabelsTSPL, renderLabelPngBase64 } from '@/services/labels/labelTsplService';
 
 interface Props {
   tenantId: string;
@@ -63,14 +62,15 @@ export const BulkPrintLabelsModal: React.FC<Props> = ({ tenantId, products, onCl
           .filter(j => j.copies > 0);
         await printLabelsTSPL(printer, jobs, { gapMm: labelPrinterConfig.getGapMm(), offset });
       } else {
-        // Incrustar las Google Fonts usadas una sola vez (en la primera etiqueta del lote).
-        const fontFaceCss = await buildFontFaceCss(tpl.elements.map(e => e.fontFamily));
-        const htmls: string[] = [];
-        products.forEach((p, i) => {
-          const html = renderLabelHTML(tpl, p, offset, fontFaceCss);
-          for (let c = 0; c < qtys[i]; c++) htmls.push(html);
-        });
-        await qzPrintHTMLMany(printer, htmls, { widthMm: tpl.widthMm, heightMm: tpl.heightMm });
+        // Modo HTML/driver: renderizamos cada etiqueta a PNG (determinista) y
+        // mandamos las imágenes a QZ (evita el "solo bordes" del rasterizado HTML).
+        const pngs: string[] = [];
+        for (let i = 0; i < products.length; i++) {
+          if (qtys[i] <= 0) continue;
+          const png = await renderLabelPngBase64(tpl, products[i], offset);
+          for (let c = 0; c < qtys[i]; c++) pngs.push(png);
+        }
+        await qzPrintImageMany(printer, pngs, { widthMm: tpl.widthMm, heightMm: tpl.heightMm });
       }
       setDone(true); setTimeout(() => setDone(false), 2000);
     } catch (e) {

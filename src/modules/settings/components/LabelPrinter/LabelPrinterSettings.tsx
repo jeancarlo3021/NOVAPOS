@@ -8,9 +8,8 @@ import { labelPrinterConfig } from '@/services/labels/labelPrinterConfig';
 import {
   labelTemplatesService, DESIGN_SCALE, type LabelTemplate,
 } from '@/services/labels/labelTemplatesService';
-import { renderLabelPrintHTML } from '@/services/labels/labelRenderService';
-import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTML, qzCalibrateGap } from '@/services/pos/qzTrayService';
-import { printLabelTSPL } from '@/services/labels/labelTsplService';
+import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintImage, qzCalibrateGap } from '@/services/pos/qzTrayService';
+import { printLabelTSPL, renderLabelPngBase64 } from '@/services/labels/labelTsplService';
 
 const TEST_PRODUCT = { name: 'Producto de prueba', price: 1990, sku: '1001', sku2: '7501234567890' };
 
@@ -96,8 +95,10 @@ export const LabelPrinterSettings: React.FC = () => {
       if (mode === 'tspl') {
         await printLabelTSPL(printer, tpl, TEST_PRODUCT, { gapMm, copies: 1, offset });
       } else {
-        const html = await renderLabelPrintHTML(tpl, TEST_PRODUCT, offset);
-        await qzPrintHTML(printer, html, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: 1 });
+        // Modo HTML/driver: mandamos un PNG ya renderizado (no HTML) para que QZ
+        // no rasterice y no salga "solo bordes".
+        const png = await renderLabelPngBase64(tpl, TEST_PRODUCT, offset);
+        await qzPrintImage(printer, png, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: 1 });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al imprimir la prueba');
