@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, Printer, Loader, RefreshCw, Check, AlertTriangle, Pencil } from 'lucide-react';
 import { labelTemplatesService, type LabelTemplate } from '@/services/labels/labelTemplatesService';
 import { labelPrinterConfig } from '@/services/labels/labelPrinterConfig';
@@ -35,13 +35,28 @@ export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose })
   const previewHTML = useMemo(() => (tpl ? renderLabelHTML(tpl, product, offset) : ''), [tpl, product, offset.x, offset.y]);
 
   // El preview se renderiza en milímetros reales; para que etiquetas grandes no
-  // desborden el modal, se auto-escala para caber en la caja (con tope de 2x en
-  // etiquetas pequeñas para que no queden diminutas).
+  // desborden el modal ni se corten, se auto-escala para caber en el ANCHO REAL
+  // del contenedor (medido) y una altura máxima. Tope de 2x para que etiquetas
+  // pequeñas no queden diminutas. Mantiene la proporción exacta de la plantilla.
   const MM_PX = 96 / 25.4;
-  const BOX_W = 420, BOX_H = 240;
+  const BOX_H = 240;              // alto máximo del preview (px)
+  const [boxW, setBoxW] = useState(0);
+  const roRef = useRef<ResizeObserver | null>(null);
+  const measureRef = useCallback((node: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    if (node) {
+      const update = () => setBoxW(node.clientWidth);
+      update();
+      roRef.current = new ResizeObserver(update);
+      roRef.current.observe(node);
+    }
+  }, []);
   const pxW = tpl ? tpl.widthMm * MM_PX : 0;
   const pxH = tpl ? tpl.heightMm * MM_PX : 0;
-  const previewScale = tpl && pxW > 0 && pxH > 0 ? Math.min(BOX_W / pxW, BOX_H / pxH, 2) : 1;
+  const availW = boxW > 0 ? boxW - 32 : 388;   // menos el padding p-4 (16px×2)
+  const previewScale = tpl && pxW > 0 && pxH > 0
+    ? Math.min(availW / pxW, BOX_H / pxH, 2)
+    : 1;
 
   // Cargar las Google Fonts usadas para que la vista previa las muestre.
   useEffect(() => { tpl?.elements.forEach(e => ensureFontLoaded(e.fontFamily)); }, [tpl]);
@@ -111,10 +126,10 @@ export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose })
             </div>
           ) : (
             <>
-              {/* Preview — auto-ajustado a la caja, sin desbordar el modal */}
-              <div className="bg-gray-100 rounded-xl p-4 flex items-center justify-center overflow-hidden" style={{ minHeight: 128 }}>
+              {/* Preview — auto-ajustado al ancho real de la caja, sin recortar */}
+              <div ref={measureRef} className="bg-gray-100 rounded-xl p-4 flex items-center justify-center overflow-hidden" style={{ minHeight: 128 }}>
                 {previewHTML ? (
-                  <div style={{ width: pxW * previewScale, height: pxH * previewScale }} className="flex items-center justify-center">
+                  <div style={{ width: pxW * previewScale, height: pxH * previewScale, flex: 'none' }} className="flex items-center justify-center">
                     <div style={{ transform: `scale(${previewScale})`, transformOrigin: 'center', flex: 'none' }}
                       dangerouslySetInnerHTML={{ __html: previewHTML }} />
                   </div>
