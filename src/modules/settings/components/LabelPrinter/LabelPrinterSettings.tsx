@@ -10,6 +10,7 @@ import {
 } from '@/services/labels/labelTemplatesService';
 import { renderLabelPrintHTML } from '@/services/labels/labelRenderService';
 import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTML, qzCalibrateGap } from '@/services/pos/qzTrayService';
+import { printLabelTSPL } from '@/services/labels/labelTsplService';
 
 const TEST_PRODUCT = { name: 'Producto de prueba', price: 1990, sku: '1001', sku2: '7501234567890' };
 
@@ -30,6 +31,7 @@ export const LabelPrinterSettings: React.FC = () => {
   const [printers, setPrinters] = useState<string[]>([]);
   const [printer, setPrinter] = useState(labelPrinterConfig.getPrinter());
   const [offset, setOffset] = useState(labelPrinterConfig.getOffset());
+  const [mode, setMode] = useState(labelPrinterConfig.getMode());
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -60,6 +62,8 @@ export const LabelPrinterSettings: React.FC = () => {
   const saveConfig = () => {
     labelPrinterConfig.setPrinter(printer);
     labelPrinterConfig.setOffset(offset);
+    labelPrinterConfig.setMode(mode);
+    labelPrinterConfig.setGapMm(gapMm);
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   };
 
@@ -82,8 +86,12 @@ export const LabelPrinterSettings: React.FC = () => {
       labelPrinterConfig.setPrinter(printer);
       labelPrinterConfig.setOffset(offset);
       const tpl = (tenantId && templates[0]) || fallbackTemplate();
-      const html = await renderLabelPrintHTML(tpl, TEST_PRODUCT, offset);
-      await qzPrintHTML(printer, html, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: 1 });
+      if (mode === 'tspl') {
+        await printLabelTSPL(printer, tpl, TEST_PRODUCT, { gapMm, copies: 1, offset });
+      } else {
+        const html = await renderLabelPrintHTML(tpl, TEST_PRODUCT, offset);
+        await qzPrintHTML(printer, html, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: 1 });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al imprimir la prueba');
     } finally { setTesting(false); }
@@ -115,6 +123,34 @@ export const LabelPrinterSettings: React.FC = () => {
           </select>
         ) : (
           <div className="text-sm text-gray-400 py-2 flex items-center gap-2"><AlertTriangle size={14} /> No se encontraron impresoras. Verificá que QZ Tray esté corriendo.</div>
+        )}
+      </div>
+
+      {/* Modo de impresión */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
+        <h3 className="font-black text-gray-800 text-sm flex items-center gap-2"><Printer size={15} className="text-fuchsia-600" /> Modo de impresión</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button onClick={() => setMode('tspl')}
+            className={`text-left p-3 rounded-xl border-2 transition ${mode === 'tspl' ? 'border-fuchsia-500 bg-fuchsia-50' : 'border-gray-200 hover:border-gray-300'}`}>
+            <p className={`font-black text-sm ${mode === 'tspl' ? 'text-fuchsia-700' : 'text-gray-700'}`}>TSPL directo (Xprinter) ★</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">Tamaño exacto en mm y detección de gap. Recomendado para etiquetadoras térmicas.</p>
+          </button>
+          <button onClick={() => setMode('html')}
+            className={`text-left p-3 rounded-xl border-2 transition ${mode === 'html' ? 'border-fuchsia-500 bg-fuchsia-50' : 'border-gray-200 hover:border-gray-300'}`}>
+            <p className={`font-black text-sm ${mode === 'html' ? 'text-fuchsia-700' : 'text-gray-700'}`}>HTML por driver</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">Usa el driver de Windows. Para impresoras que no son TSPL.</p>
+          </button>
+        </div>
+        {mode === 'tspl' && (
+          <div className="flex items-end gap-3">
+            <div>
+              <label className="text-[11px] font-bold text-gray-600">Gap entre etiquetas (mm)</label>
+              <input type="number" step="0.5" min={0} value={gapMm}
+                onChange={e => setGapMm(Number(e.target.value) || 0)}
+                className="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <p className="text-[11px] text-gray-400 pb-2">Espacio blanco entre una etiqueta y la siguiente (típico 2-3mm).</p>
+          </div>
         )}
       </div>
 

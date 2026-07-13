@@ -407,20 +407,6 @@ export async function qzPrintDefault(data: Uint8Array): Promise<void> {
  * QZ soporta `type:'pixel', format:'html'`: renderiza el HTML y lo manda
  * a la impresora al tamaño indicado en mm. Ideal para rotuladoras.
  */
-/**
- * Envuelve el HTML de la etiqueta en un documento completo con `@page` del
- * tamaño físico exacto. Sin esto, el rasterizador de QZ usa un alto por defecto
- * y las etiquetas altas (ej. 75×98) salen cortadas a ~70mm.
- */
-function wrapLabelDoc(inner: string, wMm: number, hMm: number): string {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>` +
-    `@page{size:${wMm}mm ${hMm}mm;margin:0;}` +
-    `html,body{margin:0;padding:0;}` +
-    `body{width:${wMm}mm;height:${hMm}mm;overflow:hidden;}` +
-    `*{box-sizing:border-box;}` +
-    `</style></head><body>${inner}</body></html>`;
-}
-
 export async function qzPrintHTML(
   printerName: string,
   html: string,
@@ -433,12 +419,11 @@ export async function qzPrintHTML(
     margins: 0,
     colorType: 'blackwhite',
     rasterize: true,
-    scaleContent: false,
     copies: opts.copies && opts.copies > 1 ? opts.copies : 1,
   });
   await q.print(config, [{
     type: 'pixel', format: 'html', flavor: 'plain',
-    data: wrapLabelDoc(html, opts.widthMm, opts.heightMm),
+    data: html,
     options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
   }]);
 }
@@ -460,11 +445,10 @@ export async function qzPrintHTMLMany(
     margins: 0,
     colorType: 'blackwhite',
     rasterize: true,
-    scaleContent: false,
   });
   const data = htmls.map(html => ({
     type: 'pixel', format: 'html', flavor: 'plain',
-    data: wrapLabelDoc(html, opts.widthMm, opts.heightMm),
+    data: html,
     options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
   }));
   await q.print(config, data);

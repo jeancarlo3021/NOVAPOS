@@ -5,6 +5,7 @@ import { X, Printer, Loader, RefreshCw, Check, AlertTriangle, Pencil } from 'luc
 import { labelTemplatesService, type LabelTemplate } from '@/services/labels/labelTemplatesService';
 import { labelPrinterConfig } from '@/services/labels/labelPrinterConfig';
 import { renderLabelHTML, renderLabelPrintHTML, type LabelProduct } from '@/services/labels/labelRenderService';
+import { printLabelTSPL } from '@/services/labels/labelTsplService';
 import { ensureFontLoaded } from '@/services/labels/fontsService';
 import {
   qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTML,
@@ -84,8 +85,14 @@ export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose })
     try {
       labelPrinterConfig.setPrinter(printer);
       labelPrinterConfig.setDefaultTemplate(tenantId, tpl.id);
-      const html = await renderLabelPrintHTML(tpl, product, labelPrinterConfig.getOffset());
-      await qzPrintHTML(printer, html, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: qty });
+      if (labelPrinterConfig.getMode() === 'tspl') {
+        await printLabelTSPL(printer, tpl, product, {
+          gapMm: labelPrinterConfig.getGapMm(), copies: qty, offset: labelPrinterConfig.getOffset(),
+        });
+      } else {
+        const html = await renderLabelPrintHTML(tpl, product, labelPrinterConfig.getOffset());
+        await qzPrintHTML(printer, html, { widthMm: tpl.widthMm, heightMm: tpl.heightMm, copies: qty });
+      }
       setDone(true); setTimeout(() => setDone(false), 2000);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al imprimir');

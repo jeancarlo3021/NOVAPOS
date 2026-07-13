@@ -7,6 +7,7 @@ import { labelPrinterConfig } from '@/services/labels/labelPrinterConfig';
 import { renderLabelHTML, type LabelProduct } from '@/services/labels/labelRenderService';
 import { buildFontFaceCss } from '@/services/labels/fontsService';
 import { qzIsConnected, qzConnect, qzGetPrinters, qzPrintHTMLMany } from '@/services/pos/qzTrayService';
+import { printLabelsTSPL } from '@/services/labels/labelTsplService';
 
 interface Props {
   tenantId: string;
@@ -56,14 +57,21 @@ export const BulkPrintLabelsModal: React.FC<Props> = ({ tenantId, products, onCl
       labelPrinterConfig.setPrinter(printer);
       labelPrinterConfig.setDefaultTemplate(tenantId, tpl.id);
       const offset = labelPrinterConfig.getOffset();
-      // Incrustar las Google Fonts usadas una sola vez (en la primera etiqueta del lote).
-      const fontFaceCss = await buildFontFaceCss(tpl.elements.map(e => e.fontFamily));
-      const htmls: string[] = [];
-      products.forEach((p, i) => {
-        const html = renderLabelHTML(tpl, p, offset, fontFaceCss);
-        for (let c = 0; c < qtys[i]; c++) htmls.push(html);
-      });
-      await qzPrintHTMLMany(printer, htmls, { widthMm: tpl.widthMm, heightMm: tpl.heightMm });
+      if (labelPrinterConfig.getMode() === 'tspl') {
+        const jobs = products
+          .map((p, i) => ({ tpl, product: p, copies: qtys[i] }))
+          .filter(j => j.copies > 0);
+        await printLabelsTSPL(printer, jobs, { gapMm: labelPrinterConfig.getGapMm(), offset });
+      } else {
+        // Incrustar las Google Fonts usadas una sola vez (en la primera etiqueta del lote).
+        const fontFaceCss = await buildFontFaceCss(tpl.elements.map(e => e.fontFamily));
+        const htmls: string[] = [];
+        products.forEach((p, i) => {
+          const html = renderLabelHTML(tpl, p, offset, fontFaceCss);
+          for (let c = 0; c < qtys[i]; c++) htmls.push(html);
+        });
+        await qzPrintHTMLMany(printer, htmls, { widthMm: tpl.widthMm, heightMm: tpl.heightMm });
+      }
       setDone(true); setTimeout(() => setDone(false), 2000);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al imprimir');
