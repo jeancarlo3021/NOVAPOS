@@ -14,14 +14,14 @@ import { printLabelTSPL } from '@/services/labels/labelTsplService';
 
 const TEST_PRODUCT = { name: 'Producto de prueba', price: 1990, sku: '1001', sku2: '7501234567890' };
 
-// Plantilla mínima de prueba si el tenant aún no creó ninguna.
-const fallbackTemplate = (): LabelTemplate => ({
-  id: 'test', name: 'Prueba', widthMm: 40, heightMm: 30, updatedAt: '',
+// Plantilla de prueba FIJA de 35×25 mm (siempre el mismo tamaño para calibrar).
+const testTemplate = (): LabelTemplate => ({
+  id: 'test', name: 'Prueba 35×25', widthMm: 35, heightMm: 25, updatedAt: '',
   border: true,
   elements: [
-    { id: 'n', type: 'product_name', x: 6, y: 6, fontSize: 12, bold: true, align: 'left' },
-    { id: 'p', type: 'price', x: 6, y: Math.round(30 * DESIGN_SCALE * 0.55), fontSize: 18, bold: true, align: 'left' },
-    { id: 'b', type: 'barcode', x: 6, y: Math.round(30 * DESIGN_SCALE * 0.32), width: Math.round(40 * DESIGN_SCALE * 0.7), height: 24 },
+    { id: 'n', type: 'product_name', x: 5, y: 5, fontSize: 11, bold: true, align: 'left' },
+    { id: 'p', type: 'price', x: 5, y: Math.round(25 * DESIGN_SCALE * 0.5), fontSize: 16, bold: true, align: 'left' },
+    { id: 'b', type: 'barcode', x: 5, y: Math.round(25 * DESIGN_SCALE * 0.3), width: Math.round(35 * DESIGN_SCALE * 0.7), height: 22 },
   ],
 });
 
@@ -59,6 +59,13 @@ export const LabelPrinterSettings: React.FC = () => {
 
   useEffect(() => { loadPrinters(); /* eslint-disable-next-line */ }, []);
 
+  // Guardado automático: cualquier cambio se persiste al instante (localStorage),
+  // sin depender de un botón. Evita que "no se guarden los datos".
+  useEffect(() => { if (printer) labelPrinterConfig.setPrinter(printer); }, [printer]);
+  useEffect(() => { labelPrinterConfig.setOffset(offset); }, [offset]);
+  useEffect(() => { labelPrinterConfig.setMode(mode); }, [mode]);
+  useEffect(() => { labelPrinterConfig.setGapMm(gapMm); }, [gapMm]);
+
   const saveConfig = () => {
     labelPrinterConfig.setPrinter(printer);
     labelPrinterConfig.setOffset(offset);
@@ -85,7 +92,7 @@ export const LabelPrinterSettings: React.FC = () => {
     try {
       labelPrinterConfig.setPrinter(printer);
       labelPrinterConfig.setOffset(offset);
-      const tpl = (tenantId && templates[0]) || fallbackTemplate();
+      const tpl = testTemplate();   // prueba SIEMPRE a 35×25
       if (mode === 'tspl') {
         await printLabelTSPL(printer, tpl, TEST_PRODUCT, { gapMm, copies: 1, offset });
       } else {
