@@ -19,6 +19,8 @@ export interface LabelElement {
   src?: string;           // dataURL (base64) — para 'image'
   codeSource?: 'sku' | 'sku2';  // barcode/qr: cuál código usar (SKU 1 o SKU 2)
   rotation?: number;      // grados 0/90/180/270 (para etiquetas altas)
+  maxLines?: number;      // texto: máximo de líneas (product_name = 2 por defecto)
+  autoFit?: boolean;      // texto: achica la fuente para caber en el ancho/líneas
 }
 
 export interface LabelTemplate {
@@ -66,7 +68,9 @@ export const labelTemplatesService = {
     const tpl: LabelTemplate = {
       id: uid(), name, widthMm, heightMm, updatedAt: new Date().toISOString(),
       elements: [
-        { id: uid(), type: 'product_name', x: 6, y: 6, fontSize: 13, bold: true, align: 'left' },
+        // Nombre en 2 líneas, auto-ajuste de tamaño y centrado (por defecto).
+        { id: uid(), type: 'product_name', x: 6, y: 6, fontSize: 13, bold: true, align: 'center',
+          width: Math.round(widthMm * DESIGN_SCALE - 12), maxLines: 2, autoFit: true },
         { id: uid(), type: 'price', x: 6, y: Math.round(heightMm * DESIGN_SCALE * 0.55), fontSize: 20, bold: true, align: 'left' },
         { id: uid(), type: 'barcode', x: 6, y: Math.round(heightMm * DESIGN_SCALE * 0.35), width: Math.round(widthMm * DESIGN_SCALE * 0.7), height: 26 },
       ],

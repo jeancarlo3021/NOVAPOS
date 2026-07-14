@@ -58,14 +58,92 @@ export function qrSvg(value: string): string {
   }
 }
 
-function elText(el: LabelElement, p: LabelProduct): string {
+// ── Auto-ajuste de texto (achicar fuente + envolver en N líneas) ─────────────
+// Todo se mide en "px de diseño" (misma escala que fontSize/width del elemento),
+// así el ajuste es consistente sin importar el zoom o los mm reales.
+let _measureCtx: CanvasRenderingContext2D | null = null;
+function measureCtx(): CanvasRenderingContext2D | null {
+  if (_measureCtx) return _measureCtx;
+  try { _measureCtx = document.createElement('canvas').getContext('2d'); } catch { _measureCtx = null; }
+  return _measureCtx;
+}
+
+/** Envuelve `text` en ≤maxLines líneas que quepan en maxWidth; null si no cabe. */
+function wrapToLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] | null {
+  const words = String(text ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [''];
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    if (ctx.measureText(w).width > maxWidth) return null;   // palabra sola no cabe
+    const test = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(test).width <= maxWidth) { cur = test; }
+    else { lines.push(cur); cur = w; if (lines.length >= maxLines) return null; }
+  }
+  if (cur) lines.push(cur);
+  return lines.length <= maxLines ? lines : null;
+}
+
+/**
+ * Calcula el tamaño de fuente (px de diseño) y las líneas para que `text` quepa
+ * en `maxWidth` × `maxLines`, achicando desde `maxFont` hasta `minFont`.
+ */
+export function fitText(
+  text: string, maxWidth: number, maxLines: number, maxFont: number,
+  bold: boolean, family: string, minFont = 6,
+): { fontSize: number; lines: string[] } {
+  const ctx = measureCtx();
+  if (!ctx) return { fontSize: maxFont, lines: [String(text ?? '')] };
+  for (let fs = Math.round(maxFont); fs >= minFont; fs--) {
+    ctx.font = `${bold ? '700' : '400'} ${fs}px ${family}`;
+    const lines = wrapToLines(ctx, text, maxWidth, maxLines);
+    if (lines) return { fontSize: fs, lines };
+  }
+  // No cupo ni al mínimo: partir a la fuerza en maxLines y truncar.
+  ctx.font = `${bold ? '700' : '400'} ${minFont}px ${family}`;
+  const chars = String(text ?? '');
+  const lines: string[] = [];
+  let cur = '';
+  for (const ch of chars) {
+    if (ctx.measureText(cur + ch).width > maxWidth) { lines.push(cur); cur = ch; if (lines.length >= maxLines) break; }
+    else cur += ch;
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  return { fontSize: minFont, lines };
+}
+
+/** Texto SIN escapar (para medir/ajustar). */
+export function elRawText(el: LabelElement, p: LabelProduct): string {
   switch (el.type) {
-    case 'product_name': return escapeHtml(p.name);
+    case 'product_name': return p.name ?? '';
     case 'price':        return crc(p.price);
-    case 'sku':          return escapeHtml(codeOf(el, p));
-    case 'text':         return escapeHtml(el.value || '');
+    case 'sku':          return codeOf(el, p);
+    case 'text':         return el.value || '';
     default:             return '';
   }
+}
+
+function elText(el: LabelElement, p: LabelProduct): string {
+  return escapeHtml(elRawText(el, p));
+}
+
+/** Alineación del texto: el nombre del producto se centra automáticamente. */
+export function textAlignOf(el: LabelElement): 'left' | 'center' | 'right' {
+  if (el.type === 'product_name') return 'center';
+  return el.align ?? 'left';
+}
+
+/** ¿Este elemento de texto usa auto-ajuste multi-línea? (product_name: sí por defecto). */
+export function textFitConfig(el: LabelElement): { fit: boolean; maxLines: number } {
+  const fit = el.autoFit ?? (el.type === 'product_name');
+  const maxLines = el.maxLines ?? (el.type === 'product_name' ? 2 : 1);
+  return { fit: !!fit && maxLines >= 1, maxLines };
+}
+
+/** Ancho de la caja de texto (px de diseño): el.width o el resto de la etiqueta. */
+export function textBoxWidth(el: LabelElement, widthMm: number): number {
+  if (el.width && el.width > 0) return el.width;
+  return Math.max(20, widthMm * DESIGN_SCALE - el.x - DESIGN_SCALE * 2);
 }
 
 /** HTML de UNA etiqueta al tamaño físico de la plantilla.
@@ -98,8 +176,19 @@ export function renderLabelHTML(
       if (!el.src) return '';
       return `<img src="${el.src}" style="position:absolute;left:${left}mm;top:${top}mm;width:${mm(el.width ?? 60)}mm;height:${mm(el.height ?? 60)}mm;object-fit:contain;${border}${rot(el)}"/>`;
     }
-    const align = el.align || 'left';
+    const align = textAlignOf(el);
     const font = el.fontFamily || DEFAULT_FONT_CSS;
+    const { fit, maxLines } = textFitConfig(el);
+    if (fit) {
+      // Auto-ajuste: achica la fuente y envuelve en ≤maxLines líneas (ej. nombre
+      // de producto en 2 líneas). Se mide en px de diseño y se emite en mm/pt.
+      const boxDesign = textBoxWidth(el, tpl.widthMm);
+      const fitted = fitText(elRawText(el, p), boxDesign, maxLines, el.fontSize ?? 12, !!el.bold, font);
+      const body = fitted.lines.map(l => escapeHtml(l)).join('<br>');
+      return `<div style="position:absolute;left:${left}mm;top:${top}mm;width:${mm(boxDesign)}mm;` +
+        `font-size:${pt(fitted.fontSize)}pt;font-family:${font};font-weight:${el.bold ? 700 : 400};` +
+        `text-align:${align};line-height:1.05;overflow:hidden;${border}${rot(el)}">${body}</div>`;
+    }
     return `<div style="position:absolute;left:${left}mm;top:${top}mm;font-size:${pt(el.fontSize ?? 12)}pt;` +
       `font-family:${font};font-weight:${el.bold ? 700 : 400};text-align:${align};line-height:1.1;white-space:nowrap;${border}${rot(el)}">` +
       `${elText(el, p)}</div>`;

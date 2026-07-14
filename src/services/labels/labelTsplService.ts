@@ -10,7 +10,7 @@
 // del SVG se dispara antes de pintar el código de barras y las fuentes, dejando
 // SOLO los bordes. Dibujar en canvas es determinista.
 
-import { codeOf, barcodeDataURL, qrSvg, type LabelProduct } from './labelRenderService';
+import { codeOf, barcodeDataURL, qrSvg, fitText, textFitConfig, textBoxWidth, textAlignOf, type LabelProduct } from './labelRenderService';
 import { DESIGN_SCALE, type LabelTemplate, type LabelElement } from './labelTemplatesService';
 import { qzPrintUSB } from '@/services/pos/qzTrayService';
 
@@ -96,14 +96,33 @@ export async function renderLabelCanvas(
         }
       } else {
         const text = elPlainText(el, product);
-        const px = designToDots(el.fontSize ?? 12);
         const family = el.fontFamily || 'Arial, Helvetica, sans-serif';
-        ctx.font = `${el.bold ? '700' : '400'} ${px}px ${family}`;
         ctx.textBaseline = 'top';
         ctx.fillStyle = '#000';
-        ctx.fillText(text, left, top);
-        boxW = Math.ceil(ctx.measureText(text).width);
-        boxH = Math.ceil(px * 1.1);
+        const { fit, maxLines } = textFitConfig(el);
+        if (fit) {
+          // Auto-ajuste: nombre de producto en ≤2 líneas, achicando la fuente,
+          // centrado dentro de su caja.
+          const boxDesign = textBoxWidth(el, tpl.widthMm);
+          const fitted = fitText(text, boxDesign, maxLines, el.fontSize ?? 12, !!el.bold, family);
+          const fontDots = designToDots(fitted.fontSize);
+          const lineH = Math.ceil(fontDots * 1.05);
+          const boxDots = designToDots(boxDesign);
+          const al = textAlignOf(el);
+          ctx.font = `${el.bold ? '700' : '400'} ${fontDots}px ${family}`;
+          ctx.textAlign = al === 'center' ? 'center' : al === 'right' ? 'right' : 'left';
+          const anchorX = al === 'center' ? left + boxDots / 2 : al === 'right' ? left + boxDots : left;
+          fitted.lines.forEach((ln, i) => ctx.fillText(ln, anchorX, top + i * lineH));
+          ctx.textAlign = 'left';   // restaurar
+          boxW = boxDots;
+          boxH = lineH * fitted.lines.length;
+        } else {
+          const px = designToDots(el.fontSize ?? 12);
+          ctx.font = `${el.bold ? '700' : '400'} ${px}px ${family}`;
+          ctx.fillText(text, left, top);
+          boxW = Math.ceil(ctx.measureText(text).width);
+          boxH = Math.ceil(px * 1.1);
+        }
       }
 
       if (el.border && boxW > 0 && boxH > 0) {

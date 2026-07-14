@@ -11,7 +11,7 @@ import {
   type LabelTemplate, type LabelElement, type LabelElementType,
 } from '@/services/labels/labelTemplatesService';
 import { SYSTEM_FONTS, GOOGLE_FONTS, ensureFontLoaded } from '@/services/labels/fontsService';
-import { codeOf, qrSvg, type LabelProduct } from '@/services/labels/labelRenderService';
+import { codeOf, qrSvg, fitText, textFitConfig, textBoxWidth, textAlignOf, type LabelProduct } from '@/services/labels/labelRenderService';
 
 // Producto de muestra por defecto para previsualizar la plantilla.
 const DEFAULT_SAMPLE: LabelProduct = { name: 'Café Americano 8oz', price: 1500, sku: '7501055309948', sku2: '1042' };
@@ -171,11 +171,25 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
   };
 
   const renderContent = (el: LabelElement, z = 1): React.ReactNode => {
+    // Texto: nombre de producto en 2 líneas con auto-ajuste (y demás textos).
+    if (el.type === 'product_name' || el.type === 'price' || el.type === 'sku' || el.type === 'text') {
+      const raw = el.type === 'product_name' ? SAMPLE.name
+        : el.type === 'price' ? crc(SAMPLE.price)
+        : el.type === 'sku' ? codeOf(el, SAMPLE)
+        : (el.value || 'Texto');
+      const { fit, maxLines } = textFitConfig(el);
+      if (fit) {
+        const boxDesign = textBoxWidth(el, widthMm);
+        const fitted = fitText(raw, boxDesign, maxLines, el.fontSize ?? 12, !!el.bold, el.fontFamily || 'Arial, sans-serif');
+        return (
+          <div style={{ width: boxDesign * z, fontSize: fitted.fontSize * z, whiteSpace: 'normal', lineHeight: 1.05, overflow: 'hidden', textAlign: textAlignOf(el) }}>
+            {fitted.lines.map((l, i) => <React.Fragment key={i}>{i > 0 && <br />}{l}</React.Fragment>)}
+          </div>
+        );
+      }
+      return raw;
+    }
     switch (el.type) {
-      case 'product_name': return SAMPLE.name;
-      case 'price':        return crc(SAMPLE.price);
-      case 'sku':          return codeOf(el, SAMPLE);
-      case 'text':         return el.value || 'Texto';
       case 'barcode':
         return (
           <div style={{ width: (el.width ?? 140) * z, height: (el.height ?? 30) * z }} className="flex flex-col items-center justify-center">
