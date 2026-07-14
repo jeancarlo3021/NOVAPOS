@@ -4,6 +4,7 @@ import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
+import { fuzzyMatch } from '@/utils/fuzzySearch';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { ProductForm } from './ProductsForm';
@@ -61,8 +62,7 @@ export const ProductsList: React.FC = () => {
   };
 
   const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.sku.toLowerCase().includes(searchTerm.toLowerCase())
+    fuzzyMatch(searchTerm, p.name, p.sku, (p as any).sku2, (p as any).description)
   );
 
   // Productos con stock infinito (tracks_stock=false) NO entran a las alertas:

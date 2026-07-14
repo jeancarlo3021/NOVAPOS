@@ -3,6 +3,7 @@ import { Product } from '@/types/Types_POS';
 import { apiFetch } from '@/lib/api';
 import { useTenant } from '../useTenant';
 import { posOfflineService } from '@/services/pos/posOfflineService';
+import { fuzzyMatch } from '@/utils/fuzzySearch';
 
 export function usePOSProducts() {
   const { tenantId } = useTenant();
@@ -190,12 +191,9 @@ export function usePOSProducts() {
 
   const filteredProducts = useMemo(() => {
     if (!searchTerm.trim()) return products;
-    const term = searchTerm.toLowerCase();
+    // Búsqueda por similitud (tolerante a errores) sobre nombre, SKU, SKU2 y desc.
     return products.filter(p =>
-      p.name.toLowerCase().includes(term) ||
-      p.sku?.toLowerCase().includes(term) ||
-      (p as any).sku2?.toLowerCase().includes(term) ||
-      p.description?.toLowerCase().includes(term)
+      fuzzyMatch(searchTerm, p.name, p.sku, (p as any).sku2, p.description)
     );
   }, [products, searchTerm]);
 
