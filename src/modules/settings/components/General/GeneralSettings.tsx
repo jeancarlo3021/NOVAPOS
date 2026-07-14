@@ -102,26 +102,33 @@ export const GeneralSettings: React.FC = () => {
 
       <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-gray-200 p-6 space-y-5">
 
+        {planHasFe && (
+          <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+            <Lock size={16} className="shrink-0 mt-0.5" />
+            <span>Con <b>Facturación Electrónica</b> activa, los datos fiscales del negocio se toman de <b>Facturación Electrónica → Datos del emisor</b> (y de ahí salen para el ticket). Editálos ahí.</span>
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">Nombre del Negocio</label>
-          <input type="text" name="businessName" value={formData.businessName} onChange={handleChange}
+          <input type="text" name="businessName" value={formData.businessName} onChange={handleChange} disabled={planHasFe}
             placeholder="Mi Restaurante"
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula Jurídica / RUC</label>
-            <input type="text" name="ruc" value={formData.ruc} onChange={handleChange}
+            <input type="text" name="ruc" value={formData.ruc} onChange={handleChange} disabled={planHasFe}
               placeholder="3-101-123456"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
             <p className="text-xs text-gray-400 mt-1">Para personas jurídicas / empresas</p>
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula (Física)</label>
-            <input type="text" name="cedula" value={formData.cedula} onChange={handleChange}
+            <input type="text" name="cedula" value={formData.cedula} onChange={handleChange} disabled={planHasFe}
               placeholder="1-1234-5678"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
             <p className="text-xs text-gray-400 mt-1">Cédula del propietario (opcional)</p>
           </div>
         </div>
@@ -129,23 +136,23 @@ export const GeneralSettings: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
-            <input type="email" name="email" value={formData.email} onChange={handleChange}
+            <input type="email" name="email" value={formData.email} onChange={handleChange} disabled={planHasFe}
               placeholder="info@negocio.com"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Teléfono</label>
-            <input type="tel" name="phone" value={formData.phone} onChange={handleChange}
+            <input type="tel" name="phone" value={formData.phone} onChange={handleChange} disabled={planHasFe}
               placeholder="+506 2234-5678"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
           </div>
         </div>
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">Dirección</label>
-          <input type="text" name="address" value={formData.address} onChange={handleChange}
+          <input type="text" name="address" value={formData.address} onChange={handleChange} disabled={planHasFe}
             placeholder="Calle Principal 123"
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
         </div>
 
         <div>
@@ -158,9 +165,9 @@ export const GeneralSettings: React.FC = () => {
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">Ciudad / Cantón</label>
-          <input type="text" name="city" value={formData.city} onChange={handleChange}
+          <input type="text" name="city" value={formData.city} onChange={handleChange} disabled={planHasFe}
             placeholder="San José"
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
         </div>
 
         {/* Impuesto de Ventas */}

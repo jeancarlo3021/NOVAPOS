@@ -48,6 +48,7 @@ const CustomersList            = lazy(() => import('./modules/customers/Customer
 const InfoDashboard            = lazy(() => import('./modules/info/InfoDashboard').then(m => ({ default: m.InfoDashboard })));
 const FeInvoicesDashboard      = lazy(() => import('./modules/hacienda/FeInvoicesDashboard').then(m => ({ default: m.FeInvoicesDashboard })));
 const FeposMain                = lazy(() => import('./modules/hacienda/FeposMain').then(m => ({ default: m.FeposMain })));
+const ReceptionDashboard       = lazy(() => import('./modules/hacienda/ReceptionDashboard').then(m => ({ default: m.ReceptionDashboard })));
 
 function RouteFallback() {
   return (
@@ -164,6 +165,9 @@ function AppContent() {
               <Route path="/info" element={<InfoDashboard />} />
               <Route path="/fe-facturas" element={
                 <PlanGuard feature="electronic_invoice"><FeInvoicesDashboard /></PlanGuard>
+              } />
+              <Route path="/fe-recepcion" element={
+                <PlanGuard feature="electronic_invoice"><ReceptionDashboard /></PlanGuard>
               } />
               <Route path="/fe-pos" element={
                 <PlanGuard feature="fe_pos"><FeposMain /></PlanGuard>

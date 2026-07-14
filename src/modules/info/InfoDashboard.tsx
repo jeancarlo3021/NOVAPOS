@@ -21,14 +21,31 @@ const fmtDate = (iso?: string) =>
 export const InfoDashboard: React.FC = () => {
   const { tenant, planName, planFeatures } = useAuth();
   const sub = tenant?.subscription ?? null;
-  const plan = sub?.plan ?? null;
+  const clientPlan = sub?.plan ?? null;
   const feEnabled = !!(planFeatures as any)?.electronic_invoice;
   const [quota, setQuota] = useState<any | null>(null);
+  // Info del plan resuelta por el backend (service-role): para SUCURSALES el
+  // objeto `tenant.subscription` viene null por RLS → vencimiento/precio salían
+  // en ∞/—. El backend devuelve el plan real, heredado del negocio principal.
+  const [planInfo, setPlanInfo] = useState<any | null>(null);
   useEffect(() => {
     if (feEnabled) haciendaService.quota().then(setQuota).catch(() => {});
   }, [feEnabled]);
+  useEffect(() => {
+    if (!tenant?.id) return;
+    import('@/lib/api').then(({ apiFetch }) =>
+      apiFetch(`/tenant-groups/my/tenant-plan/${tenant.id}`).then(setPlanInfo).catch(() => {})
+    );
+  }, [tenant?.id]);
 
-  const endsAt = sub?.ends_at;
+  // Preferimos lo que resuelve el backend; caemos al objeto del cliente.
+  const plan = {
+    name: planInfo?.name ?? clientPlan?.name ?? planName,
+    price: planInfo?.price ?? clientPlan?.price ?? null,
+    billing_cycle: planInfo?.billing_cycle ?? clientPlan?.billing_cycle ?? '',
+    description: planInfo?.description ?? clientPlan?.description ?? '',
+  };
+  const endsAt = planInfo?.ends_at ?? sub?.ends_at;
   const daysLeft = endsAt
     ? Math.ceil((new Date(endsAt).getTime() - Date.now()) / 86_400_000)
     : null;

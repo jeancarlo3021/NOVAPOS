@@ -669,6 +669,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (planData.name === 'demo' && selectedTenant) {
         planData = await loadPlanFeatures(selectedTenant.id);
       }
+      // Si el tenant por defecto es una SUCURSAL sin suscripción propia, el cliente
+      // no puede leer el plan del grupo por RLS → quedaría en 'demo'. Pedimos el
+      // plan (heredado del tenant principal) al backend con service-role.
+      if (planData.name === 'demo' && selectedTenant) {
+        try {
+          const { apiFetch } = await import('@/lib/api');
+          const p = await apiFetch<{ name: string; features: Partial<PlanFeatures> | null }>(`/tenant-groups/my/tenant-plan/${selectedTenant.id}`);
+          if (p?.features) planData = { name: p.name ?? 'demo', features: { ...DEFAULT_FEATURES, ...p.features } };
+        } catch { /* sin conexión: se queda con lo que haya */ }
+      }
 
       if (!isActive()) return;
 

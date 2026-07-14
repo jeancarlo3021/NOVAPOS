@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FileDown } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown, Inbox } from 'lucide-react';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
 import { formatWallClock } from '@/utils/datetime';
@@ -18,6 +19,7 @@ interface FeRow {
   fe_status?: string | null;
   fe_error?: string | null;
   fe_nc_clave?: string | null;
+  fe_nd_clave?: string | null;
 }
 
 const STATUS = {
@@ -29,14 +31,21 @@ const STATUS = {
 } as const;
 
 export const FeInvoicesDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<FeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [providerFilter, setProviderFilter] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [isAlanube, setIsAlanube] = useState(false);
+
+  useEffect(() => {
+    haciendaService.provider().then(p => setIsAlanube(p.provider === 'alanube')).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -119,6 +128,18 @@ export const FeInvoicesDashboard: React.FC = () => {
     finally { setBusyId(null); }
   };
 
+  const debitNote = async (row: FeRow) => {
+    const reason = window.prompt('Motivo de la nota de débito:', 'Cargo adicional');
+    if (reason === null) return;
+    setBusyId(row.id);
+    try {
+      const r = await haciendaService.debitNote(row.id, reason || undefined);
+      setRows(prev => prev.map(x => x.id === row.id ? { ...x, fe_nd_clave: r.nd_clave ?? 'nd' } : x));
+      alert('Nota de débito emitida.' + (r.nd_clave ? ` Clave: ${r.nd_clave}` : ''));
+    } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo emitir la nota de débito'); }
+    finally { setBusyId(null); }
+  };
+
   const resendEmail = async (row: FeRow) => {
     const email = window.prompt('Reenviar comprobante a este correo:', row.customer_name ? '' : '');
     if (!email) return;
@@ -138,6 +159,27 @@ export const FeInvoicesDashboard: React.FC = () => {
     return STATUS.not_emitted;               // sin clave y sin error → no emitida
   };
 
+  // Proveedor del comprobante, derivado del consecutivo: Alanube guarda un ULID
+  // (con letras) y Facturemos un consecutivo numérico. '' si aún no fue emitido.
+  const providerOf = (r: FeRow): 'alanube' | 'facturemos' | '' => {
+    const c = String(r.fe_consecutivo ?? '').trim();
+    if (!c) return '';
+    return /[A-Za-z]/.test(c) ? 'alanube' : 'facturemos';
+  };
+
+  // Consecutivo de Hacienda (20 díg). En Alanube `fe_consecutivo` guarda el ULID
+  // interno; el consecutivo real va EMBEBIDO en la clave de 50 díg (posiciones
+  // 22–41): país(3)+fecha(6)+cédula(12) → consecutivo(20) → situación(1)+seg(8).
+  const consecutivoOf = (r: FeRow): string => {
+    const clave = String(r.fe_clave ?? '').replace(/\D/g, '');
+    if (clave.length === 50) return clave.slice(21, 41);
+    return String(r.fe_consecutivo ?? '');
+  };
+
+  const visibleRows = providerFilter
+    ? rows.filter(r => providerOf(r) === providerFilter)
+    : rows;
+
   return (
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-4">
       <div className="flex items-center gap-3">
@@ -153,8 +195,14 @@ export const FeInvoicesDashboard: React.FC = () => {
             <RefreshCw size={12} className="animate-spin" /> Consultando estado en Hacienda…
           </span>
         )}
+        {isAlanube && (
+          <button onClick={() => navigate('/fe-recepcion')}
+            className={`${hasPending ? '' : 'ml-auto'} inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 text-sm font-bold`}>
+            <Inbox size={15} /> Recepción
+          </button>
+        )}
         <button onClick={refreshPending} disabled={syncing}
-          className={`${hasPending ? '' : 'ml-auto'} inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 text-sm font-bold disabled:opacity-50`}>
+          className={`${(!isAlanube && !hasPending) ? 'ml-auto' : ''} inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 text-sm font-bold disabled:opacity-50`}>
           <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Actualizando…' : 'Actualizar estados'}
         </button>
         <button onClick={load} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50">
@@ -176,6 +224,15 @@ export const FeInvoicesDashboard: React.FC = () => {
           </select>
         </div>
         <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Proveedor</label>
+          <select value={providerFilter} onChange={e => setProviderFilter(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white">
+            <option value="">Todos</option>
+            <option value="alanube">Alanube</option>
+            <option value="facturemos">Facturemos</option>
+          </select>
+        </div>
+        <div>
           <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Desde</label>
           <input type="date" value={from} onChange={e => setFrom(e.target.value)} max={to || undefined}
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
@@ -185,18 +242,18 @@ export const FeInvoicesDashboard: React.FC = () => {
           <input type="date" value={to} onChange={e => setTo(e.target.value)} min={from || undefined}
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
         </div>
-        {(statusFilter || from || to) && (
-          <button onClick={() => { setStatusFilter(''); setFrom(''); setTo(''); }}
+        {(statusFilter || providerFilter || from || to) && (
+          <button onClick={() => { setStatusFilter(''); setProviderFilter(''); setFrom(''); setTo(''); }}
             className="px-3 py-1.5 rounded-lg text-gray-500 text-xs font-bold hover:bg-gray-100">Limpiar</button>
         )}
-        <span className="ml-auto text-xs text-gray-400 self-center">{rows.length} comprobante(s)</span>
+        <span className="ml-auto text-xs text-gray-400 self-center">{visibleRows.length} comprobante(s)</span>
       </div>
 
       {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>}
 
       {loading ? (
         <div className="flex items-center justify-center py-14 text-gray-400 gap-2"><Loader2 size={18} className="animate-spin" /> Cargando…</div>
-      ) : rows.length === 0 ? (
+      ) : visibleRows.length === 0 ? (
         <div className="bg-white border border-gray-100 rounded-2xl text-center py-14 text-gray-400">Sin comprobantes electrónicos</div>
       ) : (
         <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
@@ -210,13 +267,21 @@ export const FeInvoicesDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {rows.map(r => {
+                {visibleRows.map(r => {
                   const s = st(r);
                   const isFactura = r.document_type === 'factura_electronica';
+                  const prov = providerOf(r);
                   return (
                     <React.Fragment key={r.id}>
                       <tr className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-mono text-xs font-bold text-gray-700">{r.invoice_number}</td>
+                        <td className="px-4 py-3 font-mono text-xs font-bold text-gray-700">
+                          {r.invoice_number}
+                          {prov && (
+                            <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${prov === 'alanube' ? 'bg-indigo-100 text-indigo-600' : 'bg-teal-100 text-teal-600'}`}>
+                              {prov === 'alanube' ? 'Alanube' : 'Facturemos'}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-gray-600 text-xs">{formatWallClock(r.issued_at, { dateStyle: 'short', timeStyle: 'short' })}</td>
                         <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate">{r.customer_name ?? '—'}</td>
                         <td className="px-4 py-3 text-xs">{isFactura ? 'Factura' : 'Tiquete'}</td>
@@ -257,15 +322,21 @@ export const FeInvoicesDashboard: React.FC = () => {
                               className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-rose-700 border border-rose-300 bg-white hover:bg-rose-50 disabled:opacity-50">
                               <FileMinus size={12} /> {r.fe_nc_clave ? 'NC ✓' : 'Nota créd.'}
                             </button>
+                            <button onClick={() => debitNote(r)} disabled={busyId === r.id || !r.fe_clave || !!r.fe_nd_clave}
+                              title="Emitir nota de débito (cargo adicional)"
+                              className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-orange-700 border border-orange-300 bg-white hover:bg-orange-50 disabled:opacity-50">
+                              <FilePlus size={12} /> {r.fe_nd_clave ? 'ND ✓' : 'Nota déb.'}
+                            </button>
                           </div>
                         </td>
                       </tr>
                       {expanded === r.id && (
                         <tr className="bg-gray-50/60">
                           <td colSpan={7} className="px-4 py-3 text-xs text-gray-600 space-y-1">
-                            {r.fe_consecutivo && <div><b>Consecutivo:</b> <span className="font-mono">{r.fe_consecutivo}</span></div>}
+                            {consecutivoOf(r) && <div><b>Consecutivo:</b> <span className="font-mono">{consecutivoOf(r)}</span></div>}
                             {r.fe_clave && <div className="break-all"><b>Clave:</b> <span className="font-mono">{r.fe_clave}</span></div>}
                             {r.fe_nc_clave && <div className="break-all"><b>Nota de crédito:</b> <span className="font-mono">{r.fe_nc_clave}</span></div>}
+                            {r.fe_nd_clave && <div className="break-all"><b>Nota de débito:</b> <span className="font-mono">{r.fe_nd_clave}</span></div>}
                             {r.fe_error && <div className="text-red-600"><b>Error:</b> {r.fe_error}</div>}
                             {!r.fe_clave && <div className="text-amber-600">No emitida a Hacienda. Usá «Hacienda» para reintentar.</div>}
                           </td>

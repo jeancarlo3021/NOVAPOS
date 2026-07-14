@@ -310,8 +310,31 @@ export class POSPrinterService {
    * tickets de distribución/repartidor también muestran los datos del local.
    */
   private async fillStoreInfo(receiptData: ReceiptData, tenantId: string): Promise<void> {
-    // Si ya vienen los datos clave, no hace falta cargar.
-    if (receiptData.storeName || receiptData.storeAddress || receiptData.storeRuc) return;
+    // ── Con Facturación Electrónica activa, el ticket usa los datos del EMISOR
+    //    de FE (nombre, cédula, dirección, teléfono), no los de Settings General.
+    let fe: any = null;
+    try {
+      const cached = localStorage.getItem(`novapos_cache_${tenantId}_settings_electronic-invoice`);
+      if (cached) { const p = JSON.parse(cached); fe = p?.data?.config ?? p?.config ?? p?.data ?? p; }
+    } catch { /* ignore */ }
+    if (!fe) {
+      try { const r = await apiFetch<any>('/settings/electronic-invoice').catch(() => null); fe = r?.config ?? r; }
+      catch { /* ignore */ }
+    }
+    const feOn = !!(fe && fe.emisor_name);
+
+    if (feOn) {
+      receiptData.storeName = fe.emisor_name;
+      receiptData.storeRuc = fe.emisor_identification || undefined;
+      receiptData.storeCedula = undefined;
+      if (fe.emisor_address) receiptData.storeAddress = fe.emisor_address;
+      if (fe.emisor_phone) receiptData.storePhone = fe.emisor_phone;
+    } else if (receiptData.storeName || receiptData.storeAddress || receiptData.storeRuc) {
+      // Sin FE y el ticket ya trae datos propios (ej. distribución) → no tocar.
+      return;
+    }
+
+    // Completar lo que falte desde Settings General (ciudad, o todo si no hay FE).
     let general: any = null;
     try {
       const cached = localStorage.getItem(`novapos_cache_${tenantId}_settings_general`);

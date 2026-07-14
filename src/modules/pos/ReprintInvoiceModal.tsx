@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Printer, WifiOff, CheckCircle2, Calendar, RefreshCw, Send } from 'lucide-react';
+import { X, Search, Printer, WifiOff, CheckCircle2, Calendar, RefreshCw, RotateCcw } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService, type Invoice, type InvoiceItem } from '@/services/invoice/invoiceService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -54,7 +54,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
   const [doneId, setDoneId] = useState<string | null>(null);
   const [error, setError] = useState('');
   // Prueba de emisión a Hacienda (FE)
-  const [emittingId, setEmittingId] = useState<string | null>(null);
+  const [ncId, setNcId] = useState<string | null>(null);
   const [feMsg, setFeMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // ¿El día de una factura cae dentro del rango elegido? (rango abierto si falta un extremo)
@@ -123,29 +123,28 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
     inv.invoice_number.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Emite la factura a Hacienda (FE) para probar el flujo (Facturemos/Alanube).
-  const handleEmitFE = async (row: InvoiceRow) => {
+  // Emite una Nota de Crédito (03) que anula la factura (prueba Facturemos/Alanube).
+  const handleCreditNote = async (row: InvoiceRow) => {
+    if (!confirm(`¿Emitir Nota de Crédito para anular la factura ${row.invoice_number}?`)) return;
     setFeMsg(null);
-    setEmittingId(row.id);
+    setNcId(row.id);
     try {
-      const res = await apiFetch<any>('/hacienda/emit', {
-        method: 'POST', body: JSON.stringify({ invoice_id: row.id }),
+      const res = await apiFetch<any>('/hacienda/credit-note', {
+        method: 'POST', body: JSON.stringify({ invoice_id: row.id, reason: 'Anulación de documento' }),
       });
-      const clave = res?.clave ?? res?.alanube_doc_id ?? null;
+      const clave = res?.nc_clave ?? res?.alanube_doc_id ?? null;
       const prov = res?.provider ? ` · ${res.provider}` : '';
-      const st = res?.alanube_status ? ` · ${res.alanube_status}` : '';
       if (clave) {
-        setFeMsg({ ok: true, text: `✅ Factura ${row.invoice_number} emitida${prov}${st} · ${clave}` });
+        setFeMsg({ ok: true, text: `✅ NC de ${row.invoice_number} emitida${prov} · ${clave}` });
       } else {
-        // Emitió pero no encontró id/clave: mostramos la respuesta cruda.
-        console.log('[FE emit] respuesta:', res?.response ?? res);
-        setFeMsg({ ok: true, text: `✅ ${row.invoice_number} emitida${prov}, sin id detectado. Resp: ${JSON.stringify(res?.response ?? res).slice(0, 300)}` });
+        console.log('[NC emit] respuesta:', res?.response ?? res);
+        setFeMsg({ ok: true, text: `✅ NC de ${row.invoice_number} emitida${prov}, sin clave detectada. Resp: ${JSON.stringify(res?.response ?? res).slice(0, 300)}` });
       }
       load();
     } catch (e) {
-      setFeMsg({ ok: false, text: `❌ ${row.invoice_number}: ${e instanceof Error ? e.message : 'error al emitir'}` });
+      setFeMsg({ ok: false, text: `❌ NC ${row.invoice_number}: ${e instanceof Error ? e.message : 'error al emitir NC'}` });
     } finally {
-      setEmittingId(null);
+      setNcId(null);
     }
   };
 
@@ -332,19 +331,20 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-gray-800 text-sm">{fmt(inv.total)}</span>
-                    {inv.fe_clave ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700" title={`Clave: ${inv.fe_clave}`}>
-                        <CheckCircle2 size={12} /> FE
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => handleEmitFE(inv)}
-                        disabled={emittingId === inv.id}
-                        title="Emitir a Hacienda (prueba)"
-                        className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition text-cyan-700 border border-cyan-300 bg-white hover:bg-cyan-600 hover:text-white disabled:opacity-50"
-                      >
-                        <Send size={13} /> {emittingId === inv.id ? 'Emitiendo…' : 'Probar FE'}
-                      </button>
+                    {inv.fe_clave && (
+                      <>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700" title={`Clave: ${inv.fe_clave}`}>
+                          <CheckCircle2 size={12} /> FE
+                        </span>
+                        <button
+                          onClick={() => handleCreditNote(inv)}
+                          disabled={ncId === inv.id}
+                          title="Emitir Nota de Crédito (anula la factura)"
+                          className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition text-rose-700 border border-rose-300 bg-white hover:bg-rose-600 hover:text-white disabled:opacity-50"
+                        >
+                          <RotateCcw size={13} /> {ncId === inv.id ? 'Emitiendo NC…' : 'NC'}
+                        </button>
+                      </>
                     )}
                     <button
                       onClick={() => handleReprint(inv)}

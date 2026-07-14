@@ -23,6 +23,13 @@ interface Line {
   unit?: string;
 }
 
+// Una FACTURA electrónica (01) exige receptor con datos fiscales completos:
+// nombre + tipo de identificación + número. Sin eso Hacienda la rechaza.
+const feReceptorComplete = (c: Customer | null): boolean =>
+  !!(c && String(c.name ?? '').trim()
+     && (c as any).identification_type
+     && String((c as any).identification ?? '').replace(/\D/g, ''));
+
 export const FeposMain: React.FC = () => {
   const { tenantId } = useTenantId();
   const { currentSession } = useCashSession();
@@ -74,15 +81,15 @@ export const FeposMain: React.FC = () => {
 
   // Con FE activa el selector solo ofrece electrónicos.
   useEffect(() => {
-    if (documentType === 'factura_electronica' && !customer?.identification) {
+    if (documentType === 'factura_electronica' && !feReceptorComplete(customer)) {
       setDocumentType('tiquete_electronico');
     }
   }, [customer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const emit = async () => {
     if (lines.length === 0) { setMsg({ ok: false, text: 'Agregá al menos un producto' }); return; }
-    if (documentType === 'factura_electronica' && !customer?.identification) {
-      setMsg({ ok: false, text: 'La factura electrónica requiere un cliente con cédula' }); return;
+    if (documentType === 'factura_electronica' && !feReceptorComplete(customer)) {
+      setMsg({ ok: false, text: 'La factura electrónica requiere un cliente con nombre, tipo y número de identificación. Completá los datos del cliente o emití un tiquete.' }); return;
     }
     // Aviso de cuota agotada: cobro por comprobante extra.
     if (quota && quota.available !== null && quota.available <= 0 && quota.extra_fee > 0) {
@@ -181,10 +188,10 @@ export const FeposMain: React.FC = () => {
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => setDocumentType('tiquete_electronico')}
               className={`py-2 rounded-lg text-xs font-bold ${documentType === 'tiquete_electronico' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Tiquete electrónico</button>
-            <button onClick={() => customer?.identification ? setDocumentType('factura_electronica') : setMsg({ ok: false, text: 'La factura requiere un cliente con cédula' })}
-              disabled={!customer?.identification}
+            <button onClick={() => feReceptorComplete(customer) ? setDocumentType('factura_electronica') : setMsg({ ok: false, text: 'La factura requiere un cliente con nombre, tipo y número de identificación' })}
+              disabled={!feReceptorComplete(customer)}
               className={`py-2 rounded-lg text-xs font-bold ${documentType === 'factura_electronica' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 disabled:opacity-50'}`}>
-              Factura electrónica{!customer?.identification ? ' (requiere cliente)' : ''}
+              Factura electrónica{!feReceptorComplete(customer) ? ' (requiere cliente)' : ''}
             </button>
           </div>
         </div>

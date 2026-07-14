@@ -102,7 +102,7 @@ export const CreateOwner: React.FC = () => {
   }, []);
 
   // Bolsa de comprobantes FE por negocio (límite, usados, vencimiento a 1 año).
-  const [feQuotas, setFeQuotas] = useState<Record<string, { included?: number; used?: number; available?: number; expires_at?: string; unlimited?: boolean }>>({});
+  const [feQuotas, setFeQuotas] = useState<Record<string, { included?: number; used?: number; available?: number; expires_at?: string; unlimited?: boolean; overage?: number; extra_fee?: number; extra_charge?: number }>>({});
   useEffect(() => {
     apiFetch<Record<string, any>>('/admin/fe-quotas').then(q => setFeQuotas(q ?? {})).catch(() => {});
   }, []);
@@ -163,6 +163,17 @@ export const CreateOwner: React.FC = () => {
       }
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo crear la empresa en Alanube', 'error');
+    } finally { setCreatingAlanubeId(null); }
+  };
+
+  // Actualiza la empresa en Alanube (ej. para activar el webhook de recepción).
+  const updateAlanubeCompany = async (o: any) => {
+    setCreatingAlanubeId(o.id);
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${o.id}/alanube/company`, { method: 'PUT' });
+      showToast(`Empresa actualizada en Alanube${r?.webhook_active ? ' · webhook de recepción ACTIVO' : ''}`, 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo actualizar la empresa en Alanube', 'error');
     } finally { setCreatingAlanubeId(null); }
   };
 
@@ -623,6 +634,23 @@ export const CreateOwner: React.FC = () => {
         {/* Recuento de documentos emitidos por el grupo */}
         <GroupDocCount />
 
+        {/* Total por cobrar de más: comprobantes FE que superaron la bolsa del plan */}
+        {(() => {
+          const totalExtra = Object.values(feQuotas).reduce((s: number, q: any) => s + (q?.extra_charge ?? 0), 0);
+          const negocios = Object.values(feQuotas).filter((q: any) => (q?.overage ?? 0) > 0).length;
+          if (totalExtra <= 0) return null;
+          return (
+            <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center shrink-0"><FileText size={18} className="text-white" /></div>
+              <div className="flex-1">
+                <p className="text-xs font-bold text-red-600 uppercase tracking-wider">Por cobrar de más — comprobantes FE sobre el plan</p>
+                <p className="text-sm text-red-800">{negocios} negocio(s) superaron su bolsa de comprobantes.</p>
+              </div>
+              <span className="text-2xl font-black text-red-700 tabular-nums">₡{totalExtra.toLocaleString('es-CR')}</span>
+            </div>
+          );
+        })()}
+
         {/* Alerts */}
         {error   && <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm"><AlertCircle size={16} className="shrink-0 mt-0.5" /><span>{error}</span><button onClick={() => setError('')} className="ml-auto text-red-400 hover:text-red-600"><X size={14} /></button></div>}
         {success && <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-emerald-700 text-sm"><CheckCircle size={16} /><span>{success}</span></div>}
@@ -1032,6 +1060,12 @@ export const CreateOwner: React.FC = () => {
                                   {expired ? '⚠ venció ' : soon ? `⚠ vence en ${daysToExp}d · ` : 'vence '}
                                   {q.expires_at ? new Date(q.expires_at).toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
                                 </span>
+                                {(q.overage ?? 0) > 0 && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white"
+                                    title={`${q.overage} comprobante(s) sobre la bolsa × ₡${Number(q.extra_fee ?? 0).toLocaleString('es-CR')} c/u`}>
+                                    +{q.overage} exced · ₡{Number(q.extra_charge ?? 0).toLocaleString('es-CR')} por cobrar
+                                  </span>
+                                )}
                               </div>
                             );
                           })()}
@@ -1104,10 +1138,18 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
                                     <FileText size={13} /> Datos de FE (ApiKey + emisor)
                                   </button>
-                                  <button onClick={() => { setOpenMenuId(null); createAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
-                                    <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Creando en Alanube…' : 'Crear empresa en Alanube'}
-                                  </button>
+                                  {(o as any).fe_provider === 'alanube' && (
+                                    <>
+                                      <button onClick={() => { setOpenMenuId(null); createAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
+                                        <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Creando en Alanube…' : 'Crear empresa en Alanube'}
+                                      </button>
+                                      <button onClick={() => { setOpenMenuId(null); updateAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
+                                        <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Actualizando…' : 'Actualizar empresa (activar webhook)'}
+                                      </button>
+                                    </>
+                                  )}
                                   <button onClick={() => { setOpenMenuId(null); setEmisorApiKey(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">
                                     <KeyRound size={13} /> ApiKey del emisor (rápido)

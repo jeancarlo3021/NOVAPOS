@@ -659,13 +659,15 @@ export default function Plans() {
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">Precio mensual</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₡</span>
-                    <input type="number" value={feForm.price || ''} onChange={e => setFeForm({ ...feForm, price: parseFloat(e.target.value) || 0 })}
+                    <input type="number" min="0" value={feForm.price ?? ''} placeholder="0 (gratis)"
+                      onChange={e => setFeForm({ ...feForm, price: e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0) })}
                       className="w-full border border-gray-200 rounded-xl pl-7 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">₡ por doc. extra</label>
-                  <input type="number" value={feForm.extraDocPrice || ''} onChange={e => setFeForm({ ...feForm, extraDocPrice: parseFloat(e.target.value) || 0 })}
+                  <input type="number" min="0" value={feForm.extraDocPrice ?? ''} placeholder="0"
+                    onChange={e => setFeForm({ ...feForm, extraDocPrice: e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0) })}
                     className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
                 </div>
               </div>
@@ -737,7 +739,9 @@ export default function Plans() {
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">Precio</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₡</span>
-                    <input type="number" value={formData.price || ''} onChange={e => setFormData({ ...formData, price: parseFloat(e.target.value) })}
+                    <input type="number" min="0" value={formData.price ?? ''}
+                      onChange={e => setFormData({ ...formData, price: e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0) })}
+                      placeholder="0 (plan gratis)"
                       step="0.01" className="w-full border border-gray-200 rounded-xl pl-7 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
                   </div>
                 </div>

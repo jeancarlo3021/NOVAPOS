@@ -1,5 +1,24 @@
 import { apiFetch } from '@/lib/api';
 
+export interface ReceivedItem {
+  detail: string; quantity: number; unit?: string | null;
+  cabys?: string | null; unit_price: number; total: number;
+}
+export interface ReceivedDoc {
+  id: string;
+  clave: string | null;
+  issuer_name: string | null;
+  issuer_id: string | null;
+  document_type: string | null;
+  date: string | null;
+  total: number;
+  tax?: number;
+  ack_status: string | null;
+  kind?: 'gasto' | 'compra' | null;
+  items?: ReceivedItem[] | null;
+  raw?: any;
+}
+
 export const haciendaService = {
   /** Verifica la conexión con Facturemos (token + emisor). */
   testConnection: () => apiFetch<{ token_ok: boolean; emisor_configured: boolean; message?: string }>(
@@ -27,6 +46,9 @@ export const haciendaService = {
   creditNote: (invoiceId: string, reason?: string) => apiFetch<{ nc_clave?: string }>(
     '/hacienda/credit-note', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason }) }),
 
+  debitNote: (invoiceId: string, reason?: string) => apiFetch<{ nd_clave?: string }>(
+    '/hacienda/debit-note', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason }) }),
+
   /** Lista los comprobantes electrónicos con su estatus (para el módulo FE Facturas). */
   listInvoices: (params?: { status?: string; from?: string; to?: string }) => {
     const q = new URLSearchParams();
@@ -40,6 +62,31 @@ export const haciendaService = {
   /** Reenvía la info del comprobante a otro correo. */
   resendEmail: (invoiceId: string, email: string) => apiFetch<{ ok: boolean }>(
     '/hacienda/resend-email', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, email }) }),
+
+  // ── Recepción de comprobantes (Mensaje Receptor) — Alanube ──
+  /** Bandeja de comprobantes recibidos de proveedores. */
+  listReceived: () => apiFetch<ReceivedDoc[]>('/hacienda/received'),
+  /** Registra un comprobante de proveedor en la bandeja (por clave). */
+  registerReceived: (body: { clave: string; issuer_id?: string; issuer_name?: string; total?: number; tax?: number; doc_date?: string }) =>
+    apiFetch<ReceivedDoc>('/hacienda/received', { method: 'POST', body: JSON.stringify(body) }),
+  /** Registra un comprobante subiendo el XML del proveedor (se parsea en el backend). */
+  uploadReceivedXml: (xml: string) =>
+    apiFetch<ReceivedDoc>('/hacienda/received/upload', { method: 'POST', body: JSON.stringify({ xml }) }),
+  /** Envía el Mensaje Receptor: '1' aceptación total, '3' rechazo. */
+  confirmReceived: (id: string, state: '1' | '3', reason?: string) =>
+    apiFetch<{ ok: boolean; state: string }>('/hacienda/received/confirm',
+      { method: 'POST', body: JSON.stringify({ id, state, reason }) }),
+  /** Clasifica un recibido como 'gasto' o 'compra' a proveedor. */
+  classifyReceived: (id: string, kind: 'gasto' | 'compra') =>
+    apiFetch<{ ok: boolean; kind: string }>('/hacienda/received/classify',
+      { method: 'POST', body: JSON.stringify({ id, kind }) }),
+  /** Convierte un recibido en una compra a proveedor (crea proveedor + compra). */
+  receivedToPurchase: (id: string) =>
+    apiFetch<{ ok: boolean; purchase_id: string; supplier_id: string }>('/hacienda/received/to-purchase',
+      { method: 'POST', body: JSON.stringify({ id }) }),
+
+  /** Proveedor de FE del tenant actual (para ocultar funciones de Alanube). */
+  provider: () => apiFetch<{ provider: 'alanube' | 'facturemos'; enabled: boolean }>('/hacienda/provider'),
 
   /** Cuota de comprobantes del plan (un solo contador: facturas+tiquetes+NC). */
   quota: () => apiFetch<{
