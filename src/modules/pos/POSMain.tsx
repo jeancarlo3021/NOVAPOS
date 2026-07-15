@@ -62,7 +62,7 @@ export const POSMain = () => {
   const { currentSession, loading: sessionLoading, refetchSession } = useCashSession();
   const { isOnline } = useOfflineSync();
   const { rate: exchangeRate } = useExchangeRate();
-  const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError } = usePOSProducts();
+  const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError, refetch: refetchProducts } = usePOSProducts();
   const activePromotions = usePOSPromotions(tenantId);
 
   // Carrito multi-pestaña: cada tab tiene su propio cart + cliente, persistido
@@ -530,6 +530,14 @@ export const POSMain = () => {
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerPrices, isDeliveryMode]);
+
+  // Quita un producto de favoritos desde el POS (clic en la estrella).
+  const handleRemoveFavorite = async (product: Product) => {
+    try {
+      await apiFetch(`/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ is_favorite: false }) });
+      refetchProducts();
+    } catch { /* si falla, el producto sigue como favorito */ }
+  };
 
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     const promo = getProductPromotion(
@@ -1069,6 +1077,7 @@ export const POSMain = () => {
           customerPrices={customerPrices}
           deliveryMode={isDeliveryMode}
           onAddToCart={handleAddToCart}
+          onRemoveFavorite={handleRemoveFavorite}
           currentSession={currentSession}
           productsError={productsError}
           ignoreStock={!planFeatures.inventory || (planFeatures as any).inventory_products_only}

@@ -51,6 +51,8 @@ interface POSProductsPanelProps {
   customerPrices?: Record<string, number>;
   /** El POS está en modo Delivery: muestra el precio delivery del producto (si tiene). */
   deliveryMode?: boolean;
+  /** Quita el producto de favoritos (clic en la estrella). */
+  onRemoveFavorite?: (product: Product) => void;
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
@@ -67,6 +69,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   searchTabsEnabled: _searchTabsEnabled = false,
   customerPrices = {},
   deliveryMode = false,
+  onRemoveFavorite,
 }) => {
   const { tenantId } = useTenantId();
   const { layout } = usePOSLayout();
@@ -507,9 +510,14 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                       {stock}
                     </span>
                   )}
-                  {/* Estrella de favorito */}
+                  {/* Estrella de favorito — clic para quitar de favoritos. */}
                   {(product as any).is_favorite && (
-                    <span className="absolute top-2 left-2 text-amber-400" title="Favorito">
+                    <span
+                      role={onRemoveFavorite ? 'button' : undefined}
+                      onClick={onRemoveFavorite ? (e) => { e.stopPropagation(); onRemoveFavorite(product); } : undefined}
+                      className={`absolute top-2 left-2 text-amber-400 ${onRemoveFavorite ? 'hover:text-red-500 cursor-pointer' : ''}`}
+                      title={onRemoveFavorite ? 'Quitar de favoritos' : 'Favorito'}
+                    >
                       <Star size={16} fill="currentColor" />
                     </span>
                   )}

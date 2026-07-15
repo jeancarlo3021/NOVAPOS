@@ -16,6 +16,12 @@ export interface ReceivedDoc {
   ack_status: string | null;
   kind?: 'gasto' | 'compra' | null;
   items?: ReceivedItem[] | null;
+  /** Origen del comprobante: 'email' (cron por correo), 'manual', 'alanube'. */
+  source?: string | null;
+  /** Remitente del correo del que llegó (cuando source='email'). */
+  email_from?: string | null;
+  /** Borrador de compra ya creado automáticamente (cuando llega por correo). */
+  purchase_id?: string | null;
   raw?: any;
 }
 

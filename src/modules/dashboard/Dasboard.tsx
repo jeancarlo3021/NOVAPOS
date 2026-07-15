@@ -72,14 +72,6 @@ export const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [subEndsAt, setSubEndsAt] = useState<string | null>(null);
   const [qzConnected, setQzConnected] = useState(false);
-  // Proveedor de FE — la Recepción solo aplica con Alanube.
-  const [feProvider, setFeProvider] = useState<string | null>(null);
-  useEffect(() => {
-    if (!tenantId || isSaasAdmin || !(planFeatures as any)?.electronic_invoice) return;
-    import('@/services/hacienda/haciendaService')
-      .then(({ haciendaService }) => haciendaService.provider())
-      .then(p => setFeProvider(p.provider)).catch(() => {});
-  }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Admin de SaaS no tiene tenant operativo → los endpoints tipo
   // /accounts-payable, /purchases, /reports devuelven 403 y tardan ~14 s en
@@ -200,14 +192,21 @@ export const Dashboard = () => {
   const { canAccess } = useRolePermissions();
   // Solo mostrar tiles habilitados por plan Y por el rol del user.
   // Settings/Configuración pasa por plan + rol (si el owner lo cerró, gerente no la ve).
+  // Admin/owner: siempre ve la Recepción de facturas (por correo).
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin';
   const tiles = ALL_TILES.filter(t => {
+    // Recepción de comprobantes: ahora es POR CORREO (no depende de Alanube).
+    // El admin/owner siempre la ve; para el resto, requiere el plan + rol.
+    if (t.path === '/fe-recepcion') {
+      if (isAdmin) return true;
+      if (!(pf.electronic_invoice ?? false)) return false;
+      return canAccess('electronic_invoice');
+    }
     // 'settings' siempre; 'customers' visible salvo que se desactive; el resto
     // (incluida Distribución) depende del flag del plan.
     const planHas = t.feature === 'settings'
       || (t.feature === 'customers' ? (pf.customers !== false) : (pf[t.feature as keyof PlanFeatures] ?? false));
     if (!planHas) return false;
-    // Recepción de comprobantes: solo con Alanube.
-    if (t.path === '/fe-recepcion' && feProvider !== 'alanube') return false;
     // Mapear feature → módulo de role_permissions. Si no hay mapeo, no se gatea.
     const moduleKey = t.feature === 'settings' ? null : t.feature;
     if (!moduleKey) return true;

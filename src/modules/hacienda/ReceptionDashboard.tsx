@@ -119,7 +119,7 @@ export const ReceptionDashboard: React.FC = () => {
         </div>
         <div className="flex-1">
           <h1 className="text-xl font-black text-gray-900">Recepción de comprobantes</h1>
-          <p className="text-sm text-gray-500">Aceptá o rechazá ante Hacienda las facturas recibidas de tus proveedores.</p>
+          <p className="text-sm text-gray-500">Las facturas de compra llegan <b>automáticamente por correo</b> (se leen cada 15 min) y se registran como borrador de compra. También podés subir un XML a mano.</p>
         </div>
         <input ref={fileRef} type="file" accept=".xml,text/xml,application/xml" multiple className="hidden"
           onChange={e => onUploadXml(e.target.files)} />
@@ -175,7 +175,12 @@ export const ReceptionDashboard: React.FC = () => {
                           <span className="text-gray-400 text-xs font-black w-4">{isOpen ? '▾' : '▸'}</span>
                         )}
                         <div>
-                          <div className="font-bold text-gray-800 max-w-[220px] truncate">{r.issuer_name ?? '—'}</div>
+                          <div className="font-bold text-gray-800 max-w-[220px] truncate flex items-center gap-1.5">
+                            {r.issuer_name ?? '—'}
+                            {r.source === 'email' && (
+                              <span className="inline-flex items-center text-[9px] font-black text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full uppercase" title={r.email_from ?? 'Recibido por correo'}>📧 correo</span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-gray-400 font-mono truncate max-w-[220px]">
                             {r.issuer_id ?? r.clave ?? ''}{nItems > 0 ? ` · ${nItems} art.` : ''}
                           </div>

@@ -274,6 +274,9 @@ export const CreateOwner: React.FC = () => {
           ends_at:             row.ends_at ?? null,
           monthly_invoices:    countMap.get(row.id) ?? 0,
           distribution_invoices: distCountMap.get(row.id) ?? 0,
+          // Proveedor de FE (facturemos/alanube) — controla la visibilidad de las
+          // acciones de "Crear/Actualizar empresa en Alanube" en el menú.
+          fe_provider:         row.fe_provider ?? null,
         };
       }));
     } catch (err: any) {

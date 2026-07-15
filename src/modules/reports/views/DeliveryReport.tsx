@@ -4,10 +4,10 @@ import React, { useEffect, useState } from 'react';
 import { Truck, RefreshCw, Percent } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
-interface Week { week: string; count: number; total: number; net: number; commission: number; }
-interface Platform { platform: string; count: number; total: number; net: number; commission: number; }
-interface Invoice { id: string; invoice_number: string; customer_name?: string | null; total: number; delivery_commission_pct?: number; delivery_net?: number; delivery_platform?: string | null; issued_at: string; }
-interface Data { count: number; total: number; net: number; commission: number; weeks: Week[]; platforms?: Platform[]; invoices: Invoice[]; }
+interface Week { week: string; count: number; total: number; net: number; iva: number; commission: number; netNoIva: number; }
+interface Platform { platform: string; count: number; total: number; net: number; iva: number; commission: number; netNoIva: number; }
+interface Invoice { id: string; invoice_number: string; customer_name?: string | null; total: number; tax_amount?: number; delivery_commission_pct?: number; delivery_net?: number; delivery_platform?: string | null; issued_at: string; }
+interface Data { count: number; total: number; net: number; iva: number; commission: number; netNoIva: number; weeks: Week[]; platforms?: Platform[]; invoices: Invoice[]; }
 
 const platformStyle = (p: string): string => {
   switch (p) {
@@ -61,11 +61,13 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white rounded-xl border border-gray-100 p-4"><p className="text-xs font-bold text-gray-400">Ventas delivery</p><p className="text-2xl font-black text-gray-900">{data.count}</p></div>
         <div className="bg-orange-50 rounded-xl border border-orange-100 p-4"><p className="text-xs font-bold text-orange-600">Total vendido</p><p className="text-2xl font-black text-orange-700">{fmt(data.total)}</p></div>
         <div className="bg-red-50 rounded-xl border border-red-100 p-4"><p className="text-xs font-bold text-red-600 flex items-center gap-1"><Percent size={13} /> Comisión</p><p className="text-2xl font-black text-red-700">{fmt(data.commission)}</p></div>
         <div className="bg-emerald-50 rounded-xl border border-emerald-100 p-4"><p className="text-xs font-bold text-emerald-600">Neto recibido</p><p className="text-2xl font-black text-emerald-700">{fmt(data.net)}</p></div>
+        <div className="bg-amber-50 rounded-xl border border-amber-100 p-4"><p className="text-xs font-bold text-amber-600">IVA a pagar</p><p className="text-2xl font-black text-amber-700">−{fmt(data.iva ?? 0)}</p></div>
+        <div className="bg-teal-50 rounded-xl border border-teal-100 p-4"><p className="text-xs font-bold text-teal-600">Neto sin IVA</p><p className="text-2xl font-black text-teal-700">{fmt(data.netNoIva ?? (data.net - (data.iva ?? 0)))}</p></div>
       </div>
 
       {/* Por plataforma */}
@@ -83,6 +85,8 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                   <th className="text-right px-4 py-3">Total</th>
                   <th className="text-right px-4 py-3">Comisión</th>
                   <th className="text-right px-4 py-3">Neto</th>
+                  <th className="text-right px-4 py-3">IVA</th>
+                  <th className="text-right px-4 py-3">Neto s/IVA</th>
                 </tr>
               </thead>
               <tbody>
@@ -93,6 +97,8 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                     <td className="px-4 py-2.5 text-right font-bold text-gray-900">{fmt(p.total)}</td>
                     <td className="px-4 py-2.5 text-right text-red-600">{fmt(p.commission)}</td>
                     <td className="px-4 py-2.5 text-right font-black text-emerald-700">{fmt(p.net)}</td>
+                    <td className="px-4 py-2.5 text-right text-amber-600">−{fmt(p.iva ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right font-black text-teal-700">{fmt(p.netNoIva ?? (p.net - (p.iva ?? 0)))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -116,6 +122,8 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                   <th className="text-right px-4 py-3">Total</th>
                   <th className="text-right px-4 py-3">Comisión</th>
                   <th className="text-right px-4 py-3">Neto</th>
+                  <th className="text-right px-4 py-3">IVA</th>
+                  <th className="text-right px-4 py-3">Neto s/IVA</th>
                 </tr>
               </thead>
               <tbody>
@@ -126,6 +134,8 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                     <td className="px-4 py-2.5 text-right font-bold text-gray-900">{fmt(w.total)}</td>
                     <td className="px-4 py-2.5 text-right text-red-600">{fmt(w.commission)}</td>
                     <td className="px-4 py-2.5 text-right font-black text-emerald-700">{fmt(w.net)}</td>
+                    <td className="px-4 py-2.5 text-right text-amber-600">−{fmt(w.iva ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right font-black text-teal-700">{fmt(w.netNoIva ?? (w.net - (w.iva ?? 0)))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -149,6 +159,7 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                   <th className="text-right px-4 py-3">Total</th>
                   <th className="text-right px-4 py-3">%</th>
                   <th className="text-right px-4 py-3">Neto</th>
+                  <th className="text-right px-4 py-3">IVA</th>
                 </tr>
               </thead>
               <tbody>
@@ -157,10 +168,11 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                     <td className="px-4 py-2 font-mono text-xs text-gray-700">{i.invoice_number}</td>
                     <td className="px-4 py-2 text-gray-500 text-xs">{String(i.issued_at).slice(0, 10)}</td>
                     <td className="px-4 py-2 text-gray-600 text-xs">{i.delivery_platform ? platformStyle(i.delivery_platform) : '—'}</td>
-                    <td className="px-4 py-2 text-gray-600 truncate max-w-[160px]">{i.customer_name ?? '—'}</td>
+                    <td className="px-4 py-2 text-gray-600 truncate max-w-40">{i.customer_name ?? '—'}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900">{fmt(i.total)}</td>
                     <td className="px-4 py-2 text-right text-gray-500">{Number(i.delivery_commission_pct ?? 0)}%</td>
                     <td className="px-4 py-2 text-right font-bold text-emerald-700">{fmt(Number(i.delivery_net ?? i.total ?? 0))}</td>
+                    <td className="px-4 py-2 text-right text-amber-600">−{fmt(Number(i.tax_amount ?? 0))}</td>
                   </tr>
                 ))}
               </tbody>

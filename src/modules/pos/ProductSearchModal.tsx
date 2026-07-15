@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, X, Package, Plus } from 'lucide-react';
 import type { Product } from '@/types/Types_POS';
+import { fuzzyMatch } from '@/utils/fuzzySearch';
 import {
   type Promotion,
   getProductPromotion,
@@ -54,15 +55,13 @@ export const ProductSearchModal: React.FC<Props> = ({
   }, [products]);
 
   const filtered = useMemo(() => {
-    const t = term.trim().toLowerCase();
+    const t = term.trim();
     return products.filter((p) => {
       if (activeCat !== 'all' && (p as any).category_id !== activeCat) return false;
       if (!t) return true;
-      return (
-        p.name?.toLowerCase().includes(t) ||
-        p.sku?.toLowerCase().includes(t) ||
-        (p as any).barcode?.toLowerCase().includes(t)
-      );
+      // Busca por nombre, SKU, SKU2 (segundo código / barras) y descripción,
+      // tolerante a errores — el mismo criterio que el buscador principal.
+      return fuzzyMatch(t, p.name, p.sku, (p as any).sku2, p.description);
     });
   }, [products, term, activeCat]);
 
