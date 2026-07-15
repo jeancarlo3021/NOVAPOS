@@ -1,25 +1,25 @@
 // Shared price/margin utilities — used by ProductCard and ProductForm
 // so both always show the exact same value.
 
-/** Total en caja de una base entera: base + IVA redondeado (igual que el POS). */
-export const checkoutTotal = (base: number, rate: number) => base + Math.round((base * rate) / 100);
+/**
+ * Total en caja de una base: redondea la base y el IVA a colones enteros, igual
+ * que el POS (subtotal = round(base), IVA = round(base·rate)).
+ */
+export const checkoutTotal = (base: number, rate: number) =>
+  Math.round(base) + Math.round((base * rate) / 100);
+
+/** Redondea a 2 decimales. */
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * Precio "cerrado": dado un total CON IVA deseado, encuentra la BASE ENTERA cuyo
- * total de caja (base + IVA redondeado) sea múltiplo de ₡10 y lo más cercano al
- * total ingresado. Así no se necesita línea de redondeo y cuadra en FE.
+ * Precio "cerrado": dado un total CON IVA deseado, calcula la BASE con DECIMALES
+ * (target ÷ (1+IVA)) para que el total de caja sea EXACTAMENTE el ingresado. La
+ * base se guarda con decimales (precisión fiscal); el POS la muestra redondeada.
  */
 export function closedPriceBase(target: number, rate: number): { base: number; iva: number; total: number } {
-  const base0 = Math.round(target / (1 + rate / 100));
-  let best = base0, bestDiff = Infinity;
-  for (let b = Math.max(1, base0 - 40); b <= base0 + 40; b++) {
-    const t = checkoutTotal(b, rate);
-    if (t % 10 !== 0) continue;             // el total debe terminar en 0
-    const diff = Math.abs(t - target);
-    if (diff <= bestDiff) { bestDiff = diff; best = b; }  // empate → total mayor
-  }
-  const total = checkoutTotal(best, rate);
-  return { base: best, iva: total - best, total };
+  const base = r2(target / (1 + rate / 100));
+  const total = checkoutTotal(base, rate);
+  return { base, iva: total - Math.round(base), total };
 }
 
 export interface MarginResult {

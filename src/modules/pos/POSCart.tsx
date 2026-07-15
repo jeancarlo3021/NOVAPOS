@@ -156,7 +156,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                       </div>
                     </td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-600 font-semibold">
-                      ₡{item.unit_price.toLocaleString()}
+                      ₡{Math.round(item.unit_price).toLocaleString('es-CR')}
                     </td>
                     {canDiscount && (
                       <td className="px-2 py-1.5 text-center">
@@ -180,7 +180,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                         </div>
                       )}
                       <div className={`font-black ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
-                        ₡{item.subtotal.toLocaleString()}
+                        ₡{Math.round(item.subtotal).toLocaleString('es-CR')}
                       </div>
                     </td>
                     <td className="px-2 py-1.5 text-right">
@@ -271,7 +271,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                   {/* Price */}
                   <div className="text-right min-w-0">
                     <p className="text-gray-400 text-[11px] font-medium truncate">
-                      ₡{item.unit_price.toLocaleString()} c/u
+                      ₡{Math.round(item.unit_price).toLocaleString('es-CR')} c/u
                     </p>
                     {showOriginal && (
                       <p className="text-gray-300 text-xs line-through">
@@ -279,7 +279,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                       </p>
                     )}
                     <p className={`font-black text-base ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
-                      ₡{item.subtotal.toLocaleString()}
+                      ₡{Math.round(item.subtotal).toLocaleString('es-CR')}
                     </p>
                   </div>
                 </div>

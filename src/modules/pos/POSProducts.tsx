@@ -561,11 +561,11 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                       <span className="mt-auto leading-none">
                         {hasSpecial && (
                           <span className="block text-sm font-bold text-gray-400 line-through">
-                            ₡{product.unit_price?.toLocaleString()}
+                            ₡{Math.round(Number(product.unit_price ?? 0)).toLocaleString('es-CR')}
                           </span>
                         )}
                         <span className={`font-black text-2xl leading-none ${hasSpecial ? 'text-violet-600' : 'text-emerald-600'}`}>
-                          ₡{(hasSpecial ? special : product.unit_price)?.toLocaleString()}
+                          ₡{Math.round(Number((hasSpecial ? special : product.unit_price) ?? 0)).toLocaleString('es-CR')}
                           {isWeight && (
                             <span className="text-sm font-bold text-gray-400">
                               /{product.unit_type?.abbreviation ?? 'kg'}

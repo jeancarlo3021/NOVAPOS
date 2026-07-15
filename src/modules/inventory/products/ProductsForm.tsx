@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
-import { calcMargin, MARGIN_TEXT } from '@/utils/priceUtils';
+import { calcMargin, MARGIN_TEXT, closedPriceBase } from '@/utils/priceUtils';
 import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { useSafeFetch } from '@/hooks/useSafeFetch';
@@ -40,6 +40,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const { user, planFeatures } = useAuth();
   const { tenantId } = useTenantId();
   const isProductsOnly = planFeatures?.inventory_products_only ?? false;
+  // Funciones activas por defecto (undefined = compat planes viejos). Si están
+  // apagadas, no se muestran esos campos en el formulario de producto.
+  const flagOn = (v: unknown) => v === undefined ? true : !!v;
+  const suppliersEnabled  = flagOn((planFeatures as any)?.inventory_suppliers);
+  const categoriesEnabled = flagOn((planFeatures as any)?.inventory_categories);
+  const unitTypesEnabled  = flagOn((planFeatures as any)?.inventory_unit_types);
   // Resolved tenantId: works for both owners (user.tenant_id) and staff (via useTenantId lookup)
   const tid = tenantId ?? user?.tenant_id ?? '';
 
@@ -76,28 +82,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const [closedPrice, setClosedPrice] = useState('');
   // Tasa de IVA efectiva del producto (la elegida o la guía).
   const effectiveIvaRate = () => parseFloat(formData.iva_rate || ivaGuide || '0') || 0;
-  // Total en caja de una base entera: base + IVA redondeado (igual que el POS).
-  const checkoutTotal = (base: number, rate: number) => base + Math.round((base * rate) / 100);
-  // Busca la BASE ENTERA cuyo total de caja sea múltiplo de ₡10 y lo más cercano
-  // al precio cerrado ingresado. Así el total no lleva línea de redondeo y cuadra
-  // también en factura/tiquete electrónico.
-  const bestClosed = (target: number, rate: number) => {
-    const base0 = Math.round(target / (1 + rate / 100));
-    let best = base0, bestDiff = Infinity;
-    for (let b = Math.max(1, base0 - 40); b <= base0 + 40; b++) {
-      const t = checkoutTotal(b, rate);
-      if (t % 10 !== 0) continue;             // el total debe terminar en 0
-      const diff = Math.abs(t - target);
-      // `<=` para que, en empate de cercanía, gane el total MAYOR (redondea a más).
-      if (diff <= bestDiff) { bestDiff = diff; best = b; }
-    }
-    const total = checkoutTotal(best, rate);
-    return { base: best, iva: total - best, total };
-  };
   const applyClosedPrice = () => {
     const target = parseFloat(closedPrice);
     if (!target || target <= 0) return;
-    const r = bestClosed(target, effectiveIvaRate());
+    // Base CON DECIMALES para que el precio cerrado sea exacto (el POS la muestra
+    // redondeada, pero la caja cuadra al total ingresado).
+    const r = closedPriceBase(target, effectiveIvaRate());
     setFormData(prev => ({ ...prev, unit_price: String(r.base) }));
     setClosedPrice(String(r.total)); // reflejar el total real logrado
   };
@@ -543,21 +533,21 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     </div>
                     {parseFloat(closedPrice) > 0 && (() => {
                       const rate = effectiveIvaRate();
-                      const r = bestClosed(parseFloat(closedPrice), rate);
-                      const crc = (n: number) => `₡${n.toLocaleString('es-CR')}`;
+                      const r = closedPriceBase(parseFloat(closedPrice), rate);
+                      const crc = (n: number) => `₡${n.toLocaleString('es-CR', { maximumFractionDigits: 2 })}`;
                       return (
                         <p className="text-[11px] text-blue-600 mt-1.5">
                           Con IVA {rate}%: base <b>{crc(r.base)}</b> + IVA <b>{crc(r.iva)}</b> = <b>{crc(r.total)}</b>
-                          <span className="text-gray-400"> (múltiplo de ₡10)</span>
                         </p>
                       );
                     })()}
                     <p className="text-[10px] text-gray-400 mt-0.5">
-                      Elegí primero el IVA abajo. Al calcular, la base se ajusta para que <b>base + IVA</b> caiga en un <b>múltiplo de ₡10</b> — así cuadra en caja y en factura electrónica sin línea de redondeo.
+                      Elegí primero el IVA abajo. Al calcular, la <b>base se guarda con decimales</b> para que el total con IVA sea exactamente el precio cerrado. En el POS los precios se muestran redondeados.
                     </p>
                   </div>
 
-                  {/* Proveedor — relación opcional del producto */}
+                  {/* Proveedor — relación opcional del producto (solo si la función está activa) */}
+                  {suppliersEnabled && (
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1.5">Proveedor</label>
                     <select
@@ -576,9 +566,11 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       <p className="text-[10px] text-gray-400 mt-0.5">No hay proveedores. Podés crearlos en el módulo de Proveedores.</p>
                     )}
                   </div>
+                  )}
 
-                  {/* Categoría — visible junto al código para clasificar de una vez */}
-                  {!isProductsOnly && (
+                  {/* Categoría — visible junto al código para clasificar de una vez
+                      (solo si la función de categorías está activa) */}
+                  {!isProductsOnly && categoriesEnabled && (
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Categoría</label>
                       <div className="flex gap-2">
@@ -841,7 +833,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                   />
                 </div>
 
-                {!isProductsOnly && (
+                {!isProductsOnly && unitTypesEnabled && (
                   <>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de unidad</label>
@@ -891,7 +883,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                   </>
                 )}
 
-                {isProductsOnly && (
+                {isProductsOnly && unitTypesEnabled && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de unidad</label>
                     <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700">

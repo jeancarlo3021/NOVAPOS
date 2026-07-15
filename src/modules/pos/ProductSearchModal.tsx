@@ -181,7 +181,7 @@ export const ProductSearchModal: React.FC<Props> = ({
                         </div>
                       </div>
                       <span className="text-xl font-black text-emerald-600 shrink-0">
-                        ₡{product.unit_price?.toLocaleString()}
+                        ₡{Math.round(Number(product.unit_price ?? 0)).toLocaleString('es-CR')}
                       </span>
                       {inStock && (
                         <span className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0 shadow-sm">

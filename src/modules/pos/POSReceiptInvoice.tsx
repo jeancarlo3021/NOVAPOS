@@ -158,10 +158,10 @@ export const POSReceiptInvoice: React.FC<POSReceiptInvoiceProps> = ({
                 <div key={index} className="text-xs mb-2">
                   <div className="flex justify-between">
                     <span className="font-semibold flex-1">{item.product.name}</span>
-                    <span className="text-right">₡{item.subtotal.toLocaleString()}</span>
+                    <span className="text-right">₡{Math.round(item.subtotal).toLocaleString('es-CR')}</span>
                   </div>
                   <div className="text-gray-600 flex justify-between">
-                    <span>{item.quantity}x ₡{item.unit_price.toLocaleString()}</span>
+                    <span>{item.quantity}x ₡{Math.round(item.unit_price).toLocaleString('es-CR')}</span>
                   </div>
                 </div>
               ))}
