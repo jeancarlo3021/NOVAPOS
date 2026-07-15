@@ -531,12 +531,16 @@ export const POSMain = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerPrices, isDeliveryMode]);
 
-  // Quita un producto de favoritos desde el POS (clic en la estrella).
-  const handleRemoveFavorite = async (product: Product) => {
+  // Quita TODOS los productos de favoritos desde el POS (botón en Favoritos).
+  const handleClearFavorites = async () => {
+    const favs = products.filter(p => (p as any).is_favorite);
+    if (favs.length === 0) return;
     try {
-      await apiFetch(`/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ is_favorite: false }) });
-      refetchProducts();
-    } catch { /* si falla, el producto sigue como favorito */ }
+      await Promise.all(favs.map(p =>
+        apiFetch(`/products/${p.id}`, { method: 'PUT', body: JSON.stringify({ is_favorite: false }) })
+      ));
+    } catch { /* si alguno falla, se refresca igual con lo que sí cambió */ }
+    refetchProducts();
   };
 
   const handleAddToCart = (product: Product, quantity: number = 1) => {
@@ -1077,7 +1081,7 @@ export const POSMain = () => {
           customerPrices={customerPrices}
           deliveryMode={isDeliveryMode}
           onAddToCart={handleAddToCart}
-          onRemoveFavorite={handleRemoveFavorite}
+          onClearFavorites={handleClearFavorites}
           currentSession={currentSession}
           productsError={productsError}
           ignoreStock={!planFeatures.inventory || (planFeatures as any).inventory_products_only}

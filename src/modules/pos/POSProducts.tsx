@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Search, Package, Plus, CheckCircle2, XCircle, Star } from 'lucide-react';
+import { Search, Package, Plus, CheckCircle2, XCircle, Star, StarOff } from 'lucide-react';
 import { Product, CashSession } from '@/types/Types_POS';
 import { WeightInputModal } from './WeightInputModal';
 import { useBarcodeScanner } from '@/hooks/POS/useBarcodeScanner';
@@ -51,8 +51,8 @@ interface POSProductsPanelProps {
   customerPrices?: Record<string, number>;
   /** El POS está en modo Delivery: muestra el precio delivery del producto (si tiene). */
   deliveryMode?: boolean;
-  /** Quita el producto de favoritos (clic en la estrella). */
-  onRemoveFavorite?: (product: Product) => void;
+  /** Quita TODOS los favoritos (botón en la vista de Favoritos). */
+  onClearFavorites?: () => void;
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
@@ -69,7 +69,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   searchTabsEnabled: _searchTabsEnabled = false,
   customerPrices = {},
   deliveryMode = false,
-  onRemoveFavorite,
+  onClearFavorites,
 }) => {
   const { tenantId } = useTenantId();
   const { layout } = usePOSLayout();
@@ -419,6 +419,18 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             })}
           </div>
         )}
+
+        {/* Botón para vaciar todos los favoritos (solo en la vista de Favoritos). */}
+        {activeCategory === FAV_CAT && hasFavorites && onClearFavorites && (
+          <button
+            onClick={() => {
+              if (window.confirm('¿Quitar TODOS los productos de favoritos?')) onClearFavorites();
+            }}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-bold border border-red-200 text-red-600 bg-white hover:bg-red-50 active:scale-95 transition"
+          >
+            <StarOff size={14} /> Quitar todos los favoritos
+          </button>
+        )}
       </div>
 
       {/* ── Products area (solo layout grid) ── */}
@@ -510,14 +522,9 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                       {stock}
                     </span>
                   )}
-                  {/* Estrella de favorito — clic para quitar de favoritos. */}
+                  {/* Estrella de favorito */}
                   {(product as any).is_favorite && (
-                    <span
-                      role={onRemoveFavorite ? 'button' : undefined}
-                      onClick={onRemoveFavorite ? (e) => { e.stopPropagation(); onRemoveFavorite(product); } : undefined}
-                      className={`absolute top-2 left-2 text-amber-400 ${onRemoveFavorite ? 'hover:text-red-500 cursor-pointer' : ''}`}
-                      title={onRemoveFavorite ? 'Quitar de favoritos' : 'Favorito'}
-                    >
+                    <span className="absolute top-2 left-2 text-amber-400" title="Favorito">
                       <Star size={16} fill="currentColor" />
                     </span>
                   )}
