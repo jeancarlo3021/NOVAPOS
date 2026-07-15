@@ -107,6 +107,13 @@ export const POSMain = () => {
   // Apertura/cierre de caja (config del negocio). Si false, se vende sin caja.
   const [cashEnabled, setCashEnabled] = useState(true);
   const [taxRate, setTaxRate]         = useState(0.13);
+  // Comisiones de delivery por plataforma (configuradas en Ajustes → Delivery).
+  const [deliveryCommissions, setDeliveryCommissions] = useState<Record<string, number>>({});
+  // Modo de venta: mesa (precio normal) o delivery (precio delivery). Solo si el
+  // plan incluye la función.
+  const deliveryEnabled = !!(planFeatures as any)?.pos_delivery;
+  const [saleMode, setSaleMode] = useState<'mesa' | 'delivery'>('mesa');
+  const isDeliveryMode = deliveryEnabled && saleMode === 'delivery';
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
@@ -240,6 +247,15 @@ export const POSMain = () => {
     // Apply cached config immediately
     const cached = cacheGet<any>(ck) ?? cacheGet<any>(ckOld);
     if (cached) applyConfig(cached);
+
+    // Config de comisiones de delivery (Ajustes → Delivery).
+    apiFetch<any>('/settings/delivery').then(r => {
+      const c = r?.config ?? r;
+      if (c) setDeliveryCommissions({
+        Uber: Number(c.uber_pct ?? 0), Didi: Number(c.didi_pct ?? 0),
+        PedidosYa: Number(c.pedidosya_pct ?? 0), Otro: Number(c.otro_pct ?? 0),
+      });
+    }).catch(() => {});
 
     if (!navigator.onLine) return;
 
@@ -489,14 +505,23 @@ export const POSMain = () => {
     return () => { active = false; };
   }, [selectedCustomer, planFeatures.accounts_receivable]);
 
-  // Precio efectivo de un producto según el cliente (especial o normal).
-  const priceFor = (product: Product): number =>
-    customerPrices[product.id] ?? product.unit_price;
+  // Precio efectivo de un producto: en modo Delivery usa el precio delivery (si
+  // tiene); si no, el precio especial del cliente o el normal.
+  const priceFor = (product: Product): number => {
+    if (isDeliveryMode) {
+      const dp = Number((product as any).delivery_price ?? 0);
+      if (dp > 0) return dp;
+    }
+    return customerPrices[product.id] ?? product.unit_price;
+  };
 
-  // Re-precificar el carrito cuando cambian los precios del cliente.
+  // Re-precificar el carrito cuando cambian los precios del cliente o el modo.
   useEffect(() => {
     setCartItems(prev => prev.map(item => {
-      const base = customerPrices[item.product_id] ?? item.product?.unit_price ?? item.unit_price;
+      const dp = Number((item.product as any)?.delivery_price ?? 0);
+      const base = (isDeliveryMode && dp > 0)
+        ? dp
+        : (customerPrices[item.product_id] ?? item.product?.unit_price ?? item.unit_price);
       if (Math.round(base) === item.unit_price) return item;
       const subtotal = Math.round(item.promo
         ? calcPromoSubtotal(base, item.quantity, item.promo as any)
@@ -504,7 +529,7 @@ export const POSMain = () => {
       return { ...item, unit_price: Math.round(base), subtotal };
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerPrices]);
+  }, [customerPrices, isDeliveryMode]);
 
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     const promo = getProductPromotion(
@@ -615,7 +640,7 @@ export const POSMain = () => {
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[],
     fe?: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string; customerEmail?: string },
     rounding: number = 0,
-    currencyInfo?: { currency?: 'CRC' | 'USD'; exchangeRate?: number; amountReceived?: number; change?: number; changeCurrency?: 'CRC' | 'USD' },
+    currencyInfo?: { currency?: 'CRC' | 'USD'; exchangeRate?: number; amountReceived?: number; change?: number; changeCurrency?: 'CRC' | 'USD'; isDelivery?: boolean; deliveryCommissionPct?: number; deliveryNet?: number; deliveryPlatform?: string },
   ) => {
     if (!tenantId) return;
     try {
@@ -692,6 +717,11 @@ export const POSMain = () => {
         amountReceived: currencyInfo?.amountReceived,
         change: currencyInfo?.change,
         changeCurrency: currencyInfo?.changeCurrency,
+        // Delivery (informativo en el ticket — no se contabiliza en caja).
+        isDelivery: currencyInfo?.isDelivery,
+        deliveryCommissionPct: currencyInfo?.deliveryCommissionPct,
+        deliveryNet: currencyInfo?.deliveryNet,
+        deliveryPlatform: currencyInfo?.deliveryPlatform,
       };
 
       const dblMethods = (await posPrinterService.loadReceiptConfig(tenantId).catch(() => null) as any)?.doubleInvoiceMethods ?? ['credit'];
@@ -793,7 +823,9 @@ export const POSMain = () => {
           data.payments ?? null,
           documentType,
           selectedCustomer?.id ?? null,
-          { currency: data.currency, exchangeRate: data.exchangeRate, changeCurrency: data.changeCurrency },
+          { currency: data.currency, exchangeRate: data.exchangeRate, changeCurrency: data.changeCurrency,
+            isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryPlatform: data.deliveryPlatform,
+            deliveryNet: data.isDelivery ? Math.round(total * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined },
         );
 
         // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
@@ -851,7 +883,7 @@ export const POSMain = () => {
           }
         }
 
-        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency });
+        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform });
         setInvoiceCounterKey(k => k + 1);
         return;
       } else {
@@ -893,7 +925,7 @@ export const POSMain = () => {
           payment_method: data.paymentMethod,
         });
         refreshPendingCount();
-        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency });
+        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform });
         setInvoiceCounterKey(k => k + 1);
         return;
       }
@@ -1035,6 +1067,7 @@ export const POSMain = () => {
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
           customerPrices={customerPrices}
+          deliveryMode={isDeliveryMode}
           onAddToCart={handleAddToCart}
           currentSession={currentSession}
           productsError={productsError}
@@ -1066,6 +1099,9 @@ export const POSMain = () => {
             onPayment={() => setShowPaymentModal(true)}
             onPreTicket={printPreTicket}
             expanded={isListLayout}
+            deliveryEnabled={deliveryEnabled}
+            saleMode={saleMode}
+            onSaleModeChange={setSaleMode}
           />
         </div>
       </div>
@@ -1101,6 +1137,9 @@ export const POSMain = () => {
             onPayment={() => setShowPaymentModal(true)}
             onPreTicket={printPreTicket}
             expanded
+            deliveryEnabled={deliveryEnabled}
+            saleMode={saleMode}
+            onSaleModeChange={setSaleMode}
           />
         </div>
       </div>
@@ -1244,6 +1283,8 @@ export const POSMain = () => {
           creditBalance={creditBalance}
           exchangeRate={exchangeRate?.venta}
           allowUsd={!!(planFeatures as any).pos_usd}
+          deliveryCommissions={deliveryCommissions}
+          deliveryMode={isDeliveryMode}
         />
       )}
 

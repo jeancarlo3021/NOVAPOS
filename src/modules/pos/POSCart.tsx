@@ -33,6 +33,12 @@ interface POSCartPanelProps {
   onPreTicket?: () => void;
   /** Cuando true, el carrito se expande para ocupar el área principal (modo lista). */
   expanded?: boolean;
+  /** El plan permite delivery: muestra el selector Mesa/Delivery. */
+  deliveryEnabled?: boolean;
+  /** Modo de venta actual. */
+  saleMode?: 'mesa' | 'delivery';
+  /** Cambia el modo de venta (mesa ↔ delivery). */
+  onSaleModeChange?: (mode: 'mesa' | 'delivery') => void;
 }
 
 export const POSCartPanel: React.FC<POSCartPanelProps> = ({
@@ -56,6 +62,9 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   onPayment,
   onPreTicket,
   expanded = false,
+  deliveryEnabled = false,
+  saleMode = 'mesa',
+  onSaleModeChange,
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
   const canPay = cartItems.length > 0 && currentSession?.status === 'open' && !loading;
@@ -96,6 +105,26 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
           </span>
         )}
       </div>
+
+      {/* ── Selector Mesa / Delivery (solo si el plan lo permite) ── */}
+      {deliveryEnabled && (
+        <div className="px-4 pt-3 shrink-0">
+          <div className="flex bg-gray-100 rounded-xl p-1">
+            <button
+              onClick={() => onSaleModeChange?.('mesa')}
+              className={`flex-1 py-2 rounded-lg text-sm font-black transition ${saleMode === 'mesa' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+            >
+              🍽️ Mesa
+            </button>
+            <button
+              onClick={() => onSaleModeChange?.('delivery')}
+              className={`flex-1 py-2 rounded-lg text-sm font-black transition ${saleMode === 'delivery' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500'}`}
+            >
+              🛵 Delivery
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Items ── */}
       <div className="flex-1 overflow-y-auto pos-scroll">

@@ -3,7 +3,7 @@ import { apiFetch } from '@/lib/api';
 import { useTenantId } from './useTenant';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 
-type SettingType = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt';
+type SettingType = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'delivery';
 
 export const useSettings = (type: SettingType) => {
   const [settings, setSettings] = useState<any>(null);

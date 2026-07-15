@@ -156,6 +156,7 @@ export interface PlanFeatures {
   pos_customer_field?: boolean;      // Campo de cliente en escritorio
   pos_search_tabs?: boolean;         // Tabs separados código/nombre en escritorio
   pos_usd?: boolean;                 // Cobro en dólares (efectivo) con tipo de cambio BCCR
+  pos_delivery?: boolean;             // Ventas por delivery (mesa/delivery, plataformas, reporte)
   // ── Inventario ─────────────────────────────────────────────────────────────
   inventory_products_only: boolean;
   inventory_mixed_stock?: boolean;       // Productos con/sin stock mixtos
@@ -239,6 +240,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   pos_customer_field: false,
   pos_search_tabs: false,
   pos_usd: false,
+  pos_delivery: false,
   inventory_products_only: false,
   // Por defecto, todos los planes permiten mezclar productos con stock
   // tracked + stock infinito. Si algún plan futuro quiere bloquearlo, basta
@@ -302,6 +304,7 @@ export const FULL_FEATURES: PlanFeatures = {
   pos_customer_field: true,
   pos_search_tabs: true,
   pos_usd: true,
+  pos_delivery: true,
   inventory_products_only: false,
   inventory_mixed_stock: true,
   inventory_categories: true,

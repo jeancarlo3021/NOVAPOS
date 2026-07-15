@@ -24,6 +24,7 @@ import { DistributionReport } from './views/DistributionReport';
 import { ReceivablesReport } from './views/ReceivablesReport';
 import { TaxReport } from './views/TaxReport';
 import { VouchersReport } from './views/VouchersReport';
+import { DeliveryReport } from './views/DeliveryReport';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ function getDateRange(days: number) {
 
 type TabId =
   | 'basic' | 'advanced' | 'hourly' | 'purchases' | 'stock' | 'stock_adjustments'
-  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers';
+  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery';
 
 interface Tab {
   id: TabId;
@@ -57,6 +58,7 @@ const TABS: Tab[] = [
   { id: 'basic',    label: 'Ventas Básicas',    description: 'Resumen general',          icon: TrendingUp,    featureKey: 'reports_basic',         group: 'ventas' },
   { id: 'advanced', label: 'Ventas Avanzadas',  description: 'Análisis completo',         icon: BarChart2,     featureKey: 'report_advanced_sales', group: 'ventas' },
   { id: 'hourly',   label: 'Ventas por Hora',   description: 'Patrones horarios',         icon: Clock,         featureKey: 'report_hourly_sales',   group: 'ventas' },
+  { id: 'delivery', label: 'Delivery',          description: 'Ventas por delivery (semanal)', icon: Truck,     featureKey: 'pos_delivery',          group: 'ventas' },
 
   // Inventario
   { id: 'purchases', label: 'Compras',                  description: 'Órdenes y proveedores',           icon: ShoppingCart,  featureKey: 'report_purchases',           group: 'inventario' },
@@ -388,6 +390,7 @@ const ReportsDashboard: React.FC = () => {
               case 'receivables':       return <ReceivablesReport key={`rec-${refreshKey}`} />;
               case 'taxes':             return <TaxReport key={`tax-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'vouchers':          return <VouchersReport key={`vou-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'delivery':          return <DeliveryReport key={`del-${refreshKey}`} from={range.from} to={range.to} />;
               default:                  return null;
             }
           })()}

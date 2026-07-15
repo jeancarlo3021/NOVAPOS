@@ -830,6 +830,8 @@ export default function Plans() {
                       description="Tabs separados de búsqueda en modo escritorio" checked={!!features.pos_search_tabs} onChange={v => set({ pos_search_tabs: v })} />
                     <SubFeatureRow icon={Banknote} color="bg-emerald-500" title="Cobro en dólares"
                       description="Switch ₡/$ en efectivo con tipo de cambio del BCCR y vuelto en ₡ o $" checked={!!(features as any).pos_usd} onChange={v => set({ pos_usd: v } as any)} />
+                    <SubFeatureRow icon={Truck} color="bg-orange-500" title="Delivery"
+                      description="Modo Mesa/Delivery, precio delivery por producto, plataformas (Uber/Didi) y reporte de delivery" checked={!!(features as any).pos_delivery} onChange={v => set({ pos_delivery: v } as any)} />
                   </FeatureRow>
 
                   <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones"

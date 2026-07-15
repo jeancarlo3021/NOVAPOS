@@ -28,6 +28,7 @@ interface FormData {
   unit_type_id: string;
   supplier_id: string;
   unit_price: string;
+  delivery_price: string;
   cost_price: string;
   stock_quantity: string;
   min_stock_level: string;
@@ -46,6 +47,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const suppliersEnabled  = flagOn((planFeatures as any)?.inventory_suppliers);
   const categoriesEnabled = flagOn((planFeatures as any)?.inventory_categories);
   const unitTypesEnabled  = flagOn((planFeatures as any)?.inventory_unit_types);
+  const deliveryEnabled   = !!(planFeatures as any)?.pos_delivery;
   // Resolved tenantId: works for both owners (user.tenant_id) and staff (via useTenantId lookup)
   const tid = tenantId ?? user?.tenant_id ?? '';
 
@@ -68,6 +70,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     unit_type_id: '',
     supplier_id: '',
     unit_price: '',
+    delivery_price: '',
     cost_price: '',
     stock_quantity: '0',
     min_stock_level: '10',
@@ -91,7 +94,18 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     setFormData(prev => ({ ...prev, unit_price: String(r.base) }));
     setClosedPrice(String(r.total)); // reflejar el total real logrado
   };
+  // Precio cerrado para DELIVERY: mismo cálculo, aplicado al precio delivery.
+  const [closedDeliveryPrice, setClosedDeliveryPrice] = useState('');
+  const applyClosedDeliveryPrice = () => {
+    const target = parseFloat(closedDeliveryPrice);
+    if (!target || target <= 0) return;
+    const r = closedPriceBase(target, effectiveIvaRate());
+    setFormData(prev => ({ ...prev, delivery_price: String(r.base) }));
+    setClosedDeliveryPrice(String(r.total));
+  };
   const [tracksStock, setTracksStock] = useState<boolean>(true);
+  // No enviar a Hacienda (productos sin precio / regalías).
+  const [excludeFromFe, setExcludeFromFe] = useState<boolean>(false);
   // Modificadores / adicionales del producto (grupos con opciones)
   const [modGroups, setModGroups] = useState<import('@/services/Inventory/modifiersService').ModifierGroup[]>([]);
   const [showModifiers, setShowModifiers] = useState(false);
@@ -162,6 +176,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           unit_type_id: product.unit_type_id || '',
           supplier_id: (product as any).supplier_id || '',
           unit_price: product.unit_price?.toString() || '',
+          delivery_price: (product as any).delivery_price != null ? String((product as any).delivery_price) : '',
           cost_price: product.cost_price?.toString() || '',
           stock_quantity: product.stock_quantity?.toString() || '0',
           min_stock_level: product.min_stock_level?.toString() || '10',
@@ -172,6 +187,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         setImageUrl((product as any).image_url || undefined);
         // Si el plan no permite mezclar, siempre true. Si permite, usa el del producto.
         setTracksStock((product as any).tracks_stock ?? true);
+        setExcludeFromFe(!!(product as any).exclude_from_fe);
         // Cargar modificadores existentes
         import('@/services/Inventory/modifiersService').then(({ modifiersService }) => {
           modifiersService.forProduct(productId)
@@ -307,6 +323,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         sku2: formData.sku2?.trim() || null,
         description: formData.description || undefined,
         unit_price: formData.unit_price ? parseFloat(formData.unit_price) : 0,
+        delivery_price: deliveryEnabled && formData.delivery_price ? parseFloat(formData.delivery_price) : null,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
         image_url: imageUrl ? imageUrl.split('?')[0] : null,
         tracks_stock: finalTracksStock,
@@ -314,6 +331,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         // elija; si se deja vacío, se usa la guía de configuración (o 0).
         cabys_code: formData.cabys_code.trim() || null,
         iva_rate:   formData.iva_rate ? parseFloat(formData.iva_rate) : (ivaGuide ? parseFloat(ivaGuide) : 0),
+        exclude_from_fe: excludeFromFe,
       };
 
       // Si NO es products_only, agrega los campos de stock, categoría y tipo de unidad
@@ -508,6 +526,54 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                         />
                       </div>
                     </div>
+                    {deliveryEnabled && (
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1.5">🛵 Precio delivery <span className="text-xs text-gray-400 font-normal">(opcional)</span></label>
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-400 font-black text-lg">₡</span>
+                          <input
+                            type="number" name="delivery_price" value={formData.delivery_price}
+                            onChange={handleChange} placeholder="Igual al normal si se deja vacío"
+                            step="0.01" min="0" disabled={submitting}
+                            className="w-full pl-8 pr-4 py-2.5 text-lg font-black border-2 border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-400 focus:border-orange-400 disabled:bg-gray-100 tabular-nums"
+                          />
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Se usa cuando la venta es en modo <b>Delivery</b>. Vacío = usa el precio normal.</p>
+
+                        {/* Precio cerrado (con IVA) para el precio delivery */}
+                        <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 mt-2">
+                          <label className="block text-xs font-bold text-orange-700 mb-1.5">
+                            Precio delivery final con IVA incluido (cerrado)
+                          </label>
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-black">₡</span>
+                              <input
+                                type="number" value={closedDeliveryPrice}
+                                onChange={e => setClosedDeliveryPrice(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyClosedDeliveryPrice(); } }}
+                                placeholder="Ej. 13000" step="0.01" min="0" disabled={submitting}
+                                className="w-full pl-7 pr-3 py-2 border-2 border-orange-200 rounded-lg tabular-nums focus:ring-2 focus:ring-orange-400 focus:border-orange-400 disabled:bg-gray-100"
+                              />
+                            </div>
+                            <button type="button" onClick={applyClosedDeliveryPrice} disabled={submitting || !parseFloat(closedDeliveryPrice)}
+                              className="px-3 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white rounded-lg font-bold text-sm whitespace-nowrap">
+                              Calcular base
+                            </button>
+                          </div>
+                          {parseFloat(closedDeliveryPrice) > 0 && (() => {
+                            const rate = effectiveIvaRate();
+                            const r = closedPriceBase(parseFloat(closedDeliveryPrice), rate);
+                            const crc = (n: number) => `₡${n.toLocaleString('es-CR', { maximumFractionDigits: 2 })}`;
+                            return (
+                              <p className="text-[11px] text-orange-600 mt-1.5">
+                                Con IVA {rate}%: base <b>{crc(r.base)}</b> + IVA <b>{crc(r.iva)}</b> = <b>{crc(r.total)}</b>
+                              </p>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Precio cerrado: ingresás el total CON IVA y calcula la base */}
@@ -656,6 +722,17 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       )}
                     </div>
                   </div>
+
+                  {/* No enviar a Hacienda — para productos sin precio (regalías, muestras). */}
+                  <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                    <input type="checkbox" checked={excludeFromFe}
+                      onChange={e => setExcludeFromFe(e.target.checked)} disabled={submitting}
+                      className="mt-0.5 w-4 h-4 rounded" />
+                    <span className="text-sm text-gray-700">
+                      <b>No enviar a Hacienda</b> (facturación electrónica)
+                      <span className="block text-[11px] text-gray-400">Para productos <b>sin precio</b> (regalías, muestras). Se venden y aparecen en el ticket, pero no van en el comprobante electrónico.</span>
+                    </span>
+                  </label>
                 </div>
               </div>
 

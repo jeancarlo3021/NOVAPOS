@@ -49,6 +49,8 @@ interface POSProductsPanelProps {
   searchTabsEnabled?: boolean;
   /** Precios especiales del cliente seleccionado (product_id → precio). */
   customerPrices?: Record<string, number>;
+  /** El POS está en modo Delivery: muestra el precio delivery del producto (si tiene). */
+  deliveryMode?: boolean;
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
@@ -64,6 +66,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   viewMode: _viewMode = 'touch',
   searchTabsEnabled: _searchTabsEnabled = false,
   customerPrices = {},
+  deliveryMode = false,
 }) => {
   const { tenantId } = useTenantId();
   const { layout } = usePOSLayout();
@@ -555,8 +558,11 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
                   {/* Price */}
                   {(() => {
+                    const dPrice = Number((product as any).delivery_price ?? 0);
+                    const isDeliveryPrice = deliveryMode && dPrice > 0;
                     const special = customerPrices[product.id];
-                    const hasSpecial = special != null && special !== product.unit_price;
+                    const hasSpecial = !isDeliveryPrice && special != null && special !== product.unit_price;
+                    const shown = isDeliveryPrice ? dPrice : (hasSpecial ? special : product.unit_price);
                     return (
                       <span className="mt-auto leading-none">
                         {hasSpecial && (
@@ -564,14 +570,17 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                             ₡{Math.round(Number(product.unit_price ?? 0)).toLocaleString('es-CR')}
                           </span>
                         )}
-                        <span className={`font-black text-2xl leading-none ${hasSpecial ? 'text-violet-600' : 'text-emerald-600'}`}>
-                          ₡{Math.round(Number((hasSpecial ? special : product.unit_price) ?? 0)).toLocaleString('es-CR')}
+                        <span className={`font-black text-2xl leading-none ${isDeliveryPrice ? 'text-orange-600' : hasSpecial ? 'text-violet-600' : 'text-emerald-600'}`}>
+                          ₡{Math.round(Number(shown ?? 0)).toLocaleString('es-CR')}
                           {isWeight && (
                             <span className="text-sm font-bold text-gray-400">
                               /{product.unit_type?.abbreviation ?? 'kg'}
                             </span>
                           )}
                         </span>
+                        {isDeliveryPrice && (
+                          <span className="block text-[10px] font-bold text-orange-600 uppercase tracking-wide">Precio delivery</span>
+                        )}
                         {hasSpecial && (
                           <span className="block text-[10px] font-bold text-violet-600 uppercase tracking-wide">Precio cliente</span>
                         )}

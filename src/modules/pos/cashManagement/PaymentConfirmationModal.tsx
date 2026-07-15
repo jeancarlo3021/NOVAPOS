@@ -27,6 +27,13 @@ interface PaymentConfirmationModalProps {
   exchangeRate?: number;
   /** Habilita el switch de moneda (₡/$) en efectivo. */
   allowUsd?: boolean;
+  /** % de comisión de delivery por defecto (de configuración). */
+  defaultDeliveryPct?: number;
+  /** Comisión % por plataforma (Uber/Didi/…), de configuración. */
+  deliveryCommissions?: Record<string, number>;
+  /** La venta ya viene en modo DELIVERY (el POS está en modo delivery): fuerza
+   *  delivery y muestra las plataformas de una, sin el check. */
+  deliveryMode?: boolean;
 }
 
 export interface PaymentSplit {
@@ -48,6 +55,12 @@ export interface PaymentData {
   exchangeRate?: number;
   /** Moneda en que se entrega el vuelto. */
   changeCurrency?: 'CRC' | 'USD';
+  /** Venta por DELIVERY: no se suma al cierre de caja; se contabiliza aparte. */
+  isDelivery?: boolean;
+  /** % de comisión de la plataforma que se resta del total (delivery). */
+  deliveryCommissionPct?: number;
+  /** Plataforma de delivery (Uber, Didi, PedidosYa, Otro). */
+  deliveryPlatform?: string;
 }
 
 const QUICK_AMOUNTS = [1000, 2000, 5000, 10000, 20000];
@@ -108,6 +121,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   enabledMethods,
   exchangeRate,
   allowUsd = false,
+  defaultDeliveryPct = 0,
+  deliveryCommissions = {},
+  deliveryMode = false,
 }) => {
   const crc = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
   const creditExceeds = total > creditAvailable;
@@ -124,6 +140,16 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const [received, setReceived] = useState('');
   const [voucherNumber, setVoucherNumber] = useState('');
   const [error, setError] = useState('');
+  // Delivery: no se suma al cierre; se le puede restar una comisión (%).
+  // En modo delivery del POS ya viene forzado (isDelivery=true, plataformas directo).
+  const [isDelivery, setIsDelivery] = useState(deliveryMode);
+  const [deliveryPct, setDeliveryPct] = useState(String(defaultDeliveryPct || 0));
+  const [deliveryPlatform, setDeliveryPlatform] = useState('');
+  const deliveryPctNum = Math.max(0, Math.min(100, parseFloat(deliveryPct) || 0));
+  const deliveryNet = Math.round(total * (1 - deliveryPctNum / 100));
+  const deliveryData = isDelivery
+    ? { isDelivery: true, deliveryCommissionPct: deliveryPctNum, deliveryPlatform: deliveryPlatform || undefined }
+    : {};
   // Modo mixto estilo Eleventa: un monto por cada método disponible.
   const [isMixed, setIsMixed] = useState(false);
   const [mixed, setMixed] = useState<Record<string, string>>({});
@@ -151,7 +177,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const receivedCrc = isUsd ? receivedNum * rate : receivedNum;
   const changeCrc = receivedCrc - total;              // vuelto en ₡
   const change = changeCrc;                            // compat (columna izquierda ₡)
-  const cashOk = method === 'credit' ? !creditExceeds : (method !== 'cash' || receivedCrc >= total - 0.5);
+  // En delivery el cobro lo hace la plataforma: no se pide efectivo en caja.
+  const cashOk = deliveryMode ? true
+    : method === 'credit' ? !creditExceeds
+    : (method !== 'cash' || receivedCrc >= total - 0.5);
 
   const applyQuick = (amount: number) => {
     setReceived(String(amount));
@@ -178,11 +207,12 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         // Si sobra, el excedente se asume vuelto en efectivo.
         change: mixedDiff < 0 ? Math.abs(mixedDiff) : 0,
         payments: splits,
+        ...deliveryData,
       });
       return;
     }
 
-    if (method === 'cash' && receivedCrc < total - 0.5) {
+    if (!deliveryMode && method === 'cash' && receivedCrc < total - 0.5) {
       setError('El monto recibido es menor al total');
       return;
     }
@@ -201,6 +231,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       ...(method === 'cash' && isUsd
         ? { currency: 'USD' as const, exchangeRate: rate, changeCurrency }
         : { currency: 'CRC' as const }),
+      ...deliveryData,
     });
   };
 
@@ -264,6 +295,50 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
               </p>
             </div>
 
+            {/* Delivery: no se suma al cierre; se contabiliza aparte. */}
+            <div className={`rounded-2xl border-2 px-4 py-3 ${isDelivery ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white'}`}>
+              {deliveryMode ? (
+                <span className="font-black text-sm text-orange-800">🛵 Venta por Delivery</span>
+              ) : (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={isDelivery} onChange={e => setIsDelivery(e.target.checked)} className="w-5 h-5 rounded" />
+                  <span className="font-black text-sm text-gray-800">🛵 Venta por Delivery</span>
+                </label>
+              )}
+              {isDelivery && (
+                <div className="mt-2 space-y-2">
+                  <p className="text-[11px] text-orange-700 font-bold">No se suma al cierre de caja — se contabiliza aparte.</p>
+                  {/* En modo delivery la plataforma se elige en la columna derecha;
+                      aquí solo mostramos el resumen. */}
+                  {deliveryMode ? (
+                    <div className="text-xs">
+                      <span className="text-gray-600">Plataforma: <b className="text-orange-700">{deliveryPlatform || '—'}</b></span>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Plataforma de delivery */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {['Uber', 'Didi', 'PedidosYa', 'Otro'].map(pl => (
+                          <button key={pl} type="button"
+                            onClick={() => { setDeliveryPlatform(pl); const c = deliveryCommissions[pl]; if (c != null) setDeliveryPct(String(c)); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition ${deliveryPlatform === pl ? 'border-orange-500 bg-orange-500 text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-orange-300'}`}>
+                            {pl === 'Uber' ? '🟢 Uber' : pl === 'Didi' ? '🟠 Didi' : pl === 'PedidosYa' ? '🔴 PedidosYa' : 'Otro'}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-gray-600">Comisión %</span>
+                        <input type="number" min="0" max="100" step="0.5" value={deliveryPct}
+                          onChange={e => setDeliveryPct(e.target.value)}
+                          className="w-20 text-center border border-gray-300 rounded-lg py-1 text-sm" />
+                        <span className="ml-auto text-xs text-gray-600">Neto: <b className="text-orange-700">{crc(deliveryNet)}</b></span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Vuelto destacado en columna izquierda cuando se está pagando en efectivo */}
             {method === 'cash' && receivedNum > 0 && (
               <div className={`rounded-2xl px-5 py-4 border-2 ${
@@ -284,6 +359,30 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
           {/* ─── Columna derecha: método + entrada ─── */}
           <div className="md:col-span-3 space-y-4">
+            {/* En modo DELIVERY se cobra por plataforma: reemplaza los métodos de pago. */}
+            {deliveryMode ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-gray-500 text-xs font-black uppercase tracking-wider mb-2 px-1">Plataforma de delivery</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {['Uber', 'Didi', 'PedidosYa', 'Otro'].map(pl => {
+                      const active = deliveryPlatform === pl;
+                      return (
+                        <button key={pl} type="button"
+                          onClick={() => setDeliveryPlatform(pl)}
+                          className={`h-20 flex items-center justify-center gap-2 rounded-2xl border-2 font-black text-lg transition active:scale-95 ${
+                            active ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-orange-300'
+                          }`}>
+                          {pl === 'Uber' ? '🟢 Uber' : pl === 'Didi' ? '🟠 Didi' : pl === 'PedidosYa' ? '🔴 PedidosYa' : '🛵 Otro'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 text-center">Esta venta no se suma al cierre de caja; se contabiliza aparte en el reporte de delivery.</p>
+              </div>
+            ) : (
+            <>
             {/* Toggle Único / Mixto */}
             {mixedAllowed && availableMethods.filter(m => m.id !== 'credit').length > 1 && (
               <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
@@ -511,6 +610,8 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
               <div className="bg-red-50 border-2 border-red-300 text-red-700 font-bold text-sm rounded-xl px-4 py-3">
                 {error}
               </div>
+            )}
+            </>
             )}
           </div>
         </div>

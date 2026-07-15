@@ -103,6 +103,11 @@ export interface ReceiptData {
   change?: number;
   /** Moneda en que se dio el vuelto. */
   changeCurrency?: 'CRC' | 'USD';
+  /** Venta por delivery (informativo — no se contabiliza en caja). */
+  isDelivery?: boolean;
+  deliveryCommissionPct?: number;
+  deliveryNet?: number;
+  deliveryPlatform?: string;
   /** Oculta el "Vuelva pronto" (ej. tickets de distribución/repartidor). */
   hideThanks?: boolean;
   /** Comprobante de anulación: imprime SOLO "FACTURA ANULADA" + número + monto. */
@@ -529,6 +534,10 @@ export class POSPrinterService {
     invoices_total: number;
     voids_count?: number;
     voids_total?: number;
+    // Delivery: NO cuenta en el cierre; se muestra aparte.
+    delivery_count?: number;
+    delivery_total?: number;
+    delivery_net?: number;
     cash_movements?: Array<{ type: 'in' | 'out'; amount: number; reason: string }>;
     // Dólares en efectivo: apertura + recibidos − vuelto = esperado, vs contado.
     opening_usd?: number;
@@ -575,6 +584,11 @@ export class POSPrinterService {
         { t: 'row', a: 'Facturas', b: `${report.invoices_count} · ${money(report.invoices_total)}` },
         ...(((report.voids_count ?? 0) > 0) ? [
           { t: 'row' as const, a: 'Anulaciones', b: `${report.voids_count} · ${money(report.voids_total ?? 0)}` },
+        ] : []),
+        ...(((report.delivery_count ?? 0) > 0) ? [
+          { t: 'sep' as const }, { t: 'title' as const, a: 'DELIVERY (aparte, no en caja)' },
+          { t: 'row' as const, a: 'Ventas delivery', b: `${report.delivery_count} · ${money(report.delivery_total ?? 0)}` },
+          { t: 'row' as const, a: 'Neto delivery', b: money(report.delivery_net ?? 0) },
         ] : []),
         { t: 'sep' }, { t: 'title', a: 'ARQUEO DE EFECTIVO' },
         { t: 'row', a: 'Fondo inicial', b: money(report.opening_amount) },
@@ -923,6 +937,12 @@ export class POSPrinterService {
     row('Total ventas:', fmt(systemTotal));
     row('Facturas:', String(report.invoices_count ?? 0));
     if ((report.voids_count ?? 0) > 0) row('Anulaciones:', `${report.voids_count} · ${fmt(report.voids_total ?? 0)}`);
+    if ((report.delivery_count ?? 0) > 0) {
+      sep();
+      centerText('DELIVERY (aparte)');
+      row('Ventas:', `${report.delivery_count} · ${fmt(report.delivery_total ?? 0)}`);
+      row('Neto:', fmt(report.delivery_net ?? 0));
+    }
     sep();
 
     // Movimientos de efectivo
@@ -1878,6 +1898,15 @@ export class POSPrinterService {
          return `${label}: ₡${Number(p.amount).toLocaleString('es-CR')}${v}`;
        }).join('<br>')}</div>`
     : `<div class="payment-block">${receiptData.paymentMethod}</div>`}
+${receiptData.isDelivery ? `
+  <hr class="divider">
+  <div class="section-label">DELIVERY</div>
+  <div class="payment-block">
+    Venta por delivery (no se cobra en caja)<br>
+    ${receiptData.deliveryPlatform ? `Plataforma: ${receiptData.deliveryPlatform}<br>` : ''}
+    Vendido: &#8353;${fmt(receiptData.total)}
+    ${Number(receiptData.deliveryCommissionPct) > 0 ? `<br>Comisión: ${receiptData.deliveryCommissionPct}%<br>Neto: &#8353;${fmt(Number(receiptData.deliveryNet ?? 0))}` : ''}
+  </div>` : ''}
 ${receiptData.currency === 'USD' && receiptData.exchangeRate ? `
   <hr class="divider">
   <div class="section-label">PAGO EN DÓLARES</div>
@@ -2021,6 +2050,18 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       }
     } else {
       centerText(receiptData.paymentMethod);
+    }
+    // Delivery: informativo, no se contabiliza en caja.
+    if (receiptData.isDelivery) {
+      sep();
+      centerText('DELIVERY');
+      centerText('No se cobra en caja');
+      if (receiptData.deliveryPlatform) rightAlign('Plataforma:', receiptData.deliveryPlatform);
+      rightAlign('Vendido:', fmt(receiptData.total));
+      if (Number(receiptData.deliveryCommissionPct) > 0) {
+        rightAlign('Comision:', `${receiptData.deliveryCommissionPct}%`);
+        rightAlign('Neto:', fmt(Number(receiptData.deliveryNet ?? 0)));
+      }
     }
     // Pago en dólares: tipo de cambio + total/recibido/vuelto en $.
     if (receiptData.currency === 'USD' && receiptData.exchangeRate) {

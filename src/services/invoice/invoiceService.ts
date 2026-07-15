@@ -97,8 +97,11 @@ export const invoicesService = {
     documentType?: 'ticket' | 'tiquete_electronico' | 'factura_electronica',
     /** Cliente seleccionado (para vincular venta a crédito → cuenta por cobrar). */
     customerId?: string | null,
-    /** Multimoneda: moneda del pago y tipo de cambio (efectivo en $). */
-    currencyInfo?: { currency?: 'CRC' | 'USD'; exchangeRate?: number; changeCurrency?: 'CRC' | 'USD' },
+    /** Multimoneda + delivery. */
+    currencyInfo?: {
+      currency?: 'CRC' | 'USD'; exchangeRate?: number; changeCurrency?: 'CRC' | 'USD';
+      isDelivery?: boolean; deliveryCommissionPct?: number; deliveryNet?: number; deliveryPlatform?: string;
+    },
   ) {
     // Validaciones según método de pago. En pago mixto (payments con 2+
     // splits) la validación ya la hizo el modal: la suma cuadra con el total y
@@ -140,6 +143,10 @@ export const invoicesService = {
         currency: currencyInfo?.currency ?? 'CRC',
         exchange_rate: currencyInfo?.exchangeRate ?? null,
         change_currency: currencyInfo?.changeCurrency ?? null,
+        is_delivery: currencyInfo?.isDelivery ?? false,
+        delivery_commission_pct: currencyInfo?.deliveryCommissionPct ?? 0,
+        delivery_net: currencyInfo?.deliveryNet ?? null,
+        delivery_platform: currencyInfo?.deliveryPlatform ?? null,
         // Hora LOCAL de la máquina (la columna no guarda zona horaria, así el
         // ticket y los reportes muestran la misma hora que el cajero ve).
         issued_at: localNowISO(),

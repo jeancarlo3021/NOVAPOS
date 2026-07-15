@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
   TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
-  Receipt, FileText,
+  Receipt, FileText, Inbox,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -44,6 +44,7 @@ const ALL_TILES: Tile[] = [
   { feature: 'pos',              label: 'Vender',          icon: ShoppingCart,  path: '/pos',              bg: 'from-emerald-500 to-emerald-600' },
   { feature: 'fe_pos',           label: 'POS Electrónico', icon: Receipt,     path: '/fe-pos',           bg: 'from-blue-600 to-indigo-600'      },
   { feature: 'electronic_invoice', label: 'FE Facturas',   icon: FileText,     path: '/fe-facturas',      bg: 'from-sky-500 to-blue-600'         },
+  { feature: 'electronic_invoice', label: 'Recepción',     icon: Inbox,        path: '/fe-recepcion',     bg: 'from-indigo-500 to-blue-600'      },
   { feature: 'inventory',        label: 'Inventario',      icon: Package,       path: '/inventory',        bg: 'from-blue-500 to-blue-600'        },
   { feature: 'labels',           label: 'Etiquetas',       icon: Tag,           path: '/labels',           bg: 'from-fuchsia-500 to-purple-600'   },
   { feature: 'reports',          label: 'Reportes',        icon: BarChart2,     path: '/reports',          bg: 'from-indigo-500 to-indigo-600'    },
@@ -71,6 +72,14 @@ export const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [subEndsAt, setSubEndsAt] = useState<string | null>(null);
   const [qzConnected, setQzConnected] = useState(false);
+  // Proveedor de FE — la Recepción solo aplica con Alanube.
+  const [feProvider, setFeProvider] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tenantId || isSaasAdmin || !(planFeatures as any)?.electronic_invoice) return;
+    import('@/services/hacienda/haciendaService')
+      .then(({ haciendaService }) => haciendaService.provider())
+      .then(p => setFeProvider(p.provider)).catch(() => {});
+  }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Admin de SaaS no tiene tenant operativo → los endpoints tipo
   // /accounts-payable, /purchases, /reports devuelven 403 y tardan ~14 s en
@@ -197,6 +206,8 @@ export const Dashboard = () => {
     const planHas = t.feature === 'settings'
       || (t.feature === 'customers' ? (pf.customers !== false) : (pf[t.feature as keyof PlanFeatures] ?? false));
     if (!planHas) return false;
+    // Recepción de comprobantes: solo con Alanube.
+    if (t.path === '/fe-recepcion' && feProvider !== 'alanube') return false;
     // Mapear feature → módulo de role_permissions. Si no hay mapeo, no se gatea.
     const moduleKey = t.feature === 'settings' ? null : t.feature;
     if (!moduleKey) return true;

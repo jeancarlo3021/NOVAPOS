@@ -64,6 +64,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     cash: number; card: number; sinpe: number; other: number;
     invoicesCount: number; invoicesTotal: number;
     voidsCount: number; voidsTotal: number;
+    deliveryCount: number; deliveryTotal: number; deliveryNet: number;
     cashIn: number; cashOut: number; movements: SysMovement[];
     usdReceived: number;   // dólares recibidos en ventas en efectivo $
     usdChangeOut: number;  // dólares entregados como vuelto
@@ -71,7 +72,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   }
   const [sys, setSys] = useState<SysTotals>({
     cash: 0, card: 0, sinpe: 0, other: 0, invoicesCount: 0, invoicesTotal: 0,
-    voidsCount: 0, voidsTotal: 0,
+    voidsCount: 0, voidsTotal: 0, deliveryCount: 0, deliveryTotal: 0, deliveryNet: 0,
     cashIn: 0, cashOut: 0, movements: [], usdReceived: 0, usdChangeOut: 0, loaded: false,
   });
 
@@ -85,7 +86,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         ]);
         if (cancel) return;
         const allInv = (invRes?.invoices ?? []);
-        const invoices = allInv.filter((i: any) => i.status !== 'cancelled');
+        const notCancelled = allInv.filter((i: any) => i.status !== 'cancelled');
+        // DELIVERY: NO entra al cierre de caja — se contabiliza aparte.
+        const deliveryInv = notCancelled.filter((i: any) => i.is_delivery);
+        const invoices = notCancelled.filter((i: any) => !i.is_delivery);
+        const deliveryCount = deliveryInv.length;
+        const deliveryTotal = deliveryInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
+        const deliveryNet = deliveryInv.reduce((s: number, i: any) => s + Number(i.delivery_net ?? i.total ?? 0), 0);
         const voidedInv = allInv.filter((i: any) => i.status === 'cancelled');
         const voidsCount = voidedInv.length;
         const voidsTotal = voidedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
@@ -139,6 +146,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           invoicesCount: invoices.length,
           invoicesTotal: invoices.reduce((s: number, i: any) => s + Number(i.total || 0), 0),
           voidsCount, voidsTotal,
+          deliveryCount, deliveryTotal, deliveryNet,
           cashIn, cashOut, movements, usdReceived, usdChangeOut, loaded: true,
         });
       } catch {
@@ -258,6 +266,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             invoices_total: sys.invoicesTotal,
             voids_count: sys.voidsCount,
             voids_total: sys.voidsTotal,
+            delivery_count: sys.deliveryCount,
+            delivery_total: sys.deliveryTotal,
+            delivery_net: sys.deliveryNet,
             cash_movements: sys.movements,
           }, tenantId).catch(() => {});
         }
@@ -288,6 +299,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             ['Recibido en ventas', `$${sys.usdReceived.toFixed(2)}`],
             ['Esperado', `$${(Number((session as any).opening_usd ?? 0) + sys.usdReceived - sys.usdChangeOut).toFixed(2)}`],
             ['Contado', `$${closingUsd.toFixed(2)}`],
+          ] }] : []),
+          ...(sys.deliveryCount > 0 ? [{ heading: 'Delivery (aparte, no en caja)', rows: [
+            ['Ventas delivery', `${sys.deliveryCount} · ${m(sys.deliveryTotal)}`],
+            ['Neto delivery', m(sys.deliveryNet)],
           ] }] : []),
         ];
         const { apiFetch } = await import('@/lib/api');

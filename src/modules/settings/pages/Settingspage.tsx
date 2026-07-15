@@ -13,6 +13,7 @@ import {
   FileText,
   ShieldCheck,
   Tag,
+  Truck,
 } from 'lucide-react';
 import { GeneralSettings } from '../components/General/GeneralSettings';
 import { AccountSettings } from '../components/Account/AccountSettings';
@@ -22,10 +23,11 @@ import { ReceiptSettings } from '../components/Receipt/ReceiptSettings';
 import { POSViewSettings } from '../components/POSView/POSViewSettings';
 import { ElectronicInvoiceSettings } from '../components/ElectronicInvoice/ElectronicInvoiceSettings';
 import { LabelPrinterSettings } from '../components/LabelPrinter/LabelPrinterSettings';
+import { DeliverySettings } from '../components/Delivery/DeliverySettings';
 import { useAuth } from '@/context/AuthContext';
 import { MANAGER_ROLES } from '@/types/Types_Users';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'account';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'account';
 
 const SETTINGS_TABS = [
   {
@@ -65,6 +67,12 @@ const SETTINGS_TABS = [
     description: 'Táctil o escritorio',
   },
   {
+    id: 'delivery' as SettingTab,
+    label: 'Delivery',
+    icon: Truck,
+    description: 'Comisiones de Uber, Didi, etc.',
+  },
+  {
     id: 'notifications' as SettingTab,
     label: 'Notificaciones',
     icon: Bell,
@@ -98,6 +106,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
     }
     // Etiquetadora: solo si el plan tiene el módulo de etiquetas.
     if (tab.id === 'labels' && !planFeatures?.labels) return false;
+    // Delivery: solo si el plan tiene la función de delivery.
+    if (tab.id === 'delivery' && !(planFeatures as any)?.pos_delivery) return false;
     // Cuenta / cambio de contraseña: solo el propietario.
     if (tab.id === 'account' && user?.role !== 'owner') return false;
     return true;
@@ -126,6 +136,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
         return <ElectronicInvoiceSettings />;
       case 'labels':
         return <LabelPrinterSettings />;
+      case 'delivery':
+        return <DeliverySettings />;
       case 'account':
         return <AccountSettings />;
       default:
