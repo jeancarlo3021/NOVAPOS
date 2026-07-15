@@ -43,6 +43,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'pos_card', label: 'Tarjeta' },
     { key: 'pos_sinpe', label: 'SINPE' },
     { key: 'pos_discount', label: 'Descuentos' },
+    { key: 'pos_delivery', label: 'Delivery (mesa/delivery, plataformas, reporte)' },
   ]},
 ];
 
