@@ -5,8 +5,19 @@ import { Truck, RefreshCw, Percent } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
 interface Week { week: string; count: number; total: number; net: number; commission: number; }
-interface Invoice { id: string; invoice_number: string; customer_name?: string | null; total: number; delivery_commission_pct?: number; delivery_net?: number; issued_at: string; }
-interface Data { count: number; total: number; net: number; commission: number; weeks: Week[]; invoices: Invoice[]; }
+interface Platform { platform: string; count: number; total: number; net: number; commission: number; }
+interface Invoice { id: string; invoice_number: string; customer_name?: string | null; total: number; delivery_commission_pct?: number; delivery_net?: number; delivery_platform?: string | null; issued_at: string; }
+interface Data { count: number; total: number; net: number; commission: number; weeks: Week[]; platforms?: Platform[]; invoices: Invoice[]; }
+
+const platformStyle = (p: string): string => {
+  switch (p) {
+    case 'Uber':      return '🟢 Uber';
+    case 'Didi':      return '🟠 Didi';
+    case 'PedidosYa': return '🔴 PedidosYa';
+    case 'Otro':      return '🛵 Otro';
+    default:          return p;
+  }
+};
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
@@ -57,6 +68,39 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
         <div className="bg-emerald-50 rounded-xl border border-emerald-100 p-4"><p className="text-xs font-bold text-emerald-600">Neto recibido</p><p className="text-2xl font-black text-emerald-700">{fmt(data.net)}</p></div>
       </div>
 
+      {/* Por plataforma */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100"><h3 className="font-black text-gray-800 text-sm">Por plataforma</h3></div>
+        {!data.platforms || data.platforms.length === 0 ? (
+          <p className="text-center py-10 text-gray-400">No hay ventas por delivery en el rango.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs font-black uppercase">
+                <tr>
+                  <th className="text-left px-4 py-3">Plataforma</th>
+                  <th className="text-right px-4 py-3">Ventas</th>
+                  <th className="text-right px-4 py-3">Total</th>
+                  <th className="text-right px-4 py-3">Comisión</th>
+                  <th className="text-right px-4 py-3">Neto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.platforms.map(p => (
+                  <tr key={p.platform} className="border-t border-gray-50">
+                    <td className="px-4 py-2.5 font-bold text-gray-800">{platformStyle(p.platform)}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600">{p.count}</td>
+                    <td className="px-4 py-2.5 text-right font-bold text-gray-900">{fmt(p.total)}</td>
+                    <td className="px-4 py-2.5 text-right text-red-600">{fmt(p.commission)}</td>
+                    <td className="px-4 py-2.5 text-right font-black text-emerald-700">{fmt(p.net)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Por semana */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100"><h3 className="font-black text-gray-800 text-sm">Por semana (lunes a domingo)</h3></div>
@@ -100,6 +144,7 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                 <tr>
                   <th className="text-left px-4 py-3">Factura</th>
                   <th className="text-left px-4 py-3">Fecha</th>
+                  <th className="text-left px-4 py-3">Plataforma</th>
                   <th className="text-left px-4 py-3">Cliente</th>
                   <th className="text-right px-4 py-3">Total</th>
                   <th className="text-right px-4 py-3">%</th>
@@ -111,6 +156,7 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                   <tr key={i.id} className="border-t border-gray-50">
                     <td className="px-4 py-2 font-mono text-xs text-gray-700">{i.invoice_number}</td>
                     <td className="px-4 py-2 text-gray-500 text-xs">{String(i.issued_at).slice(0, 10)}</td>
+                    <td className="px-4 py-2 text-gray-600 text-xs">{i.delivery_platform ? platformStyle(i.delivery_platform) : '—'}</td>
                     <td className="px-4 py-2 text-gray-600 truncate max-w-[160px]">{i.customer_name ?? '—'}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900">{fmt(i.total)}</td>
                     <td className="px-4 py-2 text-right text-gray-500">{Number(i.delivery_commission_pct ?? 0)}%</td>
