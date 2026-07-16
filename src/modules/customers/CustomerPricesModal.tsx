@@ -7,7 +7,7 @@ import type { Customer } from '@/services/customers/customersService';
 import type { Product } from '@/types/Types_POS';
 import { closedPriceBase, checkoutTotal } from '@/utils/priceUtils';
 
-const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Tasa de IVA del producto (default 13 si no está definida).
 const rateOf = (p: Product) => { const r = Number((p as any).iva_rate); return isNaN(r) ? 13 : r; };
 
@@ -153,7 +153,9 @@ export const CustomerPricesModal: React.FC<{ customer: Customer; onClose: () => 
                         <div className="flex items-center gap-1.5 justify-end">
                           <input
                             type="number"
-                            inputMode="numeric"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
                             value={draft ?? (shown != null ? String(shown) : '')}
                             onChange={e => setDrafts(prev => ({ ...prev, [p.id]: e.target.value }))}
                             onKeyDown={e => { if (e.key === 'Enter') save(p); }}

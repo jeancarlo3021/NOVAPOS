@@ -25,11 +25,21 @@ interface FeData {
   emisor_email?: string;
   economic_activity_code?: string;
   // Certificado criptográfico (.p12) — el archivo va a Storage; acá solo metadata.
-  certificate?: { path: string; filename: string; uploaded_at: string };
-  p12_password?: string;
-  atv_username?: string;                 // usuario API generado en ATV
-  atv_password?: string;                 // contraseña API generada en ATV
-  alanube_company_id?: string;           // id de la empresa creada en Alanube
+  certificate?: { path: string; filename: string; uploaded_at: string };            // legacy (fallback)
+  certificate_production?: { path: string; filename: string; uploaded_at: string };  // .p12 de PRODUCCIÓN
+  certificate_sandbox?: { path: string; filename: string; uploaded_at: string };     // .p12 de QA / sandbox
+  p12_password?: string;                 // legacy (fallback)
+  p12_password_production?: string;      // clave del .p12 de producción
+  p12_password_sandbox?: string;         // clave del .p12 de QA / sandbox
+  atv_username?: string;                 // legacy (fallback) usuario API generado en ATV
+  atv_password?: string;                 // legacy (fallback) contraseña API generada en ATV
+  atv_username_production?: string;      // usuario API de PRODUCCIÓN
+  atv_password_production?: string;      // contraseña API de PRODUCCIÓN
+  atv_username_sandbox?: string;         // usuario API de QA / sandbox
+  atv_password_sandbox?: string;         // contraseña API de QA / sandbox
+  alanube_company_id?: string;              // legacy (fallback) id de empresa Alanube
+  alanube_company_id_production?: string;   // id de empresa Alanube de PRODUCCIÓN
+  alanube_company_id_sandbox?: string;      // id de empresa Alanube de QA / sandbox
   hacienda_pin?: string;
   // Numeración de comprobantes electrónicos.
   sucursal?: string;
@@ -50,8 +60,9 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
   const [fe, setFe] = useState<FeData>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [certFile, setCertFile] = useState<File | null>(null);
-  const [uploadingCert, setUploadingCert] = useState(false);
+  // Un archivo .p12 pendiente por ambiente.
+  const [certFiles, setCertFiles] = useState<{ production: File | null; sandbox: File | null }>({ production: null, sandbox: null });
+  const [uploadingEnv, setUploadingEnv] = useState<'production' | 'sandbox' | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,9 +81,10 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
   const save = async () => {
     setSaving(true);
     try {
-      // Si hay un .p12 seleccionado sin subir, subilo ANTES de guardar (así el
-      // usuario no tiene que acordarse de tocar "Subir" por separado).
-      if (certFile) await doUploadCert();
+      // Si hay un .p12 seleccionado sin subir (en cualquier ambiente), subilo
+      // ANTES de guardar (así el usuario no tiene que tocar "Subir" por separado).
+      if (certFiles.production) await doUploadCert('production');
+      if (certFiles.sandbox) await doUploadCert('sandbox');
       await apiFetch(`/admin/tenants/${owner.id}/fe-config`, {
         method: 'PUT', body: JSON.stringify({ fe }),
       });
@@ -86,40 +98,43 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
   // Sube el .p12 a Storage (vía backend) y devuelve la metadata del certificado.
   // NO recarga toda la config (para no borrar lo que el usuario escribió sin
   // guardar); solo actualiza el bloque `certificate` en el estado local.
-  const doUploadCert = async () => {
-    if (!certFile) return;
+  const doUploadCert = async (env: 'production' | 'sandbox') => {
+    const file = certFiles[env];
+    if (!file) return;
     const b64 = await new Promise<string>((res, rej) => {
       const r = new FileReader();
       r.onload = () => res(String(r.result));
       r.onerror = () => rej(new Error('No se pudo leer el archivo'));
-      r.readAsDataURL(certFile);
+      r.readAsDataURL(file);
     });
+    const pass = env === 'sandbox' ? (fe.p12_password_sandbox ?? '') : (fe.p12_password_production ?? '');
     const resp = await apiFetch<{ ok: boolean; certificate: any }>(`/admin/tenants/${owner.id}/fe-certificate`, {
       method: 'POST',
       body: JSON.stringify({
-        file_base64: b64, filename: certFile.name,
-        p12_password: fe.p12_password ?? '', hacienda_pin: fe.hacienda_pin ?? '',
+        environment: env,
+        file_base64: b64, filename: file.name,
+        p12_password: pass, hacienda_pin: fe.hacienda_pin ?? '',
       }),
     });
-    if (resp?.certificate) set('certificate', resp.certificate);
-    setCertFile(null);
+    if (resp?.certificate) set(env === 'sandbox' ? 'certificate_sandbox' : 'certificate_production', resp.certificate);
+    setCertFiles(prev => ({ ...prev, [env]: null }));
   };
 
-  const uploadCert = async () => {
-    if (!certFile) { onToast('Elegí el archivo .p12', 'error'); return; }
-    setUploadingCert(true);
+  const uploadCert = async (env: 'production' | 'sandbox') => {
+    if (!certFiles[env]) { onToast('Elegí el archivo .p12', 'error'); return; }
+    setUploadingEnv(env);
     try {
-      await doUploadCert();
+      await doUploadCert(env);
       onToast('Certificado subido', 'success');
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'No se pudo subir el certificado', 'error');
-    } finally { setUploadingCert(false); }
+    } finally { setUploadingEnv(null); }
   };
 
-  const deleteCert = async () => {
-    if (!window.confirm('¿Eliminar el certificado de esta empresa?')) return;
+  const deleteCert = async (env: 'production' | 'sandbox') => {
+    if (!window.confirm('¿Eliminar el certificado de este ambiente?')) return;
     try {
-      await apiFetch(`/admin/tenants/${owner.id}/fe-certificate`, { method: 'DELETE' });
+      await apiFetch(`/admin/tenants/${owner.id}/fe-certificate?environment=${env}`, { method: 'DELETE' });
       onToast('Certificado eliminado', 'success');
       load();
     } catch (e) { onToast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
@@ -270,64 +285,124 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
               </div>
             </div>
 
-            {/* Certificado criptográfico (.p12) — se guarda en Storage privado */}
+            {/* Certificado criptográfico (.p12) — uno por ambiente, en Storage privado */}
             <div className="border-t border-gray-100 pt-3">
               <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <ShieldCheck size={13} /> Certificado criptográfico (.p12) <span className="text-cyan-600">· Alanube</span>
+                <ShieldCheck size={13} /> Certificado criptográfico (.p12) <span className="text-cyan-600">· por ambiente</span>
               </p>
-              {fe.certificate?.filename ? (
-                <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mb-2">
-                  <div className="text-xs">
-                    <p className="font-bold text-emerald-800">{fe.certificate.filename}</p>
-                    <p className="text-emerald-600">Subido {new Date(fe.certificate.uploaded_at).toLocaleDateString('es-CR')}</p>
+
+              {(['production', 'sandbox'] as const).map(env => {
+                const cert = env === 'sandbox' ? fe.certificate_sandbox : fe.certificate_production;
+                const passKey = env === 'sandbox' ? 'p12_password_sandbox' : 'p12_password_production';
+                const isProd = env === 'production';
+                return (
+                  <div key={env} className={`rounded-lg border p-2 mb-2 ${isProd ? 'border-emerald-100 bg-emerald-50/40' : 'border-amber-100 bg-amber-50/40'}`}>
+                    <span className={`text-[10px] font-bold uppercase ${isProd ? 'text-emerald-700' : 'text-amber-700'}`}>{isProd ? 'Producción' : 'QA / Sandbox'}</span>
+                    {cert?.filename ? (
+                      <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-1.5 my-1.5">
+                        <div className="text-xs min-w-0">
+                          <p className="font-bold text-gray-800 truncate">{cert.filename}</p>
+                          <p className="text-gray-400">Subido {new Date(cert.uploaded_at).toLocaleDateString('es-CR')}</p>
+                        </div>
+                        <button onClick={() => deleteCert(env)} className="text-xs font-bold text-red-600 hover:underline shrink-0 ml-2">Eliminar</button>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-amber-600 my-1.5">Aún no hay certificado de {isProd ? 'producción' : 'pruebas'}.</p>
+                    )}
+                    <div className="mb-1.5">
+                      <label className={labelCls}>Clave del .p12</label>
+                      <input type="password" value={(fe as any)[passKey] ?? ''} onChange={e => set(passKey as any, e.target.value)}
+                        autoComplete="off" className={inputCls} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="file" accept=".p12,application/x-pkcs12"
+                        onChange={e => setCertFiles(prev => ({ ...prev, [env]: e.target.files?.[0] ?? null }))}
+                        className="flex-1 text-xs file:mr-2 file:px-2 file:py-1 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 file:font-bold" />
+                      <button onClick={() => uploadCert(env)} disabled={uploadingEnv === env || !certFiles[env]}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white">
+                        {uploadingEnv === env ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />} Subir
+                      </button>
+                    </div>
                   </div>
-                  <button onClick={deleteCert} className="text-xs font-bold text-red-600 hover:underline">Eliminar</button>
-                </div>
-              ) : (
-                <p className="text-[11px] text-amber-600 mb-2">Aún no hay certificado cargado.</p>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={labelCls}>Clave del .p12</label>
-                  <input type="password" value={fe.p12_password ?? ''} onChange={e => set('p12_password', e.target.value)}
-                    autoComplete="off" className={inputCls} />
-                </div>
-                <div>
-                  <label className={labelCls}>PIN de Hacienda</label>
-                  <input type="password" value={fe.hacienda_pin ?? ''} onChange={e => set('hacienda_pin', e.target.value)}
-                    autoComplete="off" className={inputCls} />
-                </div>
+                );
+              })}
+
+              <div className="mt-1">
+                <label className={labelCls}>PIN de Hacienda</label>
+                <input type="password" value={fe.hacienda_pin ?? ''} onChange={e => set('hacienda_pin', e.target.value)}
+                  autoComplete="off" className={inputCls} />
               </div>
-              <div className="flex items-center gap-2 mt-2">
-                <input type="file" accept=".p12,application/x-pkcs12"
-                  onChange={e => setCertFile(e.target.files?.[0] ?? null)}
-                  className="flex-1 text-xs file:mr-2 file:px-2 file:py-1 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 file:font-bold" />
-                <button onClick={uploadCert} disabled={uploadingCert || !certFile}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white">
-                  {uploadingCert ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />} Subir
-                </button>
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1">El archivo se guarda cifrado en Storage privado; nunca se expone al cliente.</p>
+              <p className="text-[10px] text-gray-400 mt-1">Cada .p12 se guarda cifrado en Storage privado; nunca se expone al cliente.</p>
             </div>
 
-            {/* Credenciales de API de ATV (token de Hacienda para Alanube) */}
+            {/* Credenciales de API de ATV (token de Hacienda para Alanube) — por ambiente */}
             <div className="border-t border-gray-100 pt-3">
               <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <KeyRound size={13} /> Credenciales API de ATV (token de Hacienda) <span className="text-cyan-600">· Alanube</span>
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={labelCls}>Usuario API</label>
-                  <input type="text" value={fe.atv_username ?? ''} onChange={e => set('atv_username', e.target.value)}
-                    name="fe_atv_user" autoComplete="off" spellCheck={false} data-1p-ignore className={inputCls} />
-                </div>
-                <div>
-                  <label className={labelCls}>Contraseña API</label>
-                  <input type="password" value={fe.atv_password ?? ''} onChange={e => set('atv_password', e.target.value)}
-                    name="fe_atv_pass" autoComplete="off" className={inputCls} />
+
+              {/* Producción */}
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-2 mb-2">
+                <span className="text-[10px] font-bold text-emerald-700 uppercase">Producción</span>
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <div>
+                    <label className={labelCls}>Usuario API</label>
+                    <input type="text" value={fe.atv_username_production ?? ''} onChange={e => set('atv_username_production', e.target.value)}
+                      name="fe_atv_user_prod" autoComplete="off" spellCheck={false} data-1p-ignore className={inputCls} placeholder="Usuario ATV producción" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Contraseña API</label>
+                    <input type="password" value={fe.atv_password_production ?? ''} onChange={e => set('atv_password_production', e.target.value)}
+                      name="fe_atv_pass_prod" autoComplete="off" className={inputCls} />
+                  </div>
                 </div>
               </div>
-              <p className="text-[10px] text-gray-400 mt-1">Se generan en ATV → Comprobantes electrónicos → Generar credenciales. Alanube las usa para transmitir a Hacienda.</p>
+
+              {/* QA / Sandbox */}
+              <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-2">
+                <span className="text-[10px] font-bold text-amber-700 uppercase">QA / Sandbox</span>
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <div>
+                    <label className={labelCls}>Usuario API</label>
+                    <input type="text" value={fe.atv_username_sandbox ?? ''} onChange={e => set('atv_username_sandbox', e.target.value)}
+                      name="fe_atv_user_qa" autoComplete="off" spellCheck={false} data-1p-ignore className={inputCls} placeholder="Usuario ATV pruebas" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Contraseña API</label>
+                    <input type="password" value={fe.atv_password_sandbox ?? ''} onChange={e => set('atv_password_sandbox', e.target.value)}
+                      name="fe_atv_pass_qa" autoComplete="off" className={inputCls} />
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-gray-400 mt-1.5">
+                Se generan en ATV → Comprobantes electrónicos → Generar credenciales. Se usa la del ambiente <b>{(fe.environment ?? 'production') === 'sandbox' ? 'QA / Sandbox' : 'Producción'}</b> (elegido arriba).
+              </p>
+            </div>
+
+            {/* ID de empresa en Alanube — uno por ambiente (se llena al crear la empresa,
+                o se puede pegar a mano si ya la creaste en el panel de Alanube). */}
+            <div className="border-t border-gray-100 pt-3">
+              <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <KeyRound size={13} /> ID de empresa en Alanube <span className="text-cyan-600">· por ambiente</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-2">
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase">Producción</span>
+                  <input type="text" value={fe.alanube_company_id_production ?? ''} onChange={e => set('alanube_company_id_production', e.target.value)}
+                    name="fe_alanube_id_prod" autoComplete="off" spellCheck={false} data-1p-ignore
+                    className={`${inputCls} mt-1`} placeholder="companyId de producción" />
+                </div>
+                <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-2">
+                  <span className="text-[10px] font-bold text-amber-700 uppercase">QA / Sandbox</span>
+                  <input type="text" value={fe.alanube_company_id_sandbox ?? ''} onChange={e => set('alanube_company_id_sandbox', e.target.value)}
+                    name="fe_alanube_id_qa" autoComplete="off" spellCheck={false} data-1p-ignore
+                    className={`${inputCls} mt-1`} placeholder="companyId de pruebas" />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1.5">
+                Se completa solo al usar "Crear empresa en Alanube". Se usa el del ambiente <b>{(fe.environment ?? 'production') === 'sandbox' ? 'QA / Sandbox' : 'Producción'}</b>.
+              </p>
             </div>
 
             {/* Numeración / consecutivos (20 dígitos de Hacienda) */}
