@@ -44,7 +44,7 @@ const ALL_TILES: Tile[] = [
   { feature: 'pos',              label: 'Vender',          icon: ShoppingCart,  path: '/pos',              bg: 'from-emerald-500 to-emerald-600' },
   { feature: 'fe_pos',           label: 'POS Electrónico', icon: Receipt,     path: '/fe-pos',           bg: 'from-blue-600 to-indigo-600'      },
   { feature: 'electronic_invoice', label: 'FE Facturas',   icon: FileText,     path: '/fe-facturas',      bg: 'from-sky-500 to-blue-600'         },
-  { feature: 'electronic_invoice', label: 'Recepción',     icon: Inbox,        path: '/fe-recepcion',     bg: 'from-indigo-500 to-blue-600'      },
+  { feature: 'electronic_invoice', label: 'FE Recepción',     icon: Inbox,        path: '/fe-recepcion',   bg: 'from-indigo-500 to-blue-600'      },
   { feature: 'inventory',        label: 'Inventario',      icon: Package,       path: '/inventory',        bg: 'from-blue-500 to-blue-600'        },
   { feature: 'labels',           label: 'Etiquetas',       icon: Tag,           path: '/labels',           bg: 'from-fuchsia-500 to-purple-600'   },
   { feature: 'reports',          label: 'Reportes',        icon: BarChart2,     path: '/reports',          bg: 'from-indigo-500 to-indigo-600'    },

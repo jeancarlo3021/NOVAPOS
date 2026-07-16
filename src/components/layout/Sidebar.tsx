@@ -26,6 +26,7 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeInfo,
+  Inbox
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
@@ -63,6 +64,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Punto de Venta', to: '/pos',          icon: ShoppingCart,    feature: 'pos',          module: 'pos'          },
       { name: 'POS Electrónico', to: '/fe-pos',      icon: Receipt,         feature: 'fe_pos' },
       { name: 'FE Facturas',    to: '/fe-facturas',  icon: FileText,        feature: 'electronic_invoice' },
+      { name: 'FE Recepción',   to: '/fe-recepcion', icon: Inbox, feature: 'electronic_invoice', },
       { name: 'Distribución',   to: '/distribution', icon: Truck,           feature: 'distribution', module: 'distribution' },
       { name: 'Repartidor',     to: '/driver',       icon: PackageCheck,    feature: 'distribution', module: 'distribution' },
       { name: 'Inventario',     to: '/inventory',    icon: Package,         feature: 'always',       module: 'inventory'    },

@@ -42,9 +42,19 @@ export const FeInvoicesDashboard: React.FC = () => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [isAlanube, setIsAlanube] = useState(false);
+  // Ambiente de facturación electrónica (para el banner QA / Producción).
+  const [feEnv, setFeEnv] = useState<'sandbox' | 'production' | null>(null);
 
   useEffect(() => {
     haciendaService.provider().then(p => setIsAlanube(p.provider === 'alanube')).catch(() => {});
+    (async () => {
+      try {
+        const { apiFetch } = await import('@/lib/api');
+        const raw = await apiFetch<any>('/settings/electronic-invoice');
+        const cfg = raw?.config ?? raw ?? {};
+        setFeEnv(cfg.environment === 'sandbox' ? 'sandbox' : 'production');
+      } catch { /* sin config aún */ }
+    })();
   }, []);
 
   const load = useCallback(async () => {
@@ -140,15 +150,28 @@ export const FeInvoicesDashboard: React.FC = () => {
     finally { setBusyId(null); }
   };
 
-  const resendEmail = async (row: FeRow) => {
-    const email = window.prompt('Reenviar comprobante a este correo:', row.customer_name ? '' : '');
-    if (!email) return;
-    setBusyId(row.id);
+  // Modal de reenvío de comprobante por correo.
+  const [emailRow, setEmailRow] = useState<FeRow | null>(null);
+  const [emailValue, setEmailValue] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailErr, setEmailErr] = useState('');
+  const [emailOk, setEmailOk] = useState(false);
+
+  const openEmailModal = (row: FeRow) => {
+    setEmailRow(row); setEmailValue(''); setEmailErr(''); setEmailOk(false);
+  };
+
+  const sendEmail = async () => {
+    if (!emailRow) return;
+    const email = emailValue.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailErr('Ingresá un correo válido.'); return; }
+    setEmailSending(true); setEmailErr('');
     try {
-      await haciendaService.resendEmail(row.id, email);
-      alert('Comprobante reenviado a ' + email);
-    } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo reenviar el correo'); }
-    finally { setBusyId(null); }
+      await haciendaService.resendEmail(emailRow.id, email);
+      setEmailOk(true);
+      setTimeout(() => setEmailRow(null), 1200);
+    } catch (e) { setEmailErr(e instanceof Error ? e.message : 'No se pudo reenviar el correo'); }
+    finally { setEmailSending(false); }
   };
 
   const st = (r: FeRow) => {
@@ -190,6 +213,21 @@ export const FeInvoicesDashboard: React.FC = () => {
           <h1 className="text-xl font-black text-gray-900">Facturas electrónicas</h1>
           <p className="text-sm text-gray-500">Estatus ante Hacienda, errores y reenvíos.</p>
         </div>
+        {feEnv && (
+          <span
+            title={feEnv === 'sandbox'
+              ? 'Los comprobantes se emiten en el ambiente de PRUEBAS de Hacienda (no tienen validez fiscal).'
+              : 'Los comprobantes se emiten en el ambiente de PRODUCCIÓN de Hacienda (validez fiscal).'}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${
+              feEnv === 'sandbox'
+                ? 'bg-amber-50 border-amber-200 text-amber-700'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+            }`}
+          >
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${feEnv === 'sandbox' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+            {feEnv === 'sandbox' ? 'QA / Pruebas' : 'Producción'}
+          </span>
+        )}
         {hasPending && (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold">
             <RefreshCw size={12} className="animate-spin" /> Consultando estado en Hacienda…
@@ -281,6 +319,11 @@ export const FeInvoicesDashboard: React.FC = () => {
                               {prov === 'alanube' ? 'Alanube' : 'Facturemos'}
                             </span>
                           )}
+                          {consecutivoOf(r) && (
+                            <div className="mt-0.5 text-[10px] font-normal text-gray-400" title="Consecutivo enviado a Hacienda">
+                              Consec: {consecutivoOf(r)}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-gray-600 text-xs">{formatWallClock(r.issued_at, { dateStyle: 'short', timeStyle: 'short' })}</td>
                         <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate">{r.customer_name ?? '—'}</td>
@@ -312,7 +355,7 @@ export const FeInvoicesDashboard: React.FC = () => {
                               className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-blue-700 border border-blue-300 bg-white hover:bg-blue-50 disabled:opacity-50">
                               <Send size={12} /> Hacienda
                             </button>
-                            <button onClick={() => resendEmail(r)} disabled={busyId === r.id || !r.fe_clave}
+                            <button onClick={() => openEmailModal(r)} disabled={busyId === r.id || !r.fe_clave}
                               title="Reenviar a otro correo"
                               className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-emerald-700 border border-emerald-300 bg-white hover:bg-emerald-50 disabled:opacity-50">
                               <Mail size={12} /> Correo
@@ -347,6 +390,55 @@ export const FeInvoicesDashboard: React.FC = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: reenviar comprobante por correo */}
+      {emailRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !emailSending && setEmailRow(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                <Mail size={18} className="text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-900">Reenviar comprobante</h3>
+                <p className="text-xs text-gray-500">Factura {emailRow.invoice_number}</p>
+              </div>
+            </div>
+
+            {emailOk ? (
+              <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3 mt-3 text-sm font-bold">
+                <CheckCircle2 size={18} /> Comprobante enviado
+              </div>
+            ) : (
+              <>
+                <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1 mt-3">Correo de destino</label>
+                <input
+                  type="email" autoFocus value={emailValue}
+                  onChange={e => { setEmailValue(e.target.value); setEmailErr(''); }}
+                  onKeyDown={e => { if (e.key === 'Enter') sendEmail(); }}
+                  placeholder="cliente@correo.com"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1.5">Se envían los dos XML (comprobante y respuesta de Hacienda) y el PDF.</p>
+                {emailErr && <p className="text-xs text-red-600 mt-2">{emailErr}</p>}
+
+                <div className="flex items-center justify-end gap-2 mt-4">
+                  <button onClick={() => setEmailRow(null)} disabled={emailSending}
+                    className="px-3 py-2 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50">
+                    Cancelar
+                  </button>
+                  <button onClick={sendEmail} disabled={emailSending || !emailValue.trim()}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50">
+                    {emailSending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+                    {emailSending ? 'Enviando…' : 'Enviar'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

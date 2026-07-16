@@ -167,10 +167,10 @@ export const ReceptionDashboard: React.FC = () => {
           <Mail size={20} className="text-indigo-600 shrink-0" />
           <div className="min-w-0">
             <p className="text-sm text-indigo-900 font-bold">Enviá o reenviá tus facturas de compra a este correo:</p>
-            <p className="text-base font-black text-indigo-700 select-all break-all">facturascclick@gmail.com</p>
+            <p className="text-base font-black text-indigo-700 select-all break-all">facturas@colonclick.com</p>
           </div>
           <button
-            onClick={() => { navigator.clipboard?.writeText('facturascclick@gmail.com'); }}
+            onClick={() => { navigator.clipboard?.writeText('facturas@colonclick.com'); }}
             className="ml-auto shrink-0 text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1.5 hover:bg-indigo-100"
           >
             Copiar
