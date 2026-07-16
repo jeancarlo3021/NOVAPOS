@@ -83,13 +83,14 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
   const save = async () => {
     setSaving(true);
     try {
-      // Si hay un .p12 seleccionado sin subir (en cualquier ambiente), subilo
-      // ANTES de guardar (así el usuario no tiene que tocar "Subir" por separado).
-      if (certFiles.production) await doUploadCert('production');
-      if (certFiles.sandbox) await doUploadCert('sandbox');
+      // 1) Guardar PRIMERO los campos de texto (claves, PIN, IDs, etc.).
       await apiFetch(`/admin/tenants/${owner.id}/fe-config`, {
         method: 'PUT', body: JSON.stringify({ fe }),
       });
+      // 2) Subir DESPUÉS los .p12 pendientes (persisten su metadata sin que el
+      //    estado viejo del formulario la revierta).
+      if (certFiles.production) await doUploadCert('production');
+      if (certFiles.sandbox) await doUploadCert('sandbox');
       onToast('Datos de FE guardados', 'success');
       onClose();
     } catch (e) {
