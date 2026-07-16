@@ -70,7 +70,11 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
     setLoading(true);
     try {
       const data = await apiFetch<{ fe: FeData }>(`/admin/tenants/${owner.id}/fe-config`);
-      setFe(data?.fe ?? {});
+      const loaded = data?.fe ?? {};
+      // Si el ambiente nunca se guardó (queda null), lo fijamos explícito en
+      // 'production' para que se detecte y se guarde con ese valor.
+      if (!loaded.environment) loaded.environment = 'production';
+      setFe(loaded);
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'No se pudo cargar la config de FE', 'error');
     } finally { setLoading(false); }
