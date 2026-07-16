@@ -17,6 +17,7 @@ import { TenantModulesModal } from './components/TenantModulesModal';
 import { TenantFeDataModal } from './components/TenantFeDataModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
+import { FeLogView } from './components/FeLogView';
 import { CustomInvoiceModal } from './components/CustomInvoiceModal';
 import { PrinterSandbox } from './components/PrinterSandbox';
 import { TenantGroupView } from './components/TenantGroupView';
@@ -62,7 +63,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'receipts' | 'sandbox' | 'team';
+type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'receipts' | 'sandbox' | 'team';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -575,6 +576,7 @@ export const CreateOwner: React.FC = () => {
             { id: 'businesses' as AdminTab, label: 'Negocios',     icon: Building2 },
             { id: 'groups'     as AdminTab, label: 'Grupos',       icon: Layers },
             { id: 'fe_kiosk'   as AdminTab, label: 'FE & Kiosk',   icon: FileText },
+            { id: 'fe_log'     as AdminTab, label: 'Bitácora FE',  icon: FileText },
             { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
             { id: 'team'       as AdminTab, label: 'Equipo',       icon: Users2 },
             { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
@@ -596,6 +598,12 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'receipts' && (
         <div className="max-w-7xl mx-auto p-6">
           <PaymentReceiptsView owners={owners} />
+        </div>
+      )}
+
+      {activeTab === 'fe_log' && (
+        <div className="max-w-7xl mx-auto p-6">
+          <FeLogView owners={owners.map(o => ({ id: o.id, name: o.name }))} />
         </div>
       )}
 
