@@ -168,6 +168,18 @@ export const CreateOwner: React.FC = () => {
     } finally { setCreatingAlanubeId(null); }
   };
 
+  // Diagnóstico: ¿la empresa existe en la cuenta/ambiente que usa la emisión?
+  const verifyAlanube = async (o: any) => {
+    setCreatingAlanubeId(o.id);
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${o.id}/alanube/verify`);
+      const msg = `Ambiente: ${r.environment}\nCompany ID: ${r.company_id ?? '(vacío)'}\nExiste en Alanube: ${r.exists ? 'SÍ ✅' : 'NO ❌'}${r.api_status ? `\nEstado: ${r.api_status}` : ''}${r.note ? `\n\n${r.note}` : ''}`;
+      window.alert(msg);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo verificar', 'error');
+    } finally { setCreatingAlanubeId(null); }
+  };
+
   // Actualiza la empresa en Alanube (ej. para activar el webhook de recepción).
   const updateAlanubeCompany = async (o: any) => {
     setCreatingAlanubeId(o.id);
@@ -1169,6 +1181,10 @@ export const CreateOwner: React.FC = () => {
                                       <button onClick={() => { setOpenMenuId(null); updateAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
                                         className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
                                         <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Actualizando…' : 'Actualizar empresa (activar webhook)'}
+                                      </button>
+                                      <button onClick={() => { setOpenMenuId(null); verifyAlanube(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40">
+                                        <Sparkles size={13} /> Verificar empresa en Alanube
                                       </button>
                                     </>
                                   )}
