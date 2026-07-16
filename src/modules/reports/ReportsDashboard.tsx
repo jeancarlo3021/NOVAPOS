@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, BarChart2, ShoppingCart, Package, Users,
   Lock, RefreshCw, ChevronDown, TrendingDown, Vault, Target, WifiOff, Clock,
-  FileText, ChevronRight, ChevronLeft, Truck, HandCoins, Percent, Receipt,
+  FileText, ChevronRight, ChevronLeft, Truck, HandCoins, Percent, Receipt, Activity,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -25,6 +25,7 @@ import { ReceivablesReport } from './views/ReceivablesReport';
 import { TaxReport } from './views/TaxReport';
 import { VouchersReport } from './views/VouchersReport';
 import { DeliveryReport } from './views/DeliveryReport';
+import { UserActivityReport } from './views/UserActivityReport';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ function getDateRange(days: number) {
 
 type TabId =
   | 'basic' | 'advanced' | 'hourly' | 'purchases' | 'stock' | 'stock_adjustments'
-  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery';
+  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery' | 'user_activity';
 
 interface Tab {
   id: TabId;
@@ -76,6 +77,7 @@ const TABS: Tab[] = [
   // Operacional
   { id: 'sellers',  label: 'Por Vendedor',      description: 'Desempeño del equipo',      icon: Users,         featureKey: 'report_sellers',      group: 'operacional' },
   { id: 'cash',     label: 'Cierres de Caja',   description: 'Cuadres y arqueos',         icon: Vault,         featureKey: 'report_cash_sessions',group: 'operacional' },
+  { id: 'user_activity', label: 'Bitácora de Usuarios', description: 'Qué hizo cada usuario y su resultado', icon: Activity, featureKey: 'reports_basic', group: 'operacional' },
   { id: 'distribution', label: 'Distribución',  description: 'Rutas y camiones',          icon: Truck,         featureKey: 'distribution',        group: 'operacional' },
 ];
 
@@ -391,6 +393,7 @@ const ReportsDashboard: React.FC = () => {
               case 'taxes':             return <TaxReport key={`tax-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'vouchers':          return <VouchersReport key={`vou-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'delivery':          return <DeliveryReport key={`del-${refreshKey}`} from={range.from} to={range.to} />;
+              case 'user_activity':     return <UserActivityReport key={`act-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               default:                  return null;
             }
           })()}

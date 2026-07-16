@@ -406,7 +406,10 @@ export const POSMain = () => {
     };
   }, []);
 
-  const subtotal = Math.round(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
+  // Redondeo a 2 decimales (evita ruido de coma flotante). El POS ahora muestra
+  // decimales en el carrito, así que los precios/subtotales conservan los céntimos.
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const subtotal = round2(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
   // IVA por producto (usa el iva_rate de cada producto; si no tiene, el IVA global).
   // Desglosado por tasa para mostrar cada IVA por separado en el carrito.
   const { taxAmount, taxBreakdown } = (() => {
@@ -416,11 +419,11 @@ export const POSMain = () => {
     for (const item of cartItems) {
       const raw = (item.product as any).iva_rate;
       const ratePct = raw != null && raw !== '' ? Number(raw) : taxRate * 100;
-      const t = Math.round(item.subtotal * (ratePct / 100));
+      const t = round2(item.subtotal * (ratePct / 100));
       if (t !== 0 || ratePct > 0) bd[ratePct] = (bd[ratePct] ?? 0) + t;
       total += t;
     }
-    return { taxAmount: total, taxBreakdown: bd };
+    return { taxAmount: round2(total), taxBreakdown: bd };
   })();
   // Combos / grupos de promos — descuento a nivel carrito (varios productos juntos
   // por un precio único o un % de descuento).
@@ -433,9 +436,9 @@ export const POSMain = () => {
   // (ya no circulan monedas de ₡5). Los productos con "precio cerrado" ya vienen
   // pensados para dar múltiplos de 10, así que en electrónico también cuadra.
   const rawTotal = Math.max(0, subtotal + taxAmount - comboDiscount);
-  const isElectronicDoc = documentType === 'factura_electronica' || documentType === 'tiquete_electronico';
-  const total = isElectronicDoc ? rawTotal : Math.round(rawTotal / 10) * 10;
-  const roundingAdjust = total - rawTotal;
+  // El total va EXACTO con decimales (ya no se redondea a múltiplos de ₡10).
+  const total = round2(rawTotal);
+  const roundingAdjust = round2(total - rawTotal);
 
   // ── Atajos de teclado estilo Eleventa ─────────────────────────────────
   // F12 = Cobrar · F4 = Anular · Esc = Cerrar modal
@@ -522,11 +525,11 @@ export const POSMain = () => {
       const base = (isDeliveryMode && dp > 0)
         ? dp
         : (customerPrices[item.product_id] ?? item.product?.unit_price ?? item.unit_price);
-      if (Math.round(base) === item.unit_price) return item;
-      const subtotal = Math.round(item.promo
+      if (round2(base) === item.unit_price) return item;
+      const subtotal = round2(item.promo
         ? calcPromoSubtotal(base, item.quantity, item.promo as any)
         : item.quantity * base * (1 - (item.discount_percent ?? 0) / 100));
-      return { ...item, unit_price: Math.round(base), subtotal };
+      return { ...item, unit_price: round2(base), subtotal };
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerPrices, isDeliveryMode]);
@@ -554,7 +557,7 @@ export const POSMain = () => {
       const existing = prev.find(item => item.product_id === product.id);
       if (existing) {
         const newQty = existing.quantity + quantity;
-        const subtotal = Math.round(promo
+        const subtotal = round2(promo
           ? calcPromoSubtotal(existing.unit_price, newQty, promo)
           : newQty * existing.unit_price);
         return prev.map(item =>
@@ -563,14 +566,14 @@ export const POSMain = () => {
             : item
         );
       }
-      const subtotal = Math.round(promo
+      const subtotal = round2(promo
         ? calcPromoSubtotal(base, quantity, promo)
         : base * quantity);
       return [...prev, {
         product_id: product.id,
         product,
         quantity,
-        unit_price: Math.round(base),
+        unit_price: round2(base),
         subtotal,
         promo: promo
           ? { id: promo.id, name: promo.name, type: promo.type, value: promo.value }
@@ -591,9 +594,9 @@ export const POSMain = () => {
           if (item.product_id !== productId) return item;
           let subtotal: number;
           if (item.promo) {
-            subtotal = Math.round(calcPromoSubtotal(item.unit_price, quantity, item.promo as any));
+            subtotal = round2(calcPromoSubtotal(item.unit_price, quantity, item.promo as any));
           } else {
-            subtotal = Math.round(quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100));
+            subtotal = round2(quantity * item.unit_price * (1 - (item.discount_percent ?? 0) / 100));
           }
           return { ...item, quantity, subtotal };
         })
@@ -635,7 +638,7 @@ export const POSMain = () => {
     setCartItems(prev =>
       prev.map(item =>
         item.product_id === productId
-          ? { ...item, discount_percent: pct, subtotal: Math.round(item.quantity * item.unit_price * (1 - pct / 100)) }
+          ? { ...item, discount_percent: pct, subtotal: round2(item.quantity * item.unit_price * (1 - pct / 100)) }
           : item
       )
     );

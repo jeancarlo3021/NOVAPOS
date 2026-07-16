@@ -505,7 +505,10 @@ export const CreateOwner: React.FC = () => {
   // sucursales" las trae de vuelta a KPIs, alertas, conteo y tabla.
   const visibleOwners = showBranches ? owners : owners.filter(o => o.group_role !== 'branch');
 
-  const activeOwners   = visibleOwners.filter(o => o.status === 'active');
+  // Negocios activos reales: excluye el demo y las cuentas del plan Admin
+  // (no facturan ni son clientes de verdad).
+  const activeOwners   = visibleOwners.filter(o =>
+    o.status === 'active' && !o.is_demo && !o.is_admin_plan);
   // El plan Admin NO factura — no debe contar en vencidos ni en alertas.
   const overdueOwners  = visibleOwners.filter(o => {
     if (o.is_admin_plan) return false;

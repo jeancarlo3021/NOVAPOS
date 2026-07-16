@@ -3,6 +3,9 @@ import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer } from 'luci
 import { CartItem, CashSession } from '@/types/Types_POS';
 import type { AppliedCombo } from '@/services/promotions/promotionsService';
 
+// Formato de moneda con 2 decimales (el carrito muestra los céntimos).
+const money = (n: number) => Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 interface POSCartPanelProps {
   cartItems: CartItem[];
   subtotal: number;
@@ -185,7 +188,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                       </div>
                     </td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-600 font-semibold">
-                      ₡{Math.round(item.unit_price).toLocaleString('es-CR')}
+                      ₡{money(item.unit_price)}
                     </td>
                     {canDiscount && (
                       <td className="px-2 py-1.5 text-center">
@@ -205,11 +208,11 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                     <td className="px-2 py-1.5 text-right tabular-nums">
                       {showOriginal && (
                         <div className="text-[10px] text-gray-300 line-through leading-none">
-                          ₡{originalSubtotal.toLocaleString()}
+                          ₡{money(originalSubtotal)}
                         </div>
                       )}
                       <div className={`font-black ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
-                        ₡{Math.round(item.subtotal).toLocaleString('es-CR')}
+                        ₡{money(item.subtotal)}
                       </div>
                     </td>
                     <td className="px-2 py-1.5 text-right">
@@ -300,15 +303,15 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                   {/* Price */}
                   <div className="text-right min-w-0">
                     <p className="text-gray-400 text-[11px] font-medium truncate">
-                      ₡{Math.round(item.unit_price).toLocaleString('es-CR')} c/u
+                      ₡{money(item.unit_price)} c/u
                     </p>
                     {showOriginal && (
                       <p className="text-gray-300 text-xs line-through">
-                        ₡{originalSubtotal.toLocaleString()}
+                        ₡{money(originalSubtotal)}
                       </p>
                     )}
                     <p className={`font-black text-base ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
-                      ₡{Math.round(item.subtotal).toLocaleString('es-CR')}
+                      ₡{money(item.subtotal)}
                     </p>
                   </div>
                 </div>
@@ -330,11 +333,11 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               <>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-400 text-xs font-medium">Precio original</span>
-                  <span className="text-gray-400 text-xs line-through">₡{grossSubtotal.toLocaleString()}</span>
+                  <span className="text-gray-400 text-xs line-through">₡{money(grossSubtotal)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-violet-600 text-xs font-semibold">Descuentos / Promos</span>
-                  <span className="text-violet-600 text-xs font-semibold">-₡{totalDiscount.toLocaleString()}</span>
+                  <span className="text-violet-600 text-xs font-semibold">-₡{money(totalDiscount)}</span>
                 </div>
               </>
             );
@@ -345,7 +348,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
           <>
             <div className="flex justify-between items-center">
               <span className="text-gray-500 text-sm font-semibold">Subtotal</span>
-              <span className="text-gray-800 text-sm font-bold">₡{subtotal.toLocaleString()}</span>
+              <span className="text-gray-800 text-sm font-bold">₡{money(subtotal)}</span>
             </div>
             {taxBreakdown && Object.keys(taxBreakdown).length > 0 ? (
               // Desglose: una línea por cada tasa de IVA.
@@ -356,13 +359,13 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                     <span className="text-gray-500 text-sm font-semibold">
                       IVA {Number(rate) === 0 ? 'Exento' : `(${Number(rate)}%)`}
                     </span>
-                    <span className="text-gray-800 text-sm font-bold">₡{Number(amt).toLocaleString()}</span>
+                    <span className="text-gray-800 text-sm font-bold">₡{money(Number(amt))}</span>
                   </div>
                 ))
             ) : (
               <div className="flex justify-between items-center">
                 <span className="text-gray-500 text-sm font-semibold">IVA ({(taxRate * 100).toFixed(0)}%)</span>
-                <span className="text-gray-800 text-sm font-bold">₡{taxAmount.toLocaleString()}</span>
+                <span className="text-gray-800 text-sm font-bold">₡{money(taxAmount)}</span>
               </div>
             )}
           </>
@@ -374,19 +377,19 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               <Tag size={11} /> {c.label}{c.sets > 1 ? ` ×${c.sets}` : ''}
             </span>
             <span className="text-rose-600 text-xs font-bold">
-              {c.discount >= 0 ? '-' : '+'}₡{Math.abs(c.discount).toLocaleString()}
+              {c.discount >= 0 ? '-' : '+'}₡{money(Math.abs(c.discount))}
             </span>
           </div>
         ))}
         {roundingAdjust !== 0 && (
           <div className="flex justify-between items-center">
             <span className="text-gray-500 text-xs font-semibold">Redondeo</span>
-            <span className="text-gray-600 text-xs font-bold">{roundingAdjust >= 0 ? '+' : '-'}₡{Math.abs(roundingAdjust).toLocaleString()}</span>
+            <span className="text-gray-600 text-xs font-bold">{roundingAdjust >= 0 ? '+' : '-'}₡{money(Math.abs(roundingAdjust))}</span>
           </div>
         )}
         <div className="flex justify-between items-center pt-2 border-t-2 border-gray-200">
           <span className="text-gray-900 font-black text-lg">Total</span>
-          <span className="text-emerald-600 font-black text-2xl">₡{total.toLocaleString()}</span>
+          <span className="text-emerald-600 font-black text-2xl">₡{money(total)}</span>
         </div>
       </div>
 

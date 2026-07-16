@@ -22,7 +22,37 @@ export interface ReceivedDoc {
   email_from?: string | null;
   /** Borrador de compra ya creado automáticamente (cuando llega por correo). */
   purchase_id?: string | null;
+  /** N° de orden de compra consecutivo (PO-XXXX) una vez confirmada la compra. */
+  purchase_number?: string | null;
   raw?: any;
+}
+
+export interface ReceivedMatchLine {
+  detail: string;
+  quantity: number;
+  unit_price: number;
+  total: number;
+  cabys?: string | null;
+  product_id: string | null;
+  product_name: string | null;
+  exists: boolean;
+}
+export interface ReceivedPurchaseOrder {
+  id: string; purchase_number: string; purchase_date: string; total_amount: number; status: string;
+}
+export interface ReceivedMatch {
+  id: string; clave: string | null; issuer_name: string | null; issuer_id: string | null;
+  total: number; supplier_id: string | null;
+  lines: ReceivedMatchLine[];
+  orders: ReceivedPurchaseOrder[];
+  linked_purchase_id: string | null;
+}
+export interface ReconcileBody {
+  id: string;
+  purchase_id?: string | null;
+  /** No afectar el stock del inventario con los productos creados. */
+  no_inventory?: boolean;
+  items: Array<{ detail: string; quantity: number; unit_price: number; cabys?: string | null; product_id?: string | null; action: 'update' | 'create' | 'skip' }>;
 }
 
 export const haciendaService = {
@@ -90,6 +120,15 @@ export const haciendaService = {
   receivedToPurchase: (id: string) =>
     apiFetch<{ ok: boolean; purchase_id: string; supplier_id: string }>('/hacienda/received/to-purchase',
       { method: 'POST', body: JSON.stringify({ id }) }),
+
+  /** Trae el comprobante con líneas emparejadas a productos + órdenes de compra del proveedor. */
+  matchReceived: (id: string) =>
+    apiFetch<ReceivedMatch>(`/hacienda/received/${id}/match`),
+
+  /** Aplica la conciliación: crea/actualiza productos, crea/relaciona orden de compra. */
+  reconcileReceived: (body: ReconcileBody) =>
+    apiFetch<{ ok: boolean; purchase_id: string; created: number; updated: number; messages: string[] }>(
+      '/hacienda/received/reconcile', { method: 'POST', body: JSON.stringify(body) }),
 
   /** Proveedor de FE del tenant actual (para ocultar funciones de Alanube). */
   provider: () => apiFetch<{ provider: 'alanube' | 'facturemos'; enabled: boolean }>('/hacienda/provider'),
