@@ -18,10 +18,21 @@ interface FeRow {
   fe_consecutivo: string | null;
   fe_status: string | null;
   fe_error: string | null;
+  fe_request?: any;
+  fe_response?: any;
 }
 interface FeLogResp { count: number; errors: number; rows: FeRow[]; }
 
 const fmt = (n: number) => `₡${Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// El consecutivo REAL (20 díg) va dentro de la clave de 50 díg. `fe_consecutivo`
+// a veces guarda el ID interno de Alanube (ULID), así que lo derivamos de la clave.
+const consecutivoOf = (r: FeRow): string => {
+  const clave = String(r.fe_clave ?? '');
+  if (/^\d{50}$/.test(clave)) return clave.slice(21, 41);
+  const cons = String(r.fe_consecutivo ?? '');
+  if (/^\d{20}$/.test(cons)) return cons;         // consecutivo válido
+  return r.invoice_number || cons || '—';         // fallback (evita mostrar el ULID)
+};
 const dt = (s?: string | null) => (s ? new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 const docLabel = (t?: string | null) => {
   switch (String(t ?? '')) {
@@ -163,22 +174,41 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                   const open = expanded === r.id;
                   return (
                     <React.Fragment key={r.id}>
-                      <tr className={`border-t border-gray-50 ${isErr ? 'bg-red-50/40 cursor-pointer' : ''}`}
-                        onClick={() => { if (isErr) setExpanded(open ? null : r.id); }}>
+                      <tr className={`border-t border-gray-50 cursor-pointer ${isErr ? 'bg-red-50/40' : 'hover:bg-gray-50'}`}
+                        onClick={() => setExpanded(open ? null : r.id)}>
                         <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{dt(r.created_at ?? r.issued_at)}</td>
-                        <td className="px-4 py-2.5 font-bold text-gray-800 max-w-[180px] truncate">{r.business_name}</td>
-                        <td className="px-4 py-2.5 text-gray-600 max-w-[160px] truncate">{r.customer_name ?? '—'}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{r.fe_consecutivo ?? r.invoice_number}</td>
+                        <td className="px-4 py-2.5 font-bold text-gray-800 max-w-45 truncate">{r.business_name}</td>
+                        <td className="px-4 py-2.5 text-gray-600 max-w-40 truncate">{r.customer_name ?? '—'}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{consecutivoOf(r)}</td>
                         <td className="px-4 py-2.5 text-xs">{docLabel(r.document_type)}</td>
                         <td className="px-4 py-2.5 text-right font-bold text-gray-900">{fmt(r.total)}</td>
-                        <td className="px-4 py-2.5">{statusBadge(r.fe_status)}{isErr && <span className="ml-1 text-[10px] text-red-400">{open ? '▾' : '▸'}</span>}</td>
+                        <td className="px-4 py-2.5">{statusBadge(r.fe_status)}<span className="ml-1 text-[10px] text-gray-400">{open ? '▾' : '▸'}</span></td>
                       </tr>
-                      {open && isErr && (
-                        <tr className="bg-red-50/60">
-                          <td colSpan={7} className="px-6 py-3">
-                            <p className="text-[11px] font-black text-red-600 uppercase mb-1">Error de Hacienda / FE</p>
-                            <p className="text-sm text-red-700 whitespace-pre-wrap break-words">{r.fe_error || 'Sin detalle'}</p>
-                            {r.fe_clave && <p className="text-[10px] text-gray-400 font-mono mt-1.5">Clave: {r.fe_clave}</p>}
+                      {open && (
+                        <tr className={isErr ? 'bg-red-50/60' : 'bg-gray-50/60'}>
+                          <td colSpan={7} className="px-6 py-3 space-y-3">
+                            {isErr && (
+                              <div>
+                                <p className="text-[11px] font-black text-red-600 uppercase mb-1">Error de Hacienda / FE</p>
+                                <p className="text-sm text-red-700 whitespace-pre-wrap wrap-break-word">{r.fe_error || 'Sin detalle'}</p>
+                              </div>
+                            )}
+                            {r.fe_clave && <p className="text-[10px] text-gray-400 font-mono">Clave: {r.fe_clave}</p>}
+                            {r.fe_request && (
+                              <details open={isErr}>
+                                <summary className="text-[11px] font-black text-blue-600 uppercase cursor-pointer">JSON enviado a Hacienda</summary>
+                                <pre className="mt-1 text-[11px] bg-gray-900 text-emerald-200 rounded-lg p-3 overflow-x-auto max-h-96">{JSON.stringify(r.fe_request, null, 2)}</pre>
+                              </details>
+                            )}
+                            {r.fe_response && (
+                              <details>
+                                <summary className="text-[11px] font-black text-violet-600 uppercase cursor-pointer">Respuesta</summary>
+                                <pre className="mt-1 text-[11px] bg-gray-900 text-sky-200 rounded-lg p-3 overflow-x-auto max-h-96">{JSON.stringify(r.fe_response, null, 2)}</pre>
+                              </details>
+                            )}
+                            {!r.fe_request && !r.fe_response && !isErr && (
+                              <p className="text-xs text-gray-400">Sin JSON guardado (se guarda al emitir después del deploy).</p>
+                            )}
                           </td>
                         </tr>
                       )}
