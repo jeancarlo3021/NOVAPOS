@@ -40,7 +40,9 @@ interface FeData {
   alanube_company_id?: string;              // legacy (fallback) id de empresa Alanube
   alanube_company_id_production?: string;   // id de empresa Alanube de PRODUCCIÓN
   alanube_company_id_sandbox?: string;      // id de empresa Alanube de QA / sandbox
-  hacienda_pin?: string;
+  hacienda_pin?: string;                    // legacy (fallback) PIN
+  hacienda_pin_production?: string;         // PIN de Hacienda de PRODUCCIÓN
+  hacienda_pin_sandbox?: string;            // PIN de Hacienda de QA / sandbox
   // Numeración de comprobantes electrónicos.
   sucursal?: string;
   terminal?: string;
@@ -108,12 +110,13 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
       r.readAsDataURL(file);
     });
     const pass = env === 'sandbox' ? (fe.p12_password_sandbox ?? '') : (fe.p12_password_production ?? '');
+    const pin = env === 'sandbox' ? (fe.hacienda_pin_sandbox ?? '') : (fe.hacienda_pin_production ?? '');
     const resp = await apiFetch<{ ok: boolean; certificate: any }>(`/admin/tenants/${owner.id}/fe-certificate`, {
       method: 'POST',
       body: JSON.stringify({
         environment: env,
         file_base64: b64, filename: file.name,
-        p12_password: pass, hacienda_pin: fe.hacienda_pin ?? '',
+        p12_password: pass, hacienda_pin: pin,
       }),
     });
     if (resp?.certificate) set(env === 'sandbox' ? 'certificate_sandbox' : 'certificate_production', resp.certificate);
@@ -294,6 +297,7 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
               {(['production', 'sandbox'] as const).map(env => {
                 const cert = env === 'sandbox' ? fe.certificate_sandbox : fe.certificate_production;
                 const passKey = env === 'sandbox' ? 'p12_password_sandbox' : 'p12_password_production';
+                const pinKey = env === 'sandbox' ? 'hacienda_pin_sandbox' : 'hacienda_pin_production';
                 const isProd = env === 'production';
                 return (
                   <div key={env} className={`rounded-lg border p-2 mb-2 ${isProd ? 'border-emerald-100 bg-emerald-50/40' : 'border-amber-100 bg-amber-50/40'}`}>
@@ -309,10 +313,17 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                     ) : (
                       <p className="text-[11px] text-amber-600 my-1.5">Aún no hay certificado de {isProd ? 'producción' : 'pruebas'}.</p>
                     )}
-                    <div className="mb-1.5">
-                      <label className={labelCls}>Clave del .p12</label>
-                      <input type="password" value={(fe as any)[passKey] ?? ''} onChange={e => set(passKey as any, e.target.value)}
-                        autoComplete="off" className={inputCls} />
+                    <div className="grid grid-cols-2 gap-2 mb-1.5">
+                      <div>
+                        <label className={labelCls}>Clave del .p12</label>
+                        <input type="password" value={(fe as any)[passKey] ?? ''} onChange={e => set(passKey as any, e.target.value)}
+                          autoComplete="off" className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>PIN de Hacienda</label>
+                        <input type="password" value={(fe as any)[pinKey] ?? ''} onChange={e => set(pinKey as any, e.target.value)}
+                          autoComplete="off" className={inputCls} />
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <input type="file" accept=".p12,application/x-pkcs12"
@@ -326,13 +337,7 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                   </div>
                 );
               })}
-
-              <div className="mt-1">
-                <label className={labelCls}>PIN de Hacienda</label>
-                <input type="password" value={fe.hacienda_pin ?? ''} onChange={e => set('hacienda_pin', e.target.value)}
-                  autoComplete="off" className={inputCls} />
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1">Cada .p12 se guarda cifrado en Storage privado; nunca se expone al cliente.</p>
+              <p className="text-[10px] text-gray-400 mt-1">Cada .p12 (y su clave/PIN) es independiente por ambiente. El archivo se guarda cifrado en Storage privado.</p>
             </div>
 
             {/* Credenciales de API de ATV (token de Hacienda para Alanube) — por ambiente */}
