@@ -18,6 +18,7 @@ import { TenantFeDataModal } from './components/TenantFeDataModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
 import { FeLogView } from './components/FeLogView';
+import { ReceptionLogView } from './components/ReceptionLogView';
 import { CustomInvoiceModal } from './components/CustomInvoiceModal';
 import { PrinterSandbox } from './components/PrinterSandbox';
 import { TenantGroupView } from './components/TenantGroupView';
@@ -63,7 +64,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'receipts' | 'sandbox' | 'team';
+type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'reception_log' | 'receipts' | 'sandbox' | 'team';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -577,6 +578,7 @@ export const CreateOwner: React.FC = () => {
             { id: 'groups'     as AdminTab, label: 'Grupos',       icon: Layers },
             { id: 'fe_kiosk'   as AdminTab, label: 'FE & Kiosk',   icon: FileText },
             { id: 'fe_log'     as AdminTab, label: 'Bitácora FE',  icon: FileText },
+            { id: 'reception_log' as AdminTab, label: 'Bitácora Recep.', icon: Receipt },
             { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
             { id: 'team'       as AdminTab, label: 'Equipo',       icon: Users2 },
             { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
@@ -604,6 +606,12 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'fe_log' && (
         <div className="max-w-7xl mx-auto p-6">
           <FeLogView owners={owners.map(o => ({ id: o.id, name: o.name }))} />
+        </div>
+      )}
+
+      {activeTab === 'reception_log' && (
+        <div className="max-w-7xl mx-auto p-6">
+          <ReceptionLogView owners={owners.map(o => ({ id: o.id, name: o.name }))} />
         </div>
       )}
 
