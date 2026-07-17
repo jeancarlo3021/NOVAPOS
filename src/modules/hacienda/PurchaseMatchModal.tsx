@@ -13,7 +13,7 @@ type Action = 'update' | 'create' | 'skip';
 interface Row {
   detail: string; quantity: number; unit_price: number; total: number;
   cabys?: string | null; code?: string | null; product_id: string | null; product_name: string | null; exists: boolean;
-  matched_by?: 'cabys' | 'name' | null;
+  matched_by?: 'cabys' | 'sku' | 'name' | null;
   action: Action;
 }
 
@@ -181,7 +181,7 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                           <div className="text-[11px] text-emerald-600 flex items-center gap-1 flex-wrap">
                             ↳ {r.product_name}
                             <span className="px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">
-                              {r.matched_by === 'cabys' ? 'coincide código' : 'coincide nombre'}
+                              {r.matched_by === 'cabys' ? 'coincide CABYS' : r.matched_by === 'sku' ? 'coincide código' : 'coincide nombre'}
                             </span>
                             {r.matched_by === 'name' && r.cabys && (
                               <span className="text-[10px] text-indigo-600" title="Se guardará este CABYS en el producto para que la próxima coincida por código">
