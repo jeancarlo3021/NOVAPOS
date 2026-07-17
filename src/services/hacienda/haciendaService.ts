@@ -36,6 +36,7 @@ export interface ReceivedMatchLine {
   product_id: string | null;
   product_name: string | null;
   exists: boolean;
+  matched_by?: 'cabys' | 'name' | null;
 }
 export interface ReceivedPurchaseOrder {
   id: string; purchase_number: string; purchase_date: string; total_amount: number; status: string;

@@ -244,11 +244,18 @@ export const ReceptionDashboard: React.FC = () => {
                       {!canClassify ? (
                         <span className="text-[11px] text-gray-300">—</span>
                       ) : r.kind === 'compra' ? (
-                        // Ya confirmado como compra → mostrar el N° de orden consecutivo.
-                        <button onClick={() => asCompra(r)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-black text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100">
-                          🧾 {(r as any).purchase_number ?? 'Compra'}
-                        </button>
+                        // Ya confirmado como compra → ver la orden y RECARGAR sus items
+                        // (útil si la factura ya se aceptó y la orden quedó incompleta).
+                        <div className="inline-flex items-center gap-1">
+                          <button onClick={() => asCompra(r)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-black text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100">
+                            🧾 {(r as any).purchase_number ?? 'Compra'}
+                          </button>
+                          <button onClick={() => asCompra(r)} title="Recargar los items de la compra"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50">
+                            <RefreshCw size={11} /> Recargar
+                          </button>
+                        </div>
                       ) : r.kind === 'gasto' ? (
                         <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-black text-amber-700 bg-amber-50 border border-amber-200">Gasto</span>
                       ) : (
