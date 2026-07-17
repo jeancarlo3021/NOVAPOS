@@ -80,7 +80,7 @@ export const ReceptionLogView: React.FC<Props> = ({ owners }) => {
         <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center"><Inbox size={20} className="text-white" /></div>
         <div className="flex-1">
           <h2 className="text-lg font-black text-gray-900">Bitácora de Recepción</h2>
-          <p className="text-sm text-gray-500">Comprobantes recibidos de proveedores y su estado de aceptación ante Hacienda.</p>
+          <p className="text-sm text-gray-500">Comprobantes recibidos ya resueltos ante Hacienda (aceptados, rechazados o con error). Los pendientes se ocultan; filtrá por «Pendiente» para verlos.</p>
         </div>
         <button onClick={load} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /></button>
       </div>
@@ -113,9 +113,10 @@ export const ReceptionLogView: React.FC<Props> = ({ owners }) => {
         <div>
           <label className="block text-[10px] font-black text-gray-500 uppercase mb-1">Estado</label>
           <select value={statusF} onChange={e => setStatusF(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
-            <option value="">Todos</option>
+            <option value="">Todos (resueltos)</option>
             <option value="accepted">Aceptado</option>
             <option value="rejected">Rechazado</option>
+            <option value="error">Error Hacienda</option>
             <option value="pending">Pendiente</option>
           </select>
         </div>

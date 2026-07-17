@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { X, RefreshCw, Check, FileText, KeyRound, ShieldCheck, Upload } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { CRLocationFields } from '@/components/CRLocationFields';
+import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 
 interface FeData {
   enabled?: boolean;
@@ -250,7 +251,9 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                 </div>
                 <div>
                   <label className={labelCls}>Identificación</label>
-                  <input value={fe.emisor_identification ?? ''} onChange={e => set('emisor_identification', e.target.value)} className={inputCls} />
+                  <input value={formatCedula(fe.emisor_identification ?? '', fe.emisor_identification_type ?? '02')}
+                    onChange={e => set('emisor_identification', cleanCedula(e.target.value, fe.emisor_identification_type ?? '02'))}
+                    placeholder={cedulaPlaceholder(fe.emisor_identification_type ?? '02')} inputMode="numeric" className={inputCls} />
                 </div>
               </div>
               <div className="mt-3">

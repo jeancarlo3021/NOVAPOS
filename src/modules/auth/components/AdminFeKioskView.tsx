@@ -9,6 +9,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { GroupDocCount } from './GroupDocCount';
+import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 import { apiFetch } from '@/lib/api';
 import { CRLocationFields } from '@/components/CRLocationFields';
 
@@ -327,8 +328,9 @@ export const AdminFeKioskView: React.FC = () => {
                           </div>
                           <div>
                             <label className="block text-[10px] font-bold text-gray-500 mb-1">Identificación</label>
-                            <input value={card.fe.emisor_identification ?? ''}
-                              onChange={e => setFe(b.tenant_id, 'emisor_identification', e.target.value)}
+                            <input value={formatCedula(card.fe.emisor_identification ?? '', card.fe.emisor_identification_type ?? '02')}
+                              onChange={e => setFe(b.tenant_id, 'emisor_identification', cleanCedula(e.target.value, card.fe.emisor_identification_type ?? '02'))}
+                              placeholder={cedulaPlaceholder(card.fe.emisor_identification_type ?? '02')} inputMode="numeric"
                               className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
                           </div>
                         </div>

@@ -21,6 +21,10 @@ export interface OwnerData {
   ends_at?: string;
   /** Facturas no anuladas del mes actual — para conteo de Facturación Electrónica. */
   monthly_invoices?: number;
+  /** Comprobantes ELECTRÓNICOS del mes (factura/tiquete electrónico o con clave). */
+  monthly_electronic?: number;
+  /** Tiquetes CORRIENTES del mes (no electrónicos). */
+  monthly_corriente?: number;
   /** Facturas del mes hechas por Distribución (ruta/camión). */
   distribution_invoices?: number;
   /** Ciclo de facturación del plan: 'monthly' | 'yearly' (resuelto del Plan). */

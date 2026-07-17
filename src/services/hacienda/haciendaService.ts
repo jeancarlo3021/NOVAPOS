@@ -133,6 +133,10 @@ export const haciendaService = {
   /** Proveedor de FE del tenant actual (para ocultar funciones de Alanube). */
   provider: () => apiFetch<{ provider: 'alanube' | 'facturemos'; enabled: boolean }>('/hacienda/provider'),
 
+  /** PDF generado por Alanube (base64) para el comprobante. */
+  alanubePdf: (invoiceId: string) =>
+    apiFetch<{ pdf: string; filename: string }>(`/hacienda/fe-pdf/${invoiceId}`),
+
   /** Cuota de comprobantes del plan (un solo contador: facturas+tiquetes+NC). */
   quota: () => apiFetch<{
     included: number; extra_fee: number; months_elapsed: number; quota_start?: string;

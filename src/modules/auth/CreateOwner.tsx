@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package,
+  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3,
 } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
@@ -19,6 +19,7 @@ import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
 import { FeLogView } from './components/FeLogView';
 import { ReceptionLogView } from './components/ReceptionLogView';
+import { AlanubeReportsView } from './components/AlanubeReportsView';
 import { CustomInvoiceModal } from './components/CustomInvoiceModal';
 import { PrinterSandbox } from './components/PrinterSandbox';
 import { TenantGroupView } from './components/TenantGroupView';
@@ -64,7 +65,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'reception_log' | 'receipts' | 'sandbox' | 'team';
+type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -81,6 +82,10 @@ export const CreateOwner: React.FC = () => {
   const [importProductsFor, setImportProductsFor] = useState<OwnerData | null>(null);
   const [previewProductsFor, setPreviewProductsFor] = useState<OwnerData | null>(null);
   const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
+  // Renovar FE (bolsa) + elegir nuevo plan FE.
+  const [renewFeFor, setRenewFeFor] = useState<OwnerData | null>(null);
+  const [renewFePlanId, setRenewFePlanId] = useState('');
+  const [renewFeBusy, setRenewFeBusy] = useState(false);
   const [testingAlanube, setTestingAlanube] = useState(false);
   const [creatingAlanubeId, setCreatingAlanubeId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -104,7 +109,7 @@ export const CreateOwner: React.FC = () => {
   }, []);
 
   // Bolsa de comprobantes FE por negocio (límite, usados, vencimiento a 1 año).
-  const [feQuotas, setFeQuotas] = useState<Record<string, { included?: number; used?: number; available?: number; expires_at?: string; unlimited?: boolean; overage?: number; extra_fee?: number; extra_charge?: number }>>({});
+  const [feQuotas, setFeQuotas] = useState<Record<string, { included?: number; used?: number; available?: number; used_alanube?: number; used_facturemos?: number; quota_start?: string; expires_at?: string; unlimited?: boolean; overage?: number; extra_fee?: number; extra_charge?: number }>>({});
   useEffect(() => {
     apiFetch<Record<string, any>>('/admin/fe-quotas').then(q => setFeQuotas(q ?? {})).catch(() => {});
   }, []);
@@ -149,6 +154,28 @@ export const CreateOwner: React.FC = () => {
       setSuccess(fePlanId ? 'Plan FE asignado' : 'Plan FE quitado');
       fetchOwners();
     } catch (err: any) { setError(err.message || 'Error al asignar el plan FE'); }
+  };
+
+  // Renueva la bolsa de FE (reinicia el contador a 0) y, si se eligió, asigna el
+  // nuevo plan FE (que define la cantidad incluida y el costo por extra).
+  const doRenewFe = async () => {
+    if (!renewFeFor) return;
+    setRenewFeBusy(true);
+    try {
+      // 1) Si se seleccionó un plan, asignarlo primero (copia included_docs/extra_fee).
+      if (renewFePlanId) {
+        await apiFetch(`/admin/tenants/${renewFeFor.id}/fe-plan`, {
+          method: 'PUT', body: JSON.stringify({ fe_plan_id: renewFePlanId }),
+        });
+      }
+      // 2) Renovar la bolsa (reinicia fe_quota_start a hoy → contador a 0).
+      await apiFetch(`/admin/tenants/${renewFeFor.id}/fe-renew`, { method: 'POST' });
+      setSuccess(`Bolsa de FE renovada${renewFePlanId ? ' con nuevo plan' : ''} para ${renewFeFor.name}`);
+      setRenewFeFor(null); setRenewFePlanId('');
+      fetchOwners();
+      apiFetch<Record<string, any>>('/admin/fe-quotas').then(q => setFeQuotas(q ?? {})).catch(() => {});
+    } catch (err: any) { setError(err.message || 'No se pudo renovar la FE'); }
+    finally { setRenewFeBusy(false); }
   };
 
   // Da de alta la empresa (emisor) en Alanube con los datos de FE del tenant.
@@ -237,7 +264,7 @@ export const CreateOwner: React.FC = () => {
       const [plansR, ownersR, invR] = await Promise.allSettled([
         plansService.getAllPlans(),
         apiFetch<any[]>('/admin/owners'),
-        apiFetch<Array<{ tenant_id: string; count: number; distribution_count?: number }>>('/admin/invoices-monthly'),
+        apiFetch<Array<{ tenant_id: string; count: number; electronic_count?: number; corriente_count?: number; distribution_count?: number }>>('/admin/invoices-monthly'),
       ]);
 
       const allPlans     = plansR.status  === 'fulfilled' ? plansR.value   : [];
@@ -257,6 +284,12 @@ export const CreateOwner: React.FC = () => {
 
       const countMap = new Map<string, number>(
         (invCounts ?? []).map(r => [r.tenant_id, r.count]),
+      );
+      const elecCountMap = new Map<string, number>(
+        (invCounts ?? []).map(r => [r.tenant_id, r.electronic_count ?? 0]),
+      );
+      const corrCountMap = new Map<string, number>(
+        (invCounts ?? []).map(r => [r.tenant_id, r.corriente_count ?? 0]),
       );
       const distCountMap = new Map<string, number>(
         (invCounts ?? []).map(r => [r.tenant_id, r.distribution_count ?? 0]),
@@ -287,6 +320,8 @@ export const CreateOwner: React.FC = () => {
           started_at:          row.started_at ?? null,
           ends_at:             row.ends_at ?? null,
           monthly_invoices:    countMap.get(row.id) ?? 0,
+          monthly_electronic:  elecCountMap.get(row.id) ?? 0,
+          monthly_corriente:   corrCountMap.get(row.id) ?? 0,
           distribution_invoices: distCountMap.get(row.id) ?? 0,
           // Proveedor de FE (facturemos/alanube) — controla la visibilidad de las
           // acciones de "Crear/Actualizar empresa en Alanube" en el menú.
@@ -536,6 +571,8 @@ export const CreateOwner: React.FC = () => {
   });
   const monthlyRevenue = activeOwners.reduce((s, o) => s + (o.plan_price ?? 0), 0);
   const totalMonthlyInvoices = visibleOwners.reduce((s, o) => s + (o.monthly_invoices ?? 0), 0);
+  const totalMonthlyElectronic = visibleOwners.reduce((s, o) => s + (o.monthly_electronic ?? 0), 0);
+  const totalMonthlyCorriente = visibleOwners.reduce((s, o) => s + (o.monthly_corriente ?? 0), 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -591,6 +628,7 @@ export const CreateOwner: React.FC = () => {
             { id: 'fe_kiosk'   as AdminTab, label: 'FE & Kiosk',   icon: FileText },
             { id: 'fe_log'     as AdminTab, label: 'Bitácora FE',  icon: FileText },
             { id: 'reception_log' as AdminTab, label: 'Bitácora Recep.', icon: Receipt },
+            { id: 'alanube_reports' as AdminTab, label: 'Reportes Alanube', icon: BarChart3 },
             { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
             { id: 'team'       as AdminTab, label: 'Equipo',       icon: Users2 },
             { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
@@ -624,6 +662,12 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'reception_log' && (
         <div className="max-w-7xl mx-auto p-6">
           <ReceptionLogView owners={owners.map(o => ({ id: o.id, name: o.name }))} />
+        </div>
+      )}
+
+      {activeTab === 'alanube_reports' && (
+        <div className="max-w-7xl mx-auto p-6">
+          <AlanubeReportsView />
         </div>
       )}
 
@@ -743,8 +787,9 @@ export const CreateOwner: React.FC = () => {
             { icon: AlertTriangle,label: 'Vencidos',          value: String(overdueOwners.length), color: overdueOwners.length > 0 ? 'bg-red-500' : 'bg-gray-400' },
             { icon: Clock,        label: 'Vencen esta semana',value: String(dueSoonOwners.length), color: dueSoonOwners.length > 0 ? 'bg-amber-500' : 'bg-gray-400' },
             { icon: TrendingUp,   label: 'Ingreso mensual',   value: fmt(monthlyRevenue),          color: 'bg-emerald-500' },
-            { icon: FileText,     label: 'Facturas del mes',  value: String(totalMonthlyInvoices), color: 'bg-violet-500' },
-          ].map(({ icon: Icon, label, value, color }) => (
+            { icon: FileText,     label: 'Facturas del mes',  value: String(totalMonthlyInvoices), color: 'bg-violet-500',
+              sub: `E ${totalMonthlyElectronic.toLocaleString('es-CR')} · C ${totalMonthlyCorriente.toLocaleString('es-CR')}` },
+          ].map(({ icon: Icon, label, value, color, sub }) => (
             <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
               <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center shrink-0`}>
                 <Icon size={20} className="text-white" />
@@ -752,6 +797,7 @@ export const CreateOwner: React.FC = () => {
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">{label}</p>
                 <p className="text-2xl font-black text-gray-900">{value}</p>
+                {sub && <p className="text-[11px] font-bold text-gray-400 mt-0.5">{sub}</p>}
               </div>
             </div>
           ))}
@@ -926,8 +972,8 @@ export const CreateOwner: React.FC = () => {
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase"><span className="flex items-center gap-1"><Calendar size={11} /> Activación</span></th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Próximo cobro</th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Días restantes</th>
-                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Facturas no anuladas emitidas este mes — para tracking de Facturación Electrónica">
-                      <span className="inline-flex items-center gap-1"><FileText size={11} /> Facturas (mes)</span>
+                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Comprobantes no anulados este mes. E = electrónicos (factura/tiquete electrónico), C = corrientes (tiquete no electrónico).">
+                      <span className="inline-flex items-center gap-1"><FileText size={11} /> Facturas (mes) · E/C</span>
                     </th>
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase" title="Bolsa de comprobantes electrónicos: quedan / límite · vence al año del inicio">
                       <span className="inline-flex items-center gap-1"><FileText size={11} /> Docs FE · Vence</span>
@@ -1053,19 +1099,25 @@ export const CreateOwner: React.FC = () => {
                             </div>
                           )}
                         </td>
-                        {/* Facturas del mes — para Facturación Electrónica futura */}
+                        {/* Facturas del mes: total + desglose electrónicas / corrientes */}
                         <td className="px-5 py-4 text-center">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold tabular-nums ${
-                              (o.monthly_invoices ?? 0) === 0
-                                ? 'bg-gray-100 text-gray-500'
-                                : 'bg-violet-100 text-violet-700'
-                            }`}
-                            title={`${o.monthly_invoices ?? 0} facturas emitidas este mes (excluye anuladas)`}
-                          >
-                            <FileText size={11} />
-                            {(o.monthly_invoices ?? 0).toLocaleString('es-CR')}
-                          </span>
+                          <div className="flex flex-col items-center gap-1">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold tabular-nums ${
+                                (o.monthly_invoices ?? 0) === 0
+                                  ? 'bg-gray-100 text-gray-500'
+                                  : 'bg-violet-100 text-violet-700'
+                              }`}
+                              title={`${o.monthly_invoices ?? 0} comprobantes este mes (excluye anuladas y distribución)`}
+                            >
+                              <FileText size={11} />
+                              {(o.monthly_invoices ?? 0).toLocaleString('es-CR')}
+                            </span>
+                            <div className="flex items-center gap-1 text-[10px] font-bold">
+                              <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700" title="Facturas/tiquetes ELECTRÓNICOS">E {(o.monthly_electronic ?? 0).toLocaleString('es-CR')}</span>
+                              <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600" title="Tiquetes CORRIENTES (no electrónicos)">C {(o.monthly_corriente ?? 0).toLocaleString('es-CR')}</span>
+                            </div>
+                          </div>
                         </td>
                         {/* Docs electrónicos: bolsa (quedan/límite) + vencimiento a 1 año */}
                         <td className="px-5 py-4 text-center">
@@ -1085,10 +1137,21 @@ export const CreateOwner: React.FC = () => {
                               <div className="flex flex-col items-center gap-0.5">
                                 <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold tabular-nums ${
                                   available <= 0 ? 'bg-red-100 text-red-700' : lowDocs ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                                }`} title={`${available} disponibles de ${included} · usados ${q.used ?? 0}`}>
+                                }`} title={`${available} disponibles de ${included} · usados ${q.used ?? 0} · cuenta desde ${q.quota_start ? new Date(q.quota_start).toLocaleDateString('es-CR') : '—'} (usá ese rango en el reporte de Alanube)`}>
                                   <FileText size={11} />
                                   {Math.max(0, available).toLocaleString('es-CR')}/{included.toLocaleString('es-CR')}
                                 </span>
+                                {q.quota_start && (
+                                  <span className="text-[10px] font-semibold text-gray-400" title="La bolsa cuenta comprobantes DESDE esta fecha. Para comparar con Alanube, poné este mismo rango.">
+                                    desde {new Date(q.quota_start).toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                  </span>
+                                )}
+                                {((q.used_alanube ?? 0) > 0 || (q.used_facturemos ?? 0) > 0) && (
+                                  <div className="flex items-center gap-1 text-[10px] font-bold">
+                                    <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700" title="Comprobantes emitidos con Alanube (comparables con el reporte de Alanube)">A {(q.used_alanube ?? 0).toLocaleString('es-CR')}</span>
+                                    <span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700" title="Comprobantes emitidos con Facturemos">F {(q.used_facturemos ?? 0).toLocaleString('es-CR')}</span>
+                                  </div>
+                                )}
                                 <span className={`text-[10px] font-semibold ${expired ? 'text-red-600' : soon ? 'text-amber-600' : 'text-gray-400'}`}
                                   title="Vence al año del inicio de la bolsa">
                                   {expired ? '⚠ venció ' : soon ? `⚠ vence en ${daysToExp}d · ` : 'vence '}
@@ -1168,6 +1231,10 @@ export const CreateOwner: React.FC = () => {
                                       {fePlans.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
                                   </div>
+                                  <button onClick={() => { setOpenMenuId(null); setRenewFePlanId(''); setRenewFeFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-fuchsia-700 hover:bg-fuchsia-50">
+                                    <RefreshCw size={13} /> Renovar FE + plan
+                                  </button>
                                   <button onClick={() => { setOpenMenuId(null); setManageFeFor(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
                                     <FileText size={13} /> Datos de FE (ApiKey + emisor)
@@ -1260,6 +1327,56 @@ export const CreateOwner: React.FC = () => {
           onClose={() => setRenewing(null)}
           onDone={fetchOwners}
         />
+      )}
+
+      {/* Renovar Facturación Electrónica (bolsa) + elegir nuevo plan FE */}
+      {renewFeFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !renewFeBusy && setRenewFeFor(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="w-9 h-9 rounded-xl bg-fuchsia-100 flex items-center justify-center shrink-0">
+                <RefreshCw size={18} className="text-fuchsia-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-900">Renovar Facturación Electrónica</h3>
+                <p className="text-xs text-gray-500">{renewFeFor.name}</p>
+              </div>
+            </div>
+
+            {(() => { const fq = feQuotas[renewFeFor.id]; return fq && !fq.unlimited ? (
+              <div className="mt-3 text-xs bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-gray-600">
+                Bolsa actual: <b>{fq.used ?? 0}</b> usados de <b>{fq.included ?? 0}</b>
+                {(fq.overage ?? 0) > 0 && <span className="text-red-600 font-bold"> · {fq.overage} excedidos</span>}
+              </div>
+            ) : null; })()}
+
+            <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1 mt-3">Nuevo plan FE</label>
+            <select value={renewFePlanId} onChange={e => setRenewFePlanId(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="">Mantener el plan actual</option>
+              {fePlans.filter(p => p.is_active).map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {p.docsPerMonth == null ? 'ilimitado' : `${p.docsPerMonth} comprob.`}
+                  {p.extraDocPrice > 0 ? ` · extra ₡${p.extraDocPrice}` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1.5">Reinicia el contador de la bolsa a 0 (usar cuando el cliente pagó). Si elegís un plan, se aplica su cantidad incluida y costo por extra.</p>
+
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button onClick={() => setRenewFeFor(null)} disabled={renewFeBusy}
+                className="px-3 py-2 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50">
+                Cancelar
+              </button>
+              <button onClick={doRenewFe} disabled={renewFeBusy}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-50">
+                <RefreshCw size={15} className={renewFeBusy ? 'animate-spin' : ''} />
+                {renewFeBusy ? 'Renovando…' : 'Renovar bolsa'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Cobro personalizado */}

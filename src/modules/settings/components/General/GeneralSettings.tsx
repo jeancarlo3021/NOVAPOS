@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, AlertCircle, CheckCircle, Eye, EyeOff, Lock, Percent } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
+import { formatCedula, cleanCedula } from '@/utils/cedula';
 import { useAuth } from '@/context/AuthContext';
 import { MANAGER_ROLES } from '@/types/Types_Users';
 
@@ -119,15 +120,17 @@ export const GeneralSettings: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula Jurídica / RUC</label>
-            <input type="text" name="ruc" value={formData.ruc} onChange={handleChange} disabled={planHasFe}
-              placeholder="3-101-123456"
+            <input type="text" name="ruc" value={formatCedula(formData.ruc ?? '', '02')}
+              onChange={e => setFormData(prev => ({ ...prev, ruc: cleanCedula(e.target.value, '02') }))} disabled={planHasFe}
+              inputMode="numeric" placeholder="3-101-123456"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
             <p className="text-xs text-gray-400 mt-1">Para personas jurídicas / empresas</p>
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula (Física)</label>
-            <input type="text" name="cedula" value={formData.cedula} onChange={handleChange} disabled={planHasFe}
-              placeholder="1-1234-5678"
+            <input type="text" name="cedula" value={formatCedula(formData.cedula ?? '', '01')}
+              onChange={e => setFormData(prev => ({ ...prev, cedula: cleanCedula(e.target.value, '01') }))} disabled={planHasFe}
+              inputMode="numeric" placeholder="1-1234-5678"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
             <p className="text-xs text-gray-400 mt-1">Cédula del propietario (opcional)</p>
           </div>

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Mail, Phone, Briefcase, Calendar, X, Search, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { employeesService } from '@/services/hr/hrService';
+import { formatCedula, cleanCedula } from '@/utils/cedula';
 import type { Employee, EmployeeStatus } from '../types/HR.types';
 import { DEPARTMENTS, STATUS_LABELS, STATUS_COLORS } from '../types/HR.types';
 
@@ -178,7 +179,7 @@ export const EmployeeProfile: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-5 space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Nombre completo *" value={form.full_name} onChange={v => setForm({...form, full_name: v})} />
-                <Field label="Cédula" value={form.identification} onChange={v => setForm({...form, identification: v})} />
+                <Field label="Cédula" value={formatCedula(form.identification ?? '', '01')} onChange={v => setForm({...form, identification: cleanCedula(v, '01')})} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Email" type="email" value={form.email} onChange={v => setForm({...form, email: v})} />

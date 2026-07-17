@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Search, X, UserPlus, IdCard, Plus, Check } from 'lucide-react';
 import { customersService, ID_TYPES, type Customer, type CustomerInput } from '@/services/customers/customersService';
+import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 import { CRLocationFields } from '@/components/CRLocationFields';
 
 interface Props {
@@ -209,8 +210,9 @@ function QuickCustomerCreate({ initialName, onClose, onCreated }: {
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1">Número</label>
-              <input value={form.identification ?? ''}
-                onChange={e => set('identification', e.target.value)}
+              <input value={formatCedula(form.identification ?? '', form.identification_type ?? '01')}
+                onChange={e => set('identification', cleanCedula(e.target.value, form.identification_type ?? '01'))}
+                placeholder={cedulaPlaceholder(form.identification_type ?? '01')} inputMode="numeric"
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>

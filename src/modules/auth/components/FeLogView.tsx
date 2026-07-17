@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X } from 'lucide-react';
+import { FileText, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X, MailCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
 interface FeRow {
@@ -18,6 +18,7 @@ interface FeRow {
   fe_consecutivo: string | null;
   fe_status: string | null;
   fe_error: string | null;
+  fe_emailed?: boolean | null;
   fe_request?: any;
   fe_response?: any;
 }
@@ -182,7 +183,17 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                         <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{consecutivoOf(r)}</td>
                         <td className="px-4 py-2.5 text-xs">{docLabel(r.document_type)}</td>
                         <td className="px-4 py-2.5 text-right font-bold text-gray-900">{fmt(r.total)}</td>
-                        <td className="px-4 py-2.5">{statusBadge(r.fe_status)}<span className="ml-1 text-[10px] text-gray-400">{open ? '▾' : '▸'}</span></td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex items-center gap-1">
+                            {statusBadge(r.fe_status)}
+                            {r.fe_emailed && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full" title="Comprobante enviado por correo al cliente">
+                                <MailCheck size={11} /> Correo
+                              </span>
+                            )}
+                            <span className="ml-0.5 text-[10px] text-gray-400">{open ? '▾' : '▸'}</span>
+                          </span>
+                        </td>
                       </tr>
                       {open && (
                         <tr className={isErr ? 'bg-red-50/60' : 'bg-gray-50/60'}>

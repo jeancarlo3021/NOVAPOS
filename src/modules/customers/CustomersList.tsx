@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power, HandCoins, MapPin } from 'lucide-react';
 import { customersService, ID_TYPES, type Customer, type CustomerInput, type CustomerZone } from '@/services/customers/customersService';
+import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { CustomerPricesModal } from './CustomerPricesModal';
 import { CRLocationFields } from '@/components/CRLocationFields';
@@ -344,8 +345,10 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1">Número</label>
-              <input value={form.identification ?? ''} onChange={e => set('identification', e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="Ej: 1-1234-5678" />
+              <input value={formatCedula(form.identification ?? '', form.identification_type ?? '01')}
+                onChange={e => set('identification', cleanCedula(e.target.value, form.identification_type ?? '01'))}
+                inputMode="numeric"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder={cedulaPlaceholder(form.identification_type ?? '01')} />
             </div>
           </div>
 

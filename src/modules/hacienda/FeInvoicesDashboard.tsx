@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown, Inbox } from 'lucide-react';
+import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown } from 'lucide-react';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
 import { formatWallClock } from '@/utils/datetime';
@@ -20,6 +19,7 @@ interface FeRow {
   fe_error?: string | null;
   fe_nc_clave?: string | null;
   fe_nd_clave?: string | null;
+  fe_emailed?: boolean | null;
 }
 
 const STATUS = {
@@ -31,7 +31,6 @@ const STATUS = {
 } as const;
 
 export const FeInvoicesDashboard: React.FC = () => {
-  const navigate = useNavigate();
   const [rows, setRows] = useState<FeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -121,7 +120,22 @@ export const FeInvoicesDashboard: React.FC = () => {
 
   const pdf = async (row: FeRow, creditNote = false) => {
     setBusyId(row.id);
-    try { await openFeInvoicePdf(row.id, { creditNote }); }
+    try {
+      // Para comprobantes de Alanube (y no NC), abrimos el PDF que genera Alanube.
+      if (isAlanube && !creditNote && providerOf(row) === 'alanube') {
+        try {
+          const { pdf: b64, filename } = await haciendaService.alanubePdf(row.id);
+          const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+          const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+          const a = document.createElement('a');
+          a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.download = filename || `${row.invoice_number}.pdf`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 30000);
+          return;
+        } catch { /* si Alanube no tiene el PDF aún, caemos al PDF local */ }
+      }
+      await openFeInvoicePdf(row.id, { creditNote });
+    }
     catch (e) { alert(e instanceof Error ? e.message : 'No se pudo generar el PDF'); }
     finally { setBusyId(null); }
   };
@@ -169,7 +183,9 @@ export const FeInvoicesDashboard: React.FC = () => {
     try {
       await haciendaService.resendEmail(emailRow.id, email);
       setEmailOk(true);
-      setTimeout(() => setEmailRow(null), 1200);
+      // Marca el comprobante como enviado para mostrar el check en la bitácora.
+      setRows(prev => prev.map(x => x.id === emailRow.id ? { ...x, fe_emailed: true } : x));
+      setTimeout(() => setEmailRow(null), 1600);
     } catch (e) { setEmailErr(e instanceof Error ? e.message : 'No se pudo reenviar el correo'); }
     finally { setEmailSending(false); }
   };
@@ -232,12 +248,6 @@ export const FeInvoicesDashboard: React.FC = () => {
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold">
             <RefreshCw size={12} className="animate-spin" /> Consultando estado en Hacienda…
           </span>
-        )}
-        {isAlanube && (
-          <button onClick={() => navigate('/fe-recepcion')}
-            className={`${hasPending ? '' : 'ml-auto'} inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 text-sm font-bold`}>
-            <Inbox size={15} /> Recepción
-          </button>
         )}
         <button onClick={refreshPending} disabled={syncing}
           className={`${(!isAlanube && !hasPending) ? 'ml-auto' : ''} inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 text-sm font-bold disabled:opacity-50`}>
@@ -308,17 +318,11 @@ export const FeInvoicesDashboard: React.FC = () => {
                 {visibleRows.map(r => {
                   const s = st(r);
                   const isFactura = r.document_type === 'factura_electronica';
-                  const prov = providerOf(r);
                   return (
                     <React.Fragment key={r.id}>
                       <tr className="hover:bg-gray-50">
                         <td className="px-4 py-3 font-mono text-xs font-bold text-gray-700">
                           {r.invoice_number}
-                          {prov && (
-                            <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${prov === 'alanube' ? 'bg-indigo-100 text-indigo-600' : 'bg-teal-100 text-teal-600'}`}>
-                              {prov === 'alanube' ? 'Alanube' : 'Facturemos'}
-                            </span>
-                          )}
                           {consecutivoOf(r) && (
                             <div className="mt-0.5 text-[10px] font-normal text-gray-400" title="Consecutivo enviado a Hacienda">
                               Consec: {consecutivoOf(r)}
@@ -356,9 +360,14 @@ export const FeInvoicesDashboard: React.FC = () => {
                               <Send size={12} /> Hacienda
                             </button>
                             <button onClick={() => openEmailModal(r)} disabled={busyId === r.id || !r.fe_clave}
-                              title="Reenviar a otro correo"
-                              className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-emerald-700 border border-emerald-300 bg-white hover:bg-emerald-50 disabled:opacity-50">
-                              <Mail size={12} /> Correo
+                              title={r.fe_emailed ? 'Comprobante ya enviado por correo · reenviar a otro' : 'Enviar / reenviar por correo'}
+                              className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg border disabled:opacity-50 ${
+                                r.fe_emailed
+                                  ? 'text-emerald-800 border-emerald-400 bg-emerald-100 hover:bg-emerald-200'
+                                  : 'text-emerald-700 border-emerald-300 bg-white hover:bg-emerald-50'
+                              }`}>
+                              {r.fe_emailed ? <CheckCircle2 size={12} /> : <Mail size={12} />}
+                              {r.fe_emailed ? 'Enviado ✓' : 'Correo'}
                             </button>
                             <button onClick={() => creditNote(r)} disabled={busyId === r.id || !r.fe_clave || !!r.fe_nc_clave}
                               title="Emitir nota de crédito (anular)"

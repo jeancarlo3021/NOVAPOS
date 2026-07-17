@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Receipt, Percent, DollarSign, FileText, RefreshCw, Download, ChevronRight, ChevronDown } from 'lucide-react';
+import { Receipt, Percent, DollarSign, FileText, RefreshCw, Download, ChevronRight, ChevronDown, FlaskConical } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 
 interface InvoiceRow {
   kind: 'venta' | 'nc';
@@ -52,22 +53,26 @@ function KPI({ icon: Icon, label, value, color }: { icon: React.ElementType; lab
 }
 
 export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
+  const { planFeatures } = useAuth();
+  const isAdmin = (planFeatures as any)?.admin_dashboard === true;
   const [data, setData] = useState<TaxData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+  // Ambiente (solo admin): production (default, real) · sandbox (QA) · all.
+  const [env, setEnv] = useState<'production' | 'sandbox' | 'all'>('production');
 
   const load = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true); setError('');
     try {
-      const d = await apiFetch<TaxData>(`/reports/taxes?from=${from}&to=${to}`);
+      const d = await apiFetch<TaxData>(`/reports/taxes?from=${from}&to=${to}&environment=${env}`);
       setData(d);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar impuestos');
     } finally { setLoading(false); }
-  }, [tenantId, from, to]);
+  }, [tenantId, from, to, env]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -135,15 +140,36 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
 
   return (
     <div className="space-y-5">
-      {/* Filtro */}
-      <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {FILTERS.map(f => (
-          <button key={f.id} onClick={() => setFilter(f.id)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${filter === f.id ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-            {f.label}
-          </button>
-        ))}
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+          {FILTERS.map(f => (
+            <button key={f.id} onClick={() => setFilter(f.id)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${filter === f.id ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Ambiente — SOLO admin. Permite separar comprobantes de QA/pruebas. */}
+        {isAdmin && (
+          <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 rounded-xl p-1 w-fit">
+            <span className="pl-2 pr-1 text-amber-600" title="Filtro de ambiente (solo admin)"><FlaskConical size={13} /></span>
+            {([['production', 'Producción'], ['sandbox', 'QA / Pruebas'], ['all', 'Todos']] as const).map(([id, label]) => (
+              <button key={id} onClick={() => setEnv(id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${env === id ? 'bg-white text-amber-700 shadow-sm' : 'text-amber-600/70 hover:text-amber-700'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {isAdmin && env === 'sandbox' && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold rounded-xl px-4 py-2 flex items-center gap-2">
+          <FlaskConical size={14} /> Mostrando SOLO comprobantes de QA / pruebas (sin validez fiscal).
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
