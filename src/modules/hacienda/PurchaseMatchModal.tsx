@@ -12,7 +12,7 @@ const fmt = (n: number) => `₡${Number(n ?? 0).toLocaleString('es-CR', { minimu
 type Action = 'update' | 'create' | 'skip';
 interface Row {
   detail: string; quantity: number; unit_price: number; total: number;
-  cabys?: string | null; product_id: string | null; product_name: string | null; exists: boolean;
+  cabys?: string | null; code?: string | null; product_id: string | null; product_name: string | null; exists: boolean;
   matched_by?: 'cabys' | 'name' | null;
   action: Action;
 }
@@ -165,6 +165,7 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                 <thead className="text-xs text-gray-500 font-black uppercase border-b border-gray-100">
                   <tr>
                     <th className="text-left py-2">Artículo</th>
+                    <th className="text-left py-2 pl-3">Código</th>
                     <th className="text-right py-2">Cant.</th>
                     <th className="text-right py-2">P. Unit.</th>
                     <th className="text-left py-2 pl-3">CABYS</th>
@@ -182,6 +183,11 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                             <span className="px-1 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">
                               {r.matched_by === 'cabys' ? 'coincide código' : 'coincide nombre'}
                             </span>
+                            {r.matched_by === 'name' && r.cabys && (
+                              <span className="text-[10px] text-indigo-600" title="Se guardará este CABYS en el producto para que la próxima coincida por código">
+                                CABYS ← {r.cabys}
+                              </span>
+                            )}
                             <button onClick={() => unlinkProduct(i)} className="text-[10px] text-gray-400 hover:text-red-500 underline">desvincular</button>
                           </div>
                         ) : (
@@ -215,6 +221,7 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                           </div>
                         )}
                       </td>
+                      <td className="py-2 pl-3 font-mono text-[11px] text-gray-600">{r.code ?? '—'}</td>
                       <td className="py-2 text-right text-gray-600">{r.quantity}</td>
                       <td className="py-2 text-right text-gray-600">{fmt(r.unit_price)}</td>
                       <td className="py-2 pl-3 text-gray-400 font-mono text-[11px]">{r.cabys ?? '—'}</td>

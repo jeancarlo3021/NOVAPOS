@@ -94,6 +94,37 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     setFormData(prev => ({ ...prev, unit_price: String(r.base) }));
     setClosedPrice(String(r.total)); // reflejar el total real logrado
   };
+
+  // ── Margen de venta editable ────────────────────────────────────────────────
+  // margen = (precio − costo)/costo × 100  →  precio = costo × (1 + margen/100).
+  const [marginPct, setMarginPct] = useState('');
+  // Cambiar el MARGEN recalcula el precio de venta a partir del costo.
+  const onMarginChange = (val: string) => {
+    setMarginPct(val);
+    const m = parseFloat(val);
+    const cost = parseFloat(formData.cost_price) || 0;
+    if (cost > 0 && !isNaN(m)) {
+      setFormData(prev => ({ ...prev, unit_price: (cost * (1 + m / 100)).toFixed(2) }));
+    }
+  };
+  // Cambiar el COSTO recalcula el precio manteniendo el margen actual.
+  const onCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const cost = parseFloat(val) || 0;
+    const m = parseFloat(marginPct);
+    setFormData(prev => ({
+      ...prev, cost_price: val,
+      ...(cost > 0 && !isNaN(m) ? { unit_price: (cost * (1 + m / 100)).toFixed(2) } : {}),
+    }));
+  };
+  // Cambiar el PRECIO manualmente recalcula el margen mostrado.
+  const onPriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setFormData(prev => ({ ...prev, unit_price: val }));
+    const price = parseFloat(val) || 0;
+    const cost = parseFloat(formData.cost_price) || 0;
+    if (cost > 0 && price > 0) setMarginPct((((price - cost) / cost) * 100).toFixed(1));
+  };
   // Precio cerrado para DELIVERY: mismo cálculo, aplicado al precio delivery.
   const [closedDeliveryPrice, setClosedDeliveryPrice] = useState('');
   const applyClosedDeliveryPrice = () => {
@@ -185,6 +216,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           iva_rate: (product as any).iva_rate?.toString() ?? ivaGuide,
         });
         setImageUrl((product as any).image_url || undefined);
+        // Inicializar el margen editable desde el precio/costo cargados.
+        setMarginPct(calcMargin(product.unit_price, product.cost_price).value?.toFixed(1) ?? '');
         // Si el plan no permite mezclar, siempre true. Si permite, usa el del producto.
         setTracksStock((product as any).tracks_stock ?? true);
         setExcludeFromFe(!!(product as any).exclude_from_fe);
@@ -517,7 +550,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                           type="number"
                           name="unit_price"
                           value={formData.unit_price}
-                          onChange={handleChange}
+                          onChange={onPriceChange}
                           placeholder="0"
                           step="0.01"
                           min="0"
@@ -978,7 +1011,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       type="number"
                       name="cost_price"
                       value={formData.cost_price}
-                      onChange={handleChange}
+                      onChange={onCostChange}
                       placeholder="0"
                       step="0.01"
                       min="0"
@@ -988,29 +1021,46 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                   </div>
                 </div>
 
-                {/* Margen */}
+                {/* Margen de venta — EDITABLE: cambiar el margen recalcula el precio */}
                 {(() => {
-                  const { label, profit, color } = calcMargin(formData.unit_price, formData.cost_price);
+                  const { profit, color } = calcMargin(formData.unit_price, formData.cost_price);
                   const mc = MARGIN_TEXT[color];
                   const bg =
                     color === 'gray'  ? 'bg-gray-50 border-gray-100'   :
                     color === 'red'   ? 'bg-red-50 border-red-100'     :
                     color === 'amber' ? 'bg-amber-50 border-amber-100' :
                                         'bg-emerald-50 border-emerald-100';
+                  const noCost = !(parseFloat(formData.cost_price) > 0);
                   return (
-                    <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 ${bg}`}>
-                      <div className="flex items-center gap-2">
-                        <TrendingUp size={15} className={mc} />
-                        <span className="text-sm font-semibold text-gray-600">Margen</span>
+                    <div className={`rounded-lg border px-4 py-2.5 ${bg}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <TrendingUp size={15} className={mc} />
+                          <span className="text-sm font-semibold text-gray-600">Margen de venta</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {profit !== null && (
+                            <span className={`text-xs font-semibold ${mc}`}>
+                              {profit >= 0 ? '+' : ''}₡{Math.abs(profit).toLocaleString('es-CR', { minimumFractionDigits: 0 })} ganancia
+                            </span>
+                          )}
+                          <div className="relative">
+                            <input
+                              type="number" step="0.1" value={marginPct}
+                              onChange={e => onMarginChange(e.target.value)}
+                              disabled={submitting || noCost}
+                              placeholder="—"
+                              title={noCost ? 'Ingresá primero el precio de costo' : 'Cambiá el margen y el precio de venta se recalcula'}
+                              className={`w-24 pr-6 pl-2 py-1 text-right text-lg font-black bg-white/70 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed tabular-nums ${mc}`}
+                            />
+                            <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-sm font-black ${mc}`}>%</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        {profit !== null && (
-                          <span className={`text-xs font-semibold ${mc}`}>
-                            {profit >= 0 ? '+' : ''}₡{Math.abs(profit).toLocaleString('es-CR', { minimumFractionDigits: 0 })} ganancia
-                          </span>
-                        )}
-                        <span className={`text-lg font-black ${mc}`}>{label}</span>
-                      </div>
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        {noCost ? 'Ingresá el precio de costo para calcular el precio de venta desde el margen.'
+                                : 'Editá el margen y el precio de venta se calcula solo (precio = costo × (1 + margen%)).'}
+                      </p>
                     </div>
                   );
                 })()}

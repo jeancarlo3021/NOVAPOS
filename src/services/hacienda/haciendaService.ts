@@ -33,6 +33,7 @@ export interface ReceivedMatchLine {
   unit_price: number;
   total: number;
   cabys?: string | null;
+  code?: string | null;
   product_id: string | null;
   product_name: string | null;
   exists: boolean;
