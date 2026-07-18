@@ -2026,6 +2026,14 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       if (receiptData.customerEmail) { centerText(receiptData.customerEmail); }
     }
 
+    // Bipper / localizador — DESTACADO (doble tamaño) para verlo de lejos.
+    if (receiptData.bipper) {
+      sep();
+      push(0x1B, 0x21, 0x30);       // doble alto + ancho
+      centerText(`BIPPER: ${receiptData.bipper}`);
+      push(0x1B, 0x21, 0x00);       // normal
+    }
+
     sep();
     text('ARTICULOS:'); nl();
 
