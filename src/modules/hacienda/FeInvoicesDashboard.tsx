@@ -4,6 +4,16 @@ import { haciendaService } from '@/services/hacienda/haciendaService';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
 import { formatWallClock } from '@/utils/datetime';
 
+// Fecha/hora en Costa Rica. Usa created_at (UTC real de la BD) convertido a CR;
+// si no está, cae al issued_at (que puede venir como hora local ya).
+const crDateTime = (r: { created_at?: string | null; issued_at?: string | null }): string => {
+  if (r.created_at) {
+    const d = new Date(r.created_at);
+    if (!isNaN(d.getTime())) return d.toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' });
+  }
+  return formatWallClock(r.issued_at, { dateStyle: 'short', timeStyle: 'short' });
+};
+
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
 interface FeRow {
@@ -12,6 +22,7 @@ interface FeRow {
   customer_name?: string | null;
   total: number;
   issued_at: string;
+  created_at?: string | null;
   document_type?: string;
   fe_clave?: string | null;
   fe_consecutivo?: string | null;
@@ -329,7 +340,7 @@ export const FeInvoicesDashboard: React.FC = () => {
                             </div>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 text-xs">{formatWallClock(r.issued_at, { dateStyle: 'short', timeStyle: 'short' })}</td>
+                        <td className="px-4 py-3 text-gray-600 text-xs">{crDateTime(r)}</td>
                         <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate">{r.customer_name ?? '—'}</td>
                         <td className="px-4 py-3 text-xs">{isFactura ? 'Factura' : 'Tiquete'}</td>
                         <td className="px-4 py-3 text-right font-bold text-gray-900">{fmt(r.total)}</td>

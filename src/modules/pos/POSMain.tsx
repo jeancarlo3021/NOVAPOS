@@ -481,6 +481,8 @@ export const POSMain = () => {
   useEffect(() => {
     let active = true;
     (async () => {
+      // Precios personalizados desactivados en el plan → no cargar (precio normal).
+      if ((planFeatures as any)?.customer_prices === false) { setCustomerPrices({}); return; }
       if (!selectedCustomer) { setCustomerPrices({}); return; }
       try {
         const { customerPricesService } = await import('@/services/customers/customerPricesService');
@@ -489,7 +491,7 @@ export const POSMain = () => {
       } catch { if (active) setCustomerPrices({}); }
     })();
     return () => { active = false; };
-  }, [selectedCustomer]);
+  }, [selectedCustomer, planFeatures]);
 
   // Saldo de crédito del cliente seleccionado (cuentas por cobrar pendientes).
   const [creditBalance, setCreditBalance] = useState(0);

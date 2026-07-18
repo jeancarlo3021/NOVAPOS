@@ -21,6 +21,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'accounts_payable', label: 'Cuentas por Pagar' },
     { key: 'accounts_receivable', label: 'Cuentas por Cobrar (crédito)' },
     { key: 'customers', label: 'Clientes' },
+    { key: 'customer_prices', label: 'Precios personalizados (por cliente)' },
     { key: 'users', label: 'Usuarios' },
     { key: 'settings', label: 'Configuración' },
   ]},
@@ -66,9 +67,13 @@ export const TenantModulesModal: React.FC<Props> = ({ owner, onClose, onToast })
 
   useEffect(() => { load(); }, [load]);
 
-  // Valor efectivo: override si existe, si no el del plan base.
+  // Funciones que arrancan ACTIVADAS por defecto (aunque el plan base no las
+  // defina) para no romper a quien ya las usa; el admin las puede apagar.
+  const DEFAULT_ON = new Set(['customer_prices']);
+  // Valor efectivo: override si existe, si no el del plan base (o el default-on).
   const effective = (key: string): boolean =>
-    key in overrides ? !!overrides[key] : !!base[key];
+    key in overrides ? !!overrides[key]
+      : (key in base ? !!base[key] : DEFAULT_ON.has(key));
   const isOverridden = (key: string) => key in overrides;
 
   const toggle = (key: string) =>

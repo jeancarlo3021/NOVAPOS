@@ -3,11 +3,15 @@ import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as U
 import { customersService, ID_TYPES, type Customer, type CustomerInput, type CustomerZone } from '@/services/customers/customersService';
 import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
+import { useAuth } from '@/context/AuthContext';
 import { CustomerPricesModal } from './CustomerPricesModal';
 import { CRLocationFields } from '@/components/CRLocationFields';
 
 export const CustomersList: React.FC = () => {
   const { canDo } = useRolePermissions();
+  const { planFeatures } = useAuth();
+  // Precios personalizados: activable/desactivable aparte (default ON si no se define).
+  const pricesEnabled = (planFeatures as any)?.customer_prices !== false;
   const canCreate = canDo('customers', 'create');
   const canEdit   = canDo('customers', 'edit');
   const canDelete = canDo('customers', 'delete');
@@ -140,7 +144,7 @@ export const CustomersList: React.FC = () => {
                       <Edit2 size={11} /> Editar
                     </button>
                   )}
-                  {canEdit && (
+                  {canEdit && pricesEnabled && (
                     <button onClick={() => setPricesFor(c)}
                       className="flex-1 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-100 flex items-center justify-center gap-1">
                       <Tag size={11} /> Precios

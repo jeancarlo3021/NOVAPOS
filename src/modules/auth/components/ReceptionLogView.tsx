@@ -23,7 +23,7 @@ interface RecRow {
 interface RecLogResp { count: number; accepted: number; rejected: number; pending: number; rows: RecRow[]; }
 
 const fmt = (n: number) => `₡${Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const dt = (s?: string | null) => (s ? new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
+const dt = (s?: string | null) => (s ? new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' }) : '—');
 const docLabel = (t?: string | null) => {
   switch (String(t ?? '')) {
     case '01': return 'Factura';

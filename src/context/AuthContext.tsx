@@ -194,6 +194,7 @@ export interface PlanFeatures {
   promotions?: boolean;
   labels?: boolean;           // Etiquetas de productos (plantillas + impresión)
   customers?: boolean;        // Módulo de clientes
+  customer_prices?: boolean;  // Precios personalizados por cliente (activable aparte)
   distribution?: boolean;     // Distribución (rutas de reparto en camión)
   tables?: boolean;
   /** Módulo de restaurante: cobro por mesas, toma de pedido full-screen,

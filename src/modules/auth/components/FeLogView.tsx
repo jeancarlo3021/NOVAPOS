@@ -34,7 +34,7 @@ const consecutivoOf = (r: FeRow): string => {
   if (/^\d{20}$/.test(cons)) return cons;         // consecutivo válido
   return r.invoice_number || cons || '—';         // fallback (evita mostrar el ULID)
 };
-const dt = (s?: string | null) => (s ? new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
+const dt = (s?: string | null) => (s ? new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' }) : '—');
 const docLabel = (t?: string | null) => {
   switch (String(t ?? '')) {
     case 'factura_electronica': return 'Factura';
