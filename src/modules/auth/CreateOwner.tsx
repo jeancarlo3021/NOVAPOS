@@ -1197,9 +1197,13 @@ export const CreateOwner: React.FC = () => {
                               <MoreHorizontal size={14} /> Acciones
                             </button>
                             {openMenuId === o.id && (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)} />
-                                <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white rounded-xl shadow-2xl border border-gray-100 py-1.5 text-left">
+                              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpenMenuId(null)}>
+                                <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-sm max-h-[85vh] overflow-y-auto text-left" onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
+                                    <span className="text-sm font-black text-gray-900 truncate">Acciones · {o.name}</span>
+                                    <button onClick={() => setOpenMenuId(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+                                  </div>
+                                  <div className="py-1.5">
                                   <button onClick={() => { setOpenMenuId(null); setRenewing(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
                                     <RefreshCw size={13} /> Renovar suscripción
@@ -1301,8 +1305,9 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50">
                                     <Trash2 size={13} /> Eliminar negocio
                                   </button>
+                                  </div>
                                 </div>
-                              </>
+                              </div>
                             )}
                           </div>
                         </td>
