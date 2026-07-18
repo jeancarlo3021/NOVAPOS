@@ -7,7 +7,7 @@ import {
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Shield, CalendarDays, History,
-  FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt,
+  FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { apiFetch } from '@/lib/api';
@@ -832,6 +832,8 @@ export default function Plans() {
                       description="Switch ₡/$ en efectivo con tipo de cambio del BCCR y vuelto en ₡ o $" checked={!!(features as any).pos_usd} onChange={v => set({ pos_usd: v } as any)} />
                     <SubFeatureRow icon={Truck} color="bg-orange-500" title="Delivery"
                       description="Modo Mesa/Delivery, precio delivery por producto, plataformas (Uber/Didi) y reporte de delivery" checked={!!(features as any).pos_delivery} onChange={v => set({ pos_delivery: v } as any)} />
+                    <SubFeatureRow icon={BellRing} color="bg-amber-500" title="Bipper / localizador"
+                      description="Número o nombre (bipper) que se asigna en el cobro y sale impreso en el ticket para llamar al cliente" checked={!!(features as any).pos_bipper} onChange={v => set({ pos_bipper: v } as any)} />
                   </FeatureRow>
 
                   <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones"

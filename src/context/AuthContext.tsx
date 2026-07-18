@@ -157,6 +157,7 @@ export interface PlanFeatures {
   pos_search_tabs?: boolean;         // Tabs separados código/nombre en escritorio
   pos_usd?: boolean;                 // Cobro en dólares (efectivo) con tipo de cambio BCCR
   pos_delivery?: boolean;             // Ventas por delivery (mesa/delivery, plataformas, reporte)
+  pos_bipper?: boolean;               // Bipper/localizador: nº o nombre que sale en el ticket
   // ── Inventario ─────────────────────────────────────────────────────────────
   inventory_products_only: boolean;
   inventory_mixed_stock?: boolean;       // Productos con/sin stock mixtos

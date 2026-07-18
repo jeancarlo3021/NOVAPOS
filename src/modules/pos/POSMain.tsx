@@ -37,6 +37,8 @@ import { DisplayTestModal } from './components/DisplayTestModal';
 import { CashOpenModal } from './cashManagement/CashOpenModal';
 import { CashCloseModal } from './cashManagement/CashCloseModal';
 import { PaymentConfirmationModal, PaymentData } from './cashManagement/PaymentConfirmationModal';
+import { BipperModal } from './BipperModal';
+import { BipperListModal } from './BipperListModal';
 import { FeQuotaWarning } from '@/components/FeQuotaWarning';
 import { LoadingState } from '@/components/ui/uiComponents';
 import type { CartItem, Product } from '@/types/Types_POS';
@@ -174,6 +176,18 @@ export const POSMain = () => {
   // ¿Está lista la emisión electrónica? Requiere ApiKey del emisor configurada.
   // Sin ApiKey no se puede facturar tiquete/factura electrónica.
   const [feApiKeyReady, setFeApiKeyReady] = useState(false);
+
+  // Bipper / localizador: número o nombre que sale en el ticket (feature del plan).
+  const bipperEnabled = !!(planFeatures as any)?.pos_bipper;
+  const [bipper, setBipper] = useState('');
+  const [showBipperModal, setShowBipperModal] = useState(false);   // asignar antes de cobrar
+  const [showBipperList, setShowBipperList] = useState(false);     // lista de bippers de hoy
+  // Al presionar "Cobrar": si el bipper está activo Y NO es venta delivery, primero
+  // pide el bipper y luego abre el cobro; en delivery (o sin bipper) va directo.
+  const startCobro = () => {
+    if (bipperEnabled && !isDeliveryMode) setShowBipperModal(true);
+    else setShowPaymentModal(true);
+  };
 
   useEffect(() => {
     // Si el plan no tiene FE, ni cargamos el default: siempre tiquete corriente.
@@ -657,7 +671,7 @@ export const POSMain = () => {
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[],
     fe?: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string; customerEmail?: string },
     rounding: number = 0,
-    currencyInfo?: { currency?: 'CRC' | 'USD'; exchangeRate?: number; amountReceived?: number; change?: number; changeCurrency?: 'CRC' | 'USD'; isDelivery?: boolean; deliveryCommissionPct?: number; deliveryNet?: number; deliveryPlatform?: string },
+    currencyInfo?: { currency?: 'CRC' | 'USD'; exchangeRate?: number; amountReceived?: number; change?: number; changeCurrency?: 'CRC' | 'USD'; isDelivery?: boolean; deliveryCommissionPct?: number; deliveryNet?: number; deliveryPlatform?: string; bipper?: string },
   ) => {
     if (!tenantId) return;
     try {
@@ -707,6 +721,7 @@ export const POSMain = () => {
         // Redondeo a ₡10 (positivo = se sumó, negativo = se restó).
         rounding: Math.round(rounding),
         paymentMethod: PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod,
+        bipper: currencyInfo?.bipper || undefined,   // localizador para el ticket
         // Datos del local (sin email)
         storeName: general?.businessName,
         storeRuc: general?.ruc,
@@ -803,9 +818,14 @@ export const POSMain = () => {
     }
 
     setPaymentLoading(true);
-    const notes = data.voucherNumber ? `Comprobante: ${data.voucherNumber}` : undefined;
+    // Notas: comprobante (voucher) + bipper/localizador si se asignó.
+    const notes = [
+      data.voucherNumber ? `Comprobante: ${data.voucherNumber}` : '',
+      bipper.trim() ? `Bipper: ${bipper.trim()}` : '',
+    ].filter(Boolean).join(' · ') || undefined;
 
     // Snapshot del carrito para imprimir después (al limpiar inmediatamente)
+    const bipperSnapshot = bipper.trim();
     const cartSnapshot = [...cartItems];
     const subSnapshot = subtotal;
     const taxSnapshot = taxAmount;
@@ -848,6 +868,7 @@ export const POSMain = () => {
         // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
         // actual de una sola llamada (más limpio que setCartItems([]) + setCustomerName('')).
         resetActive();
+        setBipper('');
         setShowPaymentModal(false);
         setCartOpen(false);
         setPaymentLoading(false);
@@ -900,7 +921,7 @@ export const POSMain = () => {
           }
         }
 
-        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform });
+        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
         setInvoiceCounterKey(k => k + 1);
         return;
       } else {
@@ -928,6 +949,7 @@ export const POSMain = () => {
 
         // Limpiar UI del tab activo INMEDIATAMENTE
         resetActive();
+        setBipper('');
         setShowPaymentModal(false);
         setCartOpen(false);
         setPaymentLoading(false);
@@ -942,7 +964,7 @@ export const POSMain = () => {
           payment_method: data.paymentMethod,
         });
         refreshPendingCount();
-        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform });
+        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
         setInvoiceCounterKey(k => k + 1);
         return;
       }
@@ -1114,7 +1136,7 @@ export const POSMain = () => {
             onRemoveFromCart={handleRemoveFromCart}
             onChangeQuantity={handleChangeQuantity}
             onApplyDiscount={handleApplyDiscount}
-            onPayment={() => setShowPaymentModal(true)}
+            onPayment={startCobro}
             onPreTicket={printPreTicket}
             expanded={isListLayout}
             deliveryEnabled={deliveryEnabled}
@@ -1152,7 +1174,7 @@ export const POSMain = () => {
             onRemoveFromCart={handleRemoveFromCart}
             onChangeQuantity={handleChangeQuantity}
             onApplyDiscount={handleApplyDiscount}
-            onPayment={() => setShowPaymentModal(true)}
+            onPayment={startCobro}
             onPreTicket={printPreTicket}
             expanded
             deliveryEnabled={deliveryEnabled}
@@ -1275,6 +1297,28 @@ export const POSMain = () => {
             setCashMovement(null);
           }}
         />
+      )}
+
+      {/* Bipper: botón flotante para VER la lista de bippers de hoy */}
+      {bipperEnabled && (
+        <button onClick={() => setShowBipperList(true)}
+          title="Ver la lista de bippers de hoy"
+          className="fixed bottom-4 left-4 z-30 inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-full shadow-lg text-sm font-black bg-white text-amber-700 border border-amber-300 hover:bg-amber-50">
+          🔔 Bippers
+        </button>
+      )}
+      {/* Al cobrar: asignar el bipper y CONTINUAR al cobro (Guardar → pago). */}
+      {bipperEnabled && showBipperModal && (
+        <BipperModal
+          value={bipper}
+          saveLabel="Continuar al cobro →"
+          onSave={(v) => { setBipper(v); setShowPaymentModal(true); }}
+          onClose={() => setShowBipperModal(false)}
+        />
+      )}
+      {/* Lista de bippers de hoy */}
+      {bipperEnabled && showBipperList && (
+        <BipperListModal onClose={() => setShowBipperList(false)} />
       )}
 
       {showPaymentModal && (

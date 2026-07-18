@@ -142,7 +142,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const [error, setError] = useState('');
   // Delivery: no se suma al cierre; se le puede restar una comisión (%).
   // En modo delivery del POS ya viene forzado (isDelivery=true, plataformas directo).
-  const [isDelivery, setIsDelivery] = useState(deliveryMode);
+  const [isDelivery] = useState(deliveryMode);   // delivery se decide en el POS, no acá
   const [deliveryPct, setDeliveryPct] = useState(String(defaultDeliveryPct || 0));
   const [deliveryPlatform, setDeliveryPlatform] = useState('');
   const deliveryPctNum = Math.max(0, Math.min(100, parseFloat(deliveryPct) || 0));
@@ -295,16 +295,11 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
               </p>
             </div>
 
-            {/* Delivery: no se suma al cierre; se contabiliza aparte. */}
+            {/* Delivery: SOLO cuando el POS ya está en modo delivery (el modo se
+                elige arriba, no con un check acá). No se suma al cierre. */}
+            {deliveryMode && (
             <div className={`rounded-2xl border-2 px-4 py-3 ${isDelivery ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white'}`}>
-              {deliveryMode ? (
-                <span className="font-black text-sm text-orange-800">🛵 Venta por Delivery</span>
-              ) : (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={isDelivery} onChange={e => setIsDelivery(e.target.checked)} className="w-5 h-5 rounded" />
-                  <span className="font-black text-sm text-gray-800">🛵 Venta por Delivery</span>
-                </label>
-              )}
+              <span className="font-black text-sm text-orange-800">🛵 Venta por Delivery</span>
               {isDelivery && (
                 <div className="mt-2 space-y-2">
                   <p className="text-[11px] text-orange-700 font-bold">No se suma al cierre de caja — se contabiliza aparte.</p>
@@ -338,6 +333,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                 </div>
               )}
             </div>
+            )}
 
             {/* Vuelto destacado en columna izquierda cuando se está pagando en efectivo */}
             {method === 'cash' && receivedNum > 0 && (

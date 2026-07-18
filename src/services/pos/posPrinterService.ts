@@ -56,6 +56,7 @@ export interface ReceiptData {
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;   // correo del receptor (al que se envió la factura electrónica)
+  bipper?: string;          // bipper/localizador (número o nombre) para llamar al cliente
   items: Array<{
     name: string;
     quantity: number;
@@ -1644,6 +1645,7 @@ export class POSPrinterService {
     ${r.customerPhone ? `<div>Tel: ${esc(r.customerPhone)}</div>` : ''}
     ${r.customerEmail ? `<div>${esc(r.customerEmail)}</div>` : ''}
   </div></div>` : ''}
+  ${r.bipper ? `<div style="text-align:center;font-weight:bold;font-size:1.2em;margin:6px 0;border:1px dashed #000;padding:4px;">BIPPER: ${esc(r.bipper)}</div>` : ''}
 
   <table>
     <thead><tr><th class="c">#</th><th>Descripción</th><th class="r">Cant.</th><th class="r">P. Unit</th><th class="r">Subtotal</th></tr></thead>
@@ -1716,6 +1718,10 @@ export class POSPrinterService {
            ${receiptData.customerEmail ? `<br>Correo: ${receiptData.customerEmail}` : ''}
          </div>
          <hr class="divider">`
+      : '';
+
+    const bipperBlock = receiptData.bipper
+      ? `<div style="text-align:center;font-weight:bold;font-size:15px;margin:4px 0;border:1px dashed #000;padding:3px;">🔔 BIPPER: ${receiptData.bipper}</div>`
       : '';
 
     return `<!DOCTYPE html>
@@ -1867,6 +1873,7 @@ export class POSPrinterService {
   <hr class="divider">
 
   ${customerBlock}
+  ${bipperBlock}
 
   <div class="section-label">ARTÍCULOS</div>
   <table>

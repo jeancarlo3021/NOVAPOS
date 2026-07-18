@@ -16,6 +16,7 @@ interface POSReceiptInvoiceProps {
   paymentMethod: 'cash' | 'card' | 'sinpe';
   customerName?: string;
   customerPhone?: string;
+  bipper?: string;
   cashSession: CashSession;
   onClose: () => void;
 }
@@ -30,6 +31,7 @@ export const POSReceiptInvoice: React.FC<POSReceiptInvoiceProps> = ({
   paymentMethod,
   customerName,
   customerPhone,
+  bipper,
   cashSession,
   onClose,
 }) => {
@@ -61,6 +63,7 @@ export const POSReceiptInvoice: React.FC<POSReceiptInvoiceProps> = ({
     time: formattedTime,
     customerName,
     customerPhone,
+    bipper,
     items: cartItems.map((item) => ({
       name: item.product.name,
       quantity: item.quantity,
@@ -148,6 +151,13 @@ export const POSReceiptInvoice: React.FC<POSReceiptInvoiceProps> = ({
                 <p className="text-xs font-bold text-gray-700">CLIENTE:</p>
                 {customerName && <p className="text-xs">{customerName}</p>}
                 {customerPhone && <p className="text-xs">Tel: {customerPhone}</p>}
+              </div>
+            )}
+
+            {/* Bipper / localizador */}
+            {bipper && (
+              <div className="border-2 border-dashed border-gray-500 rounded py-1 mb-3 text-center font-black text-sm">
+                🔔 BIPPER: {bipper}
               </div>
             )}
 

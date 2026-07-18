@@ -14,6 +14,7 @@ interface Props {
 const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[] = [
   { group: 'Principales', items: [
     { key: 'pos', label: 'Punto de Venta' },
+    { key: 'pos_bipper', label: 'Bipper / localizador (en ticket)' },
     { key: 'inventory', label: 'Inventario' },
     { key: 'reports', label: 'Reportes' },
     { key: 'expenses', label: 'Gastos' },
