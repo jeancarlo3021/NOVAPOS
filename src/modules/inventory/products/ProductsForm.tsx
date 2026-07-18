@@ -48,6 +48,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const categoriesEnabled = flagOn((planFeatures as any)?.inventory_categories);
   const unitTypesEnabled  = flagOn((planFeatures as any)?.inventory_unit_types);
   const deliveryEnabled   = !!(planFeatures as any)?.pos_delivery;
+  // Facturación electrónica: CABYS, IVA y precio-final-con-IVA solo si está activa.
+  const feEnabled         = !!(planFeatures as any)?.electronic_invoice;
   // Resolved tenantId: works for both owners (user.tenant_id) and staff (via useTenantId lookup)
   const tid = tenantId ?? user?.tenant_id ?? '';
 
@@ -573,7 +575,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                         </div>
                         <p className="text-[10px] text-gray-400 mt-0.5">Se usa cuando la venta es en modo <b>Delivery</b>. Vacío = usa el precio normal.</p>
 
-                        {/* Precio cerrado (con IVA) para el precio delivery */}
+                        {/* Precio delivery cerrado (con IVA): solo con FE activa */}
+                        {feEnabled && (
                         <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 mt-2">
                           <label className="block text-xs font-bold text-orange-700 mb-1.5">
                             Precio delivery final con IVA incluido (cerrado)
@@ -605,11 +608,13 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                             );
                           })()}
                         </div>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Precio cerrado: ingresás el total CON IVA y calcula la base */}
+                  {/* Precio cerrado (con IVA): solo con facturación electrónica activa */}
+                  {feEnabled && (
                   <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
                     <label className="block text-xs font-bold text-blue-700 mb-1.5">
                       Precio final con IVA incluido (cerrado)
@@ -644,6 +649,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       Elegí primero el IVA abajo. Al calcular, la <b>base se guarda con decimales</b> para que el total con IVA sea exactamente el precio cerrado. En el POS los precios se muestran redondeados.
                     </p>
                   </div>
+                  )}
 
                   {/* Proveedor — relación opcional del producto (solo si la función está activa) */}
                   {suppliersEnabled && (
@@ -717,7 +723,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     </div>
                   )}
 
-                  {/* ── Facturación Electrónica ────────────────────────────────── */}
+                  {/* ── Facturación Electrónica (solo si el plan la tiene) ───────── */}
+                  {feEnabled && (<>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">
@@ -766,6 +773,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       <span className="block text-[11px] text-gray-400">Para productos <b>sin precio</b> (regalías, muestras). Se venden y aparecen en el ticket, pero no van en el comprobante electrónico.</span>
                     </span>
                   </label>
+                  </>)}
                 </div>
               </div>
 

@@ -198,8 +198,10 @@ export const Dashboard = () => {
     // Recepción de comprobantes: ahora es POR CORREO (no depende de Alanube).
     // El admin/owner siempre la ve; para el resto, requiere el plan + rol.
     if (t.path === '/fe-recepcion') {
-      if (isAdmin) return true;
+      // Solo si la facturación electrónica está ACTIVA en el plan (para todos,
+      // incluido el admin): sin FE no tiene sentido recepcionar comprobantes.
       if (!(pf.electronic_invoice ?? false)) return false;
+      if (isAdmin) return true;
       return canAccess('electronic_invoice');
     }
     // 'settings' siempre; 'customers' visible salvo que se desactive; el resto
