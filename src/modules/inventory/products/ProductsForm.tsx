@@ -732,6 +732,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       </label>
                       <CabysPicker
                         value={formData.cabys_code}
+                        suggestName={formData.name}
                         disabled={submitting}
                         onSelect={(code, iva) => setFormData(prev => ({
                           ...prev,
