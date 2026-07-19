@@ -1681,14 +1681,17 @@ export class POSPrinterService {
 
     const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
+    // Precios CON IMPUESTOS (precio final): línea y unitario con IVA incluido.
+    const effRateH = receiptData.subtotal > 0 ? receiptData.tax / receiptData.subtotal : 0;
+    const wTax = (n: number) => Math.round(n * (1 + effRateH));
     const itemsHTML = receiptData.items.map(item => `
       <tr>
         <td class="item-name">${item.name}</td>
         <td class="item-qty">${item.quantity}</td>
-        <td class="item-price">₡${fmt(item.subtotal)}</td>
+        <td class="item-price">₡${fmt(wTax(item.subtotal))}</td>
       </tr>
       <tr class="item-detail">
-        <td colspan="3">&nbsp;&nbsp;${item.quantity} × ₡${fmt(item.unitPrice)}</td>
+        <td colspan="3">&nbsp;&nbsp;${item.quantity} × ₡${fmt(wTax(item.unitPrice))}</td>
       </tr>
     `).join('');
 
@@ -1884,8 +1887,7 @@ export class POSPrinterService {
 
   ${(receiptData.tax > 0 || Number(receiptData.discount) || Number(receiptData.rounding)) ? `
   <table class="totals">
-    <tr><td>Subtotal:</td><td>₡${fmt(receiptData.subtotal)}</td></tr>
-    ${receiptData.tax > 0 ? `<tr><td>Impuesto:</td><td>₡${fmt(receiptData.tax)}</td></tr>` : ''}
+    ${receiptData.tax > 0 ? `<tr><td>IVA incluido:</td><td>₡${fmt(receiptData.tax)}</td></tr>` : ''}
     ${Number(receiptData.discount) ? `<tr><td>${receiptData.discountLabel || 'Combos/Desc.'}:</td><td>${Number(receiptData.discount) >= 0 ? '-' : '+'}₡${fmt(Math.abs(Number(receiptData.discount)))}</td></tr>` : ''}
     ${Number(receiptData.rounding) ? `<tr><td>Redondeo:</td><td>${Number(receiptData.rounding) >= 0 ? '+' : '-'}₡${fmt(Math.abs(Number(receiptData.rounding)))}</td></tr>` : ''}
   </table>
@@ -2037,18 +2039,22 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     sep();
     text('ARTICULOS:'); nl();
 
+    // Precios CON IMPUESTOS (precio final): la línea y el unitario se muestran con
+    // el IVA incluido. Se usa la tasa efectiva del ticket (IVA total / base total).
+    const effRate = receiptData.subtotal > 0 ? receiptData.tax / receiptData.subtotal : 0;
+    const withTax = (n: number) => Math.round(n * (1 + effRate));
     for (const item of receiptData.items) {
-      const price = `${item.subtotal.toLocaleString('es-CR')}`;
+      const price = `${withTax(item.subtotal).toLocaleString('es-CR')}`;
       const name = item.name.substring(0, charWidth - price.length - 1);
       const spaces = charWidth - name.length - price.length;
       text(name + ' '.repeat(Math.max(1, spaces)) + price); nl();
-      text(`  ${item.quantity} x ${item.unitPrice.toLocaleString('es-CR')}`); nl();
+      text(`  ${item.quantity} x ${withTax(item.unitPrice).toLocaleString('es-CR')}`); nl();
     }
 
     sep();
     const fmt = (n: number) => `${n.toLocaleString('es-CR')}`;
-    rightAlign('Subtotal:', fmt(receiptData.subtotal));
-    if (receiptData.tax > 0) { rightAlign('Impuesto:', fmt(receiptData.tax)); }
+    // Precios ya vienen CON IMPUESTOS; solo se informa el IVA incluido.
+    if (receiptData.tax > 0) { rightAlign('IVA incluido:', fmt(receiptData.tax)); }
     if (Number(receiptData.discount)) { rightAlign(`${receiptData.discountLabel || 'Combos/Desc.'}:`, `${Number(receiptData.discount) >= 0 ? '-' : '+'}${fmt(Math.abs(Number(receiptData.discount)))}`); }
     if (Number(receiptData.rounding)) { rightAlign('Redondeo:', `${Number(receiptData.rounding) >= 0 ? '+' : '-'}${fmt(Math.abs(Number(receiptData.rounding)))}`); }
     sep();
