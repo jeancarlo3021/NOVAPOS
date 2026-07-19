@@ -450,8 +450,10 @@ export const POSMain = () => {
   // (ya no circulan monedas de ₡5). Los productos con "precio cerrado" ya vienen
   // pensados para dar múltiplos de 10, así que en electrónico también cuadra.
   const rawTotal = Math.max(0, subtotal + taxAmount - comboDiscount);
-  // El total va EXACTO con decimales (ya no se redondea a múltiplos de ₡10).
-  const total = round2(rawTotal);
+  // Tiquete CORRIENTE (efectivo): total a múltiplos de ₡10 (ya no circulan ₡5).
+  // Comprobante ELECTRÓNICO: EXACTO (Hacienda exige total = suma de líneas + IVA).
+  const isElectronicDoc = documentType === 'factura_electronica' || documentType === 'tiquete_electronico';
+  const total = isElectronicDoc ? round2(rawTotal) : Math.round(rawTotal / 10) * 10;
   const roundingAdjust = round2(total - rawTotal);
 
   // ── Atajos de teclado estilo Eleventa ─────────────────────────────────
