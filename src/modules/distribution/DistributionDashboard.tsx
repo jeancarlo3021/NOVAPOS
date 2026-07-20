@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, Plus, X, Package, RefreshCw, LockKeyhole, Trash2,
-  CheckCircle2, Search, Loader2, Navigation, BarChart3, Users, Scale, Printer,
+  CheckCircle2, Search, Loader2, Navigation, BarChart3, Users, Scale, Printer, Download,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -141,6 +141,19 @@ export const DistributionDashboard: React.FC = () => {
             <button onClick={() => setShowReport(true)}
               className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-xl text-sm">
               <BarChart3 size={16} /> Reporte
+            </button>
+            <button onClick={() => navigate('/distribution/tracking')}
+              className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-xl text-sm">
+              <Navigation size={16} /> Rastreo en vivo
+            </button>
+            <button onClick={() => {
+                const url = (import.meta.env.VITE_APK_URL as string | undefined)
+                  || 'https://hdmxpjscmkgfettmqcyl.supabase.co/storage/v1/object/public/app/colonclick-repartidor.apk';
+                window.open(url, '_blank', 'noopener');
+              }}
+              className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-xl text-sm"
+              title="Descargar la app del repartidor (Android)">
+              <Download size={16} /> App repartidor
             </button>
             <button onClick={() => setShowCreate(true)}
               className="flex items-center gap-2 bg-white text-cyan-700 font-black px-4 py-2 rounded-xl text-sm hover:bg-cyan-50">

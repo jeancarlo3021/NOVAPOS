@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3,
+  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle,
 } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
@@ -87,6 +87,7 @@ export const CreateOwner: React.FC = () => {
   const [renewFePlanId, setRenewFePlanId] = useState('');
   const [renewFeBusy, setRenewFeBusy] = useState(false);
   const [testingAlanube, setTestingAlanube] = useState(false);
+  const [testingWa, setTestingWa] = useState(false);
   const [creatingAlanubeId, setCreatingAlanubeId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showCabys, setShowCabys] = useState(false);
@@ -388,6 +389,24 @@ export const CreateOwner: React.FC = () => {
     }
   };
 
+  // ── Recordatorio de pago por WhatsApp (número ColónClick) ────────────────────
+  const [waSendingId, setWaSendingId] = useState<string | null>(null);
+  const sendWhatsappReminder = async (owner: OwnerData) => {
+    if (!confirm(`¿Enviar un recordatorio de pago por WhatsApp al negocio "${owner.name}"?`)) return;
+    setWaSendingId(owner.id);
+    try {
+      const r = await apiFetch<any>('/admin/whatsapp/payment-reminder', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId: owner.id }),
+      });
+      showToast(`Recordatorio de pago enviado por WhatsApp a "${owner.name}" (${r?.phone ?? ''})`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'No se pudo enviar el WhatsApp', 'error');
+    } finally {
+      setWaSendingId(null);
+    }
+  };
+
   const sendAdminEmail = async (owner: OwnerData, kind: 'new-business' | 'payment-reminder') => {
     setEmailingId(owner.id);
     try {
@@ -606,6 +625,21 @@ export const CreateOwner: React.FC = () => {
               disabled={testingAlanube}
               className="flex items-center gap-1.5 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition">
               <Sparkles size={15} /> {testingAlanube ? 'Probando…' : 'Probar Alanube'}
+            </button>
+            <button onClick={async () => {
+                const to = window.prompt('Número de WhatsApp destino (debe estar registrado como número de prueba en Meta). Ej: 8888-8888');
+                if (!to) return;
+                setTestingWa(true);
+                try {
+                  const r = await apiFetch<any>('/admin/whatsapp/test', { method: 'POST', body: JSON.stringify({ to }) });
+                  showToast(`WhatsApp enviado a ${r?.phone ?? to} (hello_world) ✓`, 'success');
+                } catch (e) {
+                  showToast(e instanceof Error ? e.message : 'Falló el envío de WhatsApp', 'error');
+                } finally { setTestingWa(false); }
+              }}
+              disabled={testingWa}
+              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition">
+              <MessageCircle size={15} /> {testingWa ? 'Enviando…' : 'Probar WhatsApp'}
             </button>
             <Link to="/plans"
               className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition">
@@ -1211,6 +1245,10 @@ export const CreateOwner: React.FC = () => {
                                   <button onClick={() => { setOpenMenuId(null); handleEditDays(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50">
                                     <Calendar size={13} /> Cambiar días restantes
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); sendWhatsappReminder(o); }} disabled={waSendingId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50 disabled:opacity-40">
+                                    <MessageCircle size={13} /> {waSendingId === o.id ? 'Enviando WhatsApp…' : 'Recordatorio de pago (WhatsApp)'}
                                   </button>
                                   <button onClick={() => { setOpenMenuId(null); handleToggleStatus(o); }} disabled={isBusy}
                                     className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-bold disabled:opacity-40 ${isActive ? 'text-orange-700 hover:bg-orange-50' : 'text-emerald-700 hover:bg-emerald-50'}`}>

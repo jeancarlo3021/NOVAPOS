@@ -31,6 +31,7 @@ const BranchReportsDashboard   = lazy(() => import('./modules/reports/BranchRepo
 const Recipes                  = lazy(() => import('./modules/recipes/Recipes').then(m => ({ default: m.Recipes })));
 const DistributionDashboard    = lazy(() => import('./modules/distribution/DistributionDashboard').then(m => ({ default: m.DistributionDashboard })));
 const RouteRun                 = lazy(() => import('./modules/distribution/RouteRun').then(m => ({ default: m.RouteRun })));
+const TruckTrackingMap         = lazy(() => import('./modules/distribution/TruckTrackingMap').then(m => ({ default: m.TruckTrackingMap })));
 const DriverView               = lazy(() => import('./modules/distribution/DriverView').then(m => ({ default: m.DriverView })));
 const ExpensesDashboard        = lazy(() => import('./modules/expenses/ExpensesDashboard').then(m => ({ default: m.ExpensesDashboard })));
 const PurchasesDashboard       = lazy(() => import('./modules/purchases/PurchasesDashboard').then(m => ({ default: m.PurchasesDashboard })));
@@ -137,6 +138,7 @@ function AppContent() {
               } />
               <Route path="/customers" element={<CustomersList />} />
               <Route path="/distribution" element={<DistributionDashboard />} />
+              <Route path="/distribution/tracking" element={<TruckTrackingMap />} />
               <Route path="/distribution/:id" element={<RouteRun />} />
               <Route path="/driver" element={<DriverView />} />
               <Route path="/accounts-payable" element={

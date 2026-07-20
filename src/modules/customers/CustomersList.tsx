@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power, HandCoins, MapPin } from 'lucide-react';
 import { customersService, ID_TYPES, type Customer, type CustomerInput, type CustomerZone } from '@/services/customers/customersService';
+import { LocationPickerModal } from './LocationPickerModal';
 import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { useAuth } from '@/context/AuthContext';
@@ -280,6 +281,8 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
     district_code:       customer?.district_code ?? '',
     economic_activity_code: customer?.economic_activity_code ?? '',
     zone:                customer?.zone ?? '',
+    lat:                 customer?.lat ?? null,
+    lng:                 customer?.lng ?? null,
     notes:               customer?.notes ?? '',
     is_active:           customer?.is_active ?? true,
     credit_enabled:      customer?.credit_enabled ?? false,
@@ -288,6 +291,7 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
   const [zones, setZones]   = useState<string[]>([]);
+  const [showLocation, setShowLocation] = useState(false);
 
   useEffect(() => {
     customersService.listZones().then(zs => setZones((zs ?? []).map(z => z.name))).catch(() => {});
@@ -417,6 +421,25 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
           </div>
 
           <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Ubicación en mapa <span className="text-gray-400 font-normal">(para el rastreo de reparto)</span></label>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setShowLocation(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-50 text-cyan-700 text-sm font-bold hover:bg-cyan-100">
+                <MapPin size={15} /> {form.lat != null && form.lng != null ? 'Cambiar ubicación' : 'Fijar ubicación'}
+              </button>
+              {form.lat != null && form.lng != null ? (
+                <span className="text-xs text-gray-500 font-mono truncate">{Number(form.lat).toFixed(5)}, {Number(form.lng).toFixed(5)}</span>
+              ) : (
+                <span className="text-xs text-gray-400">Sin ubicación</span>
+              )}
+              {form.lat != null && form.lng != null && (
+                <button type="button" onClick={() => { set('lat', null); set('lng', null); }}
+                  className="ml-auto text-xs font-bold text-red-600 hover:underline">Quitar</button>
+              )}
+            </div>
+          </div>
+
+          <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Notas</label>
             <input value={form.notes ?? ''} onChange={e => set('notes', e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
@@ -451,6 +474,16 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
           </div>
         </form>
       </div>
+
+      {showLocation && (
+        <LocationPickerModal
+          title={form.name || undefined}
+          lat={form.lat ?? null}
+          lng={form.lng ?? null}
+          onSave={(la, ln) => { set('lat', la); set('lng', ln); }}
+          onClose={() => setShowLocation(false)}
+        />
+      )}
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { PrintTicketModal } from './PrintTicketModal';
 import { customerPricesService } from '@/services/customers/customerPricesService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
+import { truckTracking } from '@/services/distribution/truckTrackingService';
 import {
   promotionsService, getProductPromotion, calcPromoUnitPrice, calcPromoSubtotal, promoLabel,
   type Promotion,
@@ -70,6 +71,21 @@ export const RouteRun: React.FC = () => {
 
   // Reconexión silenciosa de la impresora Bluetooth al entrar (primera impresión instantánea).
   useEffect(() => { if (tenantId) posPrinterService.reconnectBluetooth(tenantId).catch(() => {}); }, [tenantId]);
+
+  // Rastreo del camión en segundo plano (solo app nativa; en web es no-op).
+  // Arranca cuando la ruta está ABIERTA y el repartidor lo tiene activado.
+  const [trackingOn, setTrackingOn] = useState(() => localStorage.getItem('tracking_enabled') !== 'false');
+  const toggleTracking = () => {
+    const v = !trackingOn;
+    setTrackingOn(v);
+    localStorage.setItem('tracking_enabled', String(v));
+  };
+  useEffect(() => {
+    if (!id) return;
+    if (route?.status === 'open' && trackingOn) truckTracking.start(id).catch(() => {});
+    else truckTracking.stop().catch(() => {});
+    return () => { truckTracking.stop().catch(() => {}); };
+  }, [id, route?.status, trackingOn]);
 
   const loadSales = useCallback(async () => {
     if (!id) return;
@@ -186,6 +202,14 @@ export const RouteRun: React.FC = () => {
               <Package size={16} /> Inventario
             </button>
           </div>
+        )}
+
+        {/* Rastreo GPS: activar/desactivar (solo en la app del repartidor) */}
+        {truckTracking.isSupported() && route.status === 'open' && (
+          <button onClick={toggleTracking}
+            className={`w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition ${trackingOn ? 'bg-emerald-400/90 text-emerald-950' : 'bg-white/15 text-white hover:bg-white/25'}`}>
+            <MapPin size={15} /> {trackingOn ? 'Rastreo activo (tocá para apagar)' : 'Rastreo apagado (tocá para activar)'}
+          </button>
         )}
       </div>
 

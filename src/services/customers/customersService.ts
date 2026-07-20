@@ -15,6 +15,8 @@ export interface Customer {
   address?:            string | null;
   economic_activity_code?: string | null;
   zone?:               string | null;
+  lat?:                number | null;
+  lng?:                number | null;
   notes?:              string | null;
   is_active:           boolean;
   credit_enabled?:     boolean;

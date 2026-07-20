@@ -3,6 +3,7 @@ import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Lo
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
 import { formatWallClock } from '@/utils/datetime';
+import { useAuth } from '@/context/AuthContext';
 
 // Fecha/hora en Costa Rica. Usa created_at (UTC real de la BD) convertido a CR;
 // si no está, cae al issued_at (que puede venir como hora local ya).
@@ -42,6 +43,8 @@ const STATUS = {
 } as const;
 
 export const FeInvoicesDashboard: React.FC = () => {
+  const { planFeatures } = useAuth();
+  const isAdmin = (planFeatures as any)?.admin_dashboard === true;
   const [rows, setRows] = useState<FeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -240,7 +243,7 @@ export const FeInvoicesDashboard: React.FC = () => {
           <h1 className="text-xl font-black text-gray-900">Facturas electrónicas</h1>
           <p className="text-sm text-gray-500">Estatus ante Hacienda, errores y reenvíos.</p>
         </div>
-        {feEnv && (
+        {feEnv && isAdmin && (
           <span
             title={feEnv === 'sandbox'
               ? 'Los comprobantes se emiten en el ambiente de PRUEBAS de Hacienda (no tienen validez fiscal).'
