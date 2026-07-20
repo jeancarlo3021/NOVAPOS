@@ -35,7 +35,7 @@ const ACTION_META: Record<string, ActionMeta> = {
 };
 
 const META_DEFAULT: ActionMeta = { label: 'Acción', icon: Activity, color: 'gray' };
-const fmtDateTime = (s: string) => new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' });
+const fmtDateTime = (s: string) => new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' });
 
 export const ActivityLog: React.FC = () => {
   const { tenantId } = useTenantId();

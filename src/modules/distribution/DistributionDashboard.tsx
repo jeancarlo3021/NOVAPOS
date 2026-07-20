@@ -9,6 +9,7 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
 import { PrintTicketModal } from './PrintTicketModal';
 import { FeQuotaWarning } from '@/components/FeQuotaWarning';
 import { distributionService, type DeliveryRoute, type Truck as TruckT } from '@/services/distribution/distributionService';
+import { truckTracking } from '@/services/distribution/truckTrackingService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { usersService } from '@/services/users/usersService';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
@@ -75,6 +76,7 @@ export const DistributionDashboard: React.FC = () => {
     if (!confirm(`Cerrar la ruta del ${r.route_date}? Se devuelve el sobrante del camión a la bodega central.`)) return;
     try {
       const sum = await distributionService.close(r.id);
+      await truckTracking.stop();   // detener el rastreo GPS al cerrar la ruta
       setCloseSummary({ route: r, sum });
       await load();
       // Enviar el cierre de la ruta por correo (fire-and-forget).

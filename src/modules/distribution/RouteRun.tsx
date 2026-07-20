@@ -96,10 +96,11 @@ export const RouteRun: React.FC = () => {
   };
   useEffect(() => {
     if (!id) return;
-    // Rastrea solo si: ruta abierta + permitido por el admin (config) + toggle local.
+    // Rastrea si: ruta abierta + permitido por el admin (config) + toggle local.
+    // OJO: NO se detiene al salir de esta pantalla — el rastreo sigue en segundo
+    // plano durante todo el reparto y se apaga en el CIERRE de la ruta (DriverView).
     if (route?.status === 'open' && cfgAllows && trackingOn) truckTracking.start(id).catch(() => {});
-    else truckTracking.stop().catch(() => {});
-    return () => { truckTracking.stop().catch(() => {}); };
+    else truckTracking.stop().catch(() => {});   // ruta cerrada / sin permiso / toggle apagado
   }, [id, route?.status, cfgAllows, trackingOn]);
 
   const loadSales = useCallback(async () => {

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { distributionService, type DeliveryRoute } from '@/services/distribution/distributionService';
 import { distributionOfflineService } from '@/services/distribution/distributionOfflineService';
+import { truckTracking } from '@/services/distribution/truckTrackingService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { PrintTicketModal } from './PrintTicketModal';
 import { FeQuotaWarning } from '@/components/FeQuotaWarning';
@@ -78,6 +79,7 @@ export const DriverView: React.FC = () => {
         return;
       }
       const summary = await distributionService.close(r.id);
+      await truckTracking.stop();   // detener el rastreo GPS al cerrar la ruta
       setCloseSummary({ ...summary, truck: r.warehouse?.name });
       await load();
       // Enviar el cierre de la ruta por correo a los correos configurados (fire-and-forget).
