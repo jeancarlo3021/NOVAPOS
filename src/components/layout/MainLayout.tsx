@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { Lock, LogOut } from 'lucide-react';
+import { Lock, LogOut, Menu as MenuIcon, RefreshCw } from 'lucide-react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { useAuth } from '@/context/AuthContext';
@@ -56,6 +56,23 @@ export const MainLayout = () => {
     }
   };
 
+  // Limpiar caché: quita el service worker + cachés y recarga con la última versión.
+  // Útil en la app del repartidor cuando quedó una versión vieja cacheada.
+  const clearCacheAndReload = async () => {
+    if (!confirm('¿Actualizar la app? Se limpia la caché y se recarga con la última versión.')) return;
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch { /* ignore */ }
+    window.location.reload();
+  };
+
   if (isPOS) {
     return (
       <div className="h-screen overflow-hidden">
@@ -79,6 +96,18 @@ export const MainLayout = () => {
           <main className={`flex-1 overflow-y-auto ${isReports ? '' : 'p-4 sm:p-6 lg:p-8'}`}>
             <Outlet />
           </main>
+          {/* Barra inferior (solo móvil): menú + actualizar/limpiar caché. */}
+          <div className="md:hidden shrink-0 border-t border-gray-200 bg-white flex items-stretch z-30 pb-[env(safe-area-inset-bottom)]">
+            <button onClick={() => setSidebarOpen(true)}
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-gray-600 active:bg-gray-100">
+              <MenuIcon size={20} /><span className="text-[10px] font-bold">Menú</span>
+            </button>
+            <div className="w-px bg-gray-200 my-1.5" />
+            <button onClick={clearCacheAndReload}
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-gray-600 active:bg-gray-100">
+              <RefreshCw size={20} /><span className="text-[10px] font-bold">Actualizar</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

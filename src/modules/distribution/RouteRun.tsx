@@ -15,6 +15,7 @@ import { customerPricesService } from '@/services/customers/customerPricesServic
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { truckTracking } from '@/services/distribution/truckTrackingService';
+import { apiFetch } from '@/lib/api';
 import {
   promotionsService, getProductPromotion, calcPromoUnitPrice, calcPromoSubtotal, promoLabel,
   type Promotion,
@@ -41,6 +42,8 @@ export const RouteRun: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { tenantId } = useTenantId();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin';
   const [route, setRoute] = useState<DeliveryRoute | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,7 +76,18 @@ export const RouteRun: React.FC = () => {
   useEffect(() => { if (tenantId) posPrinterService.reconnectBluetooth(tenantId).catch(() => {}); }, [tenantId]);
 
   // Rastreo del camión en segundo plano (solo app nativa; en web es no-op).
-  // Arranca cuando la ruta está ABIERTA y el repartidor lo tiene activado.
+  // Config del módulo Rastreo (interruptor maestro + por camión), la fija el admin.
+  const [trackCfg, setTrackCfg] = useState<{ enabled: boolean; trucks: Record<string, { enabled?: boolean }> }>({ enabled: true, trucks: {} });
+  useEffect(() => {
+    apiFetch<any>('/settings/tracking')
+      .then(c => setTrackCfg({ enabled: c?.enabled ?? true, trucks: c?.trucks ?? {} }))
+      .catch(() => {});
+  }, []);
+  // ¿El admin permite rastrear este camión? (maestro + por camión, default sí).
+  const cfgAllows = trackCfg.enabled !== false
+    && (route ? (trackCfg.trucks?.[route.warehouse_id]?.enabled !== false) : true);
+
+  // Toggle local del admin en la ruta (pausa rápida en el dispositivo).
   const [trackingOn, setTrackingOn] = useState(() => localStorage.getItem('tracking_enabled') !== 'false');
   const toggleTracking = () => {
     const v = !trackingOn;
@@ -82,10 +96,11 @@ export const RouteRun: React.FC = () => {
   };
   useEffect(() => {
     if (!id) return;
-    if (route?.status === 'open' && trackingOn) truckTracking.start(id).catch(() => {});
+    // Rastrea solo si: ruta abierta + permitido por el admin (config) + toggle local.
+    if (route?.status === 'open' && cfgAllows && trackingOn) truckTracking.start(id).catch(() => {});
     else truckTracking.stop().catch(() => {});
     return () => { truckTracking.stop().catch(() => {}); };
-  }, [id, route?.status, trackingOn]);
+  }, [id, route?.status, cfgAllows, trackingOn]);
 
   const loadSales = useCallback(async () => {
     if (!id) return;
@@ -204,8 +219,8 @@ export const RouteRun: React.FC = () => {
           </div>
         )}
 
-        {/* Rastreo GPS: activar/desactivar (solo en la app del repartidor) */}
-        {truckTracking.isSupported() && route.status === 'open' && (
+        {/* Rastreo GPS: activar/desactivar — SOLO el admin (dueño/administrador) lo ve */}
+        {isAdmin && truckTracking.isSupported() && route.status === 'open' && (
           <button onClick={toggleTracking}
             className={`w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition ${trackingOn ? 'bg-emerald-400/90 text-emerald-950' : 'bg-white/15 text-white hover:bg-white/25'}`}>
             <MapPin size={15} /> {trackingOn ? 'Rastreo activo (tocá para apagar)' : 'Rastreo apagado (tocá para activar)'}

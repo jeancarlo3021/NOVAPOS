@@ -136,15 +136,15 @@ export const DistributionDashboard: React.FC = () => {
               <p className="text-cyan-100 text-sm">Rutas de reparto en camión</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={load} className="p-2 rounded-lg bg-white/15 hover:bg-white/25"><RefreshCw size={16} /></button>
-            <button onClick={() => setShowReport(true)}
+          <div className="flex items-center flex-wrap gap-2 justify-end">
+            <button onClick={load} title="Actualizar" className="p-2 rounded-lg bg-white/15 hover:bg-white/25"><RefreshCw size={16} /></button>
+            <button onClick={() => setShowReport(true)} title="Reporte"
               className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-xl text-sm">
-              <BarChart3 size={16} /> Reporte
+              <BarChart3 size={16} /> <span className="hidden sm:inline">Reporte</span>
             </button>
-            <button onClick={() => navigate('/distribution/tracking')}
+            <button onClick={() => navigate('/distribution/tracking')} title="Rastreo en vivo"
               className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-xl text-sm">
-              <Navigation size={16} /> Rastreo en vivo
+              <Navigation size={16} /> <span className="hidden sm:inline">Rastreo en vivo</span>
             </button>
             <button onClick={() => {
                 const url = (import.meta.env.VITE_APK_URL as string | undefined)
@@ -153,11 +153,11 @@ export const DistributionDashboard: React.FC = () => {
               }}
               className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-xl text-sm"
               title="Descargar la app del repartidor (Android)">
-              <Download size={16} /> App repartidor
+              <Download size={16} /> <span className="hidden sm:inline">App repartidor</span>
             </button>
-            <button onClick={() => setShowCreate(true)}
+            <button onClick={() => setShowCreate(true)} title="Nueva ruta"
               className="flex items-center gap-2 bg-white text-cyan-700 font-black px-4 py-2 rounded-xl text-sm hover:bg-cyan-50">
-              <Plus size={16} /> Nueva ruta
+              <Plus size={16} /> <span className="hidden sm:inline">Nueva ruta</span>
             </button>
           </div>
         </div>
