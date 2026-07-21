@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X, MailCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { crDateTime } from '@/utils/datetime';
 
 interface FeRow {
   id: string;
@@ -34,7 +35,7 @@ const consecutivoOf = (r: FeRow): string => {
   if (/^\d{20}$/.test(cons)) return cons;         // consecutivo válido
   return r.invoice_number || cons || '—';         // fallback (evita mostrar el ULID)
 };
-const dt = (s?: string | null) => (s ? new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' }) : '—');
+const dt = (s?: string | null) => crDateTime(s);
 const docLabel = (t?: string | null) => {
   switch (String(t ?? '')) {
     case 'factura_electronica': return 'Factura';
@@ -67,9 +68,11 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
   const [to, setTo] = useState('');
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr('');
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setErr('');
     try {
       const p = new URLSearchParams();
       if (tenantId) p.set('tenant_id', tenantId);
@@ -80,10 +83,29 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
       const qs = p.toString();
       setData(await apiFetch<FeLogResp>(`/admin/fe-log${qs ? '?' + qs : ''}`));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Error al cargar la bitácora');
-    } finally { setLoading(false); }
+      if (!silent) setErr(e instanceof Error ? e.message : 'Error al cargar la bitácora');
+    } finally { if (!silent) setLoading(false); }
   }, [tenantId, search, from, to, onlyErrors]);
   useEffect(() => { load(); }, [load]);
+  // Auto-refresco cada 15s (silencioso) para ver cambios de estado sin recargar.
+  useEffect(() => {
+    const t = setInterval(() => load(true), 15_000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  // Reintento: re-consulta el estado de UNA factura en Hacienda.
+  const retryOne = async (id: string) => {
+    setRetrying(id);
+    try {
+      const r = await apiFetch<any>(`/admin/fe-refresh/${id}`, { method: 'POST' });
+      await load(true);
+      const s = String(r?.fe_status ?? '');
+      if (s === 'accepted') { /* silencioso: se ve en la tabla */ }
+      else if (s === 'rejected' || s === 'error') window.alert(`Sigue rechazada/con error:\n${r?.error ?? 'sin detalle'}`);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'No se pudo reintentar');
+    } finally { setRetrying(null); }
+  };
 
   const rows = data?.rows ?? [];
   const errorCount = useMemo(() => rows.filter(r => String(r.fe_status).toLowerCase() === 'error').length, [rows]);
@@ -98,7 +120,7 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
           <h2 className="text-lg font-black text-gray-900">Bitácora de Facturas Electrónicas</h2>
           <p className="text-sm text-gray-500">Todas las emisiones FE de las empresas. Filtrá por empresa, cliente o fecha para encontrar y resolver errores rápido.</p>
         </div>
-        <button onClick={load} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50" title="Actualizar">
+        <button onClick={() => load()} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50" title="Actualizar">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
@@ -190,6 +212,15 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full" title="Comprobante enviado por correo al cliente">
                                 <MailCheck size={11} /> Correo
                               </span>
+                            )}
+                            {r.fe_clave && String(r.fe_status).toLowerCase() !== 'accepted' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); retryOne(r.id); }}
+                                disabled={retrying === r.id}
+                                title="Reintentar: volver a consultar el estado en Hacienda"
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-1.5 py-0.5 rounded-full disabled:opacity-50">
+                                <RefreshCw size={11} className={retrying === r.id ? 'animate-spin' : ''} /> Reintentar
+                              </button>
                             )}
                             <span className="ml-0.5 text-[10px] text-gray-400">{open ? '▾' : '▸'}</span>
                           </span>

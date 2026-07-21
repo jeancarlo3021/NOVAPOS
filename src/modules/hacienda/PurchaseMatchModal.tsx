@@ -77,7 +77,15 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
   const missingCount = rows.filter(r => !r.exists && r.action === 'create').length;
   const updateCount = rows.filter(r => r.exists && r.action === 'update').length;
   const createCount = rows.filter(r => r.action === 'create').length;
-  const total = rows.filter(r => r.action !== 'skip').reduce((s, r) => s + r.quantity * r.unit_price, 0);
+  // Precio unitario CONFIABLE: el XML a veces trae un PrecioUnitario que no cuadra
+  // con el total de la línea (o con muchos decimales). Si no cuadra, usamos total÷cant.
+  const effUnit = (r: Row) => {
+    const consistent = r.unit_price > 0 && r.total > 0 && Math.abs(r.unit_price * r.quantity - r.total) <= Math.max(1, r.total * 0.02);
+    const v = consistent ? r.unit_price : (r.total > 0 && r.quantity > 0 ? r.total / r.quantity : r.unit_price);
+    return Math.round(v * 100) / 100;
+  };
+  // Total a registrar = suma de los TOTALES de línea del XML (no qty×precio).
+  const total = rows.filter(r => r.action !== 'skip').reduce((s, r) => s + (Number(r.total) || r.quantity * effUnit(r)), 0);
 
   const accept = async () => {
     if (!data) return;
@@ -88,7 +96,7 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
         purchase_id: orderId === 'new' ? null : orderId,
         no_inventory: noInventory,
         items: rows.map(r => ({
-          detail: r.detail, quantity: r.quantity, unit_price: r.unit_price,
+          detail: r.detail, quantity: r.quantity, unit_price: effUnit(r), total: r.total,
           cabys: r.cabys ?? null, product_id: r.product_id, action: r.action,
         })),
       });
@@ -223,7 +231,7 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                       </td>
                       <td className="py-2 pl-3 font-mono text-[11px] text-gray-600">{r.code ?? '—'}</td>
                       <td className="py-2 text-right text-gray-600">{r.quantity}</td>
-                      <td className="py-2 text-right text-gray-600">{fmt(r.unit_price)}</td>
+                      <td className="py-2 text-right text-gray-600">{fmt(effUnit(r))}</td>
                       <td className="py-2 pl-3 text-gray-400 font-mono text-[11px]">{r.cabys ?? '—'}</td>
                       <td className="py-2">
                         <div className="flex items-center justify-center gap-1">

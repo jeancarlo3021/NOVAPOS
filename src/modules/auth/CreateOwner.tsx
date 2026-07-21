@@ -208,6 +208,19 @@ export const CreateOwner: React.FC = () => {
     } finally { setCreatingAlanubeId(null); }
   };
 
+  // Probar conexión FE: checklist completo (token, empresa, lista para emitir).
+  const testFeConnection = async (o: any) => {
+    setCreatingAlanubeId(o.id);
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${o.id}/fe-test`);
+      const lines = (r.checks ?? []).map((c: any) => `${c.ok ? '✅' : '❌'} ${c.label}${c.detail ? `\n     → ${c.detail}` : ''}`).join('\n');
+      const head = r.ok ? '✅ FE lista para emitir' : '⚠️ Hay problemas en la configuración de FE';
+      window.alert(`${head}\nProveedor: ${r.provider}${r.environment ? ` · ${r.environment}` : ''}\n\n${lines}`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo probar la conexión', 'error');
+    } finally { setCreatingAlanubeId(null); }
+  };
+
   // Actualiza la empresa en Alanube (ej. para activar el webhook de recepción).
   const updateAlanubeCompany = async (o: any) => {
     setCreatingAlanubeId(o.id);
@@ -1294,6 +1307,10 @@ export const CreateOwner: React.FC = () => {
                                       <button onClick={() => { setOpenMenuId(null); verifyAlanube(o); }} disabled={creatingAlanubeId === o.id}
                                         className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40">
                                         <Sparkles size={13} /> Verificar empresa en Alanube
+                                      </button>
+                                      <button onClick={() => { setOpenMenuId(null); testFeConnection(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">
+                                        <CheckCircle size={13} /> Probar conexión FE
                                       </button>
                                     </>
                                   )}

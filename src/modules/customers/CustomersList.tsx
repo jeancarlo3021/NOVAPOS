@@ -310,6 +310,14 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
     if (!form.name?.trim()) { setError('Nombre requerido'); return; }
+    // Ubicación para Hacienda: debe estar COMPLETA (provincia+cantón+distrito) o
+    // vacía. Una dirección parcial genera la observación -37 en la factura.
+    const locParts = [form.province_code, form.canton_code, form.district_code].map(v => String(v ?? '').trim());
+    const locFilled = locParts.filter(Boolean).length;
+    if (locFilled > 0 && locFilled < 3) {
+      setError('Completá provincia, cantón y distrito (o dejá los tres vacíos) para que la factura electrónica quede bien en Hacienda.');
+      return;
+    }
     setSaving(true);
     try {
       if (customer) await customersService.update(customer.id, form);

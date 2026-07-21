@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Inbox, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X, Clock } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { crDateTime } from '@/utils/datetime';
 
 interface RecRow {
   id: string;
@@ -23,7 +24,7 @@ interface RecRow {
 interface RecLogResp { count: number; accepted: number; rejected: number; pending: number; rows: RecRow[]; }
 
 const fmt = (n: number) => `₡${Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const dt = (s?: string | null) => (s ? new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' }) : '—');
+const dt = (s?: string | null) => crDateTime(s);
 const docLabel = (t?: string | null) => {
   switch (String(t ?? '')) {
     case '01': return 'Factura';

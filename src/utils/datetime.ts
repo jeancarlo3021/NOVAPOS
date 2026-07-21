@@ -17,6 +17,23 @@ export function wallClockDate(s?: string | null): Date | null {
   return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se ?? '0'));
 }
 
+/**
+ * Convierte una marca UTC a hora de Costa Rica. Para columnas `timestamptz` que
+ * la API devuelve SIN offset (ej. `created_at` = "2026-07-20T23:52:47"): al no
+ * traer zona, `new Date()` la tomaría como local y saldría corrida +6h. Acá se
+ * fuerza a UTC ('Z') y se formatea en la zona de Costa Rica.
+ */
+export function crDateTime(
+  s?: string | null,
+  opts: Intl.DateTimeFormatOptions = { dateStyle: 'short', timeStyle: 'short' },
+): string {
+  if (!s) return '—';
+  const str = String(s);
+  const iso = /(Z|[+-]\d{2}:?\d{2})$/.test(str) ? str : str + 'Z';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('es-CR', { ...opts, timeZone: 'America/Costa_Rica' });
+}
+
 /** Igual que wallClockDate pero con toLocaleString listo (es-CR por defecto). */
 export function formatWallClock(
   s?: string | null,

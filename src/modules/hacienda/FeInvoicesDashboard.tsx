@@ -9,7 +9,11 @@ import { useAuth } from '@/context/AuthContext';
 // si no está, cae al issued_at (que puede venir como hora local ya).
 const crDateTime = (r: { created_at?: string | null; issued_at?: string | null }): string => {
   if (r.created_at) {
-    const d = new Date(r.created_at);
+    // created_at es UTC pero la API lo devuelve SIN 'Z' → forzar UTC antes de
+    // convertir a CR (si no, saldría corrido +6h).
+    const s = String(r.created_at);
+    const iso = /(Z|[+-]\d{2}:?\d{2})$/.test(s) ? s : s + 'Z';
+    const d = new Date(iso);
     if (!isNaN(d.getTime())) return d.toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Costa_Rica' });
   }
   return formatWallClock(r.issued_at, { dateStyle: 'short', timeStyle: 'short' });
