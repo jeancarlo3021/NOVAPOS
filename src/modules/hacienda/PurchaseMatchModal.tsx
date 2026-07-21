@@ -9,6 +9,15 @@ interface PickProduct { id: string; name: string; sku?: string | null; cabys_cod
 
 const fmt = (n: number) => `₡${Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Algunos proveedores meten datos internos en el <Detalle> tras un ';' (ej.
+// "Casco X L;32100.98;24;;P001688;..."). Nos quedamos con el nombre real. Se
+// limpia también acá (además del backend) para que no dependa del deploy del server.
+const cleanName = (s: any): string => {
+  const str = String(s ?? '').trim();
+  const m = str.match(/^(.*?);\s*\d/);
+  return (m ? m[1] : str).trim();
+};
+
 type Action = 'update' | 'create' | 'skip';
 interface Row {
   detail: string; quantity: number; unit_price: number; total: number;
@@ -96,7 +105,7 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
         purchase_id: orderId === 'new' ? null : orderId,
         no_inventory: noInventory,
         items: rows.map(r => ({
-          detail: r.detail, quantity: r.quantity, unit_price: effUnit(r), total: r.total,
+          detail: cleanName(r.detail), quantity: r.quantity, unit_price: effUnit(r), total: r.total,
           cabys: r.cabys ?? null, product_id: r.product_id, action: r.action,
         })),
       });
@@ -184,7 +193,7 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                   {rows.map((r, i) => (
                     <tr key={i} className="border-b border-gray-50">
                       <td className="py-2 pr-2">
-                        <div className="font-semibold text-gray-800">{r.detail}</div>
+                        <div className="font-semibold text-gray-800">{cleanName(r.detail)}</div>
                         {r.exists ? (
                           <div className="text-[11px] text-emerald-600 flex items-center gap-1 flex-wrap">
                             ↳ {r.product_name}
