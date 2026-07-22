@@ -31,8 +31,9 @@ interface LiveData { trucks: LiveTruck[]; stops: LiveStop[]; }
 
 // Centro por defecto: Costa Rica [lat, lng] (Leaflet usa lat,lng).
 const CR_CENTER: [number, number] = [9.9281, -84.0907];
-// Con Realtime, el polling es solo red de seguridad (por si se cae el socket).
-const REFRESH_MS = 45_000;
+// Refresco del mapa. Realtime da lo instantáneo; este polling asegura que se
+// mueva aunque Realtime no esté habilitado en Supabase.
+const REFRESH_MS = 10_000;
 
 // Camiones de simulación: 3 recorridos en distintas ciudades [lng, lat].
 interface SimTruck { id: string; name: string; driver: string; color: string; waypoints: [number, number][]; }

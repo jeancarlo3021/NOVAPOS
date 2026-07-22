@@ -37,12 +37,13 @@ interface BackgroundGeolocationPlugin {
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
 
 let watcherId: string | null = null;
+let webWatchId: number | null = null;   // geolocalización del navegador (web, primer plano)
 let currentRouteId: string | null = null;
 let lastSent = 0;
 
 // No mandamos más de 1 posición cada MIN_INTERVAL_MS (además del filtro de distancia
 // del plugin) para no cargar la red ni la BD. El plugin ya encola offline.
-const MIN_INTERVAL_MS = 20_000;
+const MIN_INTERVAL_MS = 10_000;
 
 const kmh = (mps?: number | null) => (mps != null && mps >= 0 ? Math.round(mps * 3.6) : null);
 const deg = (b?: number | null) => (b != null && b >= 0 ? Math.round(b) : null);
@@ -65,52 +66,67 @@ async function sendPosition(loc: BGLocation) {
 }
 
 export const truckTracking = {
-  /** ¿Corre dentro de la app nativa (donde el rastreo en background funciona)? */
+  /** ¿Se puede rastrear? Nativo (background) o web con geolocalización (primer plano). */
   isSupported(): boolean {
-    return Capacitor.isNativePlatform();
+    return Capacitor.isNativePlatform() || (typeof navigator !== 'undefined' && !!navigator.geolocation);
   },
 
   /** ¿Está rastreando ahora? */
   isTracking(): boolean {
-    return watcherId != null;
+    return watcherId != null || webWatchId != null;
   },
 
-  /** Arranca el rastreo para una ruta. No-op en web. */
+  /** Arranca el rastreo para una ruta. Nativo = background; web = primer plano. */
   async start(routeId: string): Promise<void> {
-    if (!Capacitor.isNativePlatform()) return;   // web: sin rastreo en background
-    if (watcherId) {
-      currentRouteId = routeId;   // ya activo: solo actualizar la ruta
-      return;
-    }
     currentRouteId = routeId;
-    lastSent = 0;
-    try {
-      watcherId = await BackgroundGeolocation.addWatcher(
-        {
-          backgroundMessage: 'Ruta en curso — rastreando ubicación',
-          backgroundTitle: 'ColónClick Distribución',
-          requestPermissions: true,
-          stale: false,
-          distanceFilter: 50,   // reportar cada 50 m de movimiento
-        },
-        (location, error) => {
-          if (error) { console.warn('[tracking]', error); return; }
-          if (location) void sendPosition(location);
-        },
+    if (Capacitor.isNativePlatform()) {
+      // ── App nativa: servicio en segundo plano (sigue con app cerrada/bloqueada) ──
+      if (watcherId) return;
+      lastSent = 0;
+      try {
+        watcherId = await BackgroundGeolocation.addWatcher(
+          {
+            backgroundMessage: 'Ruta en curso — rastreando ubicación',
+            backgroundTitle: 'ColónClick Distribución',
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: 30,   // reportar cada 30 m de movimiento
+          },
+          (location, error) => {
+            if (error) { console.warn('[tracking]', error); return; }
+            if (location) void sendPosition(location);
+          },
+        );
+      } catch (e) {
+        console.warn('[tracking] no se pudo iniciar', e);
+        watcherId = null;
+      }
+    } else {
+      // ── Web: geolocalización del navegador (solo con la pestaña/app abierta) ──
+      if (webWatchId != null || typeof navigator === 'undefined' || !navigator.geolocation) return;
+      lastSent = 0;
+      webWatchId = navigator.geolocation.watchPosition(
+        (pos) => void sendPosition({
+          latitude: pos.coords.latitude, longitude: pos.coords.longitude,
+          speed: pos.coords.speed, bearing: pos.coords.heading, accuracy: pos.coords.accuracy,
+        }),
+        (err) => console.warn('[tracking web]', err?.message ?? err),
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
       );
-    } catch (e) {
-      console.warn('[tracking] no se pudo iniciar', e);
-      watcherId = null;
     }
   },
 
   /** Detiene el rastreo (al cerrar la ruta o salir). */
   async stop(): Promise<void> {
     currentRouteId = null;
-    if (!watcherId) return;
-    try { await BackgroundGeolocation.removeWatcher({ id: watcherId }); }
-    catch { /* ignore */ }
-    watcherId = null;
+    if (watcherId) {
+      try { await BackgroundGeolocation.removeWatcher({ id: watcherId }); } catch { /* ignore */ }
+      watcherId = null;
+    }
+    if (webWatchId != null) {
+      try { navigator.geolocation.clearWatch(webWatchId); } catch { /* ignore */ }
+      webWatchId = null;
+    }
   },
 };
 
