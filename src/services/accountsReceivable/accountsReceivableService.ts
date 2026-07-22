@@ -25,6 +25,8 @@ export interface ReceivablePayment {
   method: string;
   note?: string | null;
   created_at: string;
+  voided_at?: string | null;
+  voided_by?: string | null;
 }
 
 export interface ReceivableSummary {
@@ -70,4 +72,7 @@ export const accountsReceivableService = {
     }),
   remove: (id: string) =>
     apiFetch(`/accounts-receivable/${id}`, { method: 'DELETE' }),
+  /** Anular un abono (solo admin/gerente/contador/propietario). */
+  voidPayment: (paymentId: string) =>
+    apiFetch<{ voided: boolean; amount: number }>(`/accounts-receivable/payments/${paymentId}/void`, { method: 'POST' }),
 };

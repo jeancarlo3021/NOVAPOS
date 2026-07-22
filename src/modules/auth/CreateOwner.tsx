@@ -640,6 +640,17 @@ export const CreateOwner: React.FC = () => {
               <Sparkles size={15} /> {testingAlanube ? 'Probando…' : 'Probar Alanube'}
             </button>
             <button onClick={async () => {
+                if (!confirm('¿Limpiar los nombres de productos con basura del proveedor (";número;…")? Se aplica a TODOS los negocios.')) return;
+                try {
+                  const r = await apiFetch<any>('/admin/clean-product-names', { method: 'POST' });
+                  showToast(`Nombres de productos limpiados: ${r?.cleaned ?? 0}`, 'success');
+                } catch (e) { showToast(e instanceof Error ? e.message : 'No se pudo limpiar', 'error'); }
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-xl text-sm font-bold transition"
+              title="Limpiar nombres de productos con basura del proveedor">
+              <Package size={15} /> Limpiar nombres
+            </button>
+            <button onClick={async () => {
                 const to = window.prompt('Número de WhatsApp destino (debe estar registrado como número de prueba en Meta). Ej: 8888-8888');
                 if (!to) return;
                 setTestingWa(true);

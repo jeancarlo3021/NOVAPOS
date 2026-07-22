@@ -3,7 +3,8 @@ import {
   HandCoins, Plus, X, Search, RefreshCw, Loader2,
   CheckCircle2, Trash2, Wallet, Printer, FileText, Clock,
 } from 'lucide-react';
-import { accountsReceivableService, type Receivable, type ReceivableSummary } from '@/services/accountsReceivable/accountsReceivableService';
+import { accountsReceivableService, type Receivable, type ReceivableSummary, type ReceivablePayment } from '@/services/accountsReceivable/accountsReceivableService';
+import { useAuth } from '@/context/AuthContext';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { useTenantId } from '@/hooks/useTenant';
@@ -265,6 +266,27 @@ function PayModal({ ar, onClose, onDone, onPrint }: {
   const [err, setErr] = useState('');
   // Abono registrado (para ofrecer imprimir el comprobante del abono).
   const [paid, setPaid] = useState<{ amount: number; method: string; newBalance: number } | null>(null);
+  // Abonos existentes + permiso para ANULARLOS (solo admin/gerente/contador/dueño).
+  const { user } = useAuth();
+  const canVoid = ['owner', 'admin', 'gerente', 'contador'].includes(user?.role ?? '');
+  const [pays, setPays] = useState<ReceivablePayment[]>([]);
+  const [voiding, setVoiding] = useState<string | null>(null);
+  const loadPays = useCallback(() => {
+    accountsReceivableService.get(ar.id).then(r => setPays(r.payments ?? [])).catch(() => {});
+  }, [ar.id]);
+  useEffect(() => { loadPays(); }, [loadPays]);
+
+  const voidPay = async (pid: string) => {
+    if (!confirm('¿Anular este abono? El saldo del cliente se recalcula.')) return;
+    setVoiding(pid); setErr('');
+    try {
+      await accountsReceivableService.voidPayment(pid);
+      onDone();   // refresca la lista y saldos del padre (cierra el modal)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo anular el abono');
+      setVoiding(null);
+    }
+  };
 
   const pay = async () => {
     const n = Number(amount);
@@ -331,6 +353,34 @@ function PayModal({ ar, onClose, onDone, onPrint }: {
             className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black py-3 rounded-xl text-sm">
             {saving ? 'Guardando…' : <><CheckCircle2 size={16} /> Registrar abono</>}
           </button>
+
+          {/* Abonos registrados — con opción de ANULAR (solo admin/gerente/contador) */}
+          {pays.length > 0 && (
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-xs font-bold text-gray-500 mb-1.5">Abonos registrados</p>
+              <div className="space-y-1 max-h-44 overflow-y-auto">
+                {pays.map(p => {
+                  const anulado = !!p.voided_at;
+                  return (
+                  <div key={p.id} className={`flex items-center gap-2 text-sm rounded-lg px-2.5 py-1.5 ${anulado ? 'bg-red-50/60' : 'bg-gray-50'}`}>
+                    <span className="text-gray-400 text-[11px] shrink-0">{dateOnly(p.created_at)}</span>
+                    <span className={`font-bold ${anulado ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{fmt(Number(p.amount || 0))}</span>
+                    <span className="text-[11px] text-gray-400">{METHOD_LABEL[p.method] ?? p.method}</span>
+                    {anulado ? (
+                      <span className="ml-auto text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">ANULADO</span>
+                    ) : canVoid ? (
+                      <button onClick={() => voidPay(p.id)} disabled={voiding === p.id}
+                        className="ml-auto text-[11px] font-bold text-red-600 hover:text-red-800 disabled:opacity-40">
+                        {voiding === p.id ? 'Anulando…' : 'Anular'}
+                      </button>
+                    ) : null}
+                  </div>
+                  );
+                })}
+              </div>
+              {!canVoid && <p className="text-[10px] text-gray-400 mt-1">Solo el administrador, gerente o contador pueden anular abonos.</p>}
+            </div>
+          )}
         </div>
         )}
       </div>
