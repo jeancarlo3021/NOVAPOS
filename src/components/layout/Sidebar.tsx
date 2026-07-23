@@ -92,6 +92,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Cuentas por Cobrar', to: '/accounts-receivable', icon: HandCoins,  feature: 'accounts_receivable', module: 'accounts_payable' },
       { name: 'Gastos',            to: '/expenses',          icon: TrendingDown,  feature: 'expenses',         module: 'expenses'         },
       { name: 'Reportes',          to: '/reports',           icon: FileText,      feature: 'reports',          module: 'reports'          },
+      { name: 'D-150 Retenciones', to: '/d150',              icon: FileText,      feature: 'owner_only'        },
       { name: 'Reportes Sucursales', to: '/branch-reports',  icon: Building,      feature: 'multi_branch',     module: 'reports'          },
     ],
   },

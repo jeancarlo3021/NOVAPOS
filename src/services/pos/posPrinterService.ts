@@ -1504,17 +1504,35 @@ export class POSPrinterService {
     );
     if (comandaPrinters.length === 0) return;
 
+    // Ruteo por estación: cada impresora imprime SOLO los ítems de sus categorías.
+    // Impresora sin categorías = catch-all (lo que no esté asignado a otra).
+    const assigned = new Set<string>();
+    for (const p of comandaPrinters) for (const c of ((p as any).categories ?? [])) assigned.add(String(c));
+    const itemsFor = (p: any): ComandaItem[] => {
+      const cats: string[] = (p.categories ?? []).map(String);
+      if (cats.length === 0) {
+        // catch-all: ítems sin categoría o cuya categoría no la cubre otra estación.
+        return items.filter(it => !it.category_id || !assigned.has(String(it.category_id)));
+      }
+      return items.filter(it => it.category_id && cats.includes(String(it.category_id)));
+    };
+
     const now = new Date();
     const time = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' });
-    const buildData = (printer: any) =>
-      formatComanda({ invoiceNumber, time, label: printer.label, items, customerName }, 42);
+    const buildData = (printer: any, its: ComandaItem[]) =>
+      formatComanda({ invoiceNumber, time, label: printer.label, items: its, customerName }, 42);
+
+    // Solo las estaciones que TIENEN ítems para imprimir.
+    const jobs = comandaPrinters
+      .map(p => ({ printer: p, its: itemsFor(p) }))
+      .filter(j => j.its.length > 0);
+    if (jobs.length === 0) return;
 
     // Bluetooth: enviar a cada estación de comanda conectada por BT.
     if (cfg.printerType === 'bluetooth') {
       const { btPrintTo } = await import('./bluetoothPrinterService');
-      const btStations = comandaPrinters.filter((p: any) => p.connection === 'bluetooth');
-      for (const printer of btStations) {
-        try { await btPrintTo(printer.id, buildData(printer)); }
+      for (const { printer, its } of jobs.filter(j => (j.printer as any).connection === 'bluetooth')) {
+        try { await btPrintTo(printer.id, buildData(printer, its)); }
         catch (e) { console.warn('[comanda BT] falló:', e); }
       }
       return;
@@ -1523,7 +1541,7 @@ export class POSPrinterService {
     // QZ Tray / térmica.
     if (!(await qzIsAvailable())) return;
     await qzConnect();
-    await Promise.all(comandaPrinters.map(printer => qzPrintToPrinter(printer, buildData(printer))));
+    await Promise.all(jobs.map(({ printer, its }) => qzPrintToPrinter(printer, buildData(printer, its))));
   }
 
   // ─── Browser print ────────────────────────────────────────────────────────────

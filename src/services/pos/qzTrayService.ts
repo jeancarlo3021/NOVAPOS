@@ -31,6 +31,9 @@ export interface PrinterEntry {
   label: string;           // "Principal", "Cocina", "Barra"
   type: 'receipt' | 'comanda';
   connection: 'usb' | 'network' | 'bluetooth';
+  /** Comanda: categorías (ids) que se imprimen en esta estación. Vacío = todo lo
+   *  que no esté asignado a otra estación (catch-all). */
+  categories?: string[];
   printer_name?: string;   // USB: nombre en el SO
   ip?: string;             // Network: dirección IP
   port?: number;           // Network: puerto (default 9100)

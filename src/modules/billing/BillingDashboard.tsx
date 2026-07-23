@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Receipt, Grid as GridIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Receipt, Grid as GridIcon, ArrowLeft } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
 import { MapItemShape } from '@/modules/tables/MapShapes';
@@ -39,9 +40,11 @@ function isCobrable(it: MapItem): boolean {
 export function BillingDashboard() {
   const { tenantId } = useTenantId();
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [mapItems, setMapItems] = useState<MapItem[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
+  const [pinForSpot, setPinForSpot] = useState<string | null>(null);   // mesa esperando PIN del mesero
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
   const [addingSpot, setAddingSpot] = useState(false);
   const [showCatalog, setShowCatalog] = useState(false);
@@ -63,8 +66,22 @@ export function BillingDashboard() {
 
   useEffect(() => {
     if (!tenantId) return;
-    setMapItems(loadMap(tenantId));
+    setMapItems(loadMap(tenantId));   // cache local (rápido / offline)
     setBills(billingService.load(tenantId));
+    // Traer el mapa desde la BD (fuente de verdad, compartido entre dispositivos).
+    let cancelled = false;
+    (async () => {
+      try {
+        const { apiFetch } = await import('@/lib/api');
+        const cfg = await apiFetch<{ items?: MapItem[] }>('/settings/tables-map');
+        if (!cancelled && Array.isArray(cfg?.items)) {
+          const items = migrateItems(cfg.items);
+          setMapItems(items);
+          try { localStorage.setItem(MAP_KEY(tenantId), JSON.stringify(items)); } catch { /* cuota */ }
+        }
+      } catch { /* offline: se queda con el cache */ }
+    })();
+    return () => { cancelled = true; };
   }, [tenantId]);
 
   // Persistencia automática de bills.
@@ -187,11 +204,14 @@ export function BillingDashboard() {
     if (!activeBill || activeBill.items.length === 0 || !tenantId) return;
     try {
       const { posPrinterService } = await import('@/services/pos/posPrinterService');
+      // Mesero que digitó (o responsable) — para que cocina sepa de quién es.
+      const mesero = activeBill.waiter_name || activeBill.responsible_name;
       await posPrinterService.printComandas(
-        `Mesa ${activeBill.id.slice(-4)}`,
+        `Mesa ${activeBill.id.slice(-4)}${mesero ? ` · ${mesero}` : ''}`,
         activeBill.items.map(it => ({
           name: it.notes ? `${it.name} (${it.notes})` : it.name,
           quantity: it.quantity,
+          category_id: it.category_id,   // para rutear a la impresora de su estación
         })),
         tenantId,
         activeBill.customer_name ?? undefined,
@@ -260,8 +280,22 @@ export function BillingDashboard() {
       return;
     }
 
-    setSelectedSpotId(id);
+    // Mesa CON cuenta abierta → entra directo. Mesa LIBRE → pide PIN del mesero
+    // (responsable) ANTES de abrir la cuenta.
+    const existing = findOpenBillForSpot(id, bills);
+    if (existing) { setSelectedSpotId(id); return; }
+    setPinForSpot(id);
   }, [spotsById, addingSpot, activeBill, bills]);
+
+  // Abre la cuenta de la mesa con el mesero identificado por PIN como responsable.
+  const openBillWithWaiter = (spotId: string, meseroName: string) => {
+    const item = spotsById.get(spotId);
+    if (!item || !isCobrable(item)) { setPinForSpot(null); return; }
+    const spotRef: SpotRef = { id: item.id, kind: item.kind as CobrableKind };
+    setBills(prev => [...prev, { ...billingService.create(spotRef, prev), responsible_name: meseroName, waiter_name: meseroName }]);
+    setSelectedSpotId(spotId);
+    setPinForSpot(null);
+  };
 
   // ── Stats ────────────────────────────────────────────────────────────
 
@@ -350,6 +384,10 @@ export function BillingDashboard() {
   return (
     <div className="h-full flex flex-col bg-gray-100">
       <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3 shrink-0 flex-wrap">
+        <button onClick={() => navigate('/')}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold transition">
+          <ArrowLeft size={15} /> Salir
+        </button>
         <Receipt size={20} className="text-emerald-500" />
         <h1 className="font-black text-gray-900">Restaurante · Cobro por Mesas</h1>
         <div className="flex-1" />
@@ -482,6 +520,66 @@ export function BillingDashboard() {
 
       <div className="bg-white border-t border-gray-200 px-6 py-2 text-[11px] text-gray-500 shrink-0">
         Click sobre cualquier mesa/silla para abrir o ver su cuenta. Las sillas y mesas con cuenta abierta se ven en rojo y comparten un halo de color si están agrupadas.
+      </div>
+
+      {/* PIN del mesero antes de abrir la cuenta */}
+      {pinForSpot && (
+        <MeseroPinModal
+          onClose={() => setPinForSpot(null)}
+          onOk={(name) => openBillWithWaiter(pinForSpot, name)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modal: PIN del mesero (identifica al responsable antes de abrir la cuenta) ──
+function MeseroPinModal({ onOk, onClose }: { onOk: (name: string) => void; onClose: () => void }) {
+  const [pin, setPin] = useState('');
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (value?: string) => {
+    const p = (value ?? pin).trim();
+    if (p.length < 3) return;
+    setLoading(true); setErr('');
+    try {
+      const { apiFetch } = await import('@/lib/api');
+      const u = await apiFetch<any>('/users/pin-login', { method: 'POST', body: JSON.stringify({ pin: p }) });
+      onOk(u?.ticket_alias || u?.full_name || u?.email || 'Mesero');
+    } catch {
+      setErr('PIN incorrecto'); setPin('');
+    } finally { setLoading(false); }
+  };
+
+  const press = (d: string) => {
+    const next = (pin + d).slice(0, 8);
+    setPin(next); setErr('');
+    if (next.length >= 4) submit(next);   // intenta al llegar a 4 díg
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-5" onClick={e => e.stopPropagation()}>
+        <h3 className="text-base font-black text-gray-900 text-center">PIN del mesero</h3>
+        <p className="text-xs text-gray-500 text-center mb-3">Quien digite la cuenta es el responsable</p>
+        <div className="flex justify-center gap-2 mb-3">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className={`w-4 h-4 rounded-full ${i < pin.length ? 'bg-emerald-500' : 'bg-gray-200'}`} />
+          ))}
+        </div>
+        {err && <p className="text-center text-xs font-bold text-red-600 mb-2">{err}</p>}
+        <div className="grid grid-cols-3 gap-2">
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
+            <button key={d} onClick={() => press(d)} disabled={loading}
+              className="py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-xl font-black text-gray-800 disabled:opacity-50">{d}</button>
+          ))}
+          <button onClick={() => { setPin(''); setErr(''); }} className="py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-bold text-gray-500">C</button>
+          <button onClick={() => press('0')} disabled={loading} className="py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-xl font-black text-gray-800 disabled:opacity-50">0</button>
+          <button onClick={() => submit()} disabled={loading || pin.length < 3}
+            className="py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black disabled:opacity-40">OK</button>
+        </div>
+        <button onClick={onClose} className="w-full mt-3 py-2 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-lg">Cancelar</button>
       </div>
     </div>
   );

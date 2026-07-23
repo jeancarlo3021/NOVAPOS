@@ -5,6 +5,7 @@ export interface ComandaItem {
   name: string;
   quantity: number;
   notes?: string;
+  category_id?: string;   // para rutear a la impresora de su estación
 }
 
 export interface ComandaData {

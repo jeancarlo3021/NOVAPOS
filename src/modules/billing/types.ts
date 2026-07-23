@@ -20,6 +20,7 @@ export interface BillItemModifier {
 export interface BillItem {
   id: string;
   product_id?: string;
+  category_id?: string;   // para rutear la comanda a la impresora de su estación
   name: string;
   unit_price: number;       // precio base del producto
   quantity: number;
@@ -45,8 +46,21 @@ export interface Bill {
   closed_at?: string;      // ISO
   status: BillStatus;
   payment_method?: 'cash' | 'card' | 'sinpe';
+  // Mesero RESPONSABLE de la cuenta = el PRIMERO que digitó (no cambia).
+  responsible_name?: string;
+  // Mesero que está digitando ahora (se puede cambiar por comanda).
+  waiter_name?: string;
+  // Delivery/para llevar → SIN el 10% de servicio (por defecto es mesa, con 10%).
+  is_delivery?: boolean;
   // Color asignado para destacar los spots de esta cuenta en el mapa.
   color: string;
+}
+
+// Servicio de restaurante (propina legal del 10% en Costa Rica). Aplica en MESA;
+// no aplica en delivery/para llevar.
+export const SERVICE_RATE = 0.10;
+export function billService(subtotal: number, isDelivery?: boolean): number {
+  return isDelivery ? 0 : Math.round(subtotal * SERVICE_RATE);
 }
 
 // Paleta para distinguir cuentas activas en el mapa.

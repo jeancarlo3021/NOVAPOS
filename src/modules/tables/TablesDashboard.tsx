@@ -5,6 +5,7 @@ import {
   Square, BoxSelect, Armchair, Copy, ClipboardPaste, Maximize2,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { apiFetch } from '@/lib/api';
 import { MapItemShape } from './MapShapes';
 import {
   tableMeta, STATUS_FILL, STATUS_LABEL, ZONE_COLORS, migrateItems, itemSize,
@@ -54,8 +55,22 @@ export function TablesDashboard() {
 
   useEffect(() => {
     if (!tenantId) return;
-    setItems(loadItems(tenantId));
-    setDirty(false);
+    let cancelled = false;
+    // 1) mostrar rápido lo cacheado (offline). 2) traer de la BD (fuente de verdad).
+    const cached = loadItems(tenantId);
+    if (cached.length) setItems(cached);
+    (async () => {
+      try {
+        const cfg = await apiFetch<{ items?: MapItem[] }>('/settings/tables-map');
+        if (!cancelled && Array.isArray(cfg?.items)) {
+          const dbItems = migrateItems(cfg.items);
+          setItems(dbItems);
+          saveItems(tenantId, dbItems);   // refrescar cache local
+        }
+      } catch { /* offline / sin datos: se queda con el cache local */ }
+      if (!cancelled) setDirty(false);
+    })();
+    return () => { cancelled = true; };
   }, [tenantId]);
 
   const selected = useMemo(() => items.find(i => i.id === selectedId) ?? null, [items, selectedId]);
@@ -312,10 +327,17 @@ export function TablesDashboard() {
     setDirty(true);
   }, [selectedId]);
 
-  const save = () => {
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
     if (!tenantId) return;
-    saveItems(tenantId, items);
-    setDirty(false);
+    saveItems(tenantId, items);   // cache local inmediato (offline)
+    setSaving(true);
+    try {
+      await apiFetch('/settings/tables-map', { method: 'PUT', body: JSON.stringify({ items }) });
+      setDirty(false);
+    } catch {
+      alert('No se pudo guardar en la nube. Quedó guardado localmente; reintentá con conexión.');
+    } finally { setSaving(false); }
   };
 
   const exportJSON = () => {
@@ -402,11 +424,11 @@ export function TablesDashboard() {
           </button>
         )}
 
-        <button onClick={save} disabled={!dirty}
+        <button onClick={save} disabled={!dirty || saving}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-            dirty ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            dirty && !saving ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
           }`}>
-          <Save size={13} /> Guardar{dirty ? ' *' : ''}
+          <Save size={13} /> {saving ? 'Guardando…' : `Guardar${dirty ? ' *' : ''}`}
         </button>
       </div>
 

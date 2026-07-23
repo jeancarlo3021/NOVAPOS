@@ -4,7 +4,7 @@ import {
   Minus, AlertCircle, UtensilsCrossed, SplitSquareHorizontal, ChefHat,
 } from 'lucide-react';
 import type { Bill } from './types';
-import { billSubtotal, billItemTotal } from './types';
+import { billSubtotal, billItemTotal, billService, SERVICE_RATE } from './types';
 import type { MapItem } from '@/modules/tables/types';
 
 const fmt = (n: number) =>
@@ -65,8 +65,9 @@ export function BillPanel({
   }
 
   const subtotal = billSubtotal(bill);
+  const service = billService(subtotal, bill.is_delivery);   // 10% en mesa, 0 en delivery
   const tax = taxEnabled ? Math.round(subtotal * taxRate) : 0;
-  const total = subtotal + tax;
+  const total = subtotal + service + tax;
 
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,17 +238,31 @@ export function BillPanel({
 
       {/* Total + Cobrar */}
       <div className="px-5 py-4 border-t border-gray-100 shrink-0 space-y-2">
+        {/* Delivery / Mesa: en delivery NO se cobra el 10% de servicio */}
+        <button onClick={() => onUpdate({ is_delivery: !bill.is_delivery })}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm font-bold border transition ${
+            bill.is_delivery ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+          }`}>
+          <span>{bill.is_delivery ? '🛵 Delivery / Para llevar' : '🍽️ Mesa (servicio 10%)'}</span>
+          <span className="text-[11px] font-black uppercase">{bill.is_delivery ? 'sin 10%' : 'toca para delivery'}</span>
+        </button>
+        {(taxEnabled && tax > 0) || service > 0 ? (
+          <div className="flex items-center justify-between text-sm text-gray-500">
+            <span>Subtotal</span>
+            <span className="font-mono">{fmt(subtotal)}</span>
+          </div>
+        ) : null}
+        {service > 0 && (
+          <div className="flex items-center justify-between text-sm text-gray-500">
+            <span>Servicio ({Math.round(SERVICE_RATE * 100)}%)</span>
+            <span className="font-mono">{fmt(service)}</span>
+          </div>
+        )}
         {taxEnabled && tax > 0 && (
-          <>
-            <div className="flex items-center justify-between text-sm text-gray-500">
-              <span>Subtotal</span>
-              <span className="font-mono">{fmt(subtotal)}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm text-gray-500">
-              <span>IVA ({Math.round(taxRate * 100)}%)</span>
-              <span className="font-mono">{fmt(tax)}</span>
-            </div>
-          </>
+          <div className="flex items-center justify-between text-sm text-gray-500">
+            <span>IVA ({Math.round(taxRate * 100)}%)</span>
+            <span className="font-mono">{fmt(tax)}</span>
+          </div>
         )}
         <div className="flex items-center justify-between pt-1">
           <span className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total</span>

@@ -49,6 +49,7 @@ const TransfersDashboard       = lazy(() => import('./modules/branches/Transfers
 const CustomersList            = lazy(() => import('./modules/customers/CustomersList').then(m => ({ default: m.CustomersList })));
 const InfoDashboard            = lazy(() => import('./modules/info/InfoDashboard').then(m => ({ default: m.InfoDashboard })));
 const FeInvoicesDashboard      = lazy(() => import('./modules/hacienda/FeInvoicesDashboard').then(m => ({ default: m.FeInvoicesDashboard })));
+const D150Report               = lazy(() => import('./modules/hacienda/D150Report').then(m => ({ default: m.D150Report })));
 const FeposMain                = lazy(() => import('./modules/hacienda/FeposMain').then(m => ({ default: m.FeposMain })));
 const ReceptionDashboard       = lazy(() => import('./modules/hacienda/ReceptionDashboard').then(m => ({ default: m.ReceptionDashboard })));
 
@@ -109,7 +110,7 @@ function AppContent() {
                 <PlanGuard feature="users"><Users /></PlanGuard>
               } />
               <Route path="/recipes" element={
-                <PlanGuard feature="inventory"><Recipes /></PlanGuard>
+                <PlanGuard feature="recipes"><Recipes /></PlanGuard>
               } />
               <Route path="/reports" element={
                 <PlanGuard feature="reports">
@@ -170,6 +171,7 @@ function AppContent() {
               <Route path="/fe-facturas" element={
                 <PlanGuard feature="electronic_invoice"><FeInvoicesDashboard /></PlanGuard>
               } />
+              <Route path="/d150" element={<D150Report />} />
               <Route path="/fe-recepcion" element={
                 <PlanGuard feature="electronic_invoice"><ReceptionDashboard /></PlanGuard>
               } />

@@ -4,6 +4,7 @@ import {
   RefreshCw, Usb, Network, ChevronDown,
 } from 'lucide-react';
 import type { PrinterEntry } from '@/services/pos/qzTrayService';
+import { ComandaCategoryPicker } from './ComandaCategoryPicker';
 
 interface PrinterRowProps {
   printer: PrinterEntry;
@@ -145,6 +146,7 @@ export function PrinterRow({ printer, qzPrinters, onChange, onRemove, onTest, te
           )}
         </div>
       )}
+      {printer.type === 'comanda' && <ComandaCategoryPicker printer={printer} onChange={onChange} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
-import { billSubtotal, billItemTotal, type Bill } from './types';
+import { billSubtotal, billItemTotal, billService, type Bill } from './types';
 
 interface PrintOpts {
   taxEnabled: boolean;
@@ -25,8 +25,9 @@ export async function printBillTicket(tenantId: string, bill: Bill, opts: PrintO
   const simplificadoFooter = !!(feConfig?.simplificado || general?.simplificado);
 
   const subtotal = billSubtotal(bill);
+  const service = billService(subtotal, bill.is_delivery);   // 10% en mesa, 0 en delivery
   const tax = opts.taxEnabled ? Math.round(subtotal * opts.taxRate) : 0;
-  const total = subtotal + tax;
+  const total = subtotal + service + tax;
 
   const now = new Date();
 
@@ -52,15 +53,19 @@ export async function printBillTicket(tenantId: string, bill: Bill, opts: PrintO
       items,
       subtotal,
       tax,
+      // Servicio 10% (mesa): se muestra como cargo con "+" en el ticket.
+      discount: service > 0 ? -service : 0,
+      discountLabel: 'Servicio 10%',
       total,
-      paymentMethod: 'Mesa',
+      paymentMethod: bill.is_delivery ? 'Delivery' : 'Mesa',
       storeName: general?.businessName,
       storeRuc: general?.ruc,
       storeCedula: general?.cedula,
       storeAddress: general?.address,
       storeCity: general?.city,
       storePhone: general?.phone,
-      cashierName: opts.cashierName,
+      // Mesero responsable de la cuenta (o cajero si no hay).
+      cashierName: bill.responsible_name || opts.cashierName,
       customerName: bill.customer_name ?? undefined,
       simplificadoFooter,
     },

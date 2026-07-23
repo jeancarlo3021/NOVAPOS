@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Search, Plus, Minus, Check, ChevronLeft, UtensilsCrossed } from 'lucide-react';
 import { getAllProducts, categoriesService } from '@/services/Inventory/InventoryProductsService';
 import { modifiersService, type ModifierGroup } from '@/services/Inventory/modifiersService';
@@ -51,21 +51,31 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
     });
   }, [products, search, activeCat]);
 
+  // Cache de modificadores por producto → el segundo toque es instantáneo.
+  const modsCache = useRef<Map<string, ModifierGroup[]>>(new Map());
+
+  const addDirect = (p: Product) =>
+    onAdd({ product_id: p.id, category_id: (p as any).category_id ?? undefined, name: p.name, unit_price: p.unit_price, quantity: 1, modifiers: [] });
+
   const pickProduct = async (p: Product) => {
+    // Cache hit: decide al instante, sin llamada ni parpadeo.
+    const cached = modsCache.current.get(p.id);
+    if (cached) {
+      if (cached.length > 0) { setConfigGroups(cached); setConfigProduct(p); }
+      else addDirect(p);
+      return;
+    }
     setLoadingMods(true);
-    setConfigProduct(p);
     try {
       const groups = await modifiersService.forProduct(p.id);
-      if (Array.isArray(groups) && groups.length > 0) {
-        setConfigGroups(groups);
-      } else {
-        // Sin modificadores → agregar directo y volver al catálogo
-        onAdd({ product_id: p.id, name: p.name, unit_price: p.unit_price, quantity: 1, modifiers: [] });
-        setConfigProduct(null);
-      }
+      const list = Array.isArray(groups) ? groups : [];
+      modsCache.current.set(p.id, list);
+      // Solo cambiamos a la pantalla de adicionales SI hay modificadores (así el
+      // catálogo NO se pone en blanco para productos sin adicionales).
+      if (list.length > 0) { setConfigGroups(list); setConfigProduct(p); }
+      else addDirect(p);
     } catch {
-      onAdd({ product_id: p.id, name: p.name, unit_price: p.unit_price, quantity: 1, modifiers: [] });
-      setConfigProduct(null);
+      addDirect(p);
     } finally { setLoadingMods(false); }
   };
 
@@ -207,6 +217,7 @@ function ModifierPicker({ product, groups, loading, onConfirm }: {
     }
     onConfirm({
       product_id: product.id,
+      category_id: (product as any).category_id ?? undefined,
       name: product.name,
       unit_price: product.unit_price,
       quantity: qty,

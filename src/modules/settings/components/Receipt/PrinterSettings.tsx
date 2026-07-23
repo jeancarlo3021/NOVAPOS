@@ -15,6 +15,7 @@ import {
 } from '@/services/pos/qzTrayService';
 import type { PrinterEntry } from '@/services/pos/qzTrayService';
 import { PrinterRow } from './components/PrinterRow';
+import { ComandaCategoryPicker } from './components/ComandaCategoryPicker';
 
 export type { PrinterEntry };
 
@@ -729,6 +730,8 @@ function BluetoothStationRow({ printer, tenantId, onChange, onRemove }: {
         </span>
         {msg && <span className="text-slate-500 truncate ml-2">{msg}</span>}
       </div>
+
+      {printer.type === 'comanda' && <ComandaCategoryPicker printer={printer} onChange={onChange} />}
     </div>
   );
 }
