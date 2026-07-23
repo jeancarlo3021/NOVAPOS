@@ -179,6 +179,11 @@ export const invoicesService = {
     return apiFetch<Invoice>('/invoices/' + invoiceId + '/void', { method: 'POST' });
   },
 
+  // Anular el PAGO de una factura y dejarla a crédito (con saldo pendiente).
+  async toCredit(invoiceId: string) {
+    return apiFetch<{ ok: boolean; to_credit: boolean; total: number }>('/invoices/' + invoiceId + '/to-credit', { method: 'POST' });
+  },
+
   // Obtener facturas por rango de fechas
   async getInvoicesByDateRange(
     _tenantId: string,

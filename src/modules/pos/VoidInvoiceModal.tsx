@@ -172,6 +172,25 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
     }
   };
 
+  // Anular SOLO el pago → deja la factura a crédito (con saldo pendiente en CxC).
+  const handleToCredit = async () => {
+    if (!selected) return;
+    if (selected.status === 'cancelled') { setPinError('Esta factura está anulada'); return; }
+    if (storedPin && pin !== storedPin) { setPinError('PIN incorrecto'); setPin(''); return; }
+    if (!isOnline) { setPinError('Necesitás conexión para pasar a crédito'); return; }
+    if (!confirm(`¿Anular el pago de la factura ${selected.invoice_number} y dejarla a crédito?`)) return;
+    setVoiding(true);
+    try {
+      await invoicesService.toCredit(selected.id);
+      setInvoices(prev => prev.map(inv => inv.id === selected.id ? { ...inv, payment_method: 'credit' } : inv));
+      setPinError('');
+      onVoided(selected.invoice_number);
+    } catch (e) {
+      setPinError(e instanceof Error ? e.message : 'No se pudo pasar a crédito');
+      setVoiding(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleVoid();
     if (e.key === 'Escape') {
@@ -280,9 +299,19 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                 disabled={voiding || (!!storedPin && pin.length === 0)}
                 className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl font-bold transition"
               >
-                {voiding ? 'Anulando…' : 'Confirmar anulación'}
+                {voiding ? '…' : 'Anular factura'}
               </button>
             </div>
+            {/* Anular solo el pago → dejar a crédito (no anula la factura) */}
+            {selected.payment_method !== 'credit' && (
+              <button
+                onClick={handleToCredit}
+                disabled={voiding || (!!storedPin && pin.length === 0)}
+                className="w-full mt-2 px-4 py-2.5 border-2 border-amber-300 bg-amber-50 hover:bg-amber-100 disabled:opacity-40 text-amber-700 rounded-xl font-bold text-sm transition"
+              >
+                {voiding ? '…' : 'Anular pago → pasar a crédito'}
+              </button>
+            )}
           </div>
         ) : (
           /* ── Invoice list step ───────────────────────────────────────────── */
