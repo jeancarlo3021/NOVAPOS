@@ -156,7 +156,8 @@ export const invoicesService = {
     // Registrar movimiento de caja — en pago mixto solo entra la porción efectivo.
     // Las porciones de tarjeta/SINPE no afectan el efectivo en caja.
     // En venta a CRÉDITO no entra dinero: no se registra movimiento de caja.
-    if (paymentMethod !== 'credit') {
+    // En DELIVERY el cobro lo hace la plataforma (se deposita aparte): no toca la caja.
+    if (paymentMethod !== 'credit' && !currencyInfo?.isDelivery) {
       const cashAmount = (payments && payments.length > 1)
         ? (payments.find(p => p.method === 'cash')?.amount ?? 0)
         : (paymentMethod === 'cash' ? total : total);  // mantiene comportamiento legacy

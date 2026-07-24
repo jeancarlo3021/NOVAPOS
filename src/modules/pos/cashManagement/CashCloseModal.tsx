@@ -567,6 +567,18 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             </div>
           </div>
 
+          {/* Delivery (informativo — no es efectivo en caja, lo cobra la plataforma).
+              Se puede mostrar sin romper el conteo a ciegas porque no revela el efectivo esperado. */}
+          {sys.deliveryCount > 0 && (
+            <div className="flex items-center justify-between gap-3 bg-orange-50 border-2 border-orange-200 rounded-2xl px-4 py-2.5">
+              <span className="text-orange-700 font-bold text-sm">
+                🛵 Delivery <span className="text-orange-400 font-normal">(aparte, no en caja)</span>
+                <span className="block text-[11px] text-orange-500">{sys.deliveryCount} venta{sys.deliveryCount === 1 ? '' : 's'} · Neto ₡{sys.deliveryNet.toLocaleString('es-CR')}</span>
+              </span>
+              <span className="text-orange-700 text-xl font-black tabular-nums">₡{sys.deliveryTotal.toLocaleString('es-CR')}</span>
+            </div>
+          )}
+
           {/* Grand total */}
           <div className="flex items-center justify-between bg-rose-500 rounded-2xl px-6 py-4">
             <div>

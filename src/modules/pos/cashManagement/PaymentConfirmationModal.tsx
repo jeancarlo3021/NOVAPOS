@@ -225,8 +225,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       paymentMethod: method,
       // Guardamos el equivalente en ₡ para que caja/reportes cuadren; la moneda
       // real se registra en `currency`/`changeCurrency`.
-      amountReceived: method === 'cash' ? Math.round(receivedCrc) : undefined,
-      change: method === 'cash' ? Math.max(0, Math.round(changeCrc)) : undefined,
+      // En delivery el cobro lo hace la plataforma: se registra como recibido
+      // completo (sin vuelto) para que pase la validación y NO se pide efectivo.
+      amountReceived: deliveryMode ? Math.round(total) : method === 'cash' ? Math.round(receivedCrc) : undefined,
+      change: deliveryMode ? 0 : method === 'cash' ? Math.max(0, Math.round(changeCrc)) : undefined,
       voucherNumber: voucherNumber.trim() || undefined,
       ...(method === 'cash' && isUsd
         ? { currency: 'USD' as const, exchangeRate: rate, changeCurrency }
