@@ -38,4 +38,17 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Rastreo del camión en segundo plano (@capacitor-community/background-geolocation).
+         El plugin fusiona COARSE/FINE/FOREGROUND_SERVICE(_LOCATION)/POST_NOTIFICATIONS, pero
+         ACCESS_BACKGROUND_LOCATION NO lo declara: sin él Android no ofrece "Permitir siempre"
+         y el rastreo se detiene al cerrar/minimizar la app. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>
