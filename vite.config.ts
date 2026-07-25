@@ -46,9 +46,10 @@ export default defineConfig({
         // Limpia caches viejos de versiones anteriores al activar SW nuevo.
         cleanupOutdatedCaches: true,
 
-        // Toma control inmediato de las pestañas abiertas.
+        // Toma control inmediato de las pestañas abiertas y aplica la versión
+        // nueva sin esperar (fuerza refresco del cache al detectar update).
         clientsClaim: true,
-        skipWaiting: false, // el usuario decide cuándo aplicar update (banner)
+        skipWaiting: true,
 
         runtimeCaching: [
           // ── Tipografías de Google ─────────────────────────────────────────

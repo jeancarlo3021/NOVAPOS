@@ -48,9 +48,10 @@ export function setupPWA() {
   const updateSW = registerSW({
     immediate: true,
     onNeedRefresh() {
-      showUpdateBanner(async () => {
-        await updateSW(true); // skipWaiting + reload
-      });
+      // Fuerza el refresco SIEMPRE: al detectar una versión nueva se aplica y
+      // recarga automáticamente (skipWaiting + reload), sin depender de que el
+      // usuario toque el banner. Así nunca queda cache viejo (íconos incluidos).
+      updateSW(true).catch(() => showUpdateBanner(() => updateSW(true)));
     },
     onOfflineReady() {
       // Listo para usar sin conexión — silencioso, no interrumpe al cajero.
