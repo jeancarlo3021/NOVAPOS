@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { isRememberMeEnabled } from '@/lib/authStorage';
 import { User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { CashRegisterIcon } from '@/components/icons/CashRegisterIcon';
+import brandLogo from '@/assets/brand/logo.svg';
 
 export const Login: React.FC = () => {
   const [username, setUsername]     = useState('');
@@ -39,10 +39,7 @@ export const Login: React.FC = () => {
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 text-3xl font-bold text-emerald-400 mb-2">
-            <CashRegisterIcon size={32} />
-            <span>ColònClick</span>
-          </div>
+          <img src={brandLogo} alt="ColónClick" className="mx-auto mb-3 h-14 w-auto" />
           <p className="text-gray-400 text-sm">Sistema de Gestión para Negocios</p>
         </div>
 

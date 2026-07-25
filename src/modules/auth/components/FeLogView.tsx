@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X, MailCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { crDateTime } from '@/utils/datetime';
 
 interface FeRow {
@@ -87,11 +88,9 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
     } finally { if (!silent) setLoading(false); }
   }, [tenantId, search, from, to, onlyErrors]);
   useEffect(() => { load(); }, [load]);
-  // Auto-refresco cada 15s (silencioso) para ver cambios de estado sin recargar.
-  useEffect(() => {
-    const t = setInterval(() => load(true), 15_000);
-    return () => clearInterval(t);
-  }, [load]);
+  // Auto-refresco silencioso para ver cambios de estado sin recargar. Se pausa
+  // cuando la pestaña no está visible (ahorra peticiones en Vercel).
+  useVisiblePolling(() => load(true), 30_000);
 
   // Reintento: re-consulta el estado de UNA factura en Hacienda.
   const retryOne = async (id: string) => {

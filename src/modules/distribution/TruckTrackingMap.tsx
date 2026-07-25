@@ -5,6 +5,7 @@ import { Truck, RefreshCw, MapPin, Loader2, Navigation, Battery, Radio } from 'l
 import { apiFetch } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { useTenantId } from '@/hooks/useTenant';
+import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 
 // ── Tipos que devuelve GET /routes/live ─────────────────────────────────────
 interface LiveTruck {
@@ -33,7 +34,7 @@ interface LiveData { trucks: LiveTruck[]; stops: LiveStop[]; }
 const CR_CENTER: [number, number] = [9.9281, -84.0907];
 // Refresco del mapa. Realtime da lo instantáneo; este polling asegura que se
 // mueva aunque Realtime no esté habilitado en Supabase.
-const REFRESH_MS = 10_000;
+const REFRESH_MS = 20_000;
 
 // Camiones de simulación: 3 recorridos en distintas ciudades [lng, lat].
 interface SimTruck { id: string; name: string; driver: string; color: string; waypoints: [number, number][]; }
@@ -142,13 +143,12 @@ export const TruckTrackingMap: React.FC = () => {
     }
   }, []);
 
-  // Carga inicial + refresco periódico de RESPALDO (se pausa en modo simulación).
+  // Carga inicial (una vez, si no está simulando).
   useEffect(() => {
-    if (simulating) return;
-    load();
-    const t = setInterval(load, REFRESH_MS);
-    return () => clearInterval(t);
+    if (!simulating) load();
   }, [load, simulating]);
+  // Refresco periódico de RESPALDO — pausado en simulación y con la pestaña oculta.
+  useVisiblePolling(load, REFRESH_MS, !simulating);
 
   // Suscripción Realtime: al cambiar truck_positions, refrescamos (debounced) para
   // traer los datos enriquecidos (nombres, paradas, ventas). Instantáneo, sin pagar.

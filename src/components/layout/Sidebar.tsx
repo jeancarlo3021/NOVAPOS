@@ -33,7 +33,8 @@ import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
-import { CashRegisterIcon } from '@/components/icons/CashRegisterIcon';
+import brandLogo from '@/assets/brand/logo.svg';
+import brandIcon from '@/assets/brand/logo-negativo.svg';
 
 interface NavItem {
   name: string;
@@ -240,12 +241,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
       {/* Header */}
       <div className={`flex items-center justify-between h-14 px-3 border-b border-slate-800 transition-all ${isCompact ? 'px-2' : ''}`}>
         {!isCompact ? (
-          <div className="flex items-center gap-2 text-lg font-bold text-emerald-400">
-            <CashRegisterIcon size={22} />
-            <span>ColònClick</span>
-          </div>
+          <img src={brandLogo} alt="ColónClick" className="h-6 w-auto" />
         ) : (
-          <CashRegisterIcon size={22} className="text-emerald-400 mx-auto" />
+          <img src={brandIcon} alt="ColónClick" className="h-7 w-7 mx-auto rounded" />
         )}
         <div className="flex items-center gap-1">
           <button

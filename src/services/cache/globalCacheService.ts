@@ -28,15 +28,33 @@ export interface CacheStats {
 
 type CacheCallback = (progress: GlobalCacheProgress) => void;
 
+// Ventana mínima entre pre-cacheos completos. Sin esto, cada login / refresh de
+// token / re-montaje disparaba 9 llamadas al backend — mucho gasto en Vercel.
+// Dentro de esta ventana se reusa el cache existente (los datos igual se
+// refrescan de forma puntual por cada módulo al abrirse).
+const PRECACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+
 export const globalCacheService = {
   /**
    * Pre-cache all essential data on user login
    * Call this from AuthContext when user authenticates
+   * @param force  ignora el TTL y re-descarga todo (ej. botón "Actualizar")
    */
   async preCacheAllData(
     tenantId: string,
-    onProgress?: CacheCallback
+    onProgress?: CacheCallback,
+    force: boolean = false,
   ): Promise<CacheStats> {
+    // Salta si ya se pre-cacheó hace poco (evita ráfagas de invocaciones).
+    const stampKey = cacheKey(tenantId, 'global_precache_at');
+    if (!force) {
+      const last = Number(cacheGet<number>(stampKey) ?? 0);
+      if (last && Date.now() - last < PRECACHE_TTL_MS) {
+        return (cacheGet<CacheStats>(cacheKey(tenantId, 'global_precache_stats'))
+          ?? { products: 0, promotions: 0, categories: 0, measurements: 0, accountsPayable: 0,
+               purchases: 0, suppliers: 0, expenses: 0, users: 0, timestamp: new Date(last).toISOString() });
+      }
+    }
     const stats: CacheStats = {
       products: 0,
       promotions: 0,
@@ -194,6 +212,10 @@ export const globalCacheService = {
     } catch (err) {
       console.warn('No se pudo hidratar productos con relaciones:', err);
     }
+
+    // Marca el pre-cacheo para respetar el TTL en el próximo login/re-montaje.
+    cacheSet(stampKey, Date.now());
+    cacheSet(cacheKey(tenantId, 'global_precache_stats'), stats);
 
     return stats;
   },

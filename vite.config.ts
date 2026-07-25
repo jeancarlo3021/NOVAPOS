@@ -21,7 +21,11 @@ export default defineConfig({
       injectManifest: undefined,
 
       // Assets adicionales a precachear (los iconos los maneja public/).
-      includeAssets: ['favicon.svg', 'icon-512.svg', 'icon-maskable.svg', 'manifest.json', 'robots.txt', 'qz-tray.js'],
+      includeAssets: [
+        'favicon.ico', 'favicon.svg', 'favicon-16.png', 'favicon-32.png',
+        'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
+        'manifest.json', 'robots.txt', 'qz-tray.js',
+      ],
 
       workbox: {
         // Precache del app shell: bundle JS/CSS + index.html + assets estáticos.

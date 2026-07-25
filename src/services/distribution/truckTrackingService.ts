@@ -43,7 +43,7 @@ let lastSent = 0;
 
 // No mandamos más de 1 posición cada MIN_INTERVAL_MS (además del filtro de distancia
 // del plugin) para no cargar la red ni la BD. El plugin ya encola offline.
-const MIN_INTERVAL_MS = 10_000;
+const MIN_INTERVAL_MS = 20_000;
 
 const kmh = (mps?: number | null) => (mps != null && mps >= 0 ? Math.round(mps * 3.6) : null);
 const deg = (b?: number | null) => (b != null && b >= 0 ? Math.round(b) : null);

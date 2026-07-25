@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Inbox, RefreshCw, Loader2, CheckCircle2, XCircle, ChevronLeft, AlertTriangle, Plus, X, Upload, Mail, Clock } from 'lucide-react';
+import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { haciendaService, type ReceivedDoc } from '@/services/hacienda/haciendaService';
 import { useTenantId } from '@/hooks/useTenant';
 import { expenseCategoriesService } from '@/services/expenses/expensesService';
@@ -58,24 +59,22 @@ export const ReceptionDashboard: React.FC = () => {
   // Mostramos la cuenta regresiva al próximo escaneo y refrescamos la bandeja
   // automáticamente cuando el reloj cruza ese punto.
   const [secsLeft, setSecsLeft] = useState(0);
-  useEffect(() => {
-    const secsToNextQuarter = () => {
-      const now = new Date();
-      const next = new Date(now);
-      next.setMinutes((Math.floor(now.getMinutes() / 15) + 1) * 15, 0, 0);
-      return Math.max(0, Math.round((next.getTime() - now.getTime()) / 1000));
-    };
-    let prev = secsToNextQuarter();
-    setSecsLeft(prev);
-    const id = setInterval(() => {
-      const s = secsToNextQuarter();
-      // Si subió de golpe (cruzó el múltiplo de 15) → recién corrió el cron: refrescar.
-      if (s > prev + 5) load();
-      prev = s;
-      setSecsLeft(s);
-    }, 1000);
-    return () => clearInterval(id);
-  }, [load]);
+  const prevSecsRef = useRef<number | null>(null);
+  const secsToNextQuarter = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setMinutes((Math.floor(now.getMinutes() / 15) + 1) * 15, 0, 0);
+    return Math.max(0, Math.round((next.getTime() - now.getTime()) / 1000));
+  };
+  // Cuenta regresiva al próximo cron (15 min). Se pausa con la pestaña oculta; al
+  // volver, si cruzó un múltiplo de 15 (el contador saltó hacia arriba) refresca.
+  useVisiblePolling(() => {
+    const s = secsToNextQuarter();
+    const prev = prevSecsRef.current;
+    if (prev != null && s > prev + 5) load();
+    prevSecsRef.current = s;
+    setSecsLeft(s);
+  }, 1000);
   const mmss = `${String(Math.floor(secsLeft / 60)).padStart(2, '0')}:${String(secsLeft % 60).padStart(2, '0')}`;
 
   const onUploadXml = async (files: FileList | null) => {

@@ -2,6 +2,8 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle, Printer, Inbox } from 'lucide-react';
 import { CashSession } from '@/types/Types_POS';
+import brandLogo from '@/assets/brand/logo.svg';
+import brandIcon from '@/assets/brand/icono-oscuro.svg';
 
 interface POSHeaderProps {
   error: string;
@@ -66,10 +68,8 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
 
         {/* Brand */}
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
-            <DollarSign size={16} className="text-white" />
-          </div>
-          <h1 className="text-gray-900 font-bold text-lg hidden md:block">ColònClick</h1>
+          <img src={brandIcon} alt="ColónClick" className="w-8 h-8 rounded-lg" />
+          <img src={brandLogo} alt="ColónClick" className="h-6 w-auto hidden md:block" />
         </div>
 
         {/* Divider */}

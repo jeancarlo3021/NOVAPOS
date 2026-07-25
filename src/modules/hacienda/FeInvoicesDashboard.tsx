@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown } from 'lucide-react';
 import { haciendaService } from '@/services/hacienda/haciendaService';
+import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
 import { formatWallClock } from '@/utils/datetime';
 import { useAuth } from '@/context/AuthContext';
@@ -101,16 +102,15 @@ export const FeInvoicesDashboard: React.FC = () => {
   // sin respuesta de Hacienda), reconsulta cada 20s hasta que se resuelvan
   // (aceptado/rechazado) o se llegue al tope de intentos.
   const pollAttempts = useRef(0);
+  const [pollExhausted, setPollExhausted] = useState(false);
   const hasPending = rows.some(r => r.fe_clave && (r.fe_status ?? '') === 'sent');
-  useEffect(() => {
-    if (!hasPending) { pollAttempts.current = 0; return; }
-    const id = setInterval(() => {
-      if (pollAttempts.current >= 20) { clearInterval(id); return; }  // ~7 min máx
-      pollAttempts.current += 1;
-      refreshPending();
-    }, 20000);
-    return () => clearInterval(id);
-  }, [hasPending, rows, refreshPending]);
+  useEffect(() => { pollAttempts.current = 0; setPollExhausted(false); }, [hasPending]);
+  // Reconsulta mientras haya pendientes (tope ~7 min). Se pausa con la pestaña oculta.
+  useVisiblePolling(() => {
+    if (pollAttempts.current >= 20) { setPollExhausted(true); return; }  // ~7 min máx
+    pollAttempts.current += 1;
+    refreshPending();
+  }, 20000, hasPending && !pollExhausted);
 
   const refreshStatus = async (row: FeRow) => {
     setBusyId(row.id);
