@@ -22,6 +22,7 @@ import { ReceptionLogView } from './components/ReceptionLogView';
 import { AlanubeReportsView } from './components/AlanubeReportsView';
 import { CustomInvoiceModal } from './components/CustomInvoiceModal';
 import { PrinterSandbox } from './components/PrinterSandbox';
+import { WhatsAppQrView } from './components/WhatsAppQrView';
 import { TenantGroupView } from './components/TenantGroupView';
 import { AdminFeKioskView } from './components/AdminFeKioskView';
 import { GroupDocCount } from './components/GroupDocCount';
@@ -65,7 +66,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team';
+type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -690,6 +691,7 @@ export const CreateOwner: React.FC = () => {
             { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
             { id: 'team'       as AdminTab, label: 'Equipo',       icon: Users2 },
             { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
+            { id: 'whatsapp'   as AdminTab, label: 'WhatsApp',     icon: MessageCircle },
           ].map(t => {
             const Icon = t.icon;
             const active = activeTab === t.id;
@@ -732,6 +734,12 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'sandbox' && (
         <div className="max-w-5xl mx-auto p-6">
           <PrinterSandbox />
+        </div>
+      )}
+
+      {activeTab === 'whatsapp' && (
+        <div className="max-w-5xl mx-auto p-6">
+          <WhatsAppQrView />
         </div>
       )}
 

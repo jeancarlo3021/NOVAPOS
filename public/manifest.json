@@ -6,29 +6,38 @@
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui", "browser"],
+  "display_override": [
+    "standalone",
+    "minimal-ui",
+    "browser"
+  ],
   "orientation": "any",
   "theme_color": "#10b981",
   "background_color": "#0f172a",
   "lang": "es-CR",
   "dir": "ltr",
-  "categories": ["business", "finance", "productivity", "shopping"],
+  "categories": [
+    "business",
+    "finance",
+    "productivity",
+    "shopping"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/icon-192.png?v=2",
+      "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-512.png?v=2",
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-512.png?v=2",
+      "src": "/icon-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -46,21 +55,39 @@
       "short_name": "POS",
       "description": "Abrir el punto de venta",
       "url": "/pos?source=pwa-shortcut",
-      "icons": [{ "src": "/favicon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Inventario",
       "short_name": "Inventario",
       "description": "Gestionar productos y stock",
       "url": "/inventory?source=pwa-shortcut",
-      "icons": [{ "src": "/favicon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Reportes",
       "short_name": "Reportes",
       "description": "Ver reportes y analítica",
       "url": "/reports?source=pwa-shortcut",
-      "icons": [{ "src": "/favicon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ],
   "screenshots": [],

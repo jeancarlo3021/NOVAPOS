@@ -4,6 +4,7 @@ import { Lock, LogOut, Menu as MenuIcon, RefreshCw } from 'lucide-react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { useAuth } from '@/context/AuthContext';
+import { Capacitor } from '@capacitor/core';
 
 // Banner sticky en la parte superior cuando el tenant está en modo solo-lectura
 // por morosidad. Indica al usuario que solo puede ver inventario y le da un
@@ -103,11 +104,17 @@ export const MainLayout = () => {
               className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-gray-600 active:bg-gray-100">
               <MenuIcon size={20} /><span className="text-[10px] font-bold">Menú</span>
             </button>
-            <div className="w-px bg-gray-200 my-1.5" />
-            <button onClick={clearCacheAndReload}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-gray-600 active:bg-gray-100">
-              <RefreshCw size={20} /><span className="text-[10px] font-bold">Actualizar</span>
-            </button>
+            {/* "Actualizar" (limpiar caché) solo en la app nativa de Android.
+                En web/PWA el service worker ya refresca solo, no hace falta. */}
+            {Capacitor.isNativePlatform() && (
+              <>
+                <div className="w-px bg-gray-200 my-1.5" />
+                <button onClick={clearCacheAndReload}
+                  className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-gray-600 active:bg-gray-100">
+                  <RefreshCw size={20} /><span className="text-[10px] font-bold">Actualizar</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

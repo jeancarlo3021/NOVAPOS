@@ -23,7 +23,7 @@ export default defineConfig({
       // Assets adicionales a precachear (los iconos los maneja public/).
       includeAssets: [
         'favicon.ico', 'favicon.svg', 'favicon-16.png', 'favicon-32.png',
-        'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
+        'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable.png',
         'manifest.json', 'robots.txt', 'qz-tray.js',
       ],
 
