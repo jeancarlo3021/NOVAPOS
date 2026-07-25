@@ -33,7 +33,7 @@ export const WhatsAppQrView: React.FC = () => {
 
   const load = async () => {
     try {
-      const s = await apiFetch<Status>('/admin/whatsapp/status');
+      const s = await apiFetch<Status>('/admin/whatsapp-qr/status');
       setStatus(s);
     } catch (e) {
       setStatus({ configured: true, state: 'unreachable', connected: false, qr: null, me: null, error: e instanceof Error ? e.message : 'error' });
@@ -51,7 +51,7 @@ export const WhatsAppQrView: React.FC = () => {
   const logout = async () => {
     if (!confirm('¿Desvincular el WhatsApp? Habrá que escanear el QR de nuevo para reconectar.')) return;
     setBusy(true);
-    try { await apiFetch('/admin/whatsapp/logout', { method: 'POST' }); flash(true, 'Sesión cerrada — generando QR nuevo…'); await load(); }
+    try { await apiFetch('/admin/whatsapp-qr/logout', { method: 'POST' }); flash(true, 'Sesión cerrada — generando QR nuevo…'); await load(); }
     catch (e) { flash(false, e instanceof Error ? e.message : 'No se pudo desvincular'); }
     finally { setBusy(false); }
   };
@@ -61,7 +61,7 @@ export const WhatsAppQrView: React.FC = () => {
     if (!to.trim() || !text.trim()) return;
     setSending(true);
     try {
-      const r = await apiFetch<{ ok: boolean; error?: string }>('/admin/whatsapp/send', {
+      const r = await apiFetch<{ ok: boolean; error?: string }>('/admin/whatsapp-qr/send', {
         method: 'POST',
         body: JSON.stringify({ to: to.trim(), text: text.trim() }),
       });

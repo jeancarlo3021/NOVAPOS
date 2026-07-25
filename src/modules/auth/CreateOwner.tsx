@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle,
+  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet,
 } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
@@ -23,6 +23,7 @@ import { AlanubeReportsView } from './components/AlanubeReportsView';
 import { CustomInvoiceModal } from './components/CustomInvoiceModal';
 import { PrinterSandbox } from './components/PrinterSandbox';
 import { WhatsAppQrView } from './components/WhatsAppQrView';
+import { VendorPaymentsView } from './components/VendorPaymentsView';
 import { TenantGroupView } from './components/TenantGroupView';
 import { AdminFeKioskView } from './components/AdminFeKioskView';
 import { GroupDocCount } from './components/GroupDocCount';
@@ -66,7 +67,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp';
+type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp' | 'vendor_payments';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -692,6 +693,7 @@ export const CreateOwner: React.FC = () => {
             { id: 'team'       as AdminTab, label: 'Equipo',       icon: Users2 },
             { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
             { id: 'whatsapp'   as AdminTab, label: 'WhatsApp',     icon: MessageCircle },
+            { id: 'vendor_payments' as AdminTab, label: 'Proveedores', icon: Wallet },
           ].map(t => {
             const Icon = t.icon;
             const active = activeTab === t.id;
@@ -740,6 +742,12 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'whatsapp' && (
         <div className="max-w-5xl mx-auto p-6">
           <WhatsAppQrView />
+        </div>
+      )}
+
+      {activeTab === 'vendor_payments' && (
+        <div className="max-w-6xl mx-auto p-6">
+          <VendorPaymentsView />
         </div>
       )}
 
