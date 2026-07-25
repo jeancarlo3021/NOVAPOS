@@ -24,6 +24,7 @@ import { CustomInvoiceModal } from './components/CustomInvoiceModal';
 import { PrinterSandbox } from './components/PrinterSandbox';
 import { WhatsAppQrView } from './components/WhatsAppQrView';
 import { VendorPaymentsView } from './components/VendorPaymentsView';
+import { NotifyPhoneModal } from './components/NotifyPhoneModal';
 import { TenantGroupView } from './components/TenantGroupView';
 import { AdminFeKioskView } from './components/AdminFeKioskView';
 import { GroupDocCount } from './components/GroupDocCount';
@@ -84,6 +85,7 @@ export const CreateOwner: React.FC = () => {
   const [importProductsFor, setImportProductsFor] = useState<OwnerData | null>(null);
   const [previewProductsFor, setPreviewProductsFor] = useState<OwnerData | null>(null);
   const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
+  const [notifyPhoneFor, setNotifyPhoneFor] = useState<OwnerData | null>(null);
   // Renovar FE (bolsa) + elegir nuevo plan FE.
   const [renewFeFor, setRenewFeFor] = useState<OwnerData | null>(null);
   const [renewFePlanId, setRenewFePlanId] = useState('');
@@ -1378,6 +1380,10 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40">
                                     <Mail size={13} /> Recordatorio de pago
                                   </button>
+                                  <button onClick={() => { setOpenMenuId(null); setNotifyPhoneFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50">
+                                    <MessageCircle size={13} /> Número de avisos WhatsApp
+                                  </button>
                                   <button onClick={() => { setOpenMenuId(null); sendPasswordReset(o); }} disabled={pwdSendingId === o.id}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50 disabled:opacity-40">
                                     <Lock size={13} /> Cambiar clave
@@ -1492,6 +1498,10 @@ export const CreateOwner: React.FC = () => {
           onClose={() => setManageModulesFor(null)}
           onToast={showToast}
         />
+      )}
+
+      {notifyPhoneFor && (
+        <NotifyPhoneModal owner={notifyPhoneFor} onClose={() => setNotifyPhoneFor(null)} />
       )}
 
       {/* Importar productos por Excel para una empresa (modo admin) */}
