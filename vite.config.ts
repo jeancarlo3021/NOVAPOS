@@ -52,6 +52,21 @@ export default defineConfig({
         skipWaiting: true,
 
         runtimeCaching: [
+          // ── Documento / navegación: RED PRIMERO ───────────────────────────
+          // Un F5 (o abrir la app) trae SIEMPRE el index.html más nuevo desde la
+          // red → con él llegan las refs a los bundles nuevos y a los íconos, sin
+          // limpiar cache. El cache solo se usa como respaldo si no hay conexión.
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'html',
+              networkTimeoutSeconds: 4,   // si la red tarda >4s (offline), sirve el cache
+              expiration: { maxEntries: 10 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+
           // ── Tipografías de Google ─────────────────────────────────────────
           {
             urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
