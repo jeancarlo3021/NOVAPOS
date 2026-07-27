@@ -17,24 +17,39 @@ export interface ClearAppCacheOptions {
 export async function clearAppCache(opts: ClearAppCacheOptions = {}): Promise<void> {
   const { clearAuth = false, reload = true } = opts;
 
-  // 1) localStorage — todas las keys de la app
+  // Keys que MANTIENEN la sesión iniciada. Solo se borran si clearAuth === true.
+  // Incluye el token de Supabase (sb-*) y el cache de auth de la app (que empieza
+  // con novapos_, así que hay que excluirlo explícitamente del barrido de app).
+  const AUTH_KEYS = new Set(['novapos_auth_cache', 'novapos_session_login_ts']);
+  const isAuthKey = (k: string) => k.startsWith('sb-') || AUTH_KEYS.has(k);
+
+  // 1) localStorage — todas las keys de la app, PRESERVANDO la sesión.
   try {
     const keys = Object.keys(localStorage);
     for (const k of keys) {
+      if (isAuthKey(k)) {
+        if (clearAuth) { try { localStorage.removeItem(k); } catch { /* ignore */ } }
+        continue;   // sin clearAuth → preservar (no desloguear)
+      }
       const isAppKey =
         k.startsWith('novapos_') ||
         k.startsWith('receipt_cfg_') ||
         k.startsWith('tables_') ||
         k.startsWith('billing_');
-      const isAuthKey = k.startsWith('sb-');
-      if (isAppKey || (clearAuth && isAuthKey)) {
+      if (isAppKey) {
         try { localStorage.removeItem(k); } catch { /* ignore */ }
       }
     }
   } catch { /* SSR / privacidad */ }
 
-  // 2) sessionStorage
-  try { sessionStorage.clear(); } catch { /* ignore */ }
+  // 2) sessionStorage — preservando cualquier token de auth (sb-*).
+  try {
+    const skeys = Object.keys(sessionStorage);
+    for (const k of skeys) {
+      if (!clearAuth && isAuthKey(k)) continue;
+      try { sessionStorage.removeItem(k); } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
 
   // 3) IndexedDB — todos los stores conocidos de la app
   try {

@@ -129,10 +129,13 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const creditExceeds = total > creditAvailable;
   const enabled = (id: string) => !enabledMethods || enabledMethods.includes(id);
   const mixedAllowed = enabled('mixed');
-  const filtered = METHODS.filter(m =>
-    enabled(m.id) &&
-    (m.id === 'cash' || (m.id === 'card' && allowCard) || (m.id === 'sinpe' && allowSinpe) || (m.id === 'credit' && allowCredit))
-  );
+  const filtered = METHODS.filter(m => {
+    // Crédito: NO depende de la lista `paymentMethods` (es la feature de Cuentas
+    // por Cobrar). Aparece si hay plan AR + cliente seleccionado (allowCredit).
+    if (m.id === 'credit') return allowCredit;
+    return enabled(m.id) &&
+      (m.id === 'cash' || (m.id === 'card' && allowCard) || (m.id === 'sinpe' && allowSinpe));
+  });
   // Nunca dejar el modal sin opciones: si la config dejó todo fuera, cae a efectivo.
   const availableMethods = filtered.length > 0 ? filtered : METHODS.filter(m => m.id === 'cash');
 

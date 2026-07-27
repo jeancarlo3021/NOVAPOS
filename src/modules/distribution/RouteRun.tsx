@@ -797,8 +797,11 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              {(['cash', 'card', 'sinpe', 'mixed', ...(customer?.id ? ['credit'] as const : [])] as const)
-                .filter(m => enabledPays.includes(m)).map(m => (
+              {([
+                ...(['cash', 'card', 'sinpe', 'mixed'] as const).filter(m => enabledPays.includes(m)),
+                // Crédito: solo requiere cliente seleccionado (no depende de la lista paymentMethods).
+                ...(customer?.id ? (['credit'] as const) : []),
+              ] as ('cash' | 'card' | 'sinpe' | 'mixed' | 'credit')[]).map(m => (
                 <button key={m} onClick={() => setPaymentMethod(m)}
                   className={`flex-1 py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : m === 'mixed' ? 'bg-violet-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
                   {payLabel(m)}

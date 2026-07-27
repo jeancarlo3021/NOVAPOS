@@ -4,7 +4,6 @@ import { TenantSwitcher } from './TenantSwitcher';
 import { BranchSwitcher } from './BranchSwitcher';
 import { useLocation } from 'react-router-dom';
 import { clearAppCache } from '@/utils/clearAppCache';
-import { Capacitor } from '@capacitor/core';
 
 interface HeaderProps {
   setSidebarOpen: (isOpen: boolean) => void;
@@ -39,22 +38,20 @@ export const Header: React.FC<HeaderProps> = ({ setSidebarOpen }) => {
         </button>
       </div>
       <div className="flex items-center gap-3">
-        {/* "Limpiar caché" solo en la app nativa de Android. En web/PWA el
-            service worker ya refresca solo con un F5, no hace falta el botón. */}
-        {Capacitor.isNativePlatform() && (
-          <button
-            onClick={handleClearCache}
-            disabled={clearing}
-            title="Limpiar caché y recargar  ·  Atajo: Ctrl + Shift + K"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-blue-50 hover:border-blue-200 text-gray-600 hover:text-blue-700 text-xs font-bold transition disabled:opacity-50"
-          >
-            {clearing ? (
-              <><Check size={13} /> Limpiando…</>
-            ) : (
-              <><RefreshCcw size={13} /> <span className="hidden sm:inline">Limpiar caché</span></>
-            )}
-          </button>
-        )}
+        {/* "Limpiar caché" — NO cierra sesión (clearAppCache preserva sb-* y el
+            cache de auth de la app). */}
+        <button
+          onClick={handleClearCache}
+          disabled={clearing}
+          title="Limpiar caché y recargar  ·  Atajo: Ctrl + Shift + K"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-blue-50 hover:border-blue-200 text-gray-600 hover:text-blue-700 text-xs font-bold transition disabled:opacity-50"
+        >
+          {clearing ? (
+            <><Check size={13} /> Limpiando…</>
+          ) : (
+            <><RefreshCcw size={13} /> <span className="hidden sm:inline">Limpiar caché</span></>
+          )}
+        </button>
         <BranchSwitcher />
         <TenantSwitcher />
       </div>
