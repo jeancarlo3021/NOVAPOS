@@ -38,6 +38,7 @@ const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('Backg
 
 let watcherId: string | null = null;
 let webWatchId: number | null = null;   // geolocalización del navegador (web, primer plano)
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;  // latido periódico
 let currentRouteId: string | null = null;
 let lastSent = 0;
 
@@ -65,6 +66,43 @@ async function sendPosition(loc: BGLocation) {
   } catch { /* offline: el plugin reintenta con la próxima posición */ }
 }
 
+// Manda la posición ACTUAL una vez (para el punto inicial y el latido).
+function pushCurrentPosition() {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => void sendPosition({
+      latitude: pos.coords.latitude, longitude: pos.coords.longitude,
+      speed: pos.coords.speed, bearing: pos.coords.heading, accuracy: pos.coords.accuracy,
+    }),
+    () => { /* sin permiso / sin señal: ignorar */ },
+    { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
+  );
+}
+
+// Geolocalización web (primer plano): watch por movimiento + latido periódico
+// para que el punto aparezca al instante y no caiga fuera de la ventana de /live
+// aunque el camión esté quieto.
+function startWebWatch() {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+  if (webWatchId == null) {
+    webWatchId = navigator.geolocation.watchPosition(
+      (pos) => void sendPosition({
+        latitude: pos.coords.latitude, longitude: pos.coords.longitude,
+        speed: pos.coords.speed, bearing: pos.coords.heading, accuracy: pos.coords.accuracy,
+      }),
+      (err) => console.warn('[tracking web]', err?.message ?? err),
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
+    );
+  }
+  pushCurrentPosition();   // punto inicial inmediato
+  if (heartbeatTimer == null) heartbeatTimer = setInterval(pushCurrentPosition, MIN_INTERVAL_MS);
+}
+
+function stopWebWatch() {
+  if (webWatchId != null) { try { navigator.geolocation.clearWatch(webWatchId); } catch { /* ignore */ } webWatchId = null; }
+  if (heartbeatTimer != null) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
 export const truckTracking = {
   /** ¿Se puede rastrear? Nativo (background) o web con geolocalización (primer plano). */
   isSupported(): boolean {
@@ -76,13 +114,20 @@ export const truckTracking = {
     return watcherId != null || webWatchId != null;
   },
 
-  /** Arranca el rastreo para una ruta. Nativo = background; web = primer plano. */
+  /** Arranca el rastreo para una ruta.
+   *  - Geolocalización WEB SIEMPRE: da el punto inicial al instante y updates
+   *    frecuentes mientras la app está abierta (nativa o web) → la oficina ve
+   *    aparecer y moverse el camión aunque esté (casi) quieto.
+   *  - En nativo, ADEMÁS el watcher en segundo plano (sigue con app cerrada). */
   async start(routeId: string): Promise<void> {
     currentRouteId = routeId;
-    if (Capacitor.isNativePlatform()) {
-      // ── App nativa: servicio en segundo plano (sigue con app cerrada/bloqueada) ──
-      if (watcherId) return;
-      lastSent = 0;
+    lastSent = 0;
+
+    // Web (primer plano) — arranca ya, en cualquier plataforma.
+    startWebWatch();
+
+    // Nativo — watcher en segundo plano (además del web).
+    if (Capacitor.isNativePlatform() && watcherId == null) {
       try {
         watcherId = await BackgroundGeolocation.addWatcher(
           {
@@ -90,7 +135,7 @@ export const truckTracking = {
             backgroundTitle: 'ColónClick Distribución',
             requestPermissions: true,
             stale: false,
-            distanceFilter: 30,   // reportar cada 30 m de movimiento
+            distanceFilter: 20,   // reportar cada 20 m de movimiento
           },
           (location, error) => {
             if (error) { console.warn('[tracking]', error); return; }
@@ -98,21 +143,9 @@ export const truckTracking = {
           },
         );
       } catch (e) {
-        console.warn('[tracking] no se pudo iniciar', e);
+        console.warn('[tracking] watcher nativo no disponible (sigue el web)', e);
         watcherId = null;
       }
-    } else {
-      // ── Web: geolocalización del navegador (solo con la pestaña/app abierta) ──
-      if (webWatchId != null || typeof navigator === 'undefined' || !navigator.geolocation) return;
-      lastSent = 0;
-      webWatchId = navigator.geolocation.watchPosition(
-        (pos) => void sendPosition({
-          latitude: pos.coords.latitude, longitude: pos.coords.longitude,
-          speed: pos.coords.speed, bearing: pos.coords.heading, accuracy: pos.coords.accuracy,
-        }),
-        (err) => console.warn('[tracking web]', err?.message ?? err),
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
-      );
     }
   },
 
@@ -123,10 +156,7 @@ export const truckTracking = {
       try { await BackgroundGeolocation.removeWatcher({ id: watcherId }); } catch { /* ignore */ }
       watcherId = null;
     }
-    if (webWatchId != null) {
-      try { navigator.geolocation.clearWatch(webWatchId); } catch { /* ignore */ }
-      webWatchId = null;
-    }
+    stopWebWatch();
   },
 };
 
