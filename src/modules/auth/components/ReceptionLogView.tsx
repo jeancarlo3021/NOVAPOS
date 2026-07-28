@@ -19,6 +19,9 @@ interface RecRow {
   ack_status: string | null;
   source: string | null;
   purchase_id: string | null;
+  purchase_number?: string | null;
+  kind?: 'gasto' | 'compra' | null;
+  products?: Array<{ name: string; quantity: number; unit_price: number }>;
   created_at: string;
 }
 interface RecLogResp { count: number; accepted: number; rejected: number; pending: number; rows: RecRow[]; }
@@ -55,6 +58,7 @@ export const ReceptionLogView: React.FC<Props> = ({ owners }) => {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [statusF, setStatusF] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -154,23 +158,59 @@ export const ReceptionLogView: React.FC<Props> = ({ owners }) => {
                   <th className="text-left px-4 py-3">Empresa</th>
                   <th className="text-left px-4 py-3">Proveedor</th>
                   <th className="text-left px-4 py-3">Tipo</th>
+                  <th className="text-left px-4 py-3">Clasificación</th>
                   <th className="text-left px-4 py-3">Origen</th>
                   <th className="text-right px-4 py-3">Total</th>
                   <th className="text-left px-4 py-3">Estado</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => (
-                  <tr key={r.id} className="border-t border-gray-50 hover:bg-gray-50/60">
-                    <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{dt(r.created_at ?? r.doc_date)}</td>
+                {rows.map(r => {
+                  const nProd = r.products?.length ?? 0;
+                  const isOpen = expanded === r.id;
+                  return (
+                  <React.Fragment key={r.id}>
+                  <tr className={`border-t border-gray-50 hover:bg-gray-50/60 ${nProd > 0 ? 'cursor-pointer' : ''}`}
+                    onClick={() => { if (nProd > 0) setExpanded(isOpen ? null : r.id); }}>
+                    <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">
+                      {nProd > 0 && <span className="text-gray-400 mr-1">{isOpen ? '▾' : '▸'}</span>}
+                      {dt(r.created_at ?? r.doc_date)}
+                    </td>
                     <td className="px-4 py-2.5 font-bold text-gray-800 max-w-45 truncate">{r.business_name}</td>
                     <td className="px-4 py-2.5 text-gray-600 max-w-52 truncate">{r.issuer_name ?? r.issuer_id ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs">{docLabel(r.document_type)}</td>
+                    <td className="px-4 py-2.5 text-xs">
+                      {r.kind === 'compra' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-black text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">🧾 Compra{r.purchase_number ? ` · ${r.purchase_number}` : ''}{nProd > 0 ? ` · ${nProd} prod.` : ''}</span>
+                      ) : r.kind === 'gasto' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">💸 Gasto</span>
+                      ) : (
+                        <span className="text-[11px] text-gray-300">Sin clasificar</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-xs">{r.source === 'email' ? '📧 correo' : r.source ?? 'manual'}</td>
                     <td className="px-4 py-2.5 text-right font-bold text-gray-900">{fmt(r.total)}</td>
                     <td className="px-4 py-2.5">{ackBadge(r.ack_status)}</td>
                   </tr>
-                ))}
+                  {isOpen && nProd > 0 && (
+                    <tr className="bg-gray-50/60">
+                      <td colSpan={8} className="px-6 py-3">
+                        <p className="text-[11px] font-black text-gray-500 uppercase mb-1.5">Productos creados/cargados por esta factura</p>
+                        <div className="rounded-lg border border-gray-100 overflow-hidden bg-white max-w-2xl">
+                          {r.products!.map((p, i) => (
+                            <div key={i} className="flex items-center gap-3 px-3 py-1.5 text-xs border-b border-gray-50 last:border-0">
+                              <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded shrink-0">PRODUCTO</span>
+                              <span className="flex-1 text-gray-800">{p.name}</span>
+                              <span className="text-gray-400 w-28 text-right">{p.quantity} × {fmt(p.unit_price)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
