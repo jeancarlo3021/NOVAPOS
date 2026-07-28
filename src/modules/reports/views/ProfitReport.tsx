@@ -10,6 +10,7 @@ import {
 import { apiFetch } from '@/lib/api';
 import { KPICard } from '../components/KPICard';
 import { WaterfallRow } from '../components/WaterfallRow';
+import { downloadCsv } from '@/utils/csv';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,39 +97,32 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
     if (!summary) return;
     const { revenue, invoiceCount, cogs, expenses, gross, net, margin, byDay, revenueByMethod, periodPromos } = summary;
 
-    const BOM  = '﻿';
-    const sep  = ',';
-    const nl   = '\r\n';
-
-    const row = (...cells: (string | number)[]) =>
-      cells.map(c => `"${String(c).replace(/"/g, '""')}"`).join(sep);
-
-    const sections: string[] = [];
+    const rows: (string | number | null | undefined)[][] = [];
 
     // ── Resumen general ──────────────────────────────────────────────────────
-    sections.push(row('RESUMEN', `${from} al ${to}`));
-    sections.push(row('Métrica', 'Monto (₡)', '% sobre ingresos'));
-    sections.push(row('Ingresos totales',      revenue,    '100.00'));
-    sections.push(row('Costo de compras',       cogs,       revenue > 0 ? ((cogs / revenue) * 100).toFixed(2) : '0'));
-    sections.push(row('Ganancia bruta',         gross,      revenue > 0 ? ((gross / revenue) * 100).toFixed(2) : '0'));
-    sections.push(row('Gastos operativos',      expenses,   revenue > 0 ? ((expenses / revenue) * 100).toFixed(2) : '0'));
-    sections.push(row('Ganancia neta',          net,        revenue > 0 ? margin.toFixed(2) : '0'));
-    sections.push(row('Total facturas',         invoiceCount, ''));
-    sections.push('');
+    rows.push(['RESUMEN', `${from} al ${to}`]);
+    rows.push(['Métrica', 'Monto (₡)', '% sobre ingresos']);
+    rows.push(['Ingresos totales',      revenue,    '100.00']);
+    rows.push(['Costo de compras',       cogs,       revenue > 0 ? ((cogs / revenue) * 100).toFixed(2) : '0']);
+    rows.push(['Ganancia bruta',         gross,      revenue > 0 ? ((gross / revenue) * 100).toFixed(2) : '0']);
+    rows.push(['Gastos operativos',      expenses,   revenue > 0 ? ((expenses / revenue) * 100).toFixed(2) : '0']);
+    rows.push(['Ganancia neta',          net,        revenue > 0 ? margin.toFixed(2) : '0']);
+    rows.push(['Total facturas',         invoiceCount, '']);
+    rows.push([]);
 
     // ── Por método de pago ────────────────────────────────────────────────────
-    sections.push(row('INGRESOS POR MÉTODO DE PAGO'));
-    sections.push(row('Método', 'Monto (₡)', '% del total'));
+    rows.push(['INGRESOS POR MÉTODO DE PAGO']);
+    rows.push(['Método', 'Monto (₡)', '% del total']);
     for (const m of revenueByMethod) {
-      sections.push(row(m.label, m.total, revenue > 0 ? ((m.total / revenue) * 100).toFixed(2) : '0'));
+      rows.push([m.label, m.total, revenue > 0 ? ((m.total / revenue) * 100).toFixed(2) : '0']);
     }
-    sections.push('');
+    rows.push([]);
 
     // ── Detalle diario ────────────────────────────────────────────────────────
-    sections.push(row('DETALLE DIARIO'));
-    sections.push(row('Fecha', 'Ingresos (₡)', 'Costo Compras (₡)', 'Gastos (₡)', 'Ganancia Bruta (₡)', 'Ganancia Neta (₡)', 'Margen %'));
+    rows.push(['DETALLE DIARIO']);
+    rows.push(['Fecha', 'Ingresos (₡)', 'Costo Compras (₡)', 'Gastos (₡)', 'Ganancia Bruta (₡)', 'Ganancia Neta (₡)', 'Margen %']);
     for (const d of byDay) {
-      sections.push(row(
+      rows.push([
         d.date,
         d.revenue,
         d.cogs,
@@ -136,31 +130,24 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
         d.gross,
         d.net,
         d.revenue > 0 ? ((d.net / d.revenue) * 100).toFixed(2) : '0',
-      ));
+      ]);
     }
-    sections.push(row('TOTAL', revenue, cogs, expenses, gross, net, revenue > 0 ? margin.toFixed(2) : '0'));
+    rows.push(['TOTAL', revenue, cogs, expenses, gross, net, revenue > 0 ? margin.toFixed(2) : '0']);
 
     // ── Promociones del período ────────────────────────────────────────────────
     if (periodPromos.length > 0) {
-      sections.push('');
-      sections.push(row('PROMOCIONES EN EL PERÍODO'));
-      sections.push(row('Nombre', 'Tipo', 'Descuento', 'Aplica a', 'Desde', 'Hasta', 'Días activos en período'));
+      rows.push([]);
+      rows.push(['PROMOCIONES EN EL PERÍODO']);
+      rows.push(['Nombre', 'Tipo', 'Descuento', 'Aplica a', 'Desde', 'Hasta', 'Días activos en período']);
       for (const p of periodPromos) {
         const typeLabel = p.type === 'percentage' ? 'Porcentaje' : p.type === 'fixed' ? 'Monto fijo' : '2x1';
         const val       = p.type === 'percentage' ? `${p.value}%` : p.type === 'fixed' ? `₡${p.value}` : '2x1';
         const scope     = p.applies_to === 'all' ? 'Todos' : p.applies_to === 'category' ? `Categoría: ${p.category?.name ?? ''}` : 'Productos específicos';
-        sections.push(row(p.name, typeLabel, val, scope, p.starts_at, p.ends_at, p.activeDays));
+        rows.push([p.name, typeLabel, val, scope, p.starts_at, p.ends_at, p.activeDays]);
       }
     }
 
-    const csv  = BOM + sections.join(nl);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `ganancias-${from}-a-${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`ganancias-${from}-a-${to}`, rows);
   }, [summary, from, to]);
 
   if (loading) {

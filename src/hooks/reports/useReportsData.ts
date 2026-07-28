@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import { wallClockDate } from '@/utils/datetime';
+import { downloadCsv } from '@/utils/csv';
 
 export interface DailyStat {
   date: string;       // 'YYYY-MM-DD'
@@ -193,18 +194,17 @@ export function useReportsData(tenantId: string | null) {
 
   const exportCSV = useCallback(() => {
     if (!invoices.length) return;
-    const header = 'Factura,Fecha,Total,Método,Cliente';
-    const rows = invoices.map(r =>
-      `${r.invoice_number},${(wallClockDate(r.issued_at) ?? new Date(r.issued_at)).toLocaleString('es-CR')},${r.total},${PAYMENT_LABELS[r.payment_method] ?? r.payment_method},${r.customer_name ?? ''}`
-    );
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `reporte_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const rows: (string | number | null | undefined)[][] = [
+      ['Factura', 'Fecha', 'Total', 'Método', 'Cliente'],
+      ...invoices.map(r => [
+        r.invoice_number,
+        (wallClockDate(r.issued_at) ?? new Date(r.issued_at)).toLocaleString('es-CR'),
+        r.total,
+        PAYMENT_LABELS[r.payment_method] ?? r.payment_method,
+        r.customer_name ?? '',
+      ]),
+    ];
+    downloadCsv(`reporte_${new Date().toISOString().slice(0, 10)}`, rows);
   }, [invoices]);
 
   return { summary, topProducts, invoices, loading, error, fetchSummary, fetchTopProducts, fetchInvoices, exportCSV };

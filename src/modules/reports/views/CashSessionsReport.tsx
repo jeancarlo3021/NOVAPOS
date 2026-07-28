@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { KPICard } from '../components/KPICard';
+import { downloadCsv } from '@/utils/csv';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -91,37 +92,31 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
   const totalDisc = closed.reduce((s, r) => s + (r.discrepancy ?? 0), 0);
 
   const downloadCSV = useCallback(() => {
-    const BOM = '﻿';
-    const sep = ',';
-    const nl  = '\r\n';
-    const row = (...cells: (string | number)[]) =>
-      cells.map(c => `"${String(c).replace(/"/g, '""')}"`).join(sep);
-
-    const lines: string[] = [];
+    const rows: (string | number | null | undefined)[][] = [];
 
     // ── Resumen ────────────────────────────────────────────────────────────────
-    lines.push(row('RESUMEN', `${from} al ${to}`));
-    lines.push(row('Sesiones cerradas',   closed.length));
-    lines.push(row('Sesiones abiertas',   open.length));
-    lines.push(row('Total ventas',        totalSales));
-    lines.push(row('Ventas efectivo',     totalCash));
-    lines.push(row('Ventas SINPE',        totalSinpe));
-    lines.push(row('Ventas tarjeta',      totalCard));
-    lines.push(row('Diferencias totales', totalDisc));
-    lines.push(row('Sesiones con diferencia', withDisc.length));
-    lines.push('');
+    rows.push(['RESUMEN', `${from} al ${to}`]);
+    rows.push(['Sesiones cerradas',   closed.length]);
+    rows.push(['Sesiones abiertas',   open.length]);
+    rows.push(['Total ventas',        totalSales]);
+    rows.push(['Ventas efectivo',     totalCash]);
+    rows.push(['Ventas SINPE',        totalSinpe]);
+    rows.push(['Ventas tarjeta',      totalCard]);
+    rows.push(['Diferencias totales', totalDisc]);
+    rows.push(['Sesiones con diferencia', withDisc.length]);
+    rows.push([]);
 
     // ── Detalle por sesión ─────────────────────────────────────────────────────
-    lines.push(row('DETALLE POR SESIÓN'));
-    lines.push(row(
+    rows.push(['DETALLE POR SESIÓN']);
+    rows.push([
       'Vendedor', 'Apertura', 'Cierre', 'Estado',
       'Monto apertura (₡)', 'Total ventas (₡)',
       'Efectivo (₡)', 'SINPE (₡)', 'Tarjeta (₡)',
       'N° facturas', 'Monto cierre (₡)',
       'Efectivo esperado (₡)', 'Diferencia (₡)', 'Duración (min)',
-    ));
+    ]);
     for (const s of sessions) {
-      lines.push(row(
+      rows.push([
         s.cashier_name ?? '',
         s.opening_date,
         s.closing_date ?? '',
@@ -136,17 +131,10 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
         s.expected_closing,
         s.discrepancy ?? '',
         s.duration_min ?? '',
-      ));
+      ]);
     }
 
-    const csv  = BOM + lines.join(nl);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `cierres-caja-${from}-a-${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`cierres-caja-${from}-a-${to}`, rows);
   }, [sessions, closed, open, totalSales, totalCash, totalSinpe, totalCard, totalDisc, withDisc, from, to]);
 
   // Chart data: all three payment methods per session (last 20)

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DollarSign, Download, Users, TrendingUp, FileText } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { employeesService } from '@/services/hr/hrService';
+import { downloadCsv } from '@/utils/csv';
 import type { Employee } from '../types/HR.types';
 
 const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -36,7 +37,9 @@ export const SalaryManager: React.FC = () => {
   }, [employees]);
 
   const exportCsv = () => {
-    const rows = ['Empleado,Cargo,Base,Comisión %,Comisión,Bruto,Deducciones (10.67%),Neto'];
+    const rows: (string | number | null | undefined)[][] = [
+      ['Empleado', 'Cargo', 'Base', 'Comisión %', 'Comisión', 'Bruto', 'Deducciones (10.67%)', 'Neto'],
+    ];
     employees.forEach(e => {
       const base = e.monthly_salary ?? 0;
       const commPct = e.commission_pct ?? 0;
@@ -45,19 +48,13 @@ export const SalaryManager: React.FC = () => {
       const deductions = gross * CHARGES_PCT.ccss_employee;
       const net = gross - deductions;
       rows.push([
-        `"${e.full_name}"`, `"${e.position}"`,
+        e.full_name, e.position,
         base.toFixed(0), commPct.toString(),
         comm.toFixed(0), gross.toFixed(0),
         deductions.toFixed(0), net.toFixed(0),
-      ].join(','));
+      ]);
     });
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `nomina-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`nomina-${new Date().toISOString().slice(0, 10)}`, rows);
   };
 
   return (

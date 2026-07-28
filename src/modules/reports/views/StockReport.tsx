@@ -5,6 +5,7 @@ import {
 import { Package, AlertTriangle, TrendingUp, Search, Download, History } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { stockAdjustmentsService, type StockAdjustment, type AdjustmentType } from '@/services/Inventory/stockAdjustmentsService';
+import { downloadCsv } from '@/utils/csv';
 
 const REASON_META: Record<AdjustmentType, { label: string; emoji: string; color: string; direction: 'in' | 'out' | 'set' }> = {
   increase: { label: 'Entrada',        emoji: '📥', color: 'emerald', direction: 'in'  },
@@ -116,18 +117,19 @@ export const StockReport: React.FC<Props> = ({ tenantId }) => {
 
   const exportCSV = () => {
     if (!filtered.length) return;
-    const header = 'Nombre,SKU,Categoría,Stock,Mínimo,Precio,Valor Stock';
-    const rows = filtered.map(p =>
-      `${p.name},${p.sku ?? ''},${p.category?.name ?? ''},${p.stock_quantity},${p.min_stock_level ?? 0},${p.unit_price},${(p.stock_quantity * (p.cost_price ?? p.unit_price)).toFixed(0)}`
-    );
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `stock_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const rows: (string | number | null | undefined)[][] = [
+      ['Nombre', 'SKU', 'Categoría', 'Stock', 'Mínimo', 'Precio', 'Valor Stock'],
+      ...filtered.map(p => [
+        p.name,
+        p.sku ?? '',
+        p.category?.name ?? '',
+        p.stock_quantity,
+        p.min_stock_level ?? 0,
+        p.unit_price,
+        (p.stock_quantity * (p.cost_price ?? p.unit_price)).toFixed(0),
+      ]),
+    ];
+    downloadCsv(`stock_${new Date().toISOString().slice(0, 10)}`, rows);
   };
 
   return (

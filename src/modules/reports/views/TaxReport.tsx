@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Receipt, Percent, DollarSign, RefreshCw, Download, ChevronRight, ChevronDown, FlaskConical, ShoppingBag } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { downloadCsv } from '@/utils/csv';
 
 interface InvoiceRow {
   kind: 'venta' | 'nc' | 'nd';
@@ -51,17 +52,6 @@ const docLabel: Record<string, string> = {
   ticket: 'Tiquete corriente', tiquete_electronico: 'Tiquete electrónico',
   factura_electronica: 'Factura electrónica', nota_credito: 'Nota de crédito', nota_debito: 'Nota de débito',
 };
-
-// Genera y descarga un CSV (con BOM para Excel).
-function downloadCsv(filename: string, header: string[], rows: (string | number)[][]) {
-  const esc = (v: any) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const lines = [header.join(','), ...rows.map(r => r.map(esc).join(','))];
-  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-}
 
 function KPI({ icon: Icon, label, value, color }: { icon: React.ElementType; label: string; value: string; color: string }) {
   return (
@@ -141,19 +131,23 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
   // ── Descargas CSV por categoría ─────────────────────────────────────────────
   const dlInvoices = (label: string, pred: (r: InvoiceRow) => boolean, file: string) => {
     if (!data) return;
-    const rows = data.invoices.filter(pred).sort((a, b) => (a.issued_at || '').localeCompare(b.issued_at || ''));
-    downloadCsv(`${file}_${from}_${to}.csv`,
+    const filtered = data.invoices.filter(pred).sort((a, b) => (a.issued_at || '').localeCompare(b.issued_at || ''));
+    const rows: (string | number | null | undefined)[][] = [
       ['Fecha', 'Tipo', 'N° Factura', 'Cliente', 'Base', 'IVA', 'Total'],
-      rows.map(r => [(r.issued_at || '').slice(0, 10), docLabel[r.document_type] ?? label,
-        r.invoice_number, r.customer_name, r.base.toFixed(2), r.iva.toFixed(2), r.total.toFixed(2)]));
+      ...filtered.map(r => [(r.issued_at || '').slice(0, 10), docLabel[r.document_type] ?? label,
+        r.invoice_number, r.customer_name, r.base.toFixed(2), r.iva.toFixed(2), r.total.toFixed(2)]),
+    ];
+    downloadCsv(`${file}_${from}_${to}`, rows);
     setShowDl(false);
   };
   const dlPurchases = () => {
     if (!data) return;
-    downloadCsv(`compras_${from}_${to}.csv`,
+    const rows: (string | number | null | undefined)[][] = [
       ['Fecha', 'Clave', 'Proveedor', 'Cédula', 'Base', 'IVA crédito', 'Total'],
-      data.purchases.map(p => [(p.doc_date || '').slice(0, 10), p.clave, p.issuer_name, p.issuer_id,
-        p.base.toFixed(2), p.iva.toFixed(2), p.total.toFixed(2)]));
+      ...data.purchases.map(p => [(p.doc_date || '').slice(0, 10), p.clave, p.issuer_name, p.issuer_id,
+        p.base.toFixed(2), p.iva.toFixed(2), p.total.toFixed(2)]),
+    ];
+    downloadCsv(`compras_${from}_${to}`, rows);
     setShowDl(false);
   };
 

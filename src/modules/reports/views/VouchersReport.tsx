@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Receipt, Ban, CreditCard, Banknote, Smartphone, Download, RefreshCw } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { formatWallClock } from '@/utils/datetime';
+import { downloadCsv } from '@/utils/csv';
 
 interface Row {
   id: string;
@@ -63,22 +64,20 @@ export const VouchersReport: React.FC<Props> = ({ tenantId, from, to }) => {
   };
 
   const exportCSV = () => {
-    const head = ['Factura', 'Fecha', 'Cliente', 'Cajero', 'Metodo/Comprobante', 'Moneda', 'Total', view === 'voids' ? 'Clave NC' : 'Clave FE'];
-    const lines = rows.map(r => [
-      r.invoice_number,
-      formatWallClock(r.issued_at, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      (r.customer_name ?? '').replace(/;/g, ','),
-      (r.cashier_name ?? '').replace(/;/g, ','),
-      paymentLabel(r).replace(/;/g, ','),
-      r.currency ?? 'CRC',
-      String(r.total ?? 0),
-      (view === 'voids' ? r.fe_nc_clave : r.fe_clave) ?? '',
-    ].join(';'));
-    const csv = '﻿' + [head.join(';'), ...lines].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = `comprobantes-${view}-${from}_a_${to}.csv`; a.click();
-    URL.revokeObjectURL(url);
+    const csvRows: (string | number | null | undefined)[][] = [
+      ['Factura', 'Fecha', 'Cliente', 'Cajero', 'Metodo/Comprobante', 'Moneda', 'Total', view === 'voids' ? 'Clave NC' : 'Clave FE'],
+      ...rows.map(r => [
+        r.invoice_number,
+        formatWallClock(r.issued_at, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        r.customer_name ?? '',
+        r.cashier_name ?? '',
+        paymentLabel(r),
+        r.currency ?? 'CRC',
+        String(r.total ?? 0),
+        (view === 'voids' ? r.fe_nc_clave : r.fe_clave) ?? '',
+      ]),
+    ];
+    downloadCsv(`comprobantes-${view}-${from}_a_${to}`, csvRows);
   };
 
   const methodCards = useMemo(() => Object.entries(data?.summary.by_method ?? {}), [data]);

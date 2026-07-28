@@ -4,6 +4,7 @@ import {
 } from 'recharts';
 import { ShoppingCart, Truck, DollarSign, Clock, Download, CheckCircle, XCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { downloadCsv } from '@/utils/csv';
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -66,18 +67,18 @@ export const PurchasesReport: React.FC<Props> = ({ tenantId, from, to }) => {
 
   const exportCSV = () => {
     if (!purchases.length) return;
-    const header = 'Número,Fecha,Proveedor,Estado,Total,Items';
-    const rows = purchases.map(p =>
-      `${p.purchase_number},${p.purchase_date},${p.supplier?.name ?? ''},${STATUS_LABELS[p.status]},${p.total_amount},${p.items_count}`
-    );
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `compras_${from}_${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const rows: (string | number | null | undefined)[][] = [
+      ['Número', 'Fecha', 'Proveedor', 'Estado', 'Total', 'Items'],
+      ...purchases.map(p => [
+        p.purchase_number,
+        p.purchase_date,
+        p.supplier?.name ?? '',
+        STATUS_LABELS[p.status],
+        p.total_amount,
+        p.items_count,
+      ]),
+    ];
+    downloadCsv(`compras_${from}_${to}`, rows);
   };
 
   return (

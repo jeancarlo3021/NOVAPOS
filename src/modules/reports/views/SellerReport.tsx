@@ -4,6 +4,7 @@ import {
 } from 'recharts';
 import { Users, TrendingUp, CreditCard, Receipt, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { downloadCsv } from '@/utils/csv';
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -50,18 +51,17 @@ export const SellerReport: React.FC<Props> = ({ tenantId, from, to }) => {
 
   const exportCSV = () => {
     if (!sellers.length) return;
-    const header = 'Vendedor,Email,Facturas,Total Ventas,Ticket Promedio';
-    const rows = sellers.map(s =>
-      `${s.name},${s.email},${s.totalInvoices},${s.totalRevenue.toFixed(0)},${s.avgTicket.toFixed(0)}`
-    );
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `vendedores_${from}_${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const rows: (string | number | null | undefined)[][] = [
+      ['Vendedor', 'Email', 'Facturas', 'Total Ventas', 'Ticket Promedio'],
+      ...sellers.map(s => [
+        s.name,
+        s.email,
+        s.totalInvoices,
+        s.totalRevenue.toFixed(0),
+        s.avgTicket.toFixed(0),
+      ]),
+    ];
+    downloadCsv(`vendedores_${from}_${to}`, rows);
   };
 
   return (

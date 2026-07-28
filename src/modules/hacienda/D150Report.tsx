@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, Plus, Trash2, Download, RefreshCw, Loader2, Receipt } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { downloadCsv } from '@/utils/csv';
 
 interface Withholding {
   id: string;
@@ -96,19 +97,18 @@ export const D150Report: React.FC = () => {
   };
 
   const exportCsv = () => {
-    const esc = (v: any) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const lines = ['Tipo ID,Cédula,Beneficiario,Concepto,Fecha,Base (renta),Retenido'];
+    const csvRows: (string | number | null | undefined)[][] = [
+      ['Tipo ID', 'Cédula', 'Beneficiario', 'Concepto', 'Fecha', 'Base (renta)', 'Retenido'],
+    ];
     for (const r of rows) {
-      lines.push([r.beneficiary_id_type ?? '', r.beneficiary_id ?? '', esc(r.beneficiary_name), esc(r.concept),
-        (r.paid_at ?? '').slice(0, 10), Number(r.base_amount).toFixed(2), Number(r.withheld_amount).toFixed(2)].join(','));
+      csvRows.push([r.beneficiary_id_type ?? '', r.beneficiary_id ?? '', r.beneficiary_name, r.concept,
+        (r.paid_at ?? '').slice(0, 10), Number(r.base_amount).toFixed(2), Number(r.withheld_amount).toFixed(2)]);
     }
     if (summary) {
-      lines.push('');
-      lines.push(`TOTAL,,,,,${summary.totals.base.toFixed(2)},${summary.totals.withheld.toFixed(2)}`);
+      csvRows.push([]);
+      csvRows.push(['TOTAL', '', '', '', '', summary.totals.base.toFixed(2), summary.totals.withheld.toFixed(2)]);
     }
-    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `D150_${year}.csv`; a.click();
+    downloadCsv(`D150_${year}`, csvRows);
   };
 
   const years = useMemo(() => { const y = new Date().getFullYear(); return [y, y - 1, y - 2, y - 3]; }, []);

@@ -9,6 +9,7 @@ import { SaleProductRow, SaleGroup, SaleLine } from '../components/SaleProductRo
 import { PurchaseProductRow, PurchaseGroup, PurchaseLine } from '../components/PurchaseProductRow';
 import { TableHeader } from '../components/TableHeader';
 import { EmptyState } from '../components/EmptyState';
+import { downloadCsv } from '@/utils/csv';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -42,33 +43,27 @@ async function fetchPurchasesData(tenantId: string, from: string, to: string): P
 // ── CSV helpers ───────────────────────────────────────────────────────────────
 
 function exportSalesCSV(groups: SaleGroup[]) {
-  const rows = ['Producto,Factura,Fecha,Cliente,Cantidad,Precio Unitario,Subtotal,Método'];
-  groups.forEach((g) => g.lines.forEach((l) => rows.push(
-    [`"${g.product_name}"`, l.invoice_number, fmtDateTime(l.issued_at),
-     `"${l.customer_name ?? ''}"`, l.quantity, l.unit_price, l.subtotal,
-     PAYMENT_LABELS[l.payment_method] ?? l.payment_method].join(',')
-  )));
-  downloadCSV(rows, `ventas_productos`);
+  const rows: (string | number | null | undefined)[][] = [
+    ['Producto', 'Factura', 'Fecha', 'Cliente', 'Cantidad', 'Precio Unitario', 'Subtotal', 'Método'],
+  ];
+  groups.forEach((g) => g.lines.forEach((l) => rows.push([
+    g.product_name, l.invoice_number, fmtDateTime(l.issued_at),
+    l.customer_name ?? '', l.quantity, l.unit_price, l.subtotal,
+    PAYMENT_LABELS[l.payment_method] ?? l.payment_method,
+  ])));
+  downloadCsv(`ventas_productos_${new Date().toISOString().slice(0, 10)}`, rows);
 }
 
 function exportPurchasesCSV(groups: PurchaseGroup[]) {
-  const rows = ['Producto,Orden Compra,Fecha,Proveedor,Estado,Cantidad,Precio Unitario,Subtotal'];
-  groups.forEach((g) => g.lines.forEach((l) => rows.push(
-    [`"${g.product_name}"`, l.purchase_number, fmtDate(l.purchase_date),
-     `"${l.supplier_name}"`, PURCHASE_STATUS_LABELS[l.status] ?? l.status,
-     l.quantity, l.unit_price, l.subtotal].join(',')
-  )));
-  downloadCSV(rows, `compras_productos`);
-}
-
-function downloadCSV(rows: string[], name: string) {
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `${name}_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const rows: (string | number | null | undefined)[][] = [
+    ['Producto', 'Orden Compra', 'Fecha', 'Proveedor', 'Estado', 'Cantidad', 'Precio Unitario', 'Subtotal'],
+  ];
+  groups.forEach((g) => g.lines.forEach((l) => rows.push([
+    g.product_name, l.purchase_number, fmtDate(l.purchase_date),
+    l.supplier_name, PURCHASE_STATUS_LABELS[l.status] ?? l.status,
+    l.quantity, l.unit_price, l.subtotal,
+  ])));
+  downloadCsv(`compras_productos_${new Date().toISOString().slice(0, 10)}`, rows);
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
