@@ -3,12 +3,14 @@ import { Receipt, Percent, DollarSign, RefreshCw, Download, ChevronRight, Chevro
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { downloadCsv } from '@/utils/csv';
+import { downloadXlsx } from '@/utils/xlsx';
 
 interface InvoiceRow {
   kind: 'venta' | 'nc' | 'nd';
   document_type: string;   // ticket | tiquete_electronico | factura_electronica | nota_credito | nota_debito
   invoice_number: string;
   customer_name: string;
+  customer_identification?: string;   // cédula del cliente
   issued_at: string;
   month: string;           // YYYY-MM
   base: number;            // NC vienen en negativo
@@ -129,13 +131,22 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
   }, [data, filter]);
 
   // ── Descargas CSV por categoría ─────────────────────────────────────────────
+  // Tipo (tarifa) de IVA, derivado de IVA/Base. CR: 13%, 4%, 2%, 1%, 0%/Exento.
+  const ivaTipo = (base: number, iva: number): string => {
+    const b = Math.abs(base);
+    if (b < 0.005) return Math.abs(iva) < 0.005 ? 'Exento' : '—';
+    if (Math.abs(iva) < 0.005) return '0% (exento)';
+    return `${Math.round((Math.abs(iva) / b) * 100)}%`;
+  };
+
   const dlInvoices = (label: string, pred: (r: InvoiceRow) => boolean, file: string) => {
     if (!data) return;
     const filtered = data.invoices.filter(pred).sort((a, b) => (a.issued_at || '').localeCompare(b.issued_at || ''));
     const rows: (string | number | null | undefined)[][] = [
-      ['Fecha', 'Tipo', 'N° Factura', 'Cliente', 'Base', 'IVA', 'Total'],
+      ['Fecha', 'Tipo', 'N° Factura', 'Cliente', 'Cédula', 'Base', 'Tipo IVA', 'IVA', 'Total'],
       ...filtered.map(r => [(r.issued_at || '').slice(0, 10), docLabel[r.document_type] ?? label,
-        r.invoice_number, r.customer_name, r.base.toFixed(2), r.iva.toFixed(2), r.total.toFixed(2)]),
+        r.invoice_number, r.customer_name, r.customer_identification ?? '',
+        r.base.toFixed(2), ivaTipo(r.base, r.iva), r.iva.toFixed(2), r.total.toFixed(2)]),
     ];
     downloadCsv(`${file}_${from}_${to}`, rows);
     setShowDl(false);
@@ -143,15 +154,41 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
   const dlPurchases = () => {
     if (!data) return;
     const rows: (string | number | null | undefined)[][] = [
-      ['Fecha', 'Clave', 'Proveedor', 'Cédula', 'Base', 'IVA crédito', 'Total'],
+      ['Fecha', 'Clave', 'Proveedor', 'Cédula', 'Base', 'Tipo IVA', 'IVA crédito', 'Total'],
       ...data.purchases.map(p => [(p.doc_date || '').slice(0, 10), p.clave, p.issuer_name, p.issuer_id,
-        p.base.toFixed(2), p.iva.toFixed(2), p.total.toFixed(2)]),
+        p.base.toFixed(2), ivaTipo(p.base, p.iva), p.iva.toFixed(2), p.total.toFixed(2)]),
     ];
     downloadCsv(`compras_${from}_${to}`, rows);
     setShowDl(false);
   };
 
+  // Descargar TODAS en un solo Excel, una HOJA por tipo.
+  const dlAll = () => {
+    if (!data) return;
+    const invCols = ['Fecha', 'Tipo', 'N° Factura', 'Cliente', 'Cédula', 'Base', 'Tipo IVA', 'IVA', 'Total'];
+    const invRows = (pred: (r: InvoiceRow) => boolean) =>
+      data.invoices.filter(pred).sort((a, b) => (a.issued_at || '').localeCompare(b.issued_at || ''))
+        .map(r => [(r.issued_at || '').slice(0, 10), docLabel[r.document_type] ?? '',
+          r.invoice_number, r.customer_name, r.customer_identification ?? '',
+          r.base.toFixed(2), ivaTipo(r.base, r.iva), r.iva.toFixed(2), r.total.toFixed(2)]);
+    const sheets = [
+      { name: 'Tiquetes electrónicos', rows: [invCols, ...invRows(r => r.kind === 'venta' && r.document_type === 'tiquete_electronico')] },
+      { name: 'Facturas electrónicas', rows: [invCols, ...invRows(r => r.kind === 'venta' && r.document_type === 'factura_electronica')] },
+      { name: 'Corrientes', rows: [invCols, ...invRows(r => r.kind === 'venta' && r.document_type === 'ticket')] },
+      { name: 'Notas de crédito', rows: [invCols, ...invRows(r => r.kind === 'nc')] },
+      { name: 'Notas de débito', rows: [invCols, ...invRows(r => r.kind === 'nd')] },
+      { name: 'Compras', rows: [
+        ['Fecha', 'Clave', 'Proveedor', 'Cédula', 'Base', 'Tipo IVA', 'IVA crédito', 'Total'],
+        ...data.purchases.map(p => [(p.doc_date || '').slice(0, 10), p.clave, p.issuer_name, p.issuer_id,
+          p.base.toFixed(2), ivaTipo(p.base, p.iva), p.iva.toFixed(2), p.total.toFixed(2)]),
+      ] },
+    ];
+    downloadXlsx(`impuestos_${from}_${to}`, sheets);
+    setShowDl(false);
+  };
+
   const DL_OPTIONS: { label: string; count: number; run: () => void }[] = data ? [
+    { label: '⬇ TODAS — Excel (una hoja por tipo)', count: data.invoices.length + data.purchases.length, run: dlAll },
     { label: 'Tiquetes electrónicos', count: data.invoices.filter(r => r.kind === 'venta' && r.document_type === 'tiquete_electronico').length,
       run: () => dlInvoices('Tiquete electrónico', r => r.kind === 'venta' && r.document_type === 'tiquete_electronico', 'tiquetes_electronicos') },
     { label: 'Facturas electrónicas', count: data.invoices.filter(r => r.kind === 'venta' && r.document_type === 'factura_electronica').length,

@@ -287,11 +287,28 @@ export const ReceptionDashboard: React.FC = () => {
                   {isOpen && nItems > 0 && (
                     <tr className="bg-gray-50/60">
                       <td colSpan={7} className="px-6 py-3">
-                        <p className="text-[11px] font-black text-gray-500 uppercase mb-1.5">Artículos comprados</p>
+                        {/* Clasificación clara por factura: gasto vs compra. */}
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <p className="text-[11px] font-black text-gray-500 uppercase">
+                            {r.kind === 'compra' ? 'Productos de la compra' : r.kind === 'gasto' ? 'Detalle del gasto' : 'Artículos del comprobante'}
+                          </p>
+                          {r.kind === 'compra' ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">🧾 COMPRA{r.purchase_number ? ` · ${r.purchase_number}` : ''}</span>
+                          ) : r.kind === 'gasto' ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">💸 GASTO · no crea productos</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">Sin clasificar</span>
+                          )}
+                          <span className="text-[10px] text-gray-400">{nItems} art.</span>
+                        </div>
                         <div className="rounded-lg border border-gray-100 overflow-hidden bg-white">
                           {r.items!.map((it, i) => (
                             <div key={i} className="flex items-center gap-3 px-3 py-1.5 text-xs border-b border-gray-50 last:border-0">
+                              {r.kind === 'compra' && (
+                                <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded shrink-0">PRODUCTO</span>
+                              )}
                               <span className="flex-1 text-gray-800">{it.detail || '—'}</span>
+                              {it.cabys && <span className="text-gray-300 font-mono text-[10px] hidden sm:inline">{it.cabys}</span>}
                               <span className="text-gray-400 w-24 text-right">{it.quantity}{it.unit ? ` ${it.unit}` : ''} × {fmt(it.unit_price)}</span>
                               <span className="font-bold text-gray-900 w-24 text-right">{fmt(it.total)}</span>
                             </div>
