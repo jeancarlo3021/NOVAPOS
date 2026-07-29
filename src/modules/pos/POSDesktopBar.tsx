@@ -170,9 +170,10 @@ export function POSDesktopBar({
             value={documentType}
             onChange={(e) => {
               const t = e.target.value as DocumentType;
-              // Sin ApiKey del emisor no se puede emitir electrónico.
+              // Sin FE configurada (ApiKey de Facturemos o empresa de Alanube) no se
+              // puede emitir electrónico.
               if (t !== 'ticket' && !feApiKeyReady) {
-                alert('No podés emitir comprobantes electrónicos: falta configurar la ApiKey del emisor. Contactá al administrador.');
+                alert('No podés emitir comprobantes electrónicos: la facturación electrónica no está configurada. Contactá al administrador.');
                 return;
               }
               // Factura Electrónica exige cliente con cédula (receptor de Hacienda).
@@ -190,10 +191,10 @@ export function POSDesktopBar({
           >
             <option value="ticket">Tiquete corriente</option>
             <option value="tiquete_electronico" disabled={!feApiKeyReady}>
-              Tiquete electrónico{!feApiKeyReady ? ' (falta ApiKey)' : ''}
+              Tiquete electrónico{!feApiKeyReady ? ' (FE no configurada)' : ''}
             </option>
             <option value="factura_electronica" disabled={!feApiKeyReady || !selectedCustomer?.identification}>
-              Factura electrónica{!feApiKeyReady ? ' (falta ApiKey)' : !selectedCustomer?.identification ? ' (requiere cliente)' : ''}
+              Factura electrónica{!feApiKeyReady ? ' (FE no configurada)' : !selectedCustomer?.identification ? ' (requiere cliente)' : ''}
             </option>
           </select>
         </div>

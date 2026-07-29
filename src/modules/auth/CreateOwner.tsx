@@ -188,7 +188,18 @@ export const CreateOwner: React.FC = () => {
     setCreatingAlanubeId(o.id);
     try {
       const r = await apiFetch<any>(`/admin/tenants/${o.id}/alanube/company`, { method: 'POST' });
-      if (r?.company_id) {
+      if (r?.already_main) {
+        // La empresa principal ya existía en la cuenta: NO es error, ya puede emitir.
+        // Mostramos el cuerpo crudo del error de Alanube en el aviso — ahí suele venir
+        // el ID de la empresa existente (para pegarlo en Datos de FE y poder actualizar).
+        console.log('[Alanube] error body (para ubicar el id):', r?.alanube_error_body);
+        const raw = r?.alanube_error_body ? JSON.stringify(r.alanube_error_body, null, 2) : '(vacío)';
+        window.alert(
+          (r?.message ?? 'La empresa principal ya existe en esta cuenta de Alanube. Ya podés emitir.')
+          + '\n\n──────────\nRespuesta cruda de Alanube (buscá acá el ID de la empresa):\n'
+          + raw.slice(0, 1500),
+        );
+      } else if (r?.company_id) {
         showToast(`Empresa creada en Alanube · id ${r.company_id} · ${r?.env ?? ''}`, 'success');
       } else {
         // No se encontró el id automáticamente: mostramos la respuesta cruda.
@@ -196,7 +207,11 @@ export const CreateOwner: React.FC = () => {
         showToast(`Creada pero SIN id detectado. Respuesta: ${JSON.stringify(r?.result ?? {}).slice(0, 300)}`, 'error');
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'No se pudo crear la empresa en Alanube', 'error');
+      const msg = e instanceof Error ? e.message : 'No se pudo crear la empresa en Alanube';
+      // La validación de datos devuelve una lista multi-línea: mostrarla completa
+      // en un alert (el toast trunca y no respeta los saltos de línea).
+      if (msg.includes('\n')) window.alert(msg);
+      else showToast(msg, 'error');
     } finally { setCreatingAlanubeId(null); }
   };
 

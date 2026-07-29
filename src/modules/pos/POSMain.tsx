@@ -224,12 +224,25 @@ export const POSMain = () => {
         const raw = await apiFetch<any>('/settings/electronic-invoice');
         if (cancelled) return;
         const cfg = raw?.config ?? raw ?? {};
-        // ApiKey según ambiente (producción vs QA/sandbox), con fallback a la legacy.
         const env = cfg.environment === 'sandbox' ? 'sandbox' : 'production';
-        const envKey = env === 'sandbox'
-          ? (cfg.api_key_emisor_sandbox || cfg.api_key_emisor)
-          : (cfg.api_key_emisor_production || cfg.api_key_emisor);
-        const apiKeyOk = !!String(envKey ?? '').trim();
+        // La condición para emitir electrónico DEPENDE del proveedor:
+        //  · Facturemos → hace falta la ApiKey del emisor (por ambiente).
+        //  · Alanube    → no usa ApiKey; el token vive en el servidor y la emisión
+        //    usa la empresa principal de la cuenta. Basta con que FE esté activa
+        //    (empresa registrada / main existente / config habilitada).
+        const provider = cfg.fe_provider === 'alanube' ? 'alanube' : 'facturemos';
+        let apiKeyOk: boolean;
+        if (provider === 'alanube') {
+          const companyId = env === 'sandbox' ? cfg.alanube_company_id_sandbox : cfg.alanube_company_id_production;
+          apiKeyOk = cfg.enabled !== false
+            && (!!companyId || !!cfg.alanube_company_id || !!cfg.alanube_main_exists || !!cfg.alanube_registered_at || cfg.enabled === true);
+        } else {
+          // Facturemos: ApiKey según ambiente (con fallback a la legacy).
+          const envKey = env === 'sandbox'
+            ? (cfg.api_key_emisor_sandbox || cfg.api_key_emisor)
+            : (cfg.api_key_emisor_production || cfg.api_key_emisor);
+          apiKeyOk = !!String(envKey ?? '').trim();
+        }
         setFeApiKeyReady(apiKeyOk);
         const allowed = ['ticket', 'tiquete_electronico', 'factura_electronica'];
         if (cfg.default_document_type && allowed.includes(cfg.default_document_type)) {
