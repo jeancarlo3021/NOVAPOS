@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Trash2, UserPlus, X, Loader2, FileText, Check } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Search, Plus, Trash2, UserPlus, X, Loader2, FileText, Check, ShoppingCart } from 'lucide-react';
 import { getAllProducts, createProduct } from '@/services/Inventory/InventoryProductsService';
+import { proformasService } from '@/services/proformas/proformasService';
 import type { Product } from '@/types/Types_POS';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { useTenantId } from '@/hooks/useTenant';
@@ -43,6 +45,8 @@ export const FeposMain: React.FC = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [emitting, setEmitting] = useState(false);
+  const [savingPf, setSavingPf] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);   // carrito como overlay en móvil
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [quota, setQuota] = useState<any | null>(null);
 
@@ -50,6 +54,26 @@ export const FeposMain: React.FC = () => {
     getAllProducts(tenantId).then(p => setProducts(p ?? [])).catch(() => {}).finally(() => setLoading(false));
     haciendaService.quota().then(setQuota).catch(() => {});
   }, [tenantId]);
+
+  // Cargar una PROFORMA (?proforma=<id>) en las líneas. Al emitir se marca convertida.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const proformaToConvert = useRef<string | null>(null);
+  useEffect(() => {
+    const pid = searchParams.get('proforma');
+    if (!pid || loading) return;
+    searchParams.delete('proforma'); setSearchParams(searchParams, { replace: true });
+    proformasService.get(pid).then(pf => {
+      if (pf.status !== 'open') { setMsg({ ok: false, text: `La proforma ${pf.number} ya está ${pf.status === 'converted' ? 'convertida' : 'anulada'}` }); return; }
+      setLines(pf.items.map(it => ({
+        product_id: it.product_id ?? undefined, name: it.name, sku: it.sku ?? undefined,
+        quantity: it.quantity, unit_price: it.unit_price, iva_rate: Number(it.iva_rate ?? 13),
+        cabys_code: it.cabys ?? undefined, unit: it.unit ?? undefined,
+      })));
+      proformaToConvert.current = pf.id;
+      setMsg({ ok: true, text: `Proforma ${pf.number} cargada — emití para convertirla en venta` });
+    }).catch(() => setMsg({ ok: false, text: 'No se pudo cargar la proforma' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, loading]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -86,6 +110,26 @@ export const FeposMain: React.FC = () => {
     }
   }, [customer]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Guardar el carrito actual como PROFORMA (cotización) para pasarla a venta luego.
+  const saveProforma = async () => {
+    if (lines.length === 0) { setMsg({ ok: false, text: 'Agregá al menos un producto' }); return; }
+    setSavingPf(true); setMsg(null);
+    try {
+      const pf = await proformasService.create({
+        customer_id: (customer as any)?.id ?? null,
+        customer_name: customer?.name ?? null,
+        customer_identification: customer?.identification ?? null,
+        items: lines.map(l => ({
+          product_id: l.product_id ?? null, name: l.name, sku: l.sku ?? null,
+          quantity: l.quantity, unit_price: l.unit_price, iva_rate: l.iva_rate,
+          cabys: l.cabys_code ?? null, unit: l.unit ?? null,
+        })),
+      });
+      setMsg({ ok: true, text: `Proforma ${pf.number} guardada ✓` });
+    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo guardar la proforma' }); }
+    finally { setSavingPf(false); }
+  };
+
   const emit = async () => {
     if (lines.length === 0) { setMsg({ ok: false, text: 'Agregá al menos un producto' }); return; }
     if (documentType === 'factura_electronica' && !feReceptorComplete(customer)) {
@@ -116,7 +160,11 @@ export const FeposMain: React.FC = () => {
       });
       const tipo = res.tipo === '01' ? 'Factura' : 'Tiquete';
       setMsg({ ok: true, text: `${tipo} ${res.invoice_number} emitido ✓${res.consecutivo ? ` · ${res.consecutivo}` : ''}` });
-      setLines([]); setCustomer(null); setDocumentType('tiquete_electronico');
+      if (proformaToConvert.current) {
+        proformasService.convert(proformaToConvert.current, res.invoice_number).catch(() => {});
+        proformaToConvert.current = null;
+      }
+      setLines([]); setCustomer(null); setDocumentType('tiquete_electronico'); setCartOpen(false);
       haciendaService.quota().then(setQuota).catch(() => {});   // refrescar contador
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo emitir' });
@@ -124,9 +172,9 @@ export const FeposMain: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col lg:flex-row gap-4 p-4">
+    <div className="h-[calc(100vh-4rem)] flex flex-col md:flex-row gap-4 p-4">
       {/* Lista de productos */}
-      <div className="lg:w-1/2 flex flex-col bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      <div className="flex-1 min-h-0 md:flex-none md:w-1/2 flex flex-col bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <div className="p-3 border-b border-gray-100 flex items-center gap-2">
           <div className="relative flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -156,8 +204,12 @@ export const FeposMain: React.FC = () => {
         </div>
       </div>
 
-      {/* Carrito / emisión */}
-      <div className="lg:w-1/2 flex flex-col bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      {/* Carrito / emisión — en móvil es overlay (botón flotante abajo); en md+ va al lado. */}
+      <div className={`${cartOpen ? 'fixed inset-0 z-50 bg-black/40 p-3 flex' : 'hidden'} md:static md:z-auto md:bg-transparent md:p-0 md:flex md:w-1/2`}>
+      <div className="flex flex-col bg-white rounded-2xl border border-gray-100 overflow-hidden w-full max-h-full">
+        <button onClick={() => setCartOpen(false)} className="md:hidden flex items-center justify-center gap-1 py-2 text-sm font-bold text-gray-500 border-b border-gray-100">
+          <X size={16} /> Cerrar carrito
+        </button>
         <div className="p-3 border-b border-gray-100 flex items-center gap-2">
           <FileText size={18} className="text-blue-600" />
           <h2 className="font-black text-gray-900">Comprobante electrónico</h2>
@@ -251,12 +303,25 @@ export const FeposMain: React.FC = () => {
           {msg && (
             <div className={`text-sm font-semibold rounded-lg px-3 py-2 ${msg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{msg.text}</div>
           )}
-          <button onClick={emit} disabled={emitting || lines.length === 0}
-            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black disabled:opacity-50 flex items-center justify-center gap-2">
-            {emitting ? <><Loader2 size={16} className="animate-spin" /> Emitiendo…</> : <><Check size={16} /> Emitir a Hacienda</>}
-          </button>
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={saveProforma} disabled={savingPf || lines.length === 0}
+              className="py-3 rounded-xl border-2 border-blue-200 bg-white text-blue-700 hover:bg-blue-50 font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1">
+              {savingPf ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />} Proforma
+            </button>
+            <button onClick={emit} disabled={emitting || lines.length === 0}
+              className="col-span-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black disabled:opacity-50 flex items-center justify-center gap-2">
+              {emitting ? <><Loader2 size={16} className="animate-spin" /> Emitiendo…</> : <><Check size={16} /> Emitir a Hacienda</>}
+            </button>
+          </div>
         </div>
       </div>
+      </div>
+
+      {/* Botón flotante del carrito (solo móvil) */}
+      <button onClick={() => setCartOpen(true)}
+        className="md:hidden fixed bottom-18 right-5 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-black shadow-xl">
+        <ShoppingCart size={18} /> Carrito{lines.length > 0 ? ` (${lines.length})` : ''}
+      </button>
 
       {showSearch && (
         <POSCustomerSearch selected={customer} onPick={c => setCustomer(c)} onClose={() => setShowSearch(false)} />

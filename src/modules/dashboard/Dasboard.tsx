@@ -43,9 +43,10 @@ interface Tile {
 const ALL_TILES: Tile[] = [
   { feature: 'pos',              label: 'Vender',          icon: ShoppingCart,  path: '/pos',              bg: 'from-emerald-500 to-emerald-600' },
   { feature: 'fe_pos',           label: 'POS Electrónico', icon: Receipt,     path: '/fe-pos',           bg: 'from-blue-600 to-indigo-600'      },
-  { feature: 'electronic_invoice', label: 'FE Facturas',   icon: FileText,     path: '/fe-facturas',      bg: 'from-sky-500 to-blue-600'         },
-  { feature: 'electronic_invoice', label: 'FE Recepción',     icon: Inbox,        path: '/fe-recepcion',   bg: 'from-indigo-500 to-blue-600'      },
-  { feature: 'inventory',        label: 'Inventario',      icon: Package,       path: '/inventory',        bg: 'from-blue-500 to-blue-600'        },
+  { feature: 'proformas',        label: 'Proformas',       icon: FileText,      path: '/proformas',        bg: 'from-amber-500 to-orange-600'      },
+  { feature: 'electronic_invoice', label: 'FE Facturas',   icon: FileText,     path: '/fe-facturas',      bg: 'from-cyan-500 to-sky-600'         },
+  { feature: 'electronic_invoice', label: 'FE Recepción',     icon: Inbox,        path: '/fe-recepcion',   bg: 'from-violet-500 to-purple-600'      },
+  { feature: 'inventory',        label: 'Inventario',      icon: Package,       path: '/inventory',        bg: 'from-lime-500 to-green-600'        },
   { feature: 'labels',           label: 'Etiquetas',       icon: Tag,           path: '/labels',           bg: 'from-fuchsia-500 to-purple-600'   },
   { feature: 'reports',          label: 'Reportes',        icon: BarChart2,     path: '/reports',          bg: 'from-indigo-500 to-indigo-600'    },
   { feature: 'expenses',         label: 'Gastos',          icon: TrendingDown,  path: '/expenses',         bg: 'from-rose-500 to-pink-600'        },
@@ -207,7 +208,10 @@ export const Dashboard = () => {
     // 'settings' siempre; 'customers' visible salvo que se desactive; el resto
     // (incluida Distribución) depende del flag del plan.
     const planHas = t.feature === 'settings'
-      || (t.feature === 'customers' ? (pf.customers !== false) : (pf[t.feature as keyof PlanFeatures] ?? false));
+      || (t.feature === 'customers' ? (pf.customers !== false)
+      // Inventario: mostrar aunque solo esté activado "solo productos".
+      : t.feature === 'inventory' ? (!!pf.inventory || !!pf.inventory_products_only)
+      : (pf[t.feature as keyof PlanFeatures] ?? false));
     if (!planHas) return false;
     // Mapear feature → módulo de role_permissions. Si no hay mapeo, no se gatea.
     const moduleKey = t.feature === 'settings' ? null : t.feature;

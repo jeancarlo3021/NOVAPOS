@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ShoppingBag, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { proformasService } from '@/services/proformas/proformasService';
 import { useCashSession } from '@/hooks/useCashSession';
 import { createCashSession } from '@/services/cashManagement/cashSessionsService';
 import { useTenantId } from '@/hooks/useTenant';
@@ -76,6 +78,29 @@ export const POSMain = () => {
     customerName: tabCustomerName, setCustomerName: setTabCustomerName,
     resetActive,
   } = usePOSTabs(tenantId);
+
+  // ── Cargar una PROFORMA en el carrito (?proforma=<id>) ────────────────────
+  // Al completar el cobro, la proforma se marca como convertida.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const proformaToConvert = useRef<string | null>(null);
+  useEffect(() => {
+    const pid = searchParams.get('proforma');
+    if (!pid || productsLoading || products.length === 0) return;
+    searchParams.delete('proforma'); setSearchParams(searchParams, { replace: true });
+    proformasService.get(pid).then(pf => {
+      if (pf.status !== 'open') { setError(`La proforma ${pf.number} ya está ${pf.status === 'converted' ? 'convertida' : 'anulada'}`); return; }
+      const cart = pf.items.map(it => {
+        const prod = products.find(p => p.id === it.product_id) ?? ({ id: it.product_id ?? '', name: it.name, unit_price: it.unit_price, stock_quantity: 0, tenant_id: tenantId ?? '' } as any);
+        return { product_id: (it.product_id ?? prod.id) as string, product_name: it.name, product: prod, unit_price: it.unit_price, quantity: it.quantity, subtotal: it.quantity * it.unit_price };
+      });
+      setCartItems(cart);
+      if (pf.customer_name) setTabCustomerName(pf.customer_name);
+      proformaToConvert.current = pf.id;
+      setSuccess(`Proforma ${pf.number} cargada — completá el cobro para convertirla en venta`);
+    }).catch(() => setError('No se pudo cargar la proforma'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, productsLoading, products.length]);
+
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
@@ -802,6 +827,25 @@ export const POSMain = () => {
     }
   }, [tenantId, cartItems, subtotal, taxAmount, total, selectedCustomer]);
 
+  // Guardar el carrito actual como PROFORMA (cotización) para pasarla a venta luego.
+  const saveProforma = useCallback(async () => {
+    if (!tenantId || cartItems.length === 0) { setError('Agregá productos para guardar la proforma'); return; }
+    try {
+      const pf = await proformasService.create({
+        customer_id: selectedCustomer?.id ?? null,
+        customer_name: selectedCustomer?.name ?? null,
+        customer_identification: (selectedCustomer as any)?.identification ?? null,
+        items: cartItems.map(it => ({
+          product_id: it.product_id, name: it.product.name, sku: (it.product as any).sku ?? null,
+          quantity: it.quantity, unit_price: it.unit_price,
+          iva_rate: Number((it.product as any).iva_rate ?? 13),
+          cabys: (it.product as any).cabys_code ?? null,
+        })),
+      });
+      setSuccess(`Proforma ${pf.number} guardada — la ves en el módulo Proformas`);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar la proforma'); }
+  }, [tenantId, cartItems, selectedCustomer]);
+
   const handlePaymentConfirm = async (data: PaymentData) => {
     if (!tenantId || !currentSession) {
       setError('Sesión de caja no disponible');
@@ -877,6 +921,10 @@ export const POSMain = () => {
         setLastInvoice(invoice);
         setPaymentData(data);
         setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
+        if (proformaToConvert.current) {
+          proformasService.convert(proformaToConvert.current, invoice.invoice_number).catch(() => {});
+          proformaToConvert.current = null;
+        }
         // Re-chequear la cuota de comprobantes (aviso de 50/20/10) tras emitir.
         if (documentType === 'factura_electronica' || documentType === 'tiquete_electronico') {
           setTimeout(() => window.dispatchEvent(new CustomEvent('fe:quota-changed')), 4000);
@@ -956,6 +1004,10 @@ export const POSMain = () => {
         setCartOpen(false);
         setPaymentLoading(false);
         setSuccess(`Venta guardada sin conexión (${invoiceNumber}) — se sincronizará al reconectar`);
+        if (proformaToConvert.current) {
+          proformasService.convert(proformaToConvert.current, invoiceNumber).catch(() => {});
+          proformaToConvert.current = null;
+        }
 
         // Background
         posOfflineService.addCachedInvoice({
@@ -1140,6 +1192,7 @@ export const POSMain = () => {
             onApplyDiscount={handleApplyDiscount}
             onPayment={startCobro}
             onPreTicket={printPreTicket}
+            onSaveProforma={saveProforma}
             expanded={isListLayout}
             deliveryEnabled={deliveryEnabled}
             saleMode={saleMode}
@@ -1178,6 +1231,7 @@ export const POSMain = () => {
             onApplyDiscount={handleApplyDiscount}
             onPayment={startCobro}
             onPreTicket={printPreTicket}
+            onSaveProforma={saveProforma}
             expanded
             deliveryEnabled={deliveryEnabled}
             saleMode={saleMode}

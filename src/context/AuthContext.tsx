@@ -145,6 +145,7 @@ export interface PlanFeatures {
   purchases: boolean;
   accounts_payable: boolean;
   accounts_receivable?: boolean;
+  proformas?: boolean;   // módulo de cotizaciones/proformas
   // ── POS ────────────────────────────────────────────────────────────────────
   pos_card: boolean;
   pos_sinpe: boolean;
@@ -197,6 +198,7 @@ export interface PlanFeatures {
   customers?: boolean;        // Módulo de clientes
   customer_prices?: boolean;  // Precios personalizados por cliente (activable aparte)
   distribution?: boolean;     // Distribución (rutas de reparto en camión)
+  tracking?: boolean;         // Rastreo de camiones en vivo (mapa + ajustes)
   tables?: boolean;
   /** Módulo de restaurante: cobro por mesas, toma de pedido full-screen,
    *  adicionales/modificadores, dividir cuenta y comandas. */
@@ -277,10 +279,12 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   purchases: false,
   accounts_payable: false,
   accounts_receivable: false,
+  proformas: false,
   recipes: false,
   hr: false,
   customers: true,
   distribution: true,
+  tracking: false,
   promotions: false,
   labels: false,
   tables: false,
@@ -338,10 +342,12 @@ export const FULL_FEATURES: PlanFeatures = {
   purchases: true,
   accounts_payable: true,
   accounts_receivable: true,
+  proformas: true,
   recipes: true,
   hr: true,
   customers: true,
   distribution: true,
+  tracking: true,
   promotions: true,
   labels: true,
   tables: true,

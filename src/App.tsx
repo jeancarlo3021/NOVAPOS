@@ -20,6 +20,7 @@ import { useTokenRefresh } from '@/hooks/useTokenRefresh';
 // reduce ~70% el JS inicial y acelera el primer render del POS / login.
 
 const POSMain                  = lazy(() => import('./modules/pos/POSMain').then(m => ({ default: m.POSMain })));
+const ProformasDashboard       = lazy(() => import('./modules/proformas/ProformasDashboard').then(m => ({ default: m.ProformasDashboard })));
 const SettingsPage             = lazy(() => import('./modules/settings/pages/Settingspage').then(m => ({ default: m.SettingsPage })));
 const InventoryDashboard       = lazy(() => import('./modules/inventory').then(m => ({ default: m.InventoryDashboard })));
 const CategoriesManagement     = lazy(() => import('./modules/inventory/categories/CategoriesManagement').then(m => ({ default: m.CategoriesManagement })));
@@ -89,6 +90,9 @@ function AppContent() {
               <Route path="/pos" element={
                 <PlanGuard feature="pos"><POSMain /></PlanGuard>
               } />
+              <Route path="/proformas" element={
+                <PlanGuard feature="proformas"><ProformasDashboard /></PlanGuard>
+              } />
               <Route path="/settings" element={
                 <PlanGuard feature="settings"><SettingsPage /></PlanGuard>
               } />
@@ -140,8 +144,12 @@ function AppContent() {
               } />
               <Route path="/customers" element={<CustomersList />} />
               <Route path="/distribution" element={<DistributionDashboard />} />
-              <Route path="/distribution/tracking" element={<TruckTrackingMap />} />
-              <Route path="/distribution/tracking-settings" element={<TrackingSettings />} />
+              <Route path="/distribution/tracking" element={
+                <PlanGuard feature="tracking"><TruckTrackingMap /></PlanGuard>
+              } />
+              <Route path="/distribution/tracking-settings" element={
+                <PlanGuard feature="tracking"><TrackingSettings /></PlanGuard>
+              } />
               <Route path="/distribution/:id" element={<RouteRun />} />
               <Route path="/driver" element={<DriverView />} />
               <Route path="/accounts-payable" element={

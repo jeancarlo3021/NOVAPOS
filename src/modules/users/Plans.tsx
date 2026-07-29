@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, createContext, useContext } from 'react';
 import {
   Edit2, Plus, X, ShoppingCart, Package, BarChart2,
   TrendingDown, Settings, Users, CreditCard, Smartphone,
@@ -37,12 +37,28 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
 
 // ── Feature row ───────────────────────────────────────────────────────────────
 
+// Búsqueda de módulos: query en minúsculas (vacío = mostrar todo).
+const FeatureSearchCtx = createContext('');
+const rowMatches = (q: string, title: string, description: string) =>
+  !q || title.toLowerCase().includes(q) || description.toLowerCase().includes(q);
+
+// Encabezado de categoría: se oculta durante la búsqueda (solo se ven los módulos).
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  const q = useContext(FeatureSearchCtx);
+  if (q) return null;
+  return <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-wider px-1">{children}</h3>;
+}
+
 function FeatureRow({
   icon: Icon, color, title, description, checked, onChange, children,
 }: {
   icon: React.ElementType; color: string; title: string; description: string;
   checked: boolean; onChange: (v: boolean) => void; children?: React.ReactNode;
 }) {
+  const q = useContext(FeatureSearchCtx);
+  // Oculta el módulo si no coincide con la búsqueda. Los que tienen sub-módulos
+  // se mantienen visibles (para poder llegar a los hijos que sí coincidan).
+  if (q && !rowMatches(q, title, description) && !children) return null;
   return (
     <div className={`rounded-xl border-2 transition-colors ${checked ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-100 bg-gray-50'}`}>
       <div className="flex items-center gap-4 p-4">
@@ -70,6 +86,8 @@ function SubFeatureRow({
   icon: React.ElementType; color: string; title: string; description: string;
   checked: boolean; onChange: (v: boolean) => void;
 }) {
+  const q = useContext(FeatureSearchCtx);
+  if (q && !rowMatches(q, title, description)) return null;
   return (
     <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors ${checked ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-white'}`}>
       <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
@@ -183,6 +201,7 @@ export default function Plans() {
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showFeaturesModal, setShowFeaturesModal] = useState(false);
+  const [featQ, setFeatQ] = useState('');   // buscador de módulos del plan
   const [formData, setFormData] = useState<Partial<SubscriptionPlan>>({});
   const [features, setFeatures] = useState<PlanFeatures>(DEFAULT_FEATURES);
   const [saving, setSaving] = useState(false);
@@ -802,11 +821,20 @@ export default function Plans() {
 
             {/* Body — grid horizontal por categoría */}
             <div className="flex-1 overflow-y-auto px-6 py-5">
+              {/* Buscador de módulos */}
+              <div className="mb-4 flex items-center gap-2 border-2 border-gray-200 rounded-xl px-3 py-2 max-w-md focus-within:border-emerald-400">
+                <Search size={16} className="text-gray-400" />
+                <input value={featQ} onChange={e => setFeatQ(e.target.value)} placeholder="Buscar módulo…"
+                  className="flex-1 text-sm focus:outline-none bg-transparent" />
+                {featQ && <button onClick={() => setFeatQ('')} className="text-gray-400 hover:text-gray-700"><X size={14} /></button>}
+              </div>
+
+              <FeatureSearchCtx.Provider value={featQ.trim().toLowerCase()}>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
 
-                {/* ── Columna 1: Ventas / POS ────────────────────────────── */}
+                {/* ── Punto de Venta ── */}
                 <section className="space-y-3">
-                  <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-wider px-1">Ventas</h3>
+                  <SectionTitle>Punto de Venta</SectionTitle>
 
                   <FeatureRow icon={ShoppingCart} color="bg-blue-500" title="Punto de Venta (POS)"
                     description="Caja y ventas" checked={features.pos} onChange={v => set({ pos: v })}>
@@ -836,32 +864,8 @@ export default function Plans() {
                       description="Número o nombre (bipper) que se asigna en el cobro y sale impreso en el ticket para llamar al cliente" checked={!!(features as any).pos_bipper} onChange={v => set({ pos_bipper: v } as any)} />
                   </FeatureRow>
 
-                  <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones"
-                    description="Descuentos y ofertas en el POS" checked={features.promotions ?? false} onChange={v => set({ promotions: v })} />
-
-                  <FeatureRow icon={Tag} color="bg-fuchsia-500" title="Etiquetas"
-                    description="Plantillas de etiquetas de producto e impresión con etiquetadora" checked={features.labels ?? false} onChange={v => set({ labels: v })} />
-
-                  <FeatureRow icon={LayoutGrid} color="bg-blue-500" title="Mapa de Mesas"
-                    description="Editor del plano: crear mesas, sillas y zonas del local" checked={features.tables ?? false} onChange={v => set({ tables: v })} />
-
-                  <FeatureRow icon={UtensilsCrossed} color="bg-orange-500" title="Módulo de Restaurante"
-                    description="Cobro por mesas, toma de pedido full-screen, adicionales, dividir cuenta y comandas"
-                    checked={(features as any).restaurant ?? false}
-                    onChange={v => set({ restaurant: v } as any)} />
-
-                  <FeatureRow icon={BookOpen} color="bg-lime-500" title="Recetas"
-                    description="Recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />
-
-                  <FeatureRow icon={FileText} color="bg-blue-600" title="Facturación Electrónica"
-                    description="Emisión a Hacienda CR (tiquetes/facturas electrónicas), FE Facturas y tipo de documento en POS"
-                    checked={(features as any).electronic_invoice ?? false}
-                    onChange={v => set({ electronic_invoice: v } as any)} />
-
-                  <FeatureRow icon={Receipt} color="bg-indigo-600" title="POS Electrónico"
-                    description="Terminal dedicada de facturación electrónica (catálogo + precio/IVA editable)"
-                    checked={(features as any).fe_pos ?? false}
-                    onChange={v => set({ fe_pos: v } as any)} />
+                  <FeatureRow icon={FileText} color="bg-blue-500" title="Proformas"
+                    description="Cotizaciones que se pasan a venta en el POS" checked={features.proformas ?? false} onChange={v => set({ proformas: v })} />
 
                   <FeatureRow icon={KeyRound} color="bg-amber-600" title="Modo Kiosk POS"
                     description="Terminal compartido: cajeros entran y salen con PIN sin re-loguearse"
@@ -869,9 +873,44 @@ export default function Plans() {
                     onChange={v => set({ pos_kiosk: v } as any)} />
                 </section>
 
-                {/* ── Columna 2: Inventario y Operaciones ─────────────── */}
+                {/* ── Facturación Electrónica ── */}
                 <section className="space-y-3">
-                  <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-wider px-1">Inventario y Operaciones</h3>
+                  <SectionTitle>Facturación Electrónica</SectionTitle>
+                  <FeatureRow icon={FileText} color="bg-blue-600" title="Facturación Electrónica"
+                    description="Emisión a Hacienda CR (tiquetes/facturas electrónicas), FE Facturas y tipo de documento en POS"
+                    checked={(features as any).electronic_invoice ?? false}
+                    onChange={v => set({ electronic_invoice: v } as any)} />
+                  <FeatureRow icon={Receipt} color="bg-indigo-600" title="POS Electrónico"
+                    description="Terminal dedicada de facturación electrónica (catálogo + precio/IVA editable)"
+                    checked={(features as any).fe_pos ?? false}
+                    onChange={v => set({ fe_pos: v } as any)} />
+                </section>
+
+                {/* ── Restaurante ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Restaurante</SectionTitle>
+                  <FeatureRow icon={UtensilsCrossed} color="bg-orange-500" title="Módulo de Restaurante"
+                    description="Cobro por mesas, toma de pedido full-screen, adicionales, dividir cuenta y comandas"
+                    checked={(features as any).restaurant ?? false}
+                    onChange={v => set({ restaurant: v } as any)} />
+                  <FeatureRow icon={LayoutGrid} color="bg-blue-500" title="Mapa de Mesas"
+                    description="Editor del plano: crear mesas, sillas y zonas del local" checked={features.tables ?? false} onChange={v => set({ tables: v })} />
+                  <FeatureRow icon={BookOpen} color="bg-lime-500" title="Recetas"
+                    description="Recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />
+                </section>
+
+                {/* ── Marketing ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Marketing</SectionTitle>
+                  <FeatureRow icon={Tag} color="bg-violet-500" title="Promociones"
+                    description="Descuentos y ofertas en el POS" checked={features.promotions ?? false} onChange={v => set({ promotions: v })} />
+                  <FeatureRow icon={Tag} color="bg-fuchsia-500" title="Etiquetas"
+                    description="Plantillas de etiquetas de producto e impresión con etiquetadora" checked={features.labels ?? false} onChange={v => set({ labels: v })} />
+                </section>
+
+                {/* ── Inventario ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Inventario</SectionTitle>
 
                   <FeatureRow icon={Package} color="bg-emerald-500" title="Inventario"
                     description="Productos y stock" checked={features.inventory} onChange={v => set({ inventory: v })}>
@@ -893,17 +932,22 @@ export default function Plans() {
                       description="Modal de ajuste manual con razones" checked={features.inventory_stock_adjustments ?? true} onChange={v => set({ inventory_stock_adjustments: v })} />
                   </FeatureRow>
 
+                </section>
+
+                {/* ── Compras y Pagos ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Compras y Pagos</SectionTitle>
                   <FeatureRow icon={ClipboardList} color="bg-cyan-500" title="Órdenes de Compra"
                     description="Compras a proveedores" checked={features.purchases ?? false} onChange={v => set({ purchases: v })} />
-
                   <FeatureRow icon={Wallet} color="bg-rose-500" title="Cuentas por Pagar"
                     description="Crédito de proveedores" checked={features.accounts_payable ?? false} onChange={v => set({ accounts_payable: v })} />
-                  <FeatureRow icon={HandCoins} color="bg-teal-500" title="Cuentas por Cobrar"
-                    description="Crédito de clientes y abonos" checked={features.accounts_receivable ?? false} onChange={v => set({ accounts_receivable: v })} />
-
                   <FeatureRow icon={TrendingDown} color="bg-red-400" title="Gastos"
                     description="Registro y gestión" checked={features.expenses} onChange={v => set({ expenses: v })} />
+                </section>
 
+                {/* ── Multi-sucursal ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Multi-sucursal</SectionTitle>
                   <FeatureRow icon={Building} color="bg-indigo-600" title="Sucursales y Bodegas"
                     description="Manejar varias sucursales y bodegas"
                     checked={features.multi_branch ?? false} onChange={v => set({ multi_branch: v })}>
@@ -914,9 +958,27 @@ export default function Plans() {
                   </FeatureRow>
                 </section>
 
-                {/* ── Columna 3: Reportes y Administración ────────────── */}
+                {/* ── Clientes y Cobros ── */}
                 <section className="space-y-3">
-                  <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-wider px-1">Reportes y Administración</h3>
+                  <SectionTitle>Clientes y Cobros</SectionTitle>
+                  <FeatureRow icon={UserCog} color="bg-teal-500" title="Clientes"
+                    description="Gestión de clientes y precios por cliente" checked={features.customers !== false} onChange={v => set({ customers: v })} />
+                  <FeatureRow icon={HandCoins} color="bg-teal-500" title="Cuentas por Cobrar"
+                    description="Crédito de clientes y abonos" checked={features.accounts_receivable ?? false} onChange={v => set({ accounts_receivable: v })} />
+                </section>
+
+                {/* ── Distribución ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Distribución</SectionTitle>
+                  <FeatureRow icon={Truck} color="bg-cyan-500" title="Distribución"
+                    description="Rutas de reparto en camión + app de repartidor" checked={features.distribution ?? false} onChange={v => set({ distribution: v })} />
+                  <FeatureRow icon={Truck} color="bg-emerald-500" title="Rastreo de camiones"
+                    description="Mapa en vivo + ajustes del rastreador GPS" checked={features.tracking ?? false} onChange={v => set({ tracking: v })} />
+                </section>
+
+                {/* ── Reportes ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Reportes</SectionTitle>
 
                   <FeatureRow icon={BarChart2} color="bg-indigo-500" title="Reportes"
                     description="Análisis y estadísticas" checked={features.reports} onChange={v => set({ reports: v })}>
@@ -947,7 +1009,11 @@ export default function Plans() {
                     <SubFeatureRow icon={Receipt} color="bg-blue-500" title="Comprobantes"
                       description="Pagos y anulaciones" checked={(features as any).report_vouchers ?? true} onChange={v => set({ report_vouchers: v } as any)} />
                   </FeatureRow>
+                </section>
 
+                {/* ── Equipo y Sistema ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Equipo y Sistema</SectionTitle>
                   <FeatureRow icon={Users} color="bg-amber-500" title="Usuarios"
                     description="Gestión de cuentas" checked={features.users} onChange={v => set({ users: v })}>
                     <SubFeatureRow icon={Shield} color="bg-purple-500" title="Roles"
@@ -959,21 +1025,14 @@ export default function Plans() {
                     <SubFeatureRow icon={History} color="bg-violet-500" title="Actividad"
                       description="Historial de acciones" checked={features.users_activity ?? true} onChange={v => set({ users_activity: v })} />
                   </FeatureRow>
-
                   <FeatureRow icon={UserCog} color="bg-violet-500" title="Recursos Humanos"
                     description="Empleados y nómina" checked={features.hr ?? false} onChange={v => set({ hr: v })} />
-
-                  <FeatureRow icon={UserCog} color="bg-teal-500" title="Clientes"
-                    description="Gestión de clientes y precios por cliente" checked={features.customers !== false} onChange={v => set({ customers: v })} />
-
-                  <FeatureRow icon={Truck} color="bg-cyan-500" title="Distribución"
-                    description="Rutas de reparto en camión + app de repartidor" checked={features.distribution ?? false} onChange={v => set({ distribution: v })} />
-
                   <FeatureRow icon={Settings} color="bg-gray-500" title="Configuración"
                     description="Ajustes del sistema" checked={features.settings} onChange={v => set({ settings: v })} />
                 </section>
 
               </div>
+              </FeatureSearchCtx.Provider>
             </div>
 
             {/* Footer */}
