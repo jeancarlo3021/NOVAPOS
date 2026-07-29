@@ -57,8 +57,8 @@ export const SellerReport: React.FC<Props> = ({ tenantId, from, to }) => {
         s.name,
         s.email,
         s.totalInvoices,
-        s.totalRevenue.toFixed(0),
-        s.avgTicket.toFixed(0),
+        Math.round(s.totalRevenue),
+        Math.round(s.avgTicket),
       ]),
     ];
     downloadCsv(`vendedores_${from}_${to}`, rows);

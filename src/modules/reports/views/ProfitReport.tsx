@@ -98,15 +98,18 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
     const { revenue, invoiceCount, cogs, expenses, gross, net, margin, byDay, revenueByMethod, periodPromos } = summary;
 
     const rows: (string | number | null | undefined)[][] = [];
+    // % como NÚMERO (2 decimales) para que Excel pueda operar.
+    const pct = (n: number, d: number): number => d > 0 ? Math.round((n / d) * 10000) / 100 : 0;
+    const round2 = (n: number): number => Math.round(n * 100) / 100;
 
     // ── Resumen general ──────────────────────────────────────────────────────
     rows.push(['RESUMEN', `${from} al ${to}`]);
     rows.push(['Métrica', 'Monto (₡)', '% sobre ingresos']);
-    rows.push(['Ingresos totales',      revenue,    '100.00']);
-    rows.push(['Costo de compras',       cogs,       revenue > 0 ? ((cogs / revenue) * 100).toFixed(2) : '0']);
-    rows.push(['Ganancia bruta',         gross,      revenue > 0 ? ((gross / revenue) * 100).toFixed(2) : '0']);
-    rows.push(['Gastos operativos',      expenses,   revenue > 0 ? ((expenses / revenue) * 100).toFixed(2) : '0']);
-    rows.push(['Ganancia neta',          net,        revenue > 0 ? margin.toFixed(2) : '0']);
+    rows.push(['Ingresos totales',      revenue,    revenue > 0 ? 100 : 0]);
+    rows.push(['Costo de compras',       cogs,       pct(cogs, revenue)]);
+    rows.push(['Ganancia bruta',         gross,      pct(gross, revenue)]);
+    rows.push(['Gastos operativos',      expenses,   pct(expenses, revenue)]);
+    rows.push(['Ganancia neta',          net,        revenue > 0 ? round2(margin) : 0]);
     rows.push(['Total facturas',         invoiceCount, '']);
     rows.push([]);
 
@@ -114,7 +117,7 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
     rows.push(['INGRESOS POR MÉTODO DE PAGO']);
     rows.push(['Método', 'Monto (₡)', '% del total']);
     for (const m of revenueByMethod) {
-      rows.push([m.label, m.total, revenue > 0 ? ((m.total / revenue) * 100).toFixed(2) : '0']);
+      rows.push([m.label, m.total, pct(m.total, revenue)]);
     }
     rows.push([]);
 
@@ -129,10 +132,10 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
         d.expenses,
         d.gross,
         d.net,
-        d.revenue > 0 ? ((d.net / d.revenue) * 100).toFixed(2) : '0',
+        pct(d.net, d.revenue),
       ]);
     }
-    rows.push(['TOTAL', revenue, cogs, expenses, gross, net, revenue > 0 ? margin.toFixed(2) : '0']);
+    rows.push(['TOTAL', revenue, cogs, expenses, gross, net, revenue > 0 ? round2(margin) : 0]);
 
     // ── Promociones del período ────────────────────────────────────────────────
     if (periodPromos.length > 0) {

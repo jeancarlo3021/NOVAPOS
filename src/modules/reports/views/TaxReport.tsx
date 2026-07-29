@@ -138,6 +138,9 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
     if (Math.abs(iva) < 0.005) return '0% (exento)';
     return `${Math.round((Math.abs(iva) / b) * 100)}%`;
   };
+  // Monto como NÚMERO real (2 decimales) para que Excel pueda sumar/operar.
+  // (No usar toFixed: devuelve string y Excel lo trata como texto.)
+  const num = (x: number): number => Math.round((Number(x) || 0) * 100) / 100;
 
   const dlInvoices = (label: string, pred: (r: InvoiceRow) => boolean, file: string) => {
     if (!data) return;
@@ -146,7 +149,7 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
       ['Fecha', 'Tipo', 'N° Factura', 'Cliente', 'Cédula', 'Base', 'Tipo IVA', 'IVA', 'Total'],
       ...filtered.map(r => [(r.issued_at || '').slice(0, 10), docLabel[r.document_type] ?? label,
         r.invoice_number, r.customer_name, r.customer_identification ?? '',
-        r.base.toFixed(2), ivaTipo(r.base, r.iva), r.iva.toFixed(2), r.total.toFixed(2)]),
+        num(r.base), ivaTipo(r.base, r.iva), num(r.iva), num(r.total)]),
     ];
     downloadCsv(`${file}_${from}_${to}`, rows);
     setShowDl(false);
@@ -156,7 +159,7 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
     const rows: (string | number | null | undefined)[][] = [
       ['Fecha', 'Clave', 'Proveedor', 'Cédula', 'Base', 'Tipo IVA', 'IVA crédito', 'Total'],
       ...data.purchases.map(p => [(p.doc_date || '').slice(0, 10), p.clave, p.issuer_name, p.issuer_id,
-        p.base.toFixed(2), ivaTipo(p.base, p.iva), p.iva.toFixed(2), p.total.toFixed(2)]),
+        num(p.base), ivaTipo(p.base, p.iva), num(p.iva), num(p.total)]),
     ];
     downloadCsv(`compras_${from}_${to}`, rows);
     setShowDl(false);
@@ -170,7 +173,7 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
       data.invoices.filter(pred).sort((a, b) => (a.issued_at || '').localeCompare(b.issued_at || ''))
         .map(r => [(r.issued_at || '').slice(0, 10), docLabel[r.document_type] ?? '',
           r.invoice_number, r.customer_name, r.customer_identification ?? '',
-          r.base.toFixed(2), ivaTipo(r.base, r.iva), r.iva.toFixed(2), r.total.toFixed(2)]);
+          num(r.base), ivaTipo(r.base, r.iva), num(r.iva), num(r.total)]);
     const sheets = [
       { name: 'Tiquetes electrónicos', rows: [invCols, ...invRows(r => r.kind === 'venta' && r.document_type === 'tiquete_electronico')] },
       { name: 'Facturas electrónicas', rows: [invCols, ...invRows(r => r.kind === 'venta' && r.document_type === 'factura_electronica')] },
@@ -180,7 +183,7 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
       { name: 'Compras', rows: [
         ['Fecha', 'Clave', 'Proveedor', 'Cédula', 'Base', 'Tipo IVA', 'IVA crédito', 'Total'],
         ...data.purchases.map(p => [(p.doc_date || '').slice(0, 10), p.clave, p.issuer_name, p.issuer_id,
-          p.base.toFixed(2), ivaTipo(p.base, p.iva), p.iva.toFixed(2), p.total.toFixed(2)]),
+          num(p.base), ivaTipo(p.base, p.iva), num(p.iva), num(p.total)]),
       ] },
     ];
     downloadXlsx(`impuestos_${from}_${to}`, sheets);

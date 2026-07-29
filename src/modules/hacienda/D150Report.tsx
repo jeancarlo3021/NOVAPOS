@@ -102,11 +102,15 @@ export const D150Report: React.FC = () => {
     ];
     for (const r of rows) {
       csvRows.push([r.beneficiary_id_type ?? '', r.beneficiary_id ?? '', r.beneficiary_name, r.concept,
-        (r.paid_at ?? '').slice(0, 10), Number(r.base_amount).toFixed(2), Number(r.withheld_amount).toFixed(2)]);
+        (r.paid_at ?? '').slice(0, 10),
+        Math.round((Number(r.base_amount) || 0) * 100) / 100,
+        Math.round((Number(r.withheld_amount) || 0) * 100) / 100]);
     }
     if (summary) {
       csvRows.push([]);
-      csvRows.push(['TOTAL', '', '', '', '', summary.totals.base.toFixed(2), summary.totals.withheld.toFixed(2)]);
+      csvRows.push(['TOTAL', '', '', '', '',
+        Math.round(summary.totals.base * 100) / 100,
+        Math.round(summary.totals.withheld * 100) / 100]);
     }
     downloadCsv(`D150_${year}`, csvRows);
   };

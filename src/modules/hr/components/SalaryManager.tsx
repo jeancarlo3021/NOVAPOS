@@ -49,9 +49,9 @@ export const SalaryManager: React.FC = () => {
       const net = gross - deductions;
       rows.push([
         e.full_name, e.position,
-        base.toFixed(0), commPct.toString(),
-        comm.toFixed(0), gross.toFixed(0),
-        deductions.toFixed(0), net.toFixed(0),
+        Math.round(base), commPct,
+        Math.round(comm), Math.round(gross),
+        Math.round(deductions), Math.round(net),
       ]);
     });
     downloadCsv(`nomina-${new Date().toISOString().slice(0, 10)}`, rows);

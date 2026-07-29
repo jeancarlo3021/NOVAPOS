@@ -12,8 +12,13 @@
 
 type Cell = string | number | null | undefined;
 
-/** Escapa un valor como campo CSV entrecomillado. */
+/** Escapa un valor como campo CSV.
+ *  Los NÚMEROS van sin comillas y con coma decimal (Excel es-CR) para que sean
+ *  sumables; el resto se entrecomilla (escapando comillas internas). */
 function cell(v: Cell): string {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return String(v).replace('.', ',');
+  }
   const s = v == null ? '' : String(v);
   return `"${s.replace(/"/g, '""')}"`;
 }

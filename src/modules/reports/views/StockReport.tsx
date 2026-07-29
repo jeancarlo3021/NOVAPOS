@@ -126,7 +126,7 @@ export const StockReport: React.FC<Props> = ({ tenantId }) => {
         p.stock_quantity,
         p.min_stock_level ?? 0,
         p.unit_price,
-        (p.stock_quantity * (p.cost_price ?? p.unit_price)).toFixed(0),
+        Math.round(p.stock_quantity * (p.cost_price ?? p.unit_price)),
       ]),
     ];
     downloadCsv(`stock_${new Date().toISOString().slice(0, 10)}`, rows);

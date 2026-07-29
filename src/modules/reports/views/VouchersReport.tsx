@@ -73,7 +73,7 @@ export const VouchersReport: React.FC<Props> = ({ tenantId, from, to }) => {
         r.cashier_name ?? '',
         paymentLabel(r),
         r.currency ?? 'CRC',
-        String(r.total ?? 0),
+        Number(r.total ?? 0),
         (view === 'voids' ? r.fe_nc_clave : r.fe_clave) ?? '',
       ]),
     ];
