@@ -93,9 +93,10 @@ export function POSDesktopBar({
               className="ml-auto text-xs text-emerald-600 hover:text-emerald-900">×</button>
           </div>
         ) : (
-          /* En tablet (táctil) ocultamos el campo de nombre: solo queda "Buscar". */
-          <div className="flex items-center gap-2 pointer-coarse:hidden">
-            <label htmlFor="pos-customer" className="text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0">
+          /* Nombre de cliente de texto libre (sin crear cliente). Visible también
+             en tablet/teléfono; el botón "Buscar" sigue disponible al lado. */
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <label htmlFor="pos-customer" className="text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0 hidden sm:block">
               Cliente:
             </label>
             <input
@@ -104,7 +105,7 @@ export function POSDesktopBar({
               value={customerName}
               onChange={(e) => onCustomerNameChange(e.target.value)}
               placeholder="Nombre del cliente (opcional)"
-              className="w-56 lg:w-72 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+              className="flex-1 min-w-0 lg:flex-none lg:w-72 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
               autoComplete="off"
             />
           </div>
