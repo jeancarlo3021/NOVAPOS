@@ -1338,7 +1338,11 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
                                     <FileText size={13} /> Datos de FE (ApiKey + emisor)
                                   </button>
-                                  {(o as any).fe_provider !== 'facturemos' && (
+                                  {/* Opciones de Alanube: SIEMPRE visibles (aunque el
+                                       proveedor sea 'facturemos'), para poder crear/
+                                       verificar la empresa sin tener que cambiar antes
+                                       el proveedor en Datos de FE. */}
+                                  {true && (
                                     <>
                                       <button onClick={() => { setOpenMenuId(null); createAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
                                         className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
