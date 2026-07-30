@@ -69,8 +69,9 @@ export const CashMovementModal: React.FC<Props> = ({
         // Mapeo: in=income, out=expense (compatibilidad con backend existente)
         type === 'in' ? 'income' as any : 'expense' as any,
         type === 'in' ? amountNum : -amountNum,
+        // El proveedor y N° de factura van dentro de la descripción (reference_id es
+        // uuid en la BD, no admite un número de factura).
         description,
-        isSupplierOut && invoiceNumber.trim() ? invoiceNumber.trim() : undefined,
       );
       onSuccess();
     } catch (err: any) {

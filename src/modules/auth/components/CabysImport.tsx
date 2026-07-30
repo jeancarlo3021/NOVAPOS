@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { UploadCloud, Loader2, CheckCircle2, Trash2, X } from 'lucide-react';
-import { cabysService } from '@/services/cabys/cabysService';
+import { UploadCloud, Loader2, CheckCircle2, Trash2, X, Search, Copy, Check } from 'lucide-react';
+import { cabysService, type CabysItem } from '@/services/cabys/cabysService';
 
 /** Normaliza un encabezado: minúsculas, sin tildes, espacios→_. */
 const norm = (s: any) => String(s ?? '')
@@ -82,8 +82,32 @@ export function CabysImport({ onClose }: { onClose: () => void }) {
   const [done, setDone] = useState<number | null>(null);
   const [error, setError] = useState('');
 
+  // Buscador del catálogo (por código o descripción).
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<CabysItem[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [copied, setCopied] = useState('');
+
   const loadCount = () => cabysService.count().then(r => setCount(r.count)).catch(() => setCount(null));
   useEffect(() => { loadCount(); }, []);
+
+  // Búsqueda con debounce (mínimo 2 caracteres).
+  useEffect(() => {
+    if (q.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      cabysService.search(q.trim())
+        .then(setResults)
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const copyCode = async (code: string) => {
+    try { await navigator.clipboard.writeText(code); setCopied(code); setTimeout(() => setCopied(''), 1500); }
+    catch { /* ignore */ }
+  };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -145,12 +169,49 @@ export function CabysImport({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={!busy ? onClose : undefined}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <h2 className="font-black text-gray-900">Catálogo CABYS (global)</h2>
           <button onClick={onClose} disabled={busy} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
         </div>
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto">
+          {/* Buscador de CABYS */}
+          <div>
+            <label className="text-xs font-black text-gray-500 uppercase tracking-wider block mb-1.5">Buscar CABYS</label>
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="Buscar por descripción o código…"
+                className="w-full pl-9 pr-8 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              {searching && <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />}
+            </div>
+            {q.trim().length >= 2 && (
+              <div className="mt-2 border border-gray-100 rounded-xl divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                {results.length === 0 && !searching ? (
+                  <p className="px-3 py-4 text-sm text-gray-400 text-center">Sin resultados. ¿El catálogo está cargado?</p>
+                ) : results.map(r => (
+                  <div key={r.code} className="flex items-center gap-2 px-3 py-2 hover:bg-blue-50/50">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-gray-800 leading-tight">{r.description}</p>
+                      <p className="text-[11px] text-gray-400 font-mono">{r.code} · IVA {r.iva_rate}%</p>
+                    </div>
+                    <button type="button" onClick={() => copyCode(r.code)} title="Copiar código"
+                      className={`shrink-0 inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg border transition ${
+                        copied === r.code ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-600 hover:bg-gray-100'}`}>
+                      {copied === r.code ? <><Check size={12} /> Copiado</> : <><Copy size={12} /> Copiar</>}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <hr className="border-gray-100" />
+
           <p className="text-sm text-gray-600">
             Cargá el Excel oficial de Hacienda (catálogo + modificaciones + útiles escolares).
             Se comparte con <strong>todos los negocios</strong>. Vuelve a subirlo para actualizar.
