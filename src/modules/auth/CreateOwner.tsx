@@ -25,6 +25,7 @@ import { PrinterSandbox } from './components/PrinterSandbox';
 import { WhatsAppQrView } from './components/WhatsAppQrView';
 import { VendorPaymentsView } from './components/VendorPaymentsView';
 import { NotifyPhoneModal } from './components/NotifyPhoneModal';
+import { WaReminderModal } from './components/WaReminderModal';
 import { TenantGroupView } from './components/TenantGroupView';
 import { AdminFeKioskView } from './components/AdminFeKioskView';
 import { GroupDocCount } from './components/GroupDocCount';
@@ -86,6 +87,8 @@ export const CreateOwner: React.FC = () => {
   const [previewProductsFor, setPreviewProductsFor] = useState<OwnerData | null>(null);
   const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
   const [notifyPhoneFor, setNotifyPhoneFor] = useState<OwnerData | null>(null);
+  // Recordatorio de pago por WhatsApp (mensaje fijo/personalizado).
+  const [waReminderFor, setWaReminderFor] = useState<OwnerData | null>(null);
   // Renovar FE (bolsa) + elegir nuevo plan FE.
   const [renewFeFor, setRenewFeFor] = useState<OwnerData | null>(null);
   const [renewFePlanId, setRenewFePlanId] = useState('');
@@ -842,6 +845,10 @@ export const CreateOwner: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <DaysTag days={daysUntil(effectiveEndsAt(o).date)} />
+                    <button onClick={() => setWaReminderFor(o)} title="Enviar recordatorio por WhatsApp"
+                      className="flex items-center gap-1 px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-lg transition">
+                      <MessageCircle size={11} /> WhatsApp
+                    </button>
                     <button onClick={() => setRenewing(o)}
                       className="flex items-center gap-1 px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
                       <RefreshCw size={11} /> Renovar
@@ -860,6 +867,10 @@ export const CreateOwner: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <DaysTag days={daysUntil(effectiveEndsAt(o).date)} />
+                    <button onClick={() => setWaReminderFor(o)} title="Enviar recordatorio por WhatsApp"
+                      className="flex items-center gap-1 px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-lg transition">
+                      <MessageCircle size={11} /> WhatsApp
+                    </button>
                     <button onClick={() => setRenewing(o)}
                       className="flex items-center gap-1 px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
                       <RefreshCw size={11} /> Renovar
@@ -1521,6 +1532,15 @@ export const CreateOwner: React.FC = () => {
 
       {notifyPhoneFor && (
         <NotifyPhoneModal owner={notifyPhoneFor} onClose={() => setNotifyPhoneFor(null)} />
+      )}
+
+      {waReminderFor && (
+        <WaReminderModal
+          owner={waReminderFor}
+          days={daysUntil(effectiveEndsAt(waReminderFor).date)}
+          endsAt={effectiveEndsAt(waReminderFor).date}
+          onClose={() => setWaReminderFor(null)}
+        />
       )}
 
       {/* Importar productos por Excel para una empresa (modo admin) */}

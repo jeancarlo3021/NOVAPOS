@@ -70,6 +70,7 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [reemitting, setReemitting] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -104,6 +105,26 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'No se pudo reintentar');
     } finally { setRetrying(null); }
+  };
+
+  // Re-emitir: vuelve a enviar la MISMA factura corrigiendo el consecutivo (usa el
+  // "Próx." configurado en Datos de FE). Solo admin. Ojo: si Hacienda ya la aceptó,
+  // esto genera un comprobante NUEVO con otro número.
+  const reemitOne = async (id: string, num?: string) => {
+    if (!window.confirm(
+      `¿Re-emitir la factura ${num ? `#${num}` : ''} corrigiendo el consecutivo?\n\n`
+      + 'Se le asignará el consecutivo configurado en «Datos de FE → Consecutivos» y se '
+      + 'volverá a enviar a Hacienda.\n\nSi la factura YA fue aceptada por Hacienda, esto '
+      + 'genera un comprobante NUEVO (con otro número). Usalo solo si salió con el número equivocado.'
+    )) return;
+    setReemitting(id);
+    try {
+      const r = await apiFetch<any>(`/admin/fe-reemit/${id}`, { method: 'POST' });
+      await load(true);
+      window.alert(`Re-emitida ✓\nConsecutivo: ${r?.clave ?? r?.consecutivo ?? '—'}\nEstado: ${r?.alanube_status ?? r?.tipo ?? 'enviada'}`);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'No se pudo re-emitir');
+    } finally { setReemitting(null); }
   };
 
   const rows = data?.rows ?? [];
@@ -228,6 +249,19 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                       {open && (
                         <tr className={isErr ? 'bg-red-50/60' : 'bg-gray-50/60'}>
                           <td colSpan={7} className="px-6 py-3 space-y-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <p className="text-[11px] text-gray-400">
+                                Consecutivo actual: <b className="font-mono text-gray-600">#{r.invoice_number}</b>
+                              </p>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); reemitOne(r.id, r.invoice_number); }}
+                                disabled={reemitting === r.id}
+                                title="Re-emitir corrigiendo el consecutivo (usa el «Próx.» de Datos de FE)"
+                                className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg disabled:opacity-50">
+                                <RefreshCw size={13} className={reemitting === r.id ? 'animate-spin' : ''} />
+                                {reemitting === r.id ? 'Re-emitiendo…' : 'Re-emitir corrigiendo consecutivo'}
+                              </button>
+                            </div>
                             {isErr && (
                               <div>
                                 <p className="text-[11px] font-black text-red-600 uppercase mb-1">Error de Hacienda / FE</p>
