@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, BarChart2, ShoppingCart, Package, Users,
   Lock, RefreshCw, ChevronDown, TrendingDown, Vault, Target, WifiOff, Clock,
-  FileText, ChevronRight, ChevronLeft, Truck, HandCoins, Percent, Receipt, Activity,
+  FileText, ChevronRight, ChevronLeft, Truck, HandCoins, Percent, Receipt, Activity, Wallet,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -17,6 +17,7 @@ import { SellerReport } from './views/SellerReport';
 import { ExpensesReport } from './views/ExpensesReport';
 import { ProductDetailReport } from './views/ProductDetailReport';
 import { CashSessionsReport } from './views/CashSessionsReport';
+import { CashMovementsReport } from './views/CashMovementsReport';
 import { ProfitReport } from './views/ProfitReport';
 import { HourlySalesReport } from './views/HourlySalesReport';
 import { StockAdjustmentsReport } from './views/StockAdjustmentsReport';
@@ -43,7 +44,7 @@ function getDateRange(days: number) {
 
 type TabId =
   | 'basic' | 'advanced' | 'hourly' | 'purchases' | 'stock' | 'stock_adjustments'
-  | 'sellers' | 'expenses' | 'products' | 'cash' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery' | 'user_activity';
+  | 'sellers' | 'expenses' | 'products' | 'cash' | 'cash_movements' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery' | 'user_activity';
 
 interface Tab {
   id: TabId;
@@ -77,6 +78,7 @@ const TABS: Tab[] = [
   // Operacional
   { id: 'sellers',  label: 'Por Vendedor',      description: 'Desempeño del equipo',      icon: Users,         featureKey: 'report_sellers',      group: 'operacional' },
   { id: 'cash',     label: 'Cierres de Caja',   description: 'Cuadres y arqueos',         icon: Vault,         featureKey: 'report_cash_sessions',group: 'operacional' },
+  { id: 'cash_movements', label: 'Fondo de Caja', description: 'Entradas y salidas de efectivo', icon: Wallet,   featureKey: 'report_cash_sessions', group: 'operacional' },
   { id: 'user_activity', label: 'Bitácora de Usuarios', description: 'Qué hizo cada usuario y su resultado', icon: Activity, featureKey: 'reports_basic', group: 'operacional' },
   { id: 'distribution', label: 'Distribución',  description: 'Rutas y camiones',          icon: Truck,         featureKey: 'distribution',        group: 'operacional' },
 ];
@@ -387,6 +389,7 @@ const ReportsDashboard: React.FC = () => {
               case 'expenses':          return <ExpensesReport key={`exp-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'products':          return <ProductDetailReport key={`prd-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'cash':              return <CashSessionsReport key={`cash-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'cash_movements':    return <CashMovementsReport key={`cashmov-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'profit':            return <ProfitReport key={`profit-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'distribution':      return <DistributionReport key={`dist-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'receivables':       return <ReceivablesReport key={`rec-${refreshKey}`} />;

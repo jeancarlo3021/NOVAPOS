@@ -37,12 +37,16 @@ export const CashMovementModal: React.FC<Props> = ({
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [customReason, setCustomReason] = useState('');
+  const [supplier, setSupplier] = useState('');       // proveedor (compras/pagos)
+  const [invoiceNumber, setInvoiceNumber] = useState(''); // N° de factura del proveedor
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const reasons = type === 'in' ? REASONS_IN : REASONS_OUT;
   const finalReason = reason === '__custom__' ? customReason : reason;
   const amountNum = parseFloat(amount) || 0;
+  // Cuando la SALIDA es una compra o pago a proveedor, pedimos proveedor + N° factura.
+  const isSupplierOut = type === 'out' && (reason === 'Pago a proveedor' || reason === 'Compra de insumos');
   const isValid = amountNum > 0 && finalReason.trim().length > 0;
 
   const handleSubmit = async () => {
@@ -53,13 +57,20 @@ export const CashMovementModal: React.FC<Props> = ({
     setLoading(true);
     setError('');
     try {
+      // Descripción: motivo + (proveedor / N° factura si es compra o pago a proveedor).
+      let description = `${type === 'in' ? 'Entrada' : 'Salida'}: ${finalReason}`;
+      if (isSupplierOut) {
+        if (supplier.trim())       description += ` · Proveedor: ${supplier.trim()}`;
+        if (invoiceNumber.trim())  description += ` · Factura: ${invoiceNumber.trim()}`;
+      }
       await cashMovementsService.createMovement(
         sessionId,
         tenantId,
         // Mapeo: in=income, out=expense (compatibilidad con backend existente)
         type === 'in' ? 'income' as any : 'expense' as any,
         type === 'in' ? amountNum : -amountNum,
-        `${type === 'in' ? 'Entrada' : 'Salida'}: ${finalReason}`,
+        description,
+        isSupplierOut && invoiceNumber.trim() ? invoiceNumber.trim() : undefined,
       );
       onSuccess();
     } catch (err: any) {
@@ -208,6 +219,34 @@ export const CashMovementModal: React.FC<Props> = ({
               )}
             </div>
           </div>
+
+          {/* Datos del proveedor / factura (solo en compras o pago a proveedor) */}
+          {isSupplierOut && (
+            <div className="rounded-xl border-2 border-red-100 bg-red-50/40 p-3 space-y-2">
+              <p className="text-xs font-bold text-red-700 uppercase tracking-wider">Datos de la compra</p>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1">Proveedor</label>
+                <input
+                  type="text"
+                  value={supplier}
+                  onChange={e => setSupplier(e.target.value)}
+                  placeholder="Nombre del proveedor"
+                  className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-red-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1">N° de factura</label>
+                <input
+                  type="text"
+                  value={invoiceNumber}
+                  onChange={e => setInvoiceNumber(e.target.value)}
+                  placeholder="Ej. 00100001010000000123"
+                  className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-red-400"
+                />
+              </div>
+              <p className="text-[10px] text-gray-400">Se guardan junto al movimiento y salen en el reporte de fondo de caja.</p>
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 border-2 border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg font-semibold">

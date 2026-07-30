@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer, FileText } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 import type { AppliedCombo } from '@/services/promotions/promotionsService';
 
@@ -65,7 +65,6 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   onApplyDiscount,
   onPayment,
   onPreTicket,
-  onSaveProforma,
   expanded = false,
   deliveryEnabled = false,
   saleMode = 'mesa',
@@ -427,17 +426,6 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                 ${cartItems.length > 0 ? 'bg-gray-100 hover:bg-gray-200 text-gray-600' : 'bg-gray-50 text-gray-300 cursor-not-allowed'}`}
             >
               <Printer size={18} />
-            </button>
-          )}
-          {onSaveProforma && (
-            <button
-              onClick={onSaveProforma}
-              disabled={cartItems.length === 0}
-              title="Guardar como proforma (cotización)"
-              className={`h-16 w-12 flex items-center justify-center rounded-xl transition shrink-0
-                ${cartItems.length > 0 ? 'bg-blue-50 hover:bg-blue-100 text-blue-600' : 'bg-gray-50 text-gray-300 cursor-not-allowed'}`}
-            >
-              <FileText size={18} />
             </button>
           )}
           <button
