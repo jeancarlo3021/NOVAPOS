@@ -18,6 +18,7 @@ import { ExpensesReport } from './views/ExpensesReport';
 import { ProductDetailReport } from './views/ProductDetailReport';
 import { CashSessionsReport } from './views/CashSessionsReport';
 import { CashMovementsReport } from './views/CashMovementsReport';
+import { ProductsRankingReport } from './views/ProductsRankingReport';
 import { ProfitReport } from './views/ProfitReport';
 import { HourlySalesReport } from './views/HourlySalesReport';
 import { StockAdjustmentsReport } from './views/StockAdjustmentsReport';
@@ -44,7 +45,7 @@ function getDateRange(days: number) {
 
 type TabId =
   | 'basic' | 'advanced' | 'hourly' | 'purchases' | 'stock' | 'stock_adjustments'
-  | 'sellers' | 'expenses' | 'products' | 'cash' | 'cash_movements' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery' | 'user_activity';
+  | 'sellers' | 'expenses' | 'products' | 'products_ranking' | 'cash' | 'cash_movements' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery' | 'user_activity';
 
 interface Tab {
   id: TabId;
@@ -67,6 +68,7 @@ const TABS: Tab[] = [
   { id: 'stock',     label: 'Stock',                    description: 'Inventario actual',               icon: Package,       featureKey: 'report_stock',               group: 'inventario' },
   { id: 'stock_adjustments', label: 'Movimientos de Stock', description: 'Ajustes manuales con motivo', icon: Package,       featureKey: 'report_stock_adjustments',   group: 'inventario' },
   { id: 'products',  label: 'Detalle Productos',        description: 'Análisis por producto',           icon: Package,       featureKey: 'report_product_detail',      group: 'inventario' },
+  { id: 'products_ranking', label: 'Top Productos',     description: 'Todos los productos vendidos (ranking)', icon: BarChart2, featureKey: 'report_advanced_sales', group: 'ventas' },
 
   // Finanzas
   { id: 'expenses', label: 'Gastos',            description: 'Egresos del negocio',       icon: TrendingDown,  featureKey: 'report_expenses',     group: 'finanzas' },
@@ -388,6 +390,7 @@ const ReportsDashboard: React.FC = () => {
               case 'sellers':           return <SellerReport key={`sel-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'expenses':          return <ExpensesReport key={`exp-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'products':          return <ProductDetailReport key={`prd-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
+              case 'products_ranking':  return <ProductsRankingReport key={`prank-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'cash':              return <CashSessionsReport key={`cash-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'cash_movements':    return <CashMovementsReport key={`cashmov-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'profit':            return <ProfitReport key={`profit-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;

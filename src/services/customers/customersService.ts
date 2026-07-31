@@ -21,6 +21,8 @@ export interface Customer {
   is_active:           boolean;
   credit_enabled?:     boolean;
   credit_limit?:       number;
+  /** No contabilizar las compras de este cliente en el cierre de caja (ej. empleados). */
+  exclude_from_cash_close?: boolean;
   created_at:          string;
   updated_at:          string;
 }

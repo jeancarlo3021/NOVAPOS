@@ -434,9 +434,9 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
       </div>
 
       {/* ── Products area (solo layout grid) ── */}
-      <div className="flex-1 overflow-y-auto p-3 pos-scroll">
+      <div className="flex-1 overflow-y-auto p-2 pos-scroll">
         {activeCategory === PROMOS_CAT ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
             {activeCombos.map((combo: any) => (
               <button
                 key={combo.id}
@@ -464,7 +464,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-2">
             {displayed.map((product) => {
               const stock    = product.stock_quantity ?? 0;
               // Solo bloqueamos venta cuando tracks_stock está EXPLÍCITAMENTE en true.
@@ -489,8 +489,8 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                   onClick={() => handleAdd(product)}
                   disabled={!inStock}
                   className={`
-                    relative flex flex-col p-4 rounded-xl border-2 text-left transition
-                    active:scale-95 select-none min-h-60
+                    relative flex flex-col p-2.5 rounded-xl border-2 text-left transition
+                    active:scale-95 select-none min-h-36
                     ${inStock
                       ? 'bg-white border-gray-200 hover:border-emerald-400 hover:shadow-md cursor-pointer'
                       : 'bg-gray-50 border-gray-100 opacity-40 cursor-not-allowed'
@@ -499,7 +499,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                 >
                   {/* Imagen del producto */}
                   {(product as any).image_url ? (
-                    <div className="w-full h-24 mb-2 rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
+                    <div className="w-full h-16 mb-1.5 rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
                       <img
                         src={(product as any).image_url}
                         alt={product.name}
@@ -537,19 +537,19 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
                   {/* Add / Scale indicator */}
                   {inStock && (
-                    <div className="absolute bottom-2 right-2 w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-sm">
+                    <div className="absolute bottom-1.5 right-1.5 w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shadow-sm">
                       {isWeight ? (
-                        <span className="text-white text-sm font-black">
+                        <span className="text-white text-xs font-black">
                           {product.unit_type?.abbreviation ?? 'kg'}
                         </span>
                       ) : (
-                        <Plus size={20} className="text-white" />
+                        <Plus size={18} className="text-white" />
                       )}
                     </div>
                   )}
 
                   {/* Name */}
-                  <span className="text-gray-900 font-black text-base leading-tight line-clamp-2 mb-1 pr-9 mt-0">
+                  <span className="text-gray-900 font-black text-sm leading-tight line-clamp-2 mb-0.5 pr-8 mt-0">
                     {product.name}
                   </span>
 
@@ -585,10 +585,10 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                             ₡{Math.round(Number(product.unit_price ?? 0)).toLocaleString('es-CR')}
                           </span>
                         )}
-                        <span className={`font-black text-2xl leading-none ${isDeliveryPrice ? 'text-orange-600' : hasSpecial ? 'text-violet-600' : 'text-emerald-600'}`}>
+                        <span className={`font-black text-lg leading-none ${isDeliveryPrice ? 'text-orange-600' : hasSpecial ? 'text-violet-600' : 'text-emerald-600'}`}>
                           ₡{Math.round(Number(shown ?? 0)).toLocaleString('es-CR')}
                           {isWeight && (
-                            <span className="text-sm font-bold text-gray-400">
+                            <span className="text-xs font-bold text-gray-400">
                               /{product.unit_type?.abbreviation ?? 'kg'}
                             </span>
                           )}

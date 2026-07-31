@@ -27,6 +27,30 @@ export function ClearCacheShortcut() {
       e.preventDefault();
       if (working) return;
 
+      // ⚠️ Si hay ventas/operaciones SIN SINCRONIZAR, limpiar el cache las BORRA
+      // para siempre. Avisamos explícitamente y pedimos doble confirmación.
+      let pending = 0;
+      try {
+        const { posOfflineService } = await import('@/services/pos/posOfflineService');
+        const { cashSessionOfflineService } = await import('@/services/cashManagement/cashSessionOfflineService');
+        const [inv, voids, sessions] = await Promise.all([
+          posOfflineService.getPendingCount().catch(() => 0),
+          posOfflineService.getPendingVoidCount().catch(() => 0),
+          cashSessionOfflineService.getPendingCount().catch(() => 0),
+        ]);
+        pending = (inv ?? 0) + (voids ?? 0) + (sessions ?? 0);
+      } catch { /* si falla el conteo, seguimos con el aviso normal */ }
+
+      if (pending > 0) {
+        if (!confirm(
+          `⚠️ Hay ${pending} venta(s)/operación(es) SIN SINCRONIZAR.\n\n` +
+          'Si limpiás el cache ahora, esas ventas se BORRAN de forma permanente ' +
+          '(no se van a subir al servidor).\n\n' +
+          'Conectate a internet y esperá a que se sincronicen antes de limpiar.\n\n' +
+          '¿Aun así querés limpiar y PERDER esas ventas?'
+        )) return;
+      }
+
       const msg = isClearAuth
         ? '¿Limpiar TODA la caché Y cerrar sesión? (datos locales + login)'
         : '¿Limpiar caché local de la app y recargar? (datos guardados, no cierra sesión)';

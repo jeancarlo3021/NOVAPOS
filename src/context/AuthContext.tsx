@@ -145,6 +145,8 @@ export interface PlanFeatures {
   purchases: boolean;
   accounts_payable: boolean;
   accounts_receivable?: boolean;
+  /** Excluir ciertos clientes (ej. compras de empleados a crédito) del cierre de caja. */
+  exclude_from_close?: boolean;
   proformas?: boolean;   // módulo de cotizaciones/proformas
   // ── POS ────────────────────────────────────────────────────────────────────
   pos_card: boolean;
@@ -279,6 +281,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   purchases: false,
   accounts_payable: false,
   accounts_receivable: false,
+  exclude_from_close: false,
   proformas: false,
   recipes: false,
   hr: false,
@@ -342,6 +345,7 @@ export const FULL_FEATURES: PlanFeatures = {
   purchases: true,
   accounts_payable: true,
   accounts_receivable: true,
+  exclude_from_close: true,
   proformas: true,
   recipes: true,
   hr: true,

@@ -79,7 +79,7 @@ export const invoicesService = {
     discountPercentage: number,
     taxAmount: number,
     total: number,
-    paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit',
+    paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit' | 'check' | 'transfer' | 'third_party' | 'digital' | 'other',
     customerName?: string,
     notes?: string,
     customerPhone?: string,
@@ -121,7 +121,16 @@ export const invoicesService = {
       method: 'POST',
       body: JSON.stringify({
         cash_session_id: sessionId,
-        items: cartItems,
+        // Productos rápidos/ad-hoc (no están en el catálogo): se envían con
+        // product_id=null y el nombre en product_name (el backend lo guarda).
+        items: cartItems.map((ci: any) => {
+          const adhoc = ci?.is_adhoc || ci?.product?.is_adhoc;
+          return {
+            ...ci,
+            product_id: adhoc ? null : ci.product_id,
+            product_name: ci.product_name ?? ci.product?.name,
+          };
+        }),
         subtotal,
         discount_amount: discountAmount,
         discount_percent: discountPercentage,

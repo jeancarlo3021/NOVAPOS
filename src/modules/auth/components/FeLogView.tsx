@@ -23,6 +23,9 @@ interface FeRow {
   fe_emailed?: boolean | null;
   fe_request?: any;
   fe_response?: any;
+  /** Nota de crédito/débito derivada de la factura original. */
+  is_note?: boolean;
+  parent_invoice_number?: string;
 }
 interface FeLogResp { count: number; errors: number; rows: FeRow[]; }
 
@@ -223,7 +226,19 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                         <td className="px-4 py-2.5 font-bold text-gray-800 max-w-45 truncate">{r.business_name}</td>
                         <td className="px-4 py-2.5 text-gray-600 max-w-40 truncate">{r.customer_name ?? '—'}</td>
                         <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{consecutivoOf(r)}</td>
-                        <td className="px-4 py-2.5 text-xs">{docLabel(r.document_type)}</td>
+                        <td className="px-4 py-2.5 text-xs">
+                          <span className={r.is_note ? 'inline-flex items-center gap-1 font-bold' : ''}>
+                            {r.is_note && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${r.document_type === 'nota_credito' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {r.document_type === 'nota_credito' ? 'NC' : 'ND'}
+                              </span>
+                            )}
+                            {docLabel(r.document_type)}
+                            {r.is_note && r.parent_invoice_number && (
+                              <span className="text-gray-400">· s/#{r.parent_invoice_number}</span>
+                            )}
+                          </span>
+                        </td>
                         <td className="px-4 py-2.5 text-right font-bold text-gray-900">{fmt(r.total)}</td>
                         <td className="px-4 py-2.5">
                           <span className="inline-flex items-center gap-1">

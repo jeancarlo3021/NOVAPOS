@@ -112,6 +112,11 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
               {storeName}
             </div>
           )}
+          {config.showCommercialName && (
+            <div className="text-center font-semibold mb-1 text-xs">
+              {(general as any)?.commercial_name || (general as any)?.emisor_commercial_name || 'Nombre Comercial'}
+            </div>
+          )}
           {storeRuc && (
             <div className="text-center text-xs mb-1">
               <strong>Céd. Jurídica:</strong> {storeRuc}

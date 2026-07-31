@@ -52,12 +52,12 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white border-b border-gray-200 px-3 sm:px-4 py-2 sm:py-3 shrink-0 shadow-sm">
-      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+    <div className="bg-white border-b border-gray-200 px-3 sm:px-4 py-1.5 shrink-0 shadow-sm">
+      <div className="flex items-center gap-2 flex-wrap">
         {/* Back - siempre habilitado */}
         <button
           onClick={() => navigate('/')}
-          className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white px-4 py-2 rounded-lg transition font-semibold text-sm min-h-10 shadow-sm"
+          className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white px-4 py-2 rounded-lg transition font-semibold text-sm min-h-9 shadow-sm"
           title="Volver al menú principal"
           type="button"
         >
@@ -77,7 +77,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
         {onReprintInvoice && (
           <button
             onClick={onReprintInvoice}
-            className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+            className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-9"
             title="Reimprimir factura"
           >
             <Printer size={15} />
@@ -89,7 +89,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
         {hideCashSession && onVoidInvoice && (
           <button
             onClick={onVoidInvoice}
-            className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-10"
+            className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-9"
             title="Anular factura"
           >
             <Ban size={15} />
@@ -102,7 +102,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
         <div className="flex-1 flex justify-center min-w-full sm:min-w-0 mt-2 sm:mt-0">
           {currentSession && currentSession.status === 'open' ? (
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center">
-              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 min-h-10">
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 min-h-9">
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                 <span className="text-emerald-700 text-sm font-semibold">Caja abierta</span>
                 <span className="text-emerald-600 text-sm font-medium hidden sm:inline">
@@ -112,7 +112,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               {onCashIn && (
                 <button
                   onClick={onCashIn}
-                  className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
+                  className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700 text-sm pointer-coarse:text-xs font-semibold px-2.5 py-1.5 pointer-coarse:px-2 pointer-coarse:py-1 rounded-lg transition min-h-9 pointer-coarse:min-h-8"
                   title="Entrada de efectivo"
                 >
                   <ArrowDownCircle size={17} />
@@ -122,7 +122,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               {onCashOut && (
                 <button
                   onClick={onCashOut}
-                  className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
+                  className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 text-sm pointer-coarse:text-xs font-semibold px-2.5 py-1.5 pointer-coarse:px-2 pointer-coarse:py-1 rounded-lg transition min-h-9 pointer-coarse:min-h-8"
                   title="Salida de efectivo"
                 >
                   <ArrowUpCircle size={17} />
@@ -132,7 +132,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               {onOpenDrawer && (
                 <button
                   onClick={onOpenDrawer}
-                  className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
+                  className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 text-sm pointer-coarse:text-xs font-semibold px-2.5 py-1.5 pointer-coarse:px-2 pointer-coarse:py-1 rounded-lg transition min-h-9 pointer-coarse:min-h-8"
                   title="Abrir cajón de dinero"
                 >
                   <Inbox size={17} />
@@ -141,7 +141,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               )}
               <button
                 onClick={onCloseCash}
-                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 active:bg-red-200 border border-red-200 text-red-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
+                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 active:bg-red-200 border border-red-200 text-red-700 text-sm pointer-coarse:text-xs font-semibold px-2.5 py-1.5 pointer-coarse:px-2 pointer-coarse:py-1 rounded-lg transition min-h-9 pointer-coarse:min-h-8"
               >
                 <LockKeyhole size={17} />
                 <span className="hidden sm:inline">Cerrar caja</span>
@@ -149,7 +149,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               {onVoidInvoice && (
                 <button
                   onClick={onVoidInvoice}
-                  className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 border border-orange-200 text-orange-700 text-sm pointer-coarse:text-xs font-semibold px-3 py-2.5 pointer-coarse:px-2 pointer-coarse:py-1.5 rounded-lg transition min-h-11 pointer-coarse:min-h-9"
+                  className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 border border-orange-200 text-orange-700 text-sm pointer-coarse:text-xs font-semibold px-2.5 py-1.5 pointer-coarse:px-2 pointer-coarse:py-1 rounded-lg transition min-h-9 pointer-coarse:min-h-8"
                   title="Anular factura"
                 >
                   <Ban size={17} />
@@ -165,7 +165,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
               </div>
               <button
                 onClick={onOpenCash}
-                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg transition text-sm min-h-10"
+                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg transition text-sm min-h-9"
               >
                 <DollarSign size={16} />
                 Abrir nueva caja
@@ -174,7 +174,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           ) : (
             <button
               onClick={onOpenCash}
-              className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg transition text-sm min-h-10"
+              className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg transition text-sm min-h-9"
             >
               <DollarSign size={16} />
               Abrir caja

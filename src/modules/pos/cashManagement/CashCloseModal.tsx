@@ -65,6 +65,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     invoicesCount: number; invoicesTotal: number;
     voidsCount: number; voidsTotal: number;
     deliveryCount: number; deliveryTotal: number; deliveryNet: number;
+    excludedCount: number; excludedTotal: number;   // clientes excluidos del cierre (ej. empleados)
     cashIn: number; cashOut: number; movements: SysMovement[];
     usdReceived: number;   // dólares recibidos en ventas en efectivo $
     usdChangeOut: number;  // dólares entregados como vuelto
@@ -73,6 +74,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   const [sys, setSys] = useState<SysTotals>({
     cash: 0, card: 0, sinpe: 0, other: 0, invoicesCount: 0, invoicesTotal: 0,
     voidsCount: 0, voidsTotal: 0, deliveryCount: 0, deliveryTotal: 0, deliveryNet: 0,
+    excludedCount: 0, excludedTotal: 0,
     cashIn: 0, cashOut: 0, movements: [], usdReceived: 0, usdChangeOut: 0, loaded: false,
   });
 
@@ -86,7 +88,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         ]);
         if (cancel) return;
         const allInv = (invRes?.invoices ?? []);
-        const notCancelled = allInv.filter((i: any) => i.status !== 'cancelled');
+        // Clientes excluidos del cierre (ej. compras de empleados a crédito): la venta
+        // existe pero NO se contabiliza en el arqueo/cierre. Las contamos aparte para
+        // mostrarlas como línea informativa.
+        const excludedInv = allInv.filter((i: any) => i.status !== 'cancelled' && i.exclude_from_close);
+        const excludedCount = excludedInv.length;
+        const excludedTotal = excludedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
+        const notCancelled = allInv.filter((i: any) => i.status !== 'cancelled' && !i.exclude_from_close);
         // DELIVERY: NO entra al cierre de caja — se contabiliza aparte.
         const deliveryInv = notCancelled.filter((i: any) => i.is_delivery);
         const invoices = notCancelled.filter((i: any) => !i.is_delivery);
@@ -147,6 +155,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           invoicesTotal: invoices.reduce((s: number, i: any) => s + Number(i.total || 0), 0),
           voidsCount, voidsTotal,
           deliveryCount, deliveryTotal, deliveryNet,
+          excludedCount, excludedTotal,
           cashIn, cashOut, movements, usdReceived, usdChangeOut, loaded: true,
         });
       } catch {
@@ -269,6 +278,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             delivery_count: sys.deliveryCount,
             delivery_total: sys.deliveryTotal,
             delivery_net: sys.deliveryNet,
+            excluded_count: sys.excludedCount,
+            excluded_total: sys.excludedTotal,
             cash_movements: sys.movements,
           }, tenantId).catch(() => {});
         }
@@ -303,6 +314,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           ...(sys.deliveryCount > 0 ? [{ heading: 'Delivery (aparte, no en caja)', rows: [
             ['Ventas delivery', `${sys.deliveryCount} · ${m(sys.deliveryTotal)}`],
             ['Neto delivery', m(sys.deliveryNet)],
+          ] }] : []),
+          ...(sys.excludedCount > 0 ? [{ heading: 'Excluidas del cierre (ej. empleados)', rows: [
+            ['Ventas excluidas', `${sys.excludedCount} · ${m(sys.excludedTotal)}`],
           ] }] : []),
         ];
         const { apiFetch } = await import('@/lib/api');
@@ -576,6 +590,17 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                 <span className="block text-[11px] text-orange-500">{sys.deliveryCount} venta{sys.deliveryCount === 1 ? '' : 's'} · Neto ₡{sys.deliveryNet.toLocaleString('es-CR')}</span>
               </span>
               <span className="text-orange-700 text-xl font-black tabular-nums">₡{sys.deliveryTotal.toLocaleString('es-CR')}</span>
+            </div>
+          )}
+
+          {/* Excluidas del cierre (ej. compras de empleados) — informativo, no cuenta en caja. */}
+          {sys.excludedCount > 0 && (
+            <div className="flex items-center justify-between gap-3 bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-2.5">
+              <span className="text-slate-700 font-bold text-sm">
+                🚫 Excluidas del cierre <span className="text-slate-400 font-normal">(ej. empleados)</span>
+                <span className="block text-[11px] text-slate-500">{sys.excludedCount} venta{sys.excludedCount === 1 ? '' : 's'} · no cuentan en el arqueo</span>
+              </span>
+              <span className="text-slate-700 text-xl font-black tabular-nums">₡{sys.excludedTotal.toLocaleString('es-CR')}</span>
             </div>
           )}
 

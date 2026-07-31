@@ -18,6 +18,9 @@ interface CompanyRow {
   tickets?: number;
   paymentReceipts?: number;
   total?: number;
+  idCompany?: string;
+  /** Marca (del backend) para empresas registradas sin emisiones en el rango. */
+  _noEmissions?: boolean;
 }
 interface UserRow {
   idUser?: string;
@@ -60,6 +63,7 @@ export const AlanubeReportsView: React.FC = () => {
   const [data, setData] = useState<ReportResp | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [raw, setRaw] = useState<any>(null);   // respuesta cruda de Alanube (diagnóstico)
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -72,9 +76,21 @@ export const AlanubeReportsView: React.FC = () => {
   }, [env, from, until, legalStatus]);
   useEffect(() => { load(); }, [load]);
 
+  // Diagnóstico: trae la respuesta CRUDA de Alanube (debug=1) para ver los nombres
+  // reales de los campos y corregir el mapeo.
+  const loadRaw = useCallback(async () => {
+    try {
+      const qs = new URLSearchParams({ env, from, until, debug: '1' });
+      if (legalStatus) qs.set('legalStatus', legalStatus);
+      const r = await apiFetch<any>(`/admin/alanube/reports/emissions?${qs.toString()}`);
+      setRaw(r?.raw ?? r);
+    } catch (e) { setRaw({ error: e instanceof Error ? e.message : 'error' }); }
+  }, [env, from, until, legalStatus]);
+
   const companies = Array.isArray(data?.per_company) ? data!.per_company as CompanyRow[] : [];
   const users = Array.isArray(data?.by_user) ? data!.by_user as UserRow[] : [];
   const companyErr = !Array.isArray(data?.per_company) ? (data?.per_company as any)?.error : null;
+  const userErr = !Array.isArray(data?.by_user) ? (data?.by_user as any)?.error : null;
 
   // Totales agregados de todas las empresas.
   const totals = companies.reduce((acc, r) => {
@@ -93,11 +109,27 @@ export const AlanubeReportsView: React.FC = () => {
           <h2 className="text-lg font-black text-gray-900">Reportes Alanube</h2>
           <p className="text-sm text-gray-500">Comprobantes emitidos por empresa y por usuario.</p>
         </div>
+        <button onClick={loadRaw}
+          title="Ver la respuesta cruda de Alanube (para diagnosticar el mapeo de campos)"
+          className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 text-sm font-bold">
+          <FileText size={15} /> Ver respuesta cruda
+        </button>
         <button onClick={load} disabled={loading}
-          className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 text-sm font-bold disabled:opacity-50">
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 text-sm font-bold disabled:opacity-50">
           <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Actualizar
         </button>
       </div>
+
+      {/* Panel de diagnóstico: respuesta CRUDA de Alanube */}
+      {raw && (
+        <div className="bg-gray-900 rounded-2xl p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-black text-emerald-300 uppercase tracking-wider">Respuesta cruda de Alanube (diagnóstico)</span>
+            <button onClick={() => setRaw(null)} className="text-xs text-gray-400 hover:text-gray-200">cerrar ✕</button>
+          </div>
+          <pre className="text-[11px] leading-relaxed text-emerald-200 overflow-auto max-h-96 whitespace-pre-wrap wrap-break-word">{JSON.stringify(raw, null, 2)}</pre>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex flex-wrap items-end gap-3">
@@ -168,9 +200,14 @@ export const AlanubeReportsView: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {companies.map((r, i) => (
-                  <tr key={r.idCompany ?? i} className="hover:bg-gray-50">
+                  <tr key={r.idCompany ?? i} className={`hover:bg-gray-50 ${r._noEmissions ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-2.5">
-                      <div className="font-bold text-gray-800">{r.companyName ?? '—'}</div>
+                      <div className="font-bold text-gray-800 flex items-center gap-2">
+                        {r.companyName ?? '—'}
+                        {r._noEmissions && (
+                          <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-gray-100 text-gray-400">sin emisiones</span>
+                        )}
+                      </div>
                       {r.companyEmail && <div className="text-[11px] text-gray-400">{r.companyEmail}</div>}
                     </td>
                     {COLS.map(c => <td key={c.key} className="px-3 py-2.5 text-right tabular-nums text-gray-700">{n(r[c.key])}</td>)}
@@ -180,6 +217,13 @@ export const AlanubeReportsView: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Reporte por usuario no disponible (plan/token de Alanube). */}
+      {!loading && userErr && (
+        <div className="bg-gray-50 border border-gray-200 text-gray-500 text-sm rounded-xl px-4 py-3">
+          El reporte <b>por usuario</b> no está habilitado en tu cuenta de Alanube{/Forbidden/i.test(String(userErr)) ? '' : `: ${userErr}`}.
         </div>
       )}
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CreditCard, Banknote, Smartphone, X, ChevronRight, Layers, HandCoins } from 'lucide-react';
+import { CreditCard, Banknote, Smartphone, X, ChevronRight, ChevronDown, Layers, HandCoins, FileCheck, Repeat, Users, Globe, MoreHorizontal } from 'lucide-react';
 import { CartItem } from '@/types/Types_POS';
 
 interface PaymentConfirmationModalProps {
@@ -10,13 +10,17 @@ interface PaymentConfirmationModalProps {
   taxAmount: number;
   total: number;
   taxEnabled?: boolean;
+  /** Desglose de IVA por tarifa (13, 4, 2, 1, 0). Se muestra junto al total. */
+  taxBreakdown?: Record<number, number>;
   onConfirm: (paymentData: PaymentData) => void;
   onCancel: () => void;
   loading?: boolean;
   allowCard?: boolean;
   allowSinpe?: boolean;
-  /** Permitir venta a crédito (cliente con crédito habilitado). */
+  /** Permitir venta a crédito (plan Cuentas por Cobrar activo). */
   allowCredit?: boolean;
+  /** El crédito necesita un cliente REGISTRADO; si no hay, se muestra pero avisa. */
+  creditNeedsCustomer?: boolean;
   /** Crédito disponible (límite - saldo). Infinity = sin límite. */
   creditAvailable?: number;
   /** Saldo actual del cliente (para mostrar). */
@@ -43,7 +47,7 @@ export interface PaymentSplit {
 }
 
 export interface PaymentData {
-  paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit';
+  paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit' | 'check' | 'transfer' | 'third_party' | 'digital' | 'other';
   amountReceived?: number;
   change?: number;
   voucherNumber?: string;
@@ -104,11 +108,26 @@ const METHODS = [
   },
 ] as const;
 
+// Otros medios de pago que ACEPTA HACIENDA (v4.4), bajo «Más métodos de pago».
+// El código de Hacienda se resuelve en el backend por el `payment_method`:
+// check=03, transfer=04, third_party=05, digital=07, other=99. (SINPE Móvil=06 y
+// efectivo/tarjeta ya están arriba.)
+const MORE_METHODS = [
+  { id: 'check' as const,       label: 'Cheque',              icon: FileCheck,      iconIdleClass: 'text-teal-600',   activeClass: 'bg-teal-500 border-teal-500 text-white',       idleClass: 'bg-white border-gray-200 text-gray-700', iconActiveClass: 'text-white' },
+  { id: 'transfer' as const,    label: 'Transferencia',       icon: Repeat,         iconIdleClass: 'text-sky-600',    activeClass: 'bg-sky-500 border-sky-500 text-white',         idleClass: 'bg-white border-gray-200 text-gray-700', iconActiveClass: 'text-white' },
+  { id: 'third_party' as const, label: 'Recaudado 3ros',      icon: Users,          iconIdleClass: 'text-indigo-600', activeClass: 'bg-indigo-500 border-indigo-500 text-white',   idleClass: 'bg-white border-gray-200 text-gray-700', iconActiveClass: 'text-white' },
+  { id: 'digital' as const,     label: 'Plataforma digital',  icon: Globe,          iconIdleClass: 'text-fuchsia-600',activeClass: 'bg-fuchsia-500 border-fuchsia-500 text-white', idleClass: 'bg-white border-gray-200 text-gray-700', iconActiveClass: 'text-white' },
+  { id: 'other' as const,       label: 'Otros',               icon: MoreHorizontal, iconIdleClass: 'text-gray-500',   activeClass: 'bg-gray-600 border-gray-600 text-white',       idleClass: 'bg-white border-gray-200 text-gray-700', iconActiveClass: 'text-white' },
+] as const;
+
+type PayMethodId = 'cash' | 'card' | 'sinpe' | 'credit' | 'check' | 'transfer' | 'third_party' | 'digital' | 'other';
+
 export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> = ({
   subtotal,
   taxAmount,
   total,
   taxEnabled = true,
+  taxBreakdown,
   cartItems,
   onConfirm,
   onCancel,
@@ -116,6 +135,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   allowCard = true,
   allowSinpe = true,
   allowCredit = false,
+  creditNeedsCustomer = false,
   creditAvailable = Infinity,
   creditBalance = 0,
   enabledMethods,
@@ -131,7 +151,8 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const mixedAllowed = enabled('mixed');
   const filtered = METHODS.filter(m => {
     // Crédito: NO depende de la lista `paymentMethods` (es la feature de Cuentas
-    // por Cobrar). Aparece si hay plan AR + cliente seleccionado (allowCredit).
+    // por Cobrar). Aparece con el plan AR (allowCredit); si falta el cliente
+    // registrado se muestra igual pero avisa qué hacer (creditNeedsCustomer).
     if (m.id === 'credit') return allowCredit;
     return enabled(m.id) &&
       (m.id === 'cash' || (m.id === 'card' && allowCard) || (m.id === 'sinpe' && allowSinpe));
@@ -139,7 +160,8 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   // Nunca dejar el modal sin opciones: si la config dejó todo fuera, cae a efectivo.
   const availableMethods = filtered.length > 0 ? filtered : METHODS.filter(m => m.id === 'cash');
 
-  const [method, setMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>(availableMethods[0]?.id ?? 'cash');
+  const [method, setMethod] = useState<PayMethodId>(availableMethods[0]?.id ?? 'cash');
+  const [showMore, setShowMore] = useState(false);
   const [received, setReceived] = useState('');
   const [voucherNumber, setVoucherNumber] = useState('');
   const [error, setError] = useState('');
@@ -182,7 +204,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const change = changeCrc;                            // compat (columna izquierda ₡)
   // En delivery el cobro lo hace la plataforma: no se pide efectivo en caja.
   const cashOk = deliveryMode ? true
-    : method === 'credit' ? !creditExceeds
+    : method === 'credit' ? (!creditExceeds && !creditNeedsCustomer)
     : (method !== 'cash' || receivedCrc >= total - 0.5);
 
   const applyQuick = (amount: number) => {
@@ -219,6 +241,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       setError('El monto recibido es menor al total');
       return;
     }
+    if (method === 'credit' && creditNeedsCustomer) {
+      setError('Para vender a crédito seleccioná un cliente registrado (usá el buscador 🔍 en la barra).');
+      return;
+    }
     if (method === 'credit' && creditExceeds) {
       setError(`Supera el crédito disponible (${crc(creditAvailable)})`);
       return;
@@ -252,7 +278,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-3">
-      <div className="bg-gray-50 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col overflow-hidden">
+      <div className="bg-gray-50 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
         <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-2.5 sm:py-4 flex items-center gap-2 sm:gap-3 shrink-0">
@@ -282,10 +308,24 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                   <span className="text-blue-100 text-sm font-semibold">Subtotal</span>
                   <span className="text-white text-base font-bold tabular-nums">₡{subtotal.toLocaleString()}</span>
                 </div>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-blue-100 text-sm font-semibold">IVA</span>
-                  <span className="text-white text-base font-bold tabular-nums">₡{taxAmount.toLocaleString()}</span>
-                </div>
+                {taxBreakdown && Object.keys(taxBreakdown).length > 0 ? (
+                  // Desglose de IVA: una línea por cada tarifa.
+                  Object.entries(taxBreakdown)
+                    .sort((a, b) => Number(b[0]) - Number(a[0]))
+                    .map(([rate, amt]) => (
+                      <div key={rate} className="flex items-center justify-between mt-1">
+                        <span className="text-blue-100 text-sm font-semibold">
+                          IVA {Number(rate) === 0 ? 'Exento' : `(${Number(rate)}%)`}
+                        </span>
+                        <span className="text-white text-base font-bold tabular-nums">₡{Number(amt).toLocaleString()}</span>
+                      </div>
+                    ))
+                ) : (
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-blue-100 text-sm font-semibold">IVA</span>
+                    <span className="text-white text-base font-bold tabular-nums">₡{taxAmount.toLocaleString()}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -359,7 +399,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
           </div>
 
           {/* ─── Columna derecha: método + entrada ─── */}
-          <div className="md:col-span-3 space-y-4">
+          <div className="md:col-span-3 space-y-3">
             {/* En modo DELIVERY se cobra por plataforma: reemplaza los métodos de pago. */}
             {deliveryMode ? (
               <div className="space-y-4">
@@ -414,16 +454,46 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                     <button
                       key={m.id}
                       onPointerDown={() => { setMethod(m.id); setError(''); setVoucherNumber(''); }}
-                      className={`h-24 flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 font-black text-base transition active:scale-95 ${
+                      className={`h-16 flex flex-col items-center justify-center gap-1 rounded-xl border-2 font-black text-sm transition active:scale-95 ${
                         active ? m.activeClass : m.idleClass
                       }`}
                     >
-                      <Icon size={32} className={active ? m.iconActiveClass : m.iconIdleClass} />
+                      <Icon size={22} className={active ? m.iconActiveClass : m.iconIdleClass} />
                       {m.label}
                     </button>
                   );
                 })}
               </div>
+
+              {/* Más métodos de pago (todos los que acepta Hacienda) */}
+              <button
+                type="button"
+                onPointerDown={() => setShowMore(v => !v)}
+                className="mt-3 w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-dashed border-gray-300 text-gray-600 font-bold text-sm hover:bg-gray-50"
+              >
+                {showMore ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                Más métodos de pago
+              </button>
+              {showMore && (
+                <div className="grid grid-cols-3 gap-3 mt-3">
+                  {MORE_METHODS.map((m) => {
+                    const Icon = m.icon;
+                    const active = method === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onPointerDown={() => { setMethod(m.id); setError(''); setVoucherNumber(''); }}
+                        className={`h-16 flex flex-col items-center justify-center gap-1 rounded-xl border-2 font-black text-[12px] leading-tight text-center px-1 transition active:scale-95 ${
+                          active ? m.activeClass : m.idleClass
+                        }`}
+                      >
+                        <Icon size={20} className={active ? m.iconActiveClass : m.iconIdleClass} />
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             )}
 
@@ -511,7 +581,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                       <button
                         key={amt}
                         onPointerDown={() => applyQuick(amt)}
-                        className={`h-14 rounded-xl border-2 font-black text-base transition active:scale-95 ${
+                        className={`h-11 rounded-xl border-2 font-black text-sm transition active:scale-95 ${
                           receivedNum === amt
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'
@@ -531,7 +601,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                     value={received}
                     onChange={e => { setReceived(e.target.value); setError(''); }}
                     placeholder={isUsd ? `$${totalUsd.toFixed(2)}` : `₡${total.toLocaleString()}`}
-                    className="w-full text-right text-4xl font-black text-gray-900 bg-white border-2 border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-400 transition tabular-nums"
+                    className="w-full text-right text-3xl font-black text-gray-900 bg-white border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-400 transition tabular-nums"
                   />
                 </div>
 
@@ -595,16 +665,27 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             )}
 
             {!isMixed && method === 'credit' && (
-              <div className={`border-2 rounded-2xl px-4 py-4 ${creditExceeds ? 'bg-red-50 border-red-300' : 'bg-amber-50 border-amber-200'}`}>
-                <p className={`font-black text-base ${creditExceeds ? 'text-red-700' : 'text-amber-700'}`}>Venta a crédito</p>
-                <div className="text-sm mt-1 space-y-0.5">
-                  <p className="text-gray-600">Saldo actual: <strong>{crc(creditBalance)}</strong></p>
-                  <p className="text-gray-600">Disponible: <strong>{creditAvailable === Infinity ? 'Sin límite' : crc(creditAvailable)}</strong></p>
-                  {creditExceeds
-                    ? <p className="text-red-600 font-bold">Esta venta supera el crédito disponible.</p>
-                    : <p className="text-amber-600">Se registrará una cuenta por cobrar (vence en 30 días).</p>}
+              creditNeedsCustomer ? (
+                <div className="border-2 rounded-2xl px-4 py-4 bg-amber-50 border-amber-300">
+                  <p className="font-black text-base text-amber-700">Falta el cliente</p>
+                  <p className="text-sm mt-1 text-amber-700">
+                    Para vender a crédito primero seleccioná un <strong>cliente registrado</strong> con el
+                    buscador 🔍 de la barra superior (no basta con escribir el nombre). Así se registra a
+                    quién se le fía.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div className={`border-2 rounded-2xl px-4 py-4 ${creditExceeds ? 'bg-red-50 border-red-300' : 'bg-amber-50 border-amber-200'}`}>
+                  <p className={`font-black text-base ${creditExceeds ? 'text-red-700' : 'text-amber-700'}`}>Venta a crédito</p>
+                  <div className="text-sm mt-1 space-y-0.5">
+                    <p className="text-gray-600">Saldo actual: <strong>{crc(creditBalance)}</strong></p>
+                    <p className="text-gray-600">Disponible: <strong>{creditAvailable === Infinity ? 'Sin límite' : crc(creditAvailable)}</strong></p>
+                    {creditExceeds
+                      ? <p className="text-red-600 font-bold">Esta venta supera el crédito disponible.</p>
+                      : <p className="text-amber-600">Se registrará una cuenta por cobrar (vence en 30 días).</p>}
+                  </div>
+                </div>
+              )
             )}
 
             {error && (

@@ -17,15 +17,29 @@ export interface OfflineInvoicePayload {
   subtotal: number;
   taxAmount: number;
   total: number;
-  paymentMethod: 'cash' | 'card' | 'sinpe';
+  paymentMethod: 'cash' | 'card' | 'sinpe' | 'credit' | 'check' | 'transfer' | 'third_party' | 'digital' | 'other';
   amountReceived?: number;
   changeAmount?: number;
   voucherNumber?: string;
   notes?: string;
   customerName?: string;
+  /** Cliente formal (para crédito/CxC y receptor de FE) al sincronizar. */
+  customerId?: string | null;
   /** Cajero activo (kiosk mode) al momento de generar la factura. */
   cashierId?: string | null;
   cashierName?: string | null;
+  /** Tipo de comprobante elegido (ticket / tiquete_electronico / factura_electronica). */
+  documentType?: 'ticket' | 'tiquete_electronico' | 'factura_electronica';
+  /** Descuentos aplicados (para no perderlos al sincronizar). */
+  discountAmount?: number;
+  discountPercent?: number;
+  /** Pagos mixtos. */
+  payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[] | null;
+  /** Moneda / delivery (para reconstruir la venta igual al sincronizar). */
+  currencyInfo?: {
+    currency?: 'CRC' | 'USD'; exchangeRate?: number; changeCurrency?: 'CRC' | 'USD';
+    isDelivery?: boolean; deliveryCommissionPct?: number; deliveryPlatform?: string; deliveryNet?: number;
+  };
   timestamp: number;
   synced: 0 | 1;
   retries: number;
@@ -276,6 +290,8 @@ async function markInvoiceError(id: string, error: string): Promise<void> {
     syncError: error,
     synced: retries >= 3 ? 1 : 0,
   });
+  // Avisar a la UI para que el badge de pendientes / fallidas se actualice.
+  notifyPendingChanged();
 }
 
 async function getPendingCount(): Promise<number> {

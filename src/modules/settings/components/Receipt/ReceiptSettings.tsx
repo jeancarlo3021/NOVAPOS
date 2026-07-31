@@ -20,6 +20,7 @@ interface ReceiptConfig {
 
   // Contenido
   showStoreName: boolean;
+  showCommercialName?: boolean;
   showStoreAddress: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
@@ -50,6 +51,7 @@ export const ReceiptSettings: React.FC = () => {
     paperWidth: 80,
     showLogo: false,
     showStoreName: true,
+    showCommercialName: false,
     showStoreAddress: true,
     showStorePhone: true,
     showCashierName: false,

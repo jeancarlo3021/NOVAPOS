@@ -965,6 +965,8 @@ export default function Plans() {
                     description="Gestión de clientes y precios por cliente" checked={features.customers !== false} onChange={v => set({ customers: v })} />
                   <FeatureRow icon={HandCoins} color="bg-teal-500" title="Cuentas por Cobrar"
                     description="Crédito de clientes y abonos" checked={features.accounts_receivable ?? false} onChange={v => set({ accounts_receivable: v })} />
+                  <FeatureRow icon={UserCog} color="bg-slate-500" title="Excluir clientes del cierre"
+                    description="Clientes (ej. empleados) cuyas compras NO cuentan en el cierre de caja" checked={features.exclude_from_close ?? false} onChange={v => set({ exclude_from_close: v })} />
                 </section>
 
                 {/* ── Distribución ── */}

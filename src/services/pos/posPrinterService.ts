@@ -75,6 +75,7 @@ export interface ReceiptData {
   paymentMethod: string;
   // Datos del local (negocio)
   storeName?: string;
+  commercialName?: string;    // Nombre comercial (opcional, se muestra según config)
   storeRuc?: string;          // Cédula jurídica / RUC
   storeCedula?: string;       // Cédula física
   storeAddress?: string;
@@ -133,6 +134,8 @@ export const FE_RESOLUTION_FOOTER =
 export interface ReceiptConfig {
   paperWidth: 32 | 40 | 48 | 56 | 80 | 'a4';
   showLogo: boolean;
+  /** Mostrar el nombre comercial (de Datos de FE) en el ticket. */
+  showCommercialName?: boolean;
   logoUrl?: string;
   showStoreName: boolean;
   showStoreAddress: boolean;
@@ -257,6 +260,7 @@ export class POSPrinterService {
     return {
       paperWidth: 80,
       showLogo: false,
+      showCommercialName: false,
       showStoreName: true,
       showStoreAddress: true,
       showStorePhone: true,
@@ -331,6 +335,7 @@ export class POSPrinterService {
 
     if (feOn) {
       receiptData.storeName = fe.emisor_name;
+      if (fe.emisor_commercial_name) receiptData.commercialName = fe.emisor_commercial_name;
       receiptData.storeRuc = fe.emisor_identification || undefined;
       receiptData.storeCedula = undefined;
       if (fe.emisor_address) receiptData.storeAddress = fe.emisor_address;
@@ -539,6 +544,8 @@ export class POSPrinterService {
     delivery_count?: number;
     delivery_total?: number;
     delivery_net?: number;
+    excluded_count?: number;
+    excluded_total?: number;
     cash_movements?: Array<{ type: 'in' | 'out'; amount: number; reason: string }>;
     // Dólares en efectivo: apertura + recibidos − vuelto = esperado, vs contado.
     opening_usd?: number;
@@ -590,6 +597,10 @@ export class POSPrinterService {
           { t: 'sep' as const }, { t: 'title' as const, a: 'DELIVERY (aparte, no en caja)' },
           { t: 'row' as const, a: 'Ventas delivery', b: `${report.delivery_count} · ${money(report.delivery_total ?? 0)}` },
           { t: 'row' as const, a: 'Neto delivery', b: money(report.delivery_net ?? 0) },
+        ] : []),
+        ...(((report.excluded_count ?? 0) > 0) ? [
+          { t: 'sep' as const }, { t: 'title' as const, a: 'EXCLUIDAS DEL CIERRE (ej. empleados)' },
+          { t: 'row' as const, a: 'Ventas excluidas', b: `${report.excluded_count} · ${money(report.excluded_total ?? 0)}` },
         ] : []),
         { t: 'sep' }, { t: 'title', a: 'ARQUEO DE EFECTIVO' },
         { t: 'row', a: 'Fondo inicial', b: money(report.opening_amount) },
@@ -943,6 +954,11 @@ export class POSPrinterService {
       centerText('DELIVERY (aparte)');
       row('Ventas:', `${report.delivery_count} · ${fmt(report.delivery_total ?? 0)}`);
       row('Neto:', fmt(report.delivery_net ?? 0));
+    }
+    if ((report.excluded_count ?? 0) > 0) {
+      sep();
+      centerText('EXCLUIDAS (ej. empleados)');
+      row('Ventas:', `${report.excluded_count} · ${fmt(report.excluded_total ?? 0)}`);
     }
     sep();
 
@@ -1715,6 +1731,7 @@ export class POSPrinterService {
 
     const hasStoreInfo = (
       (cfg.showStoreName && receiptData.storeName) ||
+      (cfg.showCommercialName && receiptData.commercialName) ||
       receiptData.storeRuc ||
       receiptData.storeCedula ||
       (cfg.showStoreAddress && receiptData.storeAddress) ||
@@ -1724,6 +1741,7 @@ export class POSPrinterService {
     const storeBlock = hasStoreInfo ? `
       <div class="store-block">
         ${cfg.showStoreName && receiptData.storeName ? `<div class="store-name">${receiptData.storeName}</div>` : ''}
+        ${cfg.showCommercialName && receiptData.commercialName ? `<div class="store-commercial">${receiptData.commercialName}</div>` : ''}
         ${receiptData.storeRuc ? `<div class="store-line"><strong>Céd. Jurídica:</strong> ${receiptData.storeRuc}</div>` : ''}
         ${receiptData.storeCedula ? `<div class="store-line"><strong>Cédula:</strong> ${receiptData.storeCedula}</div>` : ''}
         ${cfg.showStoreAddress && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
@@ -1799,6 +1817,7 @@ export class POSPrinterService {
     .subtitle { font-size: 13px; color: #000; font-weight: 900; margin: 2px 0; }
     .store-block { text-align: center; margin: 4px 0; }
     .store-name { font-size: 16px; font-weight: 900; letter-spacing: 1px; margin-bottom: 2px; }
+    .store-commercial { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
     .store-line { font-size: 12px; font-weight: 700; margin: 1px 0; }
     .customer-block { font-size: 12px; margin: 3px 0 5px; font-weight: 800; }
     .section-label {
@@ -2031,6 +2050,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
 
     // Store
     if (cfg.showStoreName && receiptData.storeName) { centerText(receiptData.storeName); }
+    if (cfg.showCommercialName && receiptData.commercialName) { centerText(receiptData.commercialName); }
     if (receiptData.storeRuc) { centerText(`Ced. Juridica: ${receiptData.storeRuc}`); }
     if (receiptData.storeCedula) { centerText(`Cedula: ${receiptData.storeCedula}`); }
     if (cfg.showStoreAddress && receiptData.storeAddress) { centerText(receiptData.storeAddress); }

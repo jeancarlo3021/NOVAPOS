@@ -4,6 +4,7 @@ import React from 'react';
 
 interface ReceiptConfig {
   showStoreName: boolean;
+  showCommercialName?: boolean;
   showStoreAddress: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
@@ -41,7 +42,12 @@ export const ReceiptContent: React.FC<Props> = ({ config, setConfig }) => {
     {
       key: 'showStoreName' as const,
       label: 'Nombre del Negocio',
-      description: 'Mostrar nombre del restaurante',
+      description: 'Mostrar nombre / razón social',
+    },
+    {
+      key: 'showCommercialName' as const,
+      label: 'Nombre Comercial',
+      description: 'Mostrar el nombre comercial (de Datos de FE)',
     },
     {
       key: 'showStoreAddress' as const,

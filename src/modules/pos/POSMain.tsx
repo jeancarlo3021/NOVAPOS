@@ -39,6 +39,7 @@ import { DisplayTestModal } from './components/DisplayTestModal';
 import { CashOpenModal } from './cashManagement/CashOpenModal';
 import { CashCloseModal } from './cashManagement/CashCloseModal';
 import { PaymentConfirmationModal, PaymentData } from './cashManagement/PaymentConfirmationModal';
+import { QuickProductModal } from './QuickProductModal';
 import { BipperModal } from './BipperModal';
 import { BipperListModal } from './BipperListModal';
 import { FeQuotaWarning } from '@/components/FeQuotaWarning';
@@ -105,6 +106,7 @@ export const POSMain = () => {
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showQuickProduct, setShowQuickProduct] = useState(false);
   const [enabledPays, setEnabledPays] = useState<string[]>(['cash', 'card', 'sinpe', 'credit', 'mixed']);
   const [printerType, setPrinterType] = useState<string | undefined>(undefined);
   const [lastInvoice, setLastInvoice] = useState<any>(null);
@@ -329,19 +331,35 @@ export const POSMain = () => {
   useEffect(() => {
     if (cashEnabled || sessionLoading) return;
     if (currentSession?.status === 'open') return;
-    if (!isOnline || silentOpenRef.current) return;
+    if (silentOpenRef.current) return;
     silentOpenRef.current = true;
     (async () => {
       try {
-        await createCashSession({
-          tenant_id: tenantId!, user_id: user?.id ?? '',
-          opening_amount: 0, notes: 'Caja automática (apertura/cierre desactivados)',
-        });
-        await refetchSession();
+        if (isOnline) {
+          await createCashSession({
+            tenant_id: tenantId!, user_id: user?.id ?? '',
+            opening_amount: 0, notes: 'Caja automática (apertura/cierre desactivados)',
+          });
+          await refetchSession();
+        } else {
+          // Sin conexión: abrir una sesión LOCAL (UUID válido) para que el POS
+          // funcione igual — fast keys, cobro offline e impresión. Se sincroniza y
+          // remapea a la sesión real del servidor al reconectar.
+          const cached = posOfflineService.getCachedSession();
+          if (!cached || cached.status !== 'open') {
+            const { cashSessionOfflineService } = await import('@/services/cashManagement/cashSessionOfflineService');
+            const local = await cashSessionOfflineService.queueOpenSession({
+              tenant_id: tenantId!, user_id: user?.id ?? '',
+              opening_amount: 0, notes: 'Caja automática offline',
+            } as any);
+            posOfflineService.cacheSession(local);
+            await refetchSession();
+          }
+        }
       } catch { /* ignore */ }
       finally { silentOpenRef.current = false; }
     })();
-  }, [cashEnabled, sessionLoading, currentSession, isOnline, refetchSession]);
+  }, [cashEnabled, sessionLoading, currentSession, isOnline, refetchSession, tenantId, user]);
 
   // Keep pending invoice count up to date
   const refreshPendingCount = useCallback(async () => {
@@ -375,28 +393,45 @@ export const POSMain = () => {
             ? (inv.voucherNumber ?? 'OFFLINE')
             : undefined;
 
-        await invoicesService.createInvoice(
+        // Reconstruye la venta con TODOS sus datos (cliente, moneda, delivery,
+        // descuentos, pagos mixtos) para que la factura sincronizada sea idéntica.
+        const created = await invoicesService.createInvoice(
           inv.tenantId,
           sessionIdToUse,
           inv.cartItems,
           inv.subtotal,
-          0,
-          0,
+          inv.discountAmount ?? 0,
+          inv.discountPercent ?? 0,
           inv.taxAmount,
           inv.total,
           inv.paymentMethod,
-          undefined,
+          inv.customerName,
           inv.notes,
           undefined,
           amountReceived,
           inv.changeAmount ?? 0,
           voucherNumber,
-          inv.invoiceNumber, // Pass offline invoice number to preserve it
+          inv.invoiceNumber, // consecutivo local (el backend igual reasigna)
           inv.cashierId ?? null,
           inv.cashierName ?? null,
-          (inv as any).payments ?? null,
-          (inv as any).documentType ?? 'ticket',
+          inv.payments ?? null,
+          inv.documentType ?? 'ticket',
+          inv.customerId ?? null,
+          inv.currencyInfo,
         );
+
+        // Comprobante ELECTRÓNICO hecho offline: emitir a Hacienda ahora (al
+        // reconectar). Best-effort: si falla la emisión, la venta ya quedó guardada
+        // y se puede reintentar desde la bitácora FE — no rompemos el sync.
+        const isElec = inv.documentType === 'factura_electronica' || inv.documentType === 'tiquete_electronico';
+        if (isElec && (created as any)?.id) {
+          try {
+            const { haciendaService } = await import('@/services/hacienda/haciendaService');
+            await haciendaService.emit((created as any).id);
+          } catch (e) {
+            console.warn('[sync FE] no se pudo emitir a Hacienda (se reintenta luego):', e);
+          }
+        }
       });
 
       await refreshPendingCount();
@@ -498,6 +533,13 @@ export const POSMain = () => {
   // F12 = Cobrar · F4 = Anular · Esc = Cerrar modal
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl+P: producto rápido (ad-hoc) al carrito. Va ANTES del guard de inputs
+      // y bloquea la impresión del navegador.
+      if (e.ctrlKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        if (currentSession?.status === 'open') setShowQuickProduct(true);
+        return;
+      }
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'F12') {
@@ -636,6 +678,23 @@ export const POSMain = () => {
           : undefined,
       }];
     });
+  };
+
+  // Producto rápido/ad-hoc (Ctrl+P): se agrega al carrito sin estar en el catálogo.
+  // Lleva un id único de cliente para las operaciones del carrito y `is_adhoc` para
+  // que al facturar se envíe con product_id=null y el nombre en product_name.
+  const handleAddQuickProduct = (name: string, price: number, quantity: number, ivaRate: number) => {
+    const synthetic = {
+      id: (globalThis.crypto?.randomUUID?.() ?? `quick-${Date.now()}-${Math.round(Math.random() * 1e6)}`),
+      name,
+      unit_price: round2(price),
+      iva_rate: ivaRate,
+      stock_quantity: 0,
+      tracks_stock: false,
+      tenant_id: tenantId ?? '',
+      is_adhoc: true,
+    } as any;
+    handleAddToCart(synthetic, quantity);
   };
 
   const handleRemoveFromCart = (productId: string) =>
@@ -891,9 +950,62 @@ export const POSMain = () => {
     const totSnapshot = total;
     const roundSnapshot = roundingAdjust;
     const customerEmailSnapshot = selectedCustomer?.email ?? undefined;
+    const offlineCustomer = customerName.trim() || undefined;
+
+    // ── Helper: guardar la venta OFFLINE (cola) + imprimir. Se usa en la rama sin
+    // conexión Y como FALLBACK cuando el cobro online falla por RED (backend caído/
+    // timeout) — así SIEMPRE imprime y NUNCA se pierde la venta. ────────────────
+    const doOfflineSale = async () => {
+      const invoiceNumber = await posOfflineService.queueInvoice({
+        tenantId,
+        sessionId: currentSession.id,
+        cartItems,
+        subtotal,
+        taxAmount,
+        total,
+        paymentMethod: data.paymentMethod,
+        amountReceived: data.amountReceived,
+        changeAmount: data.change,
+        voucherNumber: data.voucherNumber,
+        notes,
+        customerName: offlineCustomer,
+        customerId: selectedCustomer?.id ?? null,
+        cashierId: activeCashier?.id ?? null,
+        cashierName: activeCashier?.full_name ?? null,
+        documentType,
+        discountAmount: 0,
+        discountPercent: 0,
+        payments: data.payments ?? null,
+        currencyInfo: {
+          currency: data.currency, exchangeRate: data.exchangeRate, changeCurrency: data.changeCurrency,
+          isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryPlatform: data.deliveryPlatform,
+          deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined,
+        },
+      } as any);
+
+      resetActive();
+      setBipper('');
+      setShowPaymentModal(false);
+      setCartOpen(false);
+      setPaymentLoading(false);
+      const isElec = documentType === 'factura_electronica' || documentType === 'tiquete_electronico';
+      setSuccess(`Venta guardada sin conexión (${invoiceNumber})${isElec ? ' — se emitirá a Hacienda' : ''} — se sincroniza al reconectar`);
+      if (proformaToConvert.current) {
+        proformasService.convert(proformaToConvert.current, invoiceNumber).catch(() => {});
+        proformaToConvert.current = null;
+      }
+      posOfflineService.addCachedInvoice({
+        id: invoiceNumber, invoice_number: invoiceNumber, issued_at: localNowISO(),
+        total: totSnapshot, payment_method: data.paymentMethod,
+      });
+      refreshPendingCount();
+      printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
+      setInvoiceCounterKey(k => k + 1);
+    };
 
     try {
       if (isOnline) {
+       try {
         // ── Online: create invoice directly ──────────────────────────────────
         // Generar número con formato 000000 (sin fecha, solo consecutivo)
         const invNum = generateInvoiceNumber();
@@ -987,52 +1099,21 @@ export const POSMain = () => {
         printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
         setInvoiceCounterKey(k => k + 1);
         return;
-      } else {
-        // ── Offline: queue for later sync ────────────────────────────────────
-        const invoiceNumber = await posOfflineService.queueInvoice({
-          tenantId,
-          sessionId: currentSession.id,
-          cartItems,
-          subtotal,
-          taxAmount,
-          total,
-          paymentMethod: data.paymentMethod,
-          amountReceived: data.amountReceived,
-          changeAmount: data.change,
-          voucherNumber: data.voucherNumber,
-          notes,
-          customerName: customerName.trim() || undefined,
-          cashierId: activeCashier?.id ?? null,
-          cashierName: activeCashier?.full_name ?? null,
-          documentType,
-        } as any);
-
-        // Snapshot del cliente antes del reset (lo necesitamos para impresión).
-        const offlineCustomer = customerName.trim() || undefined;
-
-        // Limpiar UI del tab activo INMEDIATAMENTE
-        resetActive();
-        setBipper('');
-        setShowPaymentModal(false);
-        setCartOpen(false);
-        setPaymentLoading(false);
-        setSuccess(`Venta guardada sin conexión (${invoiceNumber}) — se sincronizará al reconectar`);
-        if (proformaToConvert.current) {
-          proformasService.convert(proformaToConvert.current, invoiceNumber).catch(() => {});
-          proformaToConvert.current = null;
+       } catch (netErr) {
+        // Falló el cobro online. Si es error de RED (backend caído/timeout) NO se pierde
+        // la venta: la guardamos en la cola offline y se imprime igual. Si es un rechazo
+        // real del servidor (validación), se propaga al catch externo y se muestra.
+        const { isNetworkError, markBackendDown } = await import('@/services/connectivity/connectivityService');
+        if (isNetworkError(netErr)) {
+          markBackendDown();
+          await doOfflineSale();
+          return;
         }
-
-        // Background
-        posOfflineService.addCachedInvoice({
-          id: invoiceNumber,
-          invoice_number: invoiceNumber,
-          issued_at: localNowISO(),
-          total: totSnapshot,
-          payment_method: data.paymentMethod,
-        });
-        refreshPendingCount();
-        printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
-        setInvoiceCounterKey(k => k + 1);
+        throw netErr;
+       }
+      } else {
+        // ── Sin conexión: encolar (misma lógica que el fallback) ──────────────
+        await doOfflineSale();
         return;
       }
     } catch (err) {
@@ -1118,8 +1199,10 @@ export const POSMain = () => {
 
       {/* ── Barra de Total estilo Eleventa ──────────────────────────────────
            Se muestra en modo Asistido O en layout de Lista (ahí el carrito
-           ocupa el centro, así que el total grande va arriba como banner).  */}
-      {(assisted || isListLayout) && (
+           ocupa el centro, así que el total grande va arriba como banner).
+           COMENTADO: banner "Total a cobrar" oculto (cambiar `false` por
+           `(assisted || isListLayout)` para reactivarlo).  */}
+      {false && (assisted || isListLayout) && (
         <div className="relative shrink-0 px-5 py-4 bg-linear-to-br from-slate-900 via-emerald-900 to-emerald-700 text-white shadow-[0_6px_18px_-6px_rgba(16,185,129,0.55)] border-b-2 border-emerald-400/40 overflow-hidden">
           {/* Decoración suave de fondo */}
           <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-emerald-400/10 blur-3xl" />
@@ -1140,8 +1223,22 @@ export const POSMain = () => {
                   <>
                     <span className="text-emerald-300/40">·</span>
                     <span className="tabular-nums">Sub ₡{subtotal.toLocaleString('es-CR')}</span>
-                    <span className="text-emerald-300/40">·</span>
-                    <span className="tabular-nums">IVA ₡{taxAmount.toLocaleString('es-CR')}</span>
+                    {taxBreakdown && Object.keys(taxBreakdown).length > 0 ? (
+                      // Desglose de IVA: una etiqueta por cada tarifa.
+                      Object.entries(taxBreakdown)
+                        .sort((a, b) => Number(b[0]) - Number(a[0]))
+                        .map(([rate, amt]) => (
+                          <span key={rate} className="tabular-nums">
+                            <span className="text-emerald-300/40 mr-2">·</span>
+                            IVA {Number(rate) === 0 ? 'Exento' : `${Number(rate)}%`} ₡{Number(amt).toLocaleString('es-CR')}
+                          </span>
+                        ))
+                    ) : (
+                      <>
+                        <span className="text-emerald-300/40">·</span>
+                        <span className="tabular-nums">IVA ₡{taxAmount.toLocaleString('es-CR')}</span>
+                      </>
+                    )}
                   </>
                 )}
               </div>
@@ -1182,8 +1279,10 @@ export const POSMain = () => {
           activePromotions={activePromotions}
         />
 
-        {/* Carrito inline — solo en pantallas grandes (lg+) */}
-        <div className="hidden lg:flex">
+        {/* Carrito inline — solo en pantallas grandes (lg+). En formato lista se le da
+            altura acotada (flex-1 + min-h-0) para que el listado haga scroll y el botón
+            de cobrar quede fijo abajo. */}
+        <div className={isListLayout ? 'hidden lg:flex flex-1 min-h-0' : 'hidden lg:flex'}>
           <POSCartPanel
             cartItems={cartItems}
             subtotal={subtotal}
@@ -1397,13 +1496,15 @@ export const POSMain = () => {
           taxAmount={taxAmount}
           total={total}
           taxEnabled={taxEnabled}
+          taxBreakdown={taxBreakdown}
           onConfirm={handlePaymentConfirm}
           onCancel={() => setShowPaymentModal(false)}
           loading={paymentLoading}
           enabledMethods={enabledPays}
           allowCard={planFeatures.pos_card}
           allowSinpe={planFeatures.pos_sinpe}
-          allowCredit={!!planFeatures.accounts_receivable && !!selectedCustomer}
+          allowCredit={!!planFeatures.accounts_receivable}
+          creditNeedsCustomer={!selectedCustomer}
           creditAvailable={
             selectedCustomer
               ? (Number(selectedCustomer.credit_limit ?? 0) > 0
@@ -1416,6 +1517,13 @@ export const POSMain = () => {
           allowUsd={!!(planFeatures as any).pos_usd}
           deliveryCommissions={deliveryCommissions}
           deliveryMode={isDeliveryMode}
+        />
+      )}
+
+      {showQuickProduct && (
+        <QuickProductModal
+          onAdd={handleAddQuickProduct}
+          onClose={() => setShowQuickProduct(false)}
         />
       )}
 

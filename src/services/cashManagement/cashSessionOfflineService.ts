@@ -57,19 +57,20 @@ export const cashSessionOfflineService = {
 
     await idb.put('pending_cash_sessions', pending);
 
-    // Return optimistic response
+    // Return optimistic response (mismo shape que CashSession: opening_date/closing_date).
+    const nowIso = new Date().toISOString();
     return {
       id,
       tenant_id: data.tenant_id,
       user_id: data.user_id,
       opening_amount: data.opening_amount,
       closing_amount: null,
-      opened_at: new Date().toISOString(),
-      closed_at: null,
+      opening_date: nowIso,
+      closing_date: null,
       status: 'open',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as CashSession;
+      created_at: nowIso,
+      updated_at: nowIso,
+    } as unknown as CashSession;
   },
 
   /**

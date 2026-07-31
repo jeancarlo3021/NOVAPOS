@@ -268,6 +268,7 @@ function ZonesModal({ onClose }: { onClose: () => void }) {
 function CustomerFormModal({ customer, onClose, onSaved }: {
   customer: Customer | null; onClose: () => void; onSaved: () => void;
 }) {
+  const { planFeatures } = useAuth();
   const [form, setForm] = useState<CustomerInput>({
     identification_type: customer?.identification_type ?? '01',
     identification:      customer?.identification ?? '',
@@ -287,6 +288,7 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
     is_active:           customer?.is_active ?? true,
     credit_enabled:      customer?.credit_enabled ?? false,
     credit_limit:        customer?.credit_limit ?? 0,
+    exclude_from_cash_close: customer?.exclude_from_cash_close ?? false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
@@ -467,6 +469,17 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
                   onChange={e => set('credit_limit', Number(e.target.value) || 0)}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
               </div>
+            )}
+            {/* Excluir del cierre de caja (ej. compras de empleados). Solo si el plan lo habilita. */}
+            {(planFeatures as any)?.exclude_from_close && (
+              <label className="flex items-start justify-between gap-2 cursor-pointer pt-2 border-t border-gray-200">
+                <span className="text-sm text-gray-700">
+                  <span className="font-bold">No contabilizar en el cierre de caja</span>
+                  <span className="block text-xs text-gray-400">Las compras de este cliente (ej. empleados) no suman en el arqueo/cierre.</span>
+                </span>
+                <input type="checkbox" checked={!!form.exclude_from_cash_close} onChange={e => set('exclude_from_cash_close', e.target.checked)}
+                  className="w-5 h-5 rounded text-slate-600 mt-0.5 shrink-0" />
+              </label>
             )}
           </div>
 
