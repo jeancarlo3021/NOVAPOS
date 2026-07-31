@@ -36,6 +36,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'customers', label: 'Clientes' },
     { key: 'customer_prices', label: 'Precios personalizados (por cliente)' },
     { key: 'accounts_receivable', label: 'Cuentas por Cobrar (crédito)' },
+    { key: 'exclude_from_close', label: 'Excluir clientes del cierre (ej. empleados)' },
   ]},
   { group: 'Distribución', items: [
     { key: 'distribution', label: 'Distribución / Repartidor' },
