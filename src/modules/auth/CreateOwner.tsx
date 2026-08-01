@@ -218,6 +218,33 @@ export const CreateOwner: React.FC = () => {
     } finally { setCreatingAlanubeId(null); }
   };
 
+  // DESTRUCTIVO: deja el negocio "como nuevo" — borra ventas, caja, CxC, compras,
+  // gastos, recibidos y clientes; CONSERVA productos y configuración. Doble confirmación.
+  const resetBusiness = async (o: any) => {
+    const typed = window.prompt(
+      `⚠️ Vas a BORRAR TODO del negocio "${o.name}":\n` +
+      `ventas, caja, cuentas por cobrar, compras, gastos, recibidos y clientes.\n\n` +
+      `Se CONSERVAN los PRODUCTOS y la configuración.\n\n` +
+      `Esta acción NO se puede deshacer.\n\n` +
+      `Escribí el nombre EXACTO del negocio para confirmar:`
+    );
+    if (typed == null) return;
+    if (typed.trim().toLowerCase() !== String(o.name ?? '').trim().toLowerCase()) {
+      showToast('El nombre no coincide. Cancelado.', 'error');
+      return;
+    }
+    setCreatingAlanubeId(o.id);
+    try {
+      await apiFetch(`/admin/tenants/${o.id}/reset-business`, {
+        method: 'POST', body: JSON.stringify({ confirm: typed.trim() }),
+      });
+      showToast(`Negocio "${o.name}" reiniciado — se conservaron los productos.`, 'success');
+      fetchOwners();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo reiniciar el negocio', 'error');
+    } finally { setCreatingAlanubeId(null); }
+  };
+
   // Diagnóstico: ¿la empresa existe en la cuenta/ambiente que usa la emisión?
   const verifyAlanube = async (o: any) => {
     setCreatingAlanubeId(o.id);
@@ -1380,6 +1407,11 @@ export const CreateOwner: React.FC = () => {
                                   <button onClick={() => { setOpenMenuId(null); toggleFeEnabled(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
                                     <FileText size={13} /> Habilitar / deshabilitar FE
+                                  </button>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <button onClick={() => { setOpenMenuId(null); resetBusiness(o); }} disabled={creatingAlanubeId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-40">
+                                    <AlertTriangle size={13} /> Reiniciar negocio (borrar todo excepto productos)
                                   </button>
                                   <button onClick={() => { setOpenMenuId(null); setManageUsersFor(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-50">
