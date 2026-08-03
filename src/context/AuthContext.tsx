@@ -13,6 +13,7 @@ import { identifySentryUser, clearSentryUser } from '@/lib/sentry';
 
 import {
   saveOfflineCredential, saveOfflineSnapshot, readOfflineSnapshot, verifyOfflineCredential,
+  setOfflineSessionActive, isOfflineSessionActive,
 } from '@/services/auth/offlineLoginService';
 
 const AUTH_CACHE_KEY = 'novapos_auth_cache';
@@ -800,6 +801,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!mounted) return;
 
       if (!session) {
+        // Sesión OFFLINE activa: no hay token de Supabase (nunca lo hubo), pero el
+        // usuario se autenticó contra el verificador local. Sin este rescate, al
+        // recargar la página se perdía la sesión y volvía al login — que es
+        // justamente lo que hacía inservible el login sin internet.
+        const snap = isOfflineSessionActive() ? readOfflineSnapshot<any>() : null;
+        if (snap?.user) {
+          currentUserIdRef.current = snap.userId;
+          setUser(snap.user);
+          setTenant(snap.tenant);
+          setTenants(snap.tenants);
+          setPlanFeatures(snap.planFeatures);
+          setPlanName(snap.planName);
+          if (snap.tenant) {
+            try { localStorage.setItem('novapos_current_tenant_id', snap.tenant.id); } catch { /* ignore */ }
+          }
+          setLoading(false);
+          console.info('[auth] Sesión OFFLINE recuperada tras recargar.');
+          return;
+        }
         // No valid session — clear any stale cache and state
         if (cache) {
           clearAuthCache();
@@ -946,7 +966,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       : `${emailOrUsername}@nexoerp.local`;
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      // TIMEOUT: sin internet, signInWithPassword puede quedarse colgado (reintenta
+      // internamente) y nunca lanzar. Sin este corte el login se quedaba girando y
+      // NUNCA llegaba al camino offline. 12 s es de sobra para una red buena.
+      const TIMEOUT_MS = 12_000;
+      const signIn = supabase.auth.signInWithPassword({ email, password });
+      const timed = await Promise.race([
+        signIn.then(r => ({ kind: 'done' as const, r })),
+        new Promise<{ kind: 'timeout' }>(res => setTimeout(() => res({ kind: 'timeout' }), TIMEOUT_MS)),
+      ]);
+      if (timed.kind === 'timeout') {
+        if (await tryOfflineLogin(email, password)) return;
+        setError('El servidor no responde. Revisá la conexión e intentá de nuevo.');
+        setLoading(false);
+        throw new Error('Tiempo de espera agotado al iniciar sesión');
+      }
+      const { error: signInError } = timed.r;
 
       if (signInError) {
         // Sin internet (o Supabase inalcanzable): intentar el LOGIN OFFLINE con el
@@ -961,6 +996,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fire-and-forget: no bloquea el login.
       const uid = (await supabase.auth.getSession()).data.session?.user?.id;
       if (uid) void saveOfflineCredential(email, password, uid);
+      // Login ONLINE exitoso: ya hay token real, la sesión deja de ser offline.
+      setOfflineSessionActive(false);
       // onAuthStateChange fires SIGNED_IN and calls handleSession.
       // Navigation happens in Login.tsx via useEffect watching user+loading.
     } catch (err) {
@@ -990,6 +1027,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (snap.tenant) {
         try { localStorage.setItem('novapos_current_tenant_id', snap.tenant.id); } catch { /* ignore */ }
       }
+      // Sin esto, un SIGNED_OUT de Supabase (que no tiene sesión real) entraba al
+      // handler y borraba todo el estado recién restaurado.
+      currentUserIdRef.current = userId;
+      setOfflineSessionActive(true);
       setError(null);
       setLoading(false);
       console.info('[auth] Sesión OFFLINE restaurada — se trabaja con datos pre-cacheados y cola offline.');
@@ -1009,6 +1050,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Limpiamos cualquier rastro del modo solo-lectura antes de salir, así
       // el próximo usuario que entre desde este navegador no hereda el bloqueo.
       try { localStorage.removeItem('novapos_read_only'); } catch { /* ignore */ }
+      // Salir de verdad también apaga la sesión offline (si no, al recargar volvía a entrar).
+      setOfflineSessionActive(false);
       // Limpiamos el timestamp del login para el timeout de sesión por edad.
       try { localStorage.removeItem(SESSION_LOGIN_TS_KEY); } catch { /* ignore */ }
 

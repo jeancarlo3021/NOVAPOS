@@ -259,6 +259,34 @@ export const CreateOwner: React.FC = () => {
     } finally { setSyncingCustomers(false); }
   };
 
+  // Da de baja la empresa registrada en la cuenta de Alanube. Sirve para liberar
+  // la cuenta cuando quedó ocupada por otro emisor y no hay portal de Alanube.
+  const deleteAlanubeCompany = async (o: any) => {
+    setCreatingAlanubeId(o.id);
+    try {
+      // 1ª llamada SIN confirmación: el backend responde qué empresa (id + cédula)
+      // se va a borrar. Recién con ese dato se le pregunta al usuario.
+      let info = '';
+      try {
+        await apiFetch(`/admin/tenants/${o.id}/alanube/company`, { method: 'DELETE', body: JSON.stringify({}) });
+      } catch (e) {
+        info = e instanceof Error ? e.message : String(e);
+      }
+      if (!info) { showToast('No se pudo identificar la empresa a dar de baja', 'error'); return; }
+      if (!/Escribí la cédula/i.test(info)) { window.alert(info); return; }
+
+      const typed = window.prompt(`${info}\n\nCédula:`);
+      if (typed == null) return;
+      const r = await apiFetch<any>(`/admin/tenants/${o.id}/alanube/company`, {
+        method: 'DELETE', body: JSON.stringify({ confirm: typed.trim() }),
+      });
+      window.alert(r?.message ?? 'Empresa dada de baja.');
+      fetchOwners();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'No se pudo dar de baja la empresa');
+    } finally { setCreatingAlanubeId(null); }
+  };
+
   // Diagnóstico: ¿la empresa existe en la cuenta/ambiente que usa la emisión?
   const verifyAlanube = async (o: any) => {
     setCreatingAlanubeId(o.id);
@@ -1115,6 +1143,7 @@ export const CreateOwner: React.FC = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Acciones</th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">Negocio</th>
                     <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase">
                       <span className="inline-flex items-center gap-1"><Layers size={11} /> Grupo · Cuota mes</span>
@@ -1133,7 +1162,6 @@ export const CreateOwner: React.FC = () => {
                       <span className="inline-flex items-center gap-1"><Truck size={11} /> Distribución</span>
                     </th>
                     <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Estado</th>
-                    <th className="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -1172,6 +1200,153 @@ export const CreateOwner: React.FC = () => {
                       (((fq.available ?? 0) <= 0) || (feExpDays !== null && feExpDays <= 30));
                     return (
                       <tr key={o.id} className={`hover:bg-gray-50/50 transition ${!isActive ? 'opacity-60' : ''} ${days !== null && days < 0 && isActive ? 'bg-red-50/20' : feAlert ? 'bg-amber-50/40' : ''}`}>
+                        {/* Acciones — menú desplegable */}
+                        <td className="px-5 py-4">
+                          <div className="relative flex justify-center">
+                            <button onClick={() => setOpenMenuId(openMenuId === o.id ? null : o.id)}
+                              className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition">
+                              <MoreHorizontal size={14} /> Acciones
+                            </button>
+                            {openMenuId === o.id && (
+                              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpenMenuId(null)}>
+                                <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-sm max-h-[85vh] overflow-y-auto text-left" onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
+                                    <span className="text-sm font-black text-gray-900 truncate">Acciones · {o.name}</span>
+                                    <button onClick={() => setOpenMenuId(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+                                  </div>
+                                  <div className="py-1.5">
+                                  <button onClick={() => { setOpenMenuId(null); setRenewing(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
+                                    <RefreshCw size={13} /> Renovar suscripción
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); handleEditDays(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50">
+                                    <Calendar size={13} /> Cambiar días restantes
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); sendWhatsappReminder(o); }} disabled={waSendingId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50 disabled:opacity-40">
+                                    <MessageCircle size={13} /> {waSendingId === o.id ? 'Enviando WhatsApp…' : 'Recordatorio de pago (WhatsApp)'}
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); handleToggleStatus(o); }} disabled={isBusy}
+                                    className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-bold disabled:opacity-40 ${isActive ? 'text-orange-700 hover:bg-orange-50' : 'text-emerald-700 hover:bg-emerald-50'}`}>
+                                    <Power size={13} /> {isActive ? 'Desactivar' : 'Activar'}
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); handleEditPrice(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                                    <Receipt size={13} /> Ajustar monto {o.custom_price != null && '✎'}
+                                  </button>
+                                  <div className="px-3 py-1.5">
+                                    <select onChange={e => { handleChangePlan(o.id, e.target.value); setOpenMenuId(null); }} defaultValue=""
+                                      className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-600">
+                                      <option value="">Cambiar plan…</option>
+                                      {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="px-3 py-1.5">
+                                    <select onChange={e => { if (e.target.value) { assignFePlan(o.id, e.target.value === '__none__' ? '' : e.target.value); setOpenMenuId(null); } }} defaultValue=""
+                                      className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-600">
+                                      <option value="">Plan FE…</option>
+                                      <option value="__none__">— Quitar FE —</option>
+                                      {fePlans.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                  </div>
+                                  <button onClick={() => { setOpenMenuId(null); setRenewFePlanId(''); setRenewFeFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-fuchsia-700 hover:bg-fuchsia-50">
+                                    <RefreshCw size={13} /> Renovar FE + plan
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setManageFeFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
+                                    <FileText size={13} /> Datos de FE (ApiKey + emisor)
+                                  </button>
+                                  {/* Opciones de Alanube: SIEMPRE visibles (aunque el
+                                       proveedor sea 'facturemos'), para poder crear/
+                                       verificar la empresa sin tener que cambiar antes
+                                       el proveedor en Datos de FE. */}
+                                  {true && (
+                                    <>
+                                      <button onClick={() => { setOpenMenuId(null); createAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
+                                        <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Creando en Alanube…' : 'Crear empresa en Alanube'}
+                                      </button>
+                                      <button onClick={() => { setOpenMenuId(null); updateAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
+                                        <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Actualizando…' : 'Actualizar empresa (activar webhook)'}
+                                      </button>
+                                      <button onClick={() => { setOpenMenuId(null); deleteAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-40">
+                                        <Trash2 size={13} /> {creatingAlanubeId === o.id ? 'Dando de baja…' : 'Eliminar empresa de Alanube'}
+                                      </button>
+                                      <button onClick={() => { setOpenMenuId(null); verifyAlanube(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40">
+                                        <Sparkles size={13} /> Verificar empresa en Alanube
+                                      </button>
+                                      <button onClick={() => { setOpenMenuId(null); testFeConnection(o); }} disabled={creatingAlanubeId === o.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">
+                                        <CheckCircle size={13} /> Probar conexión FE
+                                      </button>
+                                    </>
+                                  )}
+                                  <button onClick={() => { setOpenMenuId(null); setEmisorApiKey(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">
+                                    <KeyRound size={13} /> ApiKey del emisor (rápido)
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); toggleFeEnabled(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
+                                    <FileText size={13} /> Habilitar / deshabilitar FE
+                                  </button>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <button onClick={() => { setOpenMenuId(null); resetBusiness(o); }} disabled={creatingAlanubeId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-40">
+                                    <AlertTriangle size={13} /> Reiniciar negocio (borrar todo excepto productos)
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setManageUsersFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-50">
+                                    <Users2 size={13} /> Usuarios de la empresa
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setManageModulesFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50">
+                                    <Layers size={13} /> Módulos personalizados
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setImportProductsFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
+                                    <FileText size={13} /> Importar productos (Excel)
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setPreviewProductsFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
+                                    <Package size={13} /> Ver productos cargados
+                                  </button>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'new-business'); }} disabled={emailingId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40">
+                                    <Mail size={13} /> Comprobante de alta
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setInvoiceFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
+                                    <Mail size={13} /> Cobro personalizado
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'payment-reminder'); }} disabled={emailingId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40">
+                                    <Mail size={13} /> Recordatorio de pago
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); setNotifyPhoneFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50">
+                                    <MessageCircle size={13} /> Número de avisos WhatsApp
+                                  </button>
+                                  <button onClick={() => { setOpenMenuId(null); sendPasswordReset(o); }} disabled={pwdSendingId === o.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50 disabled:opacity-40">
+                                    <Lock size={13} /> Cambiar clave
+                                  </button>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <button onClick={() => { setOpenMenuId(null); handleDeleteOwner(o.id, o.owner_id, o.name); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50">
+                                    <Trash2 size={13} /> Eliminar negocio
+                                  </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
                         {/* Negocio */}
                         <td className="px-5 py-4">
                           <p className="font-bold text-gray-900">{o.name}</p>
@@ -1339,149 +1514,6 @@ export const CreateOwner: React.FC = () => {
                           }`}>
                             {isActive ? '● Activo' : '● Suspendido'}
                           </span>
-                        </td>
-                        {/* Acciones — menú desplegable */}
-                        <td className="px-5 py-4">
-                          <div className="relative flex justify-center">
-                            <button onClick={() => setOpenMenuId(openMenuId === o.id ? null : o.id)}
-                              className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition">
-                              <MoreHorizontal size={14} /> Acciones
-                            </button>
-                            {openMenuId === o.id && (
-                              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpenMenuId(null)}>
-                                <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-sm max-h-[85vh] overflow-y-auto text-left" onClick={e => e.stopPropagation()}>
-                                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
-                                    <span className="text-sm font-black text-gray-900 truncate">Acciones · {o.name}</span>
-                                    <button onClick={() => setOpenMenuId(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
-                                  </div>
-                                  <div className="py-1.5">
-                                  <button onClick={() => { setOpenMenuId(null); setRenewing(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
-                                    <RefreshCw size={13} /> Renovar suscripción
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); handleEditDays(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50">
-                                    <Calendar size={13} /> Cambiar días restantes
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); sendWhatsappReminder(o); }} disabled={waSendingId === o.id}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50 disabled:opacity-40">
-                                    <MessageCircle size={13} /> {waSendingId === o.id ? 'Enviando WhatsApp…' : 'Recordatorio de pago (WhatsApp)'}
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); handleToggleStatus(o); }} disabled={isBusy}
-                                    className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-bold disabled:opacity-40 ${isActive ? 'text-orange-700 hover:bg-orange-50' : 'text-emerald-700 hover:bg-emerald-50'}`}>
-                                    <Power size={13} /> {isActive ? 'Desactivar' : 'Activar'}
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); handleEditPrice(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
-                                    <Receipt size={13} /> Ajustar monto {o.custom_price != null && '✎'}
-                                  </button>
-                                  <div className="px-3 py-1.5">
-                                    <select onChange={e => { handleChangePlan(o.id, e.target.value); setOpenMenuId(null); }} defaultValue=""
-                                      className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-600">
-                                      <option value="">Cambiar plan…</option>
-                                      {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                    </select>
-                                  </div>
-                                  <div className="px-3 py-1.5">
-                                    <select onChange={e => { if (e.target.value) { assignFePlan(o.id, e.target.value === '__none__' ? '' : e.target.value); setOpenMenuId(null); } }} defaultValue=""
-                                      className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-600">
-                                      <option value="">Plan FE…</option>
-                                      <option value="__none__">— Quitar FE —</option>
-                                      {fePlans.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                    </select>
-                                  </div>
-                                  <button onClick={() => { setOpenMenuId(null); setRenewFePlanId(''); setRenewFeFor(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-fuchsia-700 hover:bg-fuchsia-50">
-                                    <RefreshCw size={13} /> Renovar FE + plan
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); setManageFeFor(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">
-                                    <FileText size={13} /> Datos de FE (ApiKey + emisor)
-                                  </button>
-                                  {/* Opciones de Alanube: SIEMPRE visibles (aunque el
-                                       proveedor sea 'facturemos'), para poder crear/
-                                       verificar la empresa sin tener que cambiar antes
-                                       el proveedor en Datos de FE. */}
-                                  {true && (
-                                    <>
-                                      <button onClick={() => { setOpenMenuId(null); createAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
-                                        <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Creando en Alanube…' : 'Crear empresa en Alanube'}
-                                      </button>
-                                      <button onClick={() => { setOpenMenuId(null); updateAlanubeCompany(o); }} disabled={creatingAlanubeId === o.id}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50 disabled:opacity-40">
-                                        <Sparkles size={13} /> {creatingAlanubeId === o.id ? 'Actualizando…' : 'Actualizar empresa (activar webhook)'}
-                                      </button>
-                                      <button onClick={() => { setOpenMenuId(null); verifyAlanube(o); }} disabled={creatingAlanubeId === o.id}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40">
-                                        <Sparkles size={13} /> Verificar empresa en Alanube
-                                      </button>
-                                      <button onClick={() => { setOpenMenuId(null); testFeConnection(o); }} disabled={creatingAlanubeId === o.id}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">
-                                        <CheckCircle size={13} /> Probar conexión FE
-                                      </button>
-                                    </>
-                                  )}
-                                  <button onClick={() => { setOpenMenuId(null); setEmisorApiKey(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">
-                                    <KeyRound size={13} /> ApiKey del emisor (rápido)
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); toggleFeEnabled(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
-                                    <FileText size={13} /> Habilitar / deshabilitar FE
-                                  </button>
-                                  <div className="my-1 border-t border-gray-100" />
-                                  <button onClick={() => { setOpenMenuId(null); resetBusiness(o); }} disabled={creatingAlanubeId === o.id}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-40">
-                                    <AlertTriangle size={13} /> Reiniciar negocio (borrar todo excepto productos)
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); setManageUsersFor(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-50">
-                                    <Users2 size={13} /> Usuarios de la empresa
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); setManageModulesFor(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50">
-                                    <Layers size={13} /> Módulos personalizados
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); setImportProductsFor(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
-                                    <FileText size={13} /> Importar productos (Excel)
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); setPreviewProductsFor(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
-                                    <Package size={13} /> Ver productos cargados
-                                  </button>
-                                  <div className="my-1 border-t border-gray-100" />
-                                  <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'new-business'); }} disabled={emailingId === o.id}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40">
-                                    <Mail size={13} /> Comprobante de alta
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); setInvoiceFor(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
-                                    <Mail size={13} /> Cobro personalizado
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'payment-reminder'); }} disabled={emailingId === o.id}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40">
-                                    <Mail size={13} /> Recordatorio de pago
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); setNotifyPhoneFor(o); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-50">
-                                    <MessageCircle size={13} /> Número de avisos WhatsApp
-                                  </button>
-                                  <button onClick={() => { setOpenMenuId(null); sendPasswordReset(o); }} disabled={pwdSendingId === o.id}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50 disabled:opacity-40">
-                                    <Lock size={13} /> Cambiar clave
-                                  </button>
-                                  <div className="my-1 border-t border-gray-100" />
-                                  <button onClick={() => { setOpenMenuId(null); handleDeleteOwner(o.id, o.owner_id, o.name); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50">
-                                    <Trash2 size={13} /> Eliminar negocio
-                                  </button>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
                         </td>
                       </tr>
                     );

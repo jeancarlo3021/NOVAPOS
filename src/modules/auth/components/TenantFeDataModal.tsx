@@ -38,6 +38,13 @@ interface FeData {
   atv_password_production?: string;      // contraseña API de PRODUCCIÓN
   atv_username_sandbox?: string;         // usuario API de QA / sandbox
   atv_password_sandbox?: string;         // contraseña API de QA / sandbox
+  // Token PROPIO de la cuenta de Alanube del negocio. En CR cada cuenta admite UNA
+  // sola empresa emisora: si el negocio no comparte cédula con la cuenta global,
+  // necesita la suya. Si queda vacío se usa el token global del servidor.
+  alanube_token_production?: string;
+  alanube_token_sandbox?: string;
+  /** 'main' (única de la cuenta) o 'associated' (emisor adicional bajo el mismo token). */
+  alanube_company_type?: 'main' | 'associated';
   alanube_company_id?: string;              // legacy (fallback) id de empresa Alanube
   alanube_company_id_production?: string;   // id de empresa Alanube de PRODUCCIÓN
   alanube_company_id_sandbox?: string;      // id de empresa Alanube de QA / sandbox
@@ -77,6 +84,15 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
       // Si el ambiente nunca se guardó (queda null), lo fijamos explícito en
       // 'production' para que se detecte y se guarde con ese valor.
       if (!loaded.environment) loaded.environment = 'production';
+      // Idem con el TIPO DE IDENTIFICACIÓN: el <select> mostraba "Jurídica" por su
+      // valor por defecto, pero como nunca se tocaba no se guardaba nada y Alanube
+      // fallaba con "Tipo de identificación inválido (vacío)". Se deduce de la
+      // cédula si ya hay una (9=física, 10=jurídica, 11-12=DIMEX) y si no, jurídica.
+      if (!loaded.emisor_identification_type) {
+        const ced = String(loaded.emisor_identification ?? '').replace(/\D/g, '');
+        loaded.emisor_identification_type =
+          ced.length === 9 ? '01' : ced.length >= 11 ? '03' : '02';
+      }
       setFe(loaded);
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'No se pudo cargar la config de FE', 'error');
@@ -448,6 +464,44 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
             {/* ID de empresa en Alanube — uno por ambiente (se llena al crear la empresa,
                 o se puede pegar a mano si ya la creaste en el panel de Alanube). */}
             <div className="border-t border-gray-100 pt-3">
+              <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <KeyRound size={13} /> Tipo de empresa en Alanube
+              </p>
+              <select value={fe.alanube_company_type ?? 'main'}
+                onChange={e => set('alanube_company_type', e.target.value as any)}
+                className={`${inputCls} bg-white mb-1`}>
+                <option value="main">Principal (única empresa de la cuenta)</option>
+                <option value="associated">Asociada (emisor adicional en la misma cuenta)</option>
+              </select>
+              <p className="text-[10px] text-gray-400 mb-3">
+                Una cuenta de Alanube tiene <b>una sola empresa principal</b>. Si esta cuenta ya está
+                ocupada por otro emisor, registrá este negocio como <b>asociada</b>: se crea bajo el
+                mismo token y la emisión le manda su <code>idCompany</code> para firmar con su cédula.
+              </p>
+
+              <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <KeyRound size={13} /> Token de la cuenta de Alanube <span className="text-cyan-600">· opcional</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-2">
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase">Producción</span>
+                  <input type="password" value={fe.alanube_token_production ?? ''} onChange={e => set('alanube_token_production', e.target.value)}
+                    name="fe_alanube_tok_prod" autoComplete="new-password" spellCheck={false} data-1p-ignore
+                    className={`${inputCls} mt-1 font-mono`} placeholder="Token propio (vacío = el global)" />
+                </div>
+                <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-2">
+                  <span className="text-[10px] font-bold text-amber-700 uppercase">QA / Sandbox</span>
+                  <input type="password" value={fe.alanube_token_sandbox ?? ''} onChange={e => set('alanube_token_sandbox', e.target.value)}
+                    name="fe_alanube_tok_qa" autoComplete="new-password" spellCheck={false} data-1p-ignore
+                    className={`${inputCls} mt-1 font-mono`} placeholder="Token propio de pruebas" />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400 mb-3">
+                En Costa Rica cada cuenta de Alanube admite <b>UNA sola empresa emisora</b>. Si este
+                negocio tiene una cédula distinta a la de la cuenta global del servidor, necesita su
+                propia cuenta y su token acá. Vacío = se usa el token global.
+              </p>
+
               <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <KeyRound size={13} /> ID de empresa en Alanube <span className="text-cyan-600">· por ambiente</span>
               </p>

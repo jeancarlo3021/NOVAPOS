@@ -18,9 +18,10 @@ interface CompanyRow {
   tickets?: number;
   paymentReceipts?: number;
   total?: number;
-  idCompany?: string;
   /** Marca (del backend) para empresas registradas sin emisiones en el rango. */
   _noEmissions?: boolean;
+  /** La fila vino de la cuenta de Alanube PROPIA del negocio, no de la global. */
+  _ownAccount?: boolean;
 }
 interface UserRow {
   idUser?: string;
@@ -38,6 +39,13 @@ interface ReportResp {
   until: string;
   per_company: CompanyRow[] | { error: string };
   by_user: UserRow[] | { error: string };
+  /** Por qué vino vacío (403 del plan, token inválido, sin datos en el rango…). */
+  diagnostico?: {
+    per_company?: string | null;
+    by_user?: string | null;
+    cuentas_propias?: Array<{ tenants: string[]; ok: boolean; rows?: number; error?: string }>;
+    token_global?: boolean;
+  };
 }
 
 const n = (v: any) => Number(v || 0).toLocaleString('es-CR');
@@ -185,7 +193,23 @@ export const AlanubeReportsView: React.FC = () => {
       {loading ? (
         <div className="flex items-center justify-center py-14 text-gray-400 gap-2"><Loader2 size={18} className="animate-spin" /> Cargando reporte…</div>
       ) : companies.length === 0 && !companyErr ? (
-        <div className="bg-white border border-gray-100 rounded-2xl text-center py-14 text-gray-400">Sin emisiones en el rango seleccionado</div>
+        <div className="bg-white border border-gray-100 rounded-2xl text-center py-14 px-6">
+          <p className="text-gray-400">Sin emisiones en el rango seleccionado</p>
+          {/* El motivo importa: un 403 del plan o un token inválido se veían igual
+              que "no hubo ventas", y no había forma de distinguirlos. */}
+          {(data?.diagnostico?.per_company || data?.diagnostico?.token_global === false) && (
+            <div className="mt-4 inline-block text-left text-[11px] bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-800 max-w-lg">
+              <p className="font-black mb-1">Puede no ser que no haya ventas:</p>
+              {data?.diagnostico?.token_global === false && (
+                <p>• No hay token de Alanube configurado en el servidor para <b>{data?.env}</b>.</p>
+              )}
+              {data?.diagnostico?.per_company && <p>• {data.diagnostico.per_company}</p>}
+              {(data?.diagnostico?.cuentas_propias ?? []).filter(x => !x.ok).map((x, i) => (
+                <p key={i}>• Cuenta propia de {x.tenants.length} negocio(s): {x.error}</p>
+              ))}
+            </div>
+          )}
+        </div>
       ) : companies.length > 0 && (
         <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 text-sm font-black text-gray-700">Por empresa</div>

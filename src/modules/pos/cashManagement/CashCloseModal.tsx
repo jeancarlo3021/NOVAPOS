@@ -229,14 +229,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
       let updatedSession: CashSession;
 
-      if (!navigator.onLine) {
-        // Offline: Queue the operation
+      // Cierre OPTIMISTA guardado en la cola local. Se usa cuando no hay internet
+      // (o el servidor no responde): la caja se cierra en la tablet y sube sola
+      // cuando vuelve la conexión, DESPUÉS de las ventas del día.
+      const queueClose = async (): Promise<CashSession> => {
         try {
-          // Store the close operation for syncing
           await cashSessionOfflineService.queueCloseSession(closeData);
-
-          // Return optimistic response with correct property names
-          updatedSession = {
+          return {
             ...session,
             closing_amount: grandTotal,
             closed_at: new Date().toISOString(),
@@ -245,9 +244,21 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         } catch (queueErr) {
           throw new Error(`Error al encolar: ${queueErr instanceof Error ? queueErr.message : 'desconocido'}`);
         }
+      };
+
+      if (!navigator.onLine) {
+        updatedSession = await queueClose();
       } else {
-        // Online: Close immediately
-        updatedSession = await cashSessionService.closeCashSession(closeData);
+        try {
+          updatedSession = await cashSessionService.closeCashSession(closeData);
+        } catch (err) {
+          // `navigator.onLine` da "en línea" con solo estar pegado al WiFi. Si el
+          // servidor no contesta, NO se puede dejar al cajero sin cerrar la caja:
+          // se encola igual y se sincroniza después.
+          const { isNetworkError } = await import('@/services/connectivity/connectivityService');
+          if (!isNetworkError(err)) throw err;
+          updatedSession = await queueClose();
+        }
       }
 
       // Imprimir reporte de cierre (fire-and-forget, no bloquea)

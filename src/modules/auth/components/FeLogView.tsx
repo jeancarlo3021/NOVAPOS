@@ -25,6 +25,12 @@ interface FeRow {
   fe_response?: any;
   /** Nota de crédito/débito derivada de la factura original. */
   is_note?: boolean;
+  fe_nc_clave?: string | null;
+  /** Cédula con la que SALIÓ el comprobante (leída de la clave de Hacienda). */
+  emisor_cedula?: string | null;
+  /** Cédula que el negocio tiene configurada hoy. */
+  emisor_config?: string | null;
+  emisor_mismatch?: boolean;
   parent_invoice_number?: string;
 }
 interface FeLogResp { count: number; errors: number; rows: FeRow[]; }
@@ -74,6 +80,7 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [reemitting, setReemitting] = useState<string | null>(null);
+  const [crediting, setCrediting] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -103,7 +110,10 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
       const r = await apiFetch<any>(`/admin/fe-refresh/${id}`, { method: 'POST' });
       await load(true);
       const s = String(r?.fe_status ?? '');
-      if (s === 'accepted') { /* silencioso: se ve en la tabla */ }
+      // `note` llega cuando el estado no se puede consultar en vivo (ej. notas de
+      // crédito con Alanube, que se actualizan por webhook).
+      if (r?.note) window.alert(r.note);
+      else if (s === 'accepted') { /* silencioso: se ve en la tabla */ }
       else if (s === 'rejected' || s === 'error') window.alert(`Sigue rechazada/con error:\n${r?.error ?? 'sin detalle'}`);
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'No se pudo reintentar');
@@ -115,10 +125,12 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
   // esto genera un comprobante NUEVO con otro número.
   const reemitOne = async (id: string, num?: string) => {
     if (!window.confirm(
-      `¿Re-emitir la factura ${num ? `#${num}` : ''} corrigiendo el consecutivo?\n\n`
-      + 'Se le asignará el consecutivo configurado en «Datos de FE → Consecutivos» y se '
-      + 'volverá a enviar a Hacienda.\n\nSi la factura YA fue aceptada por Hacienda, esto '
-      + 'genera un comprobante NUEVO (con otro número). Usalo solo si salió con el número equivocado.'
+      `¿Re-emitir la factura ${num ? `#${num}` : ''} con los datos ACTUALES del negocio?\n\n`
+      + 'Se vuelve a enviar a Hacienda con la cédula, el certificado, la actividad económica y la '
+      + 'empresa de Alanube que el negocio tiene configurados AHORA, y con un consecutivo nuevo '
+      + '(el ya transmitido queda quemado).\n\n'
+      + 'Si la factura YA fue aceptada por Hacienda, anulala primero con nota de crédito: si no, '
+      + 'quedan DOS comprobantes válidos por la misma venta.'
     )) return;
     setReemitting(id);
     try {
@@ -128,6 +140,41 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'No se pudo re-emitir');
     } finally { setReemitting(null); }
+  };
+
+  // Nota de crédito de ANULACIÓN desde la bitácora. Es la vía para dar de baja un
+  // comprobante ya aceptado por Hacienda (no se puede "borrar").
+  const creditNoteOne = async (id: string, num?: string) => {
+    const reason = window.prompt(
+      `Nota de crédito de ANULACIÓN de la factura ${num ? `#${num}` : ''}.\n\n`
+      + 'La factura queda anulada ante Hacienda. Escribí el motivo:',
+      'Anulación de documento',
+    );
+    if (reason == null) return;
+    // Id de empresa en Alanube. Se pregunta porque al RECREAR una empresa borrada
+    // Alanube le asigna un id NUEVO, y la nota tiene que salir con ese, no con el
+    // viejo que quedó guardado. Si se deja vacío se usa el configurado.
+    const companyId = window.prompt(
+      'ID de empresa en Alanube para emitir esta nota.\n\n'
+      + 'Dejalo VACÍO para usar el que está guardado en Datos de FE.\n'
+      + 'Si volviste a crear la empresa, pegá el ID NUEVO (se guarda para las próximas).',
+      '',
+    );
+    if (companyId == null) return;
+    setCrediting(id);
+    try {
+      const r = await apiFetch<any>(`/admin/fe-credit-note/${id}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          reason: reason.trim() || 'Anulación de documento',
+          company_id: companyId.trim() || undefined,
+        }),
+      });
+      await load(true);
+      window.alert(`Nota de crédito emitida ✓\nClave: ${r?.nc_clave ?? '—'}\n\nQueda en proceso hasta que Hacienda la resuelva.`);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'No se pudo emitir la nota de crédito');
+    } finally { setCrediting(null); }
   };
 
   const rows = data?.rows ?? [];
@@ -248,6 +295,21 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                                 <MailCheck size={11} /> Correo
                               </span>
                             )}
+                            {/* Con qué cédula salió el comprobante. En rojo si NO es la
+                                que el negocio tiene configurada hoy. */}
+                            {r.emisor_cedula && (
+                              <span
+                                title={r.emisor_mismatch
+                                  ? `Emitido con la cédula ${r.emisor_cedula}, pero el negocio está configurado como ${r.emisor_config}. Salió a nombre de otro contribuyente.`
+                                  : `Emisor: cédula ${r.emisor_cedula}`}
+                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                  r.emisor_mismatch
+                                    ? 'text-red-700 bg-red-50 border-red-200'
+                                    : 'text-gray-500 bg-gray-50 border-gray-200'
+                                }`}>
+                                {r.emisor_mismatch ? '⚠' : '🏷'} {r.emisor_cedula}
+                              </span>
+                            )}
                             {r.fe_clave && String(r.fe_status).toLowerCase() !== 'accepted' && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); retryOne(r.id); }}
@@ -267,15 +329,42 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                               <p className="text-[11px] text-gray-400">
                                 Consecutivo actual: <b className="font-mono text-gray-600">#{r.invoice_number}</b>
+                                {r.emisor_cedula && (
+                                  <>
+                                    {' · '}Emisor en la clave:{' '}
+                                    <b className={`font-mono ${r.emisor_mismatch ? 'text-red-600' : 'text-gray-600'}`}>
+                                      {r.emisor_cedula}
+                                    </b>
+                                    {r.emisor_mismatch && (
+                                      <span className="text-red-600"> (configurado hoy: {r.emisor_config})</span>
+                                    )}
+                                  </>
+                                )}
                               </p>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); reemitOne(r.id, r.invoice_number); }}
-                                disabled={reemitting === r.id}
-                                title="Re-emitir corrigiendo el consecutivo (usa el «Próx.» de Datos de FE)"
-                                className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg disabled:opacity-50">
-                                <RefreshCw size={13} className={reemitting === r.id ? 'animate-spin' : ''} />
-                                {reemitting === r.id ? 'Re-emitiendo…' : 'Re-emitir corrigiendo consecutivo'}
-                              </button>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {/* Anular: solo tiene sentido en un comprobante que Hacienda ACEPTÓ
+                                    y que todavía no tiene nota de crédito. */}
+                                {!r.is_note && String(r.fe_status).toLowerCase() === 'accepted' && !r.fe_nc_clave && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); creditNoteOne(r.id, r.invoice_number); }}
+                                    disabled={crediting === r.id}
+                                    title="Emitir nota de crédito de anulación (la factura queda anulada ante Hacienda)"
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 rounded-lg disabled:opacity-50">
+                                    <RefreshCw size={13} className={crediting === r.id ? 'animate-spin' : ''} />
+                                    {crediting === r.id ? 'Anulando…' : 'Anular con nota de crédito'}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); reemitOne(r.id, r.invoice_number); }}
+                                  disabled={reemitting === r.id || r.is_note}
+                                  title={r.is_note
+                                    ? 'Las notas de crédito no se re-emiten: se emite una nueva desde la factura.'
+                                    : 'Volver a emitir con la configuración ACTUAL del negocio (cédula, certificado, actividad) y consecutivo nuevo'}
+                                  className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg disabled:opacity-50">
+                                  <RefreshCw size={13} className={reemitting === r.id ? 'animate-spin' : ''} />
+                                  {reemitting === r.id ? 'Re-emitiendo…' : 'Re-emitir con los datos correctos'}
+                                </button>
+                              </div>
                             </div>
                             {isErr && (
                               <div>

@@ -40,6 +40,7 @@ import { CashOpenModal } from './cashManagement/CashOpenModal';
 import { CashCloseModal } from './cashManagement/CashCloseModal';
 import { PaymentConfirmationModal, PaymentData } from './cashManagement/PaymentConfirmationModal';
 import { QuickProductModal } from './QuickProductModal';
+import { useOfflineDaySync } from '@/hooks/useOfflineDaySync';
 import { PosShortcutsHint } from './PosShortcutsHint';
 import { BipperModal } from './BipperModal';
 import { BipperListModal } from './BipperListModal';
@@ -454,13 +455,13 @@ export const POSMain = () => {
     }
   }, [refreshPendingCount]);
 
-  useEffect(() => {
-    if (isOnline) {
-      // Delay slightly to allow cash sessions to sync first
-      const timer = setTimeout(syncOfflineInvoices, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [isOnline, syncOfflineInvoices]);
+  // Sincronización de la JORNADA completa: aperturas → ventas → anulaciones →
+  // CIERRES, en ese orden, reintentando sola hasta que vuelva el internet. El
+  // cierre va al final a propósito: si sube antes que las ventas, la caja queda
+  // cerrada en el servidor sin los movimientos del día. Ver offlineDaySync.ts.
+  const daySync = useOfflineDaySync(tenantId, async () => {
+    await syncOfflineInvoices();
+  });
 
   // Force re-render when session closes in offline mode
   useEffect(() => {
@@ -1544,6 +1545,32 @@ export const POSMain = () => {
 
       {showDisplayTest && (
         <DisplayTestModal onClose={() => setShowDisplayTest(false)} />
+      )}
+
+      {/* Jornada offline pendiente de subir. Se muestra SIEMPRE que haya algo en
+          cola, para que nadie apague la tablet creyendo que ya se guardó todo. */}
+      {daySync.pending > 0 && (
+        <div className="fixed bottom-3 left-3 z-40 print:hidden">
+          <button
+            onClick={() => daySync.sync()}
+            disabled={daySync.syncing}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl border shadow-lg text-xs font-bold transition ${
+              daySync.online
+                ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
+                : 'bg-gray-800 border-gray-700 text-gray-100'
+            } disabled:opacity-60`}
+            title={daySync.online
+              ? 'Hay operaciones sin subir. Tocá para sincronizar ahora.'
+              : 'Sin conexión: las ventas y el cierre están guardados en esta tablet y suben solos cuando vuelva el internet.'}
+          >
+            <span className={daySync.syncing ? 'animate-spin' : ''}>{daySync.syncing ? '⟳' : daySync.online ? '⬆' : '⏸'}</span>
+            <span>
+              {daySync.syncing
+                ? 'Sincronizando…'
+                : `${daySync.pending} sin subir${daySync.online ? ' · tocá para subir' : ' · sin conexión'}`}
+            </span>
+          </button>
+        </div>
       )}
 
       {/* Comandos de teclado: chip discreto abajo a la izquierda (reemplaza los

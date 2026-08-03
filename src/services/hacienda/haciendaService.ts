@@ -54,7 +54,10 @@ export interface ReconcileBody {
   purchase_id?: string | null;
   /** No afectar el stock del inventario con los productos creados. */
   no_inventory?: boolean;
-  items: Array<{ detail: string; quantity: number; unit_price: number; cabys?: string | null; product_id?: string | null; action: 'update' | 'create' | 'skip' }>;
+  /** La compra NO genera productos de catálogo (insumos de proceso), pero su monto
+   *  sí se registra en la orden de compra. */
+  no_products?: boolean;
+  items: Array<{ detail: string; quantity: number; unit_price: number; total?: number; cabys?: string | null; product_id?: string | null; action: 'update' | 'create' | 'skip'; no_stock?: boolean }>;
 }
 
 export const haciendaService = {

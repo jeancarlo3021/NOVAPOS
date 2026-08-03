@@ -76,19 +76,32 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
           opening_usd: openingUsd,
         } as any);
       } else {
-        // Online: Create session immediately
-        session = await cashSessionService.createCashSession({
-          tenant_id: tenantId,
-          user_id: userId,
-          opening_amount: totalAmount,
-          opening_usd: openingUsd,
-        } as any);
+        try {
+          // Online: Create session immediately
+          session = await cashSessionService.createCashSession({
+            tenant_id: tenantId,
+            user_id: userId,
+            opening_amount: totalAmount,
+            opening_usd: openingUsd,
+          } as any);
 
-        // Pre-cache essential POS data for offline functionality
-        cashSessionCacheService.preCacheSessionData(tenantId)
-          .then(result => {
-          })
-          .catch(err => console.warn('⚠️ Error en pre-cacheo:', err));
+          // Pre-cache essential POS data for offline functionality
+          cashSessionCacheService.preCacheSessionData(tenantId)
+            .then(result => {
+            })
+            .catch(err => console.warn('⚠️ Error en pre-cacheo:', err));
+        } catch (err) {
+          // WiFi sin internet: `navigator.onLine` dice que sí pero el servidor no
+          // responde. La caja se abre igual en local y sube al reconectar.
+          const { isNetworkError } = await import('@/services/connectivity/connectivityService');
+          if (!isNetworkError(err)) throw err;
+          session = await cashSessionOfflineService.queueOpenSession({
+            tenant_id: tenantId,
+            user_id: userId,
+            opening_amount: totalAmount,
+            opening_usd: openingUsd,
+          } as any);
+        }
       }
 
       onSuccess(session);

@@ -23,6 +23,10 @@ interface Row {
   detail: string; quantity: number; unit_price: number; total: number;
   cabys?: string | null; code?: string | null; product_id: string | null; product_name: string | null; exists: boolean;
   matched_by?: 'cabys' | 'sku' | 'name' | null;
+  /** El producto que coincidió NO lleva control de stock (infinito). Lo informa el backend. */
+  infinite?: boolean;
+  /** Para líneas NUEVAS: crear el producto sin control de stock (infinito). */
+  noStock?: boolean;
   action: Action;
 }
 
@@ -41,6 +45,10 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
   const [err, setErr] = useState('');
   const [result, setResult] = useState<string[] | null>(null);
   const [noInventory, setNoInventory] = useState(false);   // no afectar stock del inventario
+  // Compra que NO genera productos de catálogo: insumos de proceso, materia prima,
+  // empaques… todo lo que se compra pero no se vende en tienda. Pone todas las
+  // líneas nuevas en "No agregar" de una sola vez.
+  const [noProducts, setNoProducts] = useState(false);
   // Picker para relacionar una línea NUEVA con un producto existente.
   const [products, setProducts] = useState<PickProduct[]>([]);
   const [linkIdx, setLinkIdx] = useState<number | null>(null);
@@ -73,15 +81,27 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
     haciendaService.matchReceived(receivedId)
       .then(d => {
         setData(d);
-        setRows(d.lines.map(l => ({ ...l, action: l.exists ? 'update' : 'create' as Action })));
+        setRows(d.lines.map(l => ({ ...l, action: l.exists ? 'update' : 'create' as Action, noStock: false })));
         if (d.linked_purchase_id) setOrderId(d.linked_purchase_id);
       })
       .catch(e => setErr(e instanceof Error ? e.message : 'Error al cargar'))
       .finally(() => setLoading(false));
   }, [receivedId]);
 
-  const setAction = (i: number, action: Action) =>
+  const setAction = (i: number, action: Action) => {
+    // Si se pide crear una línea a mano, el interruptor global deja de aplicar
+    // (si no, quedaba prendido diciendo lo contrario de lo que va a pasar).
+    if (action === 'create') setNoProducts(false);
     setRows(prev => prev.map((r, idx) => idx === i ? { ...r, action } : r));
+  };
+
+  // Interruptor global. Solo toca las líneas NUEVAS: las que ya se relacionaron con
+  // un producto existente siguen actualizándose (precio/CABYS) como corresponde.
+  const toggleNoProducts = () => {
+    const next = !noProducts;
+    setNoProducts(next);
+    setRows(prev => prev.map(r => r.exists ? r : { ...r, action: next ? 'skip' : 'create' }));
+  };
 
   const missingCount = rows.filter(r => !r.exists && r.action === 'create').length;
   const updateCount = rows.filter(r => r.exists && r.action === 'update').length;
@@ -94,7 +114,12 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
     return Math.round(v * 100) / 100;
   };
   // Total a registrar = suma de los TOTALES de línea del XML (no qty×precio).
-  const total = rows.filter(r => r.action !== 'skip').reduce((s, r) => s + (Number(r.total) || r.quantity * effUnit(r)), 0);
+  // Cuentan TODAS las líneas, incluidas las que no crean producto: el dinero se
+  // gastó igual y tiene que quedar en la orden de compra.
+  const total = rows.reduce((s, r) => s + (Number(r.total) || r.quantity * effUnit(r)), 0);
+  // Monto que se registra sin generar producto de catálogo.
+  const skippedTotal = rows.filter(r => r.action === 'skip')
+    .reduce((s, r) => s + (Number(r.total) || r.quantity * effUnit(r)), 0);
 
   const accept = async () => {
     if (!data) return;
@@ -104,9 +129,11 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
         id: data.id,
         purchase_id: orderId === 'new' ? null : orderId,
         no_inventory: noInventory,
+        no_products: noProducts,
         items: rows.map(r => ({
           detail: cleanName(r.detail), quantity: r.quantity, unit_price: effUnit(r), total: r.total,
           cabys: r.cabys ?? null, product_id: r.product_id, action: r.action,
+          no_stock: r.noStock ?? noInventory,
         })),
       });
       setResult(res.messages ?? []);
@@ -168,8 +195,32 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                   </p>
                 )}
               </div>
+              {/* Selector: esta compra no genera productos de catálogo */}
+              <button
+                type="button"
+                onClick={toggleNoProducts}
+                className={`w-full flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition ${
+                  noProducts
+                    ? 'border-purple-300 bg-purple-50'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}
+              >
+                <span className={`shrink-0 w-9 h-5 rounded-full p-0.5 transition ${noProducts ? 'bg-purple-500' : 'bg-gray-300'}`}>
+                  <span className={`block w-4 h-4 bg-white rounded-full shadow transition-transform ${noProducts ? 'translate-x-4' : 'translate-x-0'}`} />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className={`block text-xs font-black ${noProducts ? 'text-purple-800' : 'text-gray-700'}`}>
+                    No crear productos con esta compra
+                  </span>
+                  <span className="block text-[11px] text-gray-500">
+                    Para insumos de proceso, materia prima o empaques que no se venden en tienda.
+                    Las líneas ya relacionadas con un producto sí actualizan precio y CABYS.
+                  </span>
+                </span>
+              </button>
+
               {/* Aviso de items faltantes */}
-              {missingCount > 0 && (
+              {missingCount > 0 && !noProducts && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2 flex items-center gap-2">
                   <AlertTriangle size={14} /> {missingCount} artículo(s) nuevo(s) — se crearán al <b>ACEPTAR el comprobante en Hacienda</b> (con su CABYS y precio).
                 </div>
@@ -205,6 +256,12 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                                 CABYS ← {r.cabys}
                               </span>
                             )}
+                            {r.infinite && (
+                              <span className="px-1 py-0.5 rounded bg-blue-100 text-blue-700 text-[9px] font-black"
+                                title="Este producto no lleva control de stock. La compra registra el monto pero NO le toca las existencias — sigue infinito.">
+                                ∞ SIN STOCK
+                              </span>
+                            )}
                             <button onClick={() => unlinkProduct(i)} className="text-[10px] text-gray-400 hover:text-red-500 underline">desvincular</button>
                           </div>
                         ) : (
@@ -214,6 +271,18 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                               className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 border border-indigo-200 rounded px-1.5 py-0.5 hover:bg-indigo-50">
                               <Link2 size={11} /> Relacionar con existente
                             </button>
+                            {r.action === 'create' && (
+                              <button
+                                onClick={() => setRows(prev => prev.map((x, idx) => idx === i ? { ...x, noStock: !(x.noStock ?? noInventory) } : x))}
+                                title="Crear el producto SIN control de stock (infinito): no se le llevan existencias ni entra en órdenes de reposición."
+                                className={`inline-flex items-center gap-1 text-[10px] font-bold rounded px-1.5 py-0.5 border ${
+                                  (r.noStock ?? noInventory)
+                                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                    : 'border-gray-200 text-gray-400 hover:bg-gray-50'
+                                }`}>
+                                ∞ {(r.noStock ?? noInventory) ? 'Sin stock' : 'Con stock'}
+                              </button>
+                            )}
                           </div>
                         )}
                         {/* Picker de producto existente */}
@@ -279,6 +348,9 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                 <span className="font-black text-gray-800">Total a registrar: {fmt(total)}</span>
                 {updateCount > 0 && <span className="text-emerald-700">✏️ {updateCount} coincide(n) → actualiza CABYS/precio</span>}
                 {createCount > 0 && <span className="text-blue-700">➕ {createCount} nuevo(s) → se crea(n)</span>}
+                {skippedTotal > 0 && (
+                  <span className="text-purple-700">📦 {fmt(skippedTotal)} sin crear producto</span>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-sm text-gray-500 mr-auto">Se registrará en la orden de compra</div>
