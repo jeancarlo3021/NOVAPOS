@@ -95,6 +95,7 @@ export const CreateOwner: React.FC = () => {
   const [renewFeBusy, setRenewFeBusy] = useState(false);
   const [testingAlanube, setTestingAlanube] = useState(false);
   const [testingWa, setTestingWa] = useState(false);
+  const [syncingCustomers, setSyncingCustomers] = useState(false);
   const [creatingAlanubeId, setCreatingAlanubeId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showCabys, setShowCabys] = useState(false);
@@ -243,6 +244,19 @@ export const CreateOwner: React.FC = () => {
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo reiniciar el negocio', 'error');
     } finally { setCreatingAlanubeId(null); }
+  };
+
+  // Migra los negocios del panel a la lista de CLIENTES del POS (para poder
+  // facturarles la suscripción). Es idempotente: re-ejecutarlo actualiza, no duplica.
+  const syncCustomers = async () => {
+    setSyncingCustomers(true);
+    try {
+      const r = await apiFetch<any>('/admin/sync-customers', { method: 'POST' });
+      showToast(`Clientes migrados: ${r?.created ?? 0} nuevos, ${r?.updated ?? 0} actualizados (de ${r?.total ?? 0} negocios)`, 'success');
+      if (r?.errors?.length) console.warn('[sync-customers]', r.errors);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudieron migrar los clientes', 'error');
+    } finally { setSyncingCustomers(false); }
   };
 
   // Diagnóstico: ¿la empresa existe en la cuenta/ambiente que usa la emisión?
@@ -615,6 +629,9 @@ export const CreateOwner: React.FC = () => {
           if (tid) await apiFetch(`/admin/tenants/${tid}/fe-plan`, { method: 'PUT', body: JSON.stringify({ fe_plan_id: formData.fePlanId }) });
         } catch { /* no bloquear la creación por el FE */ }
       }
+      // El negocio nuevo aparece también como CLIENTE en el POS (para facturarle
+      // la suscripción). No bloquea la creación si falla.
+      try { await apiFetch('/admin/sync-customers', { method: 'POST' }); } catch { /* ignore */ }
       setSuccess(`✅ Negocio creado — Email: ${formData.email}`);
       setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '' });
       setShowForm(false);
@@ -713,6 +730,11 @@ export const CreateOwner: React.FC = () => {
               disabled={testingWa}
               className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition">
               <MessageCircle size={15} /> {testingWa ? 'Enviando…' : 'Probar WhatsApp'}
+            </button>
+            <button onClick={syncCustomers} disabled={syncingCustomers}
+              className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition"
+              title="Copiar los negocios del panel a la lista de clientes del POS (para facturarles la suscripción)">
+              <Users size={15} /> {syncingCustomers ? 'Migrando…' : 'Negocios → Clientes'}
             </button>
             <Link to="/plans"
               className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition">

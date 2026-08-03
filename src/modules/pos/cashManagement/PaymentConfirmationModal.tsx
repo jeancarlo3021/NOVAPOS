@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { CreditCard, Banknote, Smartphone, X, ChevronRight, ChevronDown, Layers, HandCoins, FileCheck, Repeat, Users, Globe, MoreHorizontal } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { CreditCard, Banknote, Smartphone, X, ChevronDown, Layers, HandCoins, FileCheck, Repeat, Users, Globe, MoreHorizontal, Printer, Ban, ChevronRight } from 'lucide-react';
 import { CartItem } from '@/types/Types_POS';
 
 interface PaymentConfirmationModalProps {
@@ -65,6 +65,8 @@ export interface PaymentData {
   deliveryCommissionPct?: number;
   /** Plataforma de delivery (Uber, Didi, PedidosYa, Otro). */
   deliveryPlatform?: string;
+  /** true = cobrar SIN imprimir el tiquete (botón "Sin imprimir" / F2). */
+  skipPrint?: boolean;
 }
 
 const QUICK_AMOUNTS = [1000, 2000, 5000, 10000, 20000];
@@ -212,7 +214,54 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     setError('');
   };
 
-  const handleConfirm = () => {
+  // ── Monto recibido pre-llenado con el total ──────────────────────────────
+  // El caso más común es "pagó justo": dejando el campo lleno, cobrar en efectivo
+  // es solo F1. Si el cliente paga con un billete mayor, se sobreescribe (el campo
+  // se auto-selecciona al enfocarlo) o se usa un botón de monto rápido.
+  useEffect(() => {
+    if (isMixed || method !== 'cash') return;
+    setReceived(isUsd ? String(totalUsd) : String(Math.round(total)));
+  }, [method, total, isUsd, totalUsd, isMixed]);
+
+  const confirmDisabled = loading || (isMixed ? !mixedValid : !cashOk);
+
+  // Foco en "Monto recibido" al abrir (y al volver a efectivo), con el total ya
+  // seleccionado: si el cliente paga con un billete mayor se escribe encima sin
+  // borrar nada; si paga justo, basta con F1.
+  const receivedRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (isMixed || method !== 'cash') return;
+    const t = setTimeout(() => { receivedRef.current?.focus(); receivedRef.current?.select(); }, 60);
+    return () => clearTimeout(t);
+  }, [method, isMixed]);
+
+  // ── F1 = cobrar e imprimir · F2 = cobrar sin imprimir ────────────────────
+  // Esc = cerrar sin cobrar (no mientras se procesa el cobro, para no dejar la
+  // venta a medias con la petición en vuelo).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (!loading) onCancel();
+        return;
+      }
+      if (e.key !== 'F1' && e.key !== 'F2') return;
+      e.preventDefault();
+      if (confirmDisabled) return;
+      handleConfirm(e.key === 'F2');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  // Mientras el modal está abierto, el POS de fondo NO debe reaccionar a F2
+  // (abriría el buscador detrás). Se marca en el body y POSProducts lo consulta.
+  useEffect(() => {
+    document.body.dataset.posModal = '1';
+    return () => { delete document.body.dataset.posModal; };
+  }, []);
+
+  const handleConfirm = (skipPrint = false) => {
     if (isMixed) {
       if (!mixedValid) {
         setError(`Falta cubrir ₡${mixedDiff.toLocaleString('es-CR')}`);
@@ -232,6 +281,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         // Si sobra, el excedente se asume vuelto en efectivo.
         change: mixedDiff < 0 ? Math.abs(mixedDiff) : 0,
         payments: splits,
+        skipPrint,
         ...deliveryData,
       });
       return;
@@ -262,6 +312,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       ...(method === 'cash' && isUsd
         ? { currency: 'USD' as const, exchangeRate: rate, changeCurrency }
         : { currency: 'CRC' as const }),
+      skipPrint,
       ...deliveryData,
     });
   };
@@ -596,9 +647,11 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                 <div>
                   <p className="text-gray-500 text-xs font-black uppercase tracking-wider mb-2 px-1">Monto recibido {isUsd ? '(en dólares)' : ''}</p>
                   <input
+                    ref={receivedRef}
                     type="number"
                     inputMode="numeric"
                     value={received}
+                    onFocus={e => e.currentTarget.select()}
                     onChange={e => { setReceived(e.target.value); setError(''); }}
                     placeholder={isUsd ? `$${totalUsd.toFixed(2)}` : `₡${total.toLocaleString()}`}
                     className="w-full text-right text-3xl font-black text-gray-900 bg-white border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-400 transition tabular-nums"
@@ -711,12 +764,32 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             </button>
             <button
               type="button"
-              onPointerDown={handleConfirm}
-              disabled={loading || (isMixed ? !mixedValid : !cashOk)}
-              className="col-span-2 h-16 rounded-2xl bg-blue-500 hover:bg-blue-600 active:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-xl transition flex items-center justify-center gap-2 shadow-sm"
+              onPointerDown={() => handleConfirm(false)}
+              disabled={confirmDisabled}
+              className="h-16 rounded-2xl bg-blue-500 hover:bg-blue-600 active:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-lg transition flex items-center justify-center gap-1.5 shadow-sm"
             >
               {loading ? 'Procesando...' : (
-                <>Confirmar cobro <ChevronRight size={24} /></>
+                <>
+                  <>
+                  <Printer size={20} /> Cobrar e imprimir
+                  <span className="px-1.5 py-0.5 rounded bg-white/25 font-mono text-[11px] leading-none">F1</span>
+                </>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onPointerDown={() => handleConfirm(true)}
+              disabled={confirmDisabled}
+              className="h-16 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-lg transition flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              {loading ? 'Procesando...' : (
+                <>
+                  <>
+                  <Ban size={20} /> Cobrar sin imprimir
+                  <span className="px-1.5 py-0.5 rounded bg-white/25 font-mono text-[11px] leading-none">F2</span>
+                </>
+                </>
               )}
             </button>
           </div>

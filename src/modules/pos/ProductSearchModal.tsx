@@ -32,8 +32,14 @@ export const ProductSearchModal: React.FC<Props> = ({
   const [activeCat, setActiveCat] = useState<string>('all');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Foco en el campo de búsqueda al abrir. Se reintenta en el siguiente frame
+  // porque el POS devuelve el foco a su campo de captura al montar el modal, y
+  // sin el reintento ese foco tardío le ganaba a este.
   useEffect(() => {
-    inputRef.current?.focus();
+    const focus = () => { inputRef.current?.focus(); inputRef.current?.select(); };
+    focus();
+    const t = setTimeout(focus, 80);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
@@ -43,6 +49,15 @@ export const ProductSearchModal: React.FC<Props> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // ── Navegación con teclado ───────────────────────────────────────────────
+  // ↑ ↓ mueven el resaltado, Enter agrega el resaltado. Se maneja en el input
+  // (que siempre tiene el foco) para no pelear con el scroll de la lista.
+  const [idx, setIdx] = useState(0);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // Al cambiar el texto o la categoría, el resaltado vuelve al primero.
+  useEffect(() => { setIdx(0); }, [term, activeCat]);
 
   // Categorías derivadas de los productos
   const categories = useMemo(() => {
@@ -64,6 +79,32 @@ export const ProductSearchModal: React.FC<Props> = ({
       return fuzzyMatch(t, p.name, p.sku, (p as any).sku2, p.description);
     });
   }, [products, term, activeCat]);
+
+  // Lista realmente pintada (y navegable con flechas).
+  const visible = useMemo(() => filtered.slice(0, 80), [filtered]);
+
+  /** ¿Se puede agregar? Solo bloquea si tracks_stock es explícitamente true y no hay. */
+  const canPick = (p: Product) =>
+    ignoreStock || (p as any).tracks_stock !== true || (p.stock_quantity ?? 0) > 0;
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setIdx(i => Math.min(i + 1, Math.max(visible.length - 1, 0)));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setIdx(i => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const p = visible[idx];
+      if (p && canPick(p)) onPick(p);
+    }
+  };
+
+  // Mantener el resaltado a la vista al moverse con las flechas.
+  useEffect(() => {
+    listRef.current?.children[idx]?.scrollIntoView({ block: 'nearest' });
+  }, [idx]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -92,6 +133,7 @@ export const ProductSearchModal: React.FC<Props> = ({
               placeholder="Buscar por nombre, SKU o código..."
               value={term}
               onChange={(e) => setTerm(e.target.value)}
+              onKeyDown={handleKeyDown}
               className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl pl-12 pr-4 py-3.5 text-lg font-semibold text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400 focus:bg-white transition"
             />
           </div>
@@ -127,8 +169,8 @@ export const ProductSearchModal: React.FC<Props> = ({
               <p className="text-base font-semibold">Sin resultados</p>
             </div>
           ) : (
-            <ul className="divide-y divide-gray-100 bg-white rounded-xl border border-gray-200">
-              {filtered.slice(0, 80).map((product) => {
+            <ul ref={listRef} className="divide-y divide-gray-100 bg-white rounded-xl border border-gray-200">
+              {visible.map((product, i) => {
                 const stock = product.stock_quantity ?? 0;
                 // Misma lógica que POSProducts: solo bloqueamos si tracks_stock
                 // está explícitamente en true. Faltante/null/false => sin bloqueo.
@@ -145,9 +187,12 @@ export const ProductSearchModal: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={() => inStock && onPick(product)}
+                      onMouseEnter={() => setIdx(i)}
                       disabled={!inStock}
                       className={`w-full flex items-center gap-3 px-4 py-3 text-left transition ${
-                        inStock ? 'hover:bg-emerald-50 active:bg-emerald-100' : 'opacity-50 cursor-not-allowed'
+                        !inStock ? 'opacity-50 cursor-not-allowed'
+                          : i === idx ? 'bg-emerald-50 ring-2 ring-inset ring-emerald-400'
+                          : 'hover:bg-emerald-50 active:bg-emerald-100'
                       }`}
                     >
                       {(product as any).image_url ? (
@@ -198,7 +243,6 @@ export const ProductSearchModal: React.FC<Props> = ({
         {/* Footer hint */}
         <div className="px-5 py-2.5 bg-gray-50 border-t border-gray-100 text-xs text-gray-500 flex justify-between shrink-0">
           <span>{filtered.length} resultado{filtered.length === 1 ? '' : 's'}</span>
-          <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-200 rounded font-mono">Esc</kbd> cerrar</span>
         </div>
       </div>
     </div>

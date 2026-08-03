@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Plus, Search, RotateCw, FileSpreadsheet, Tag, Printer, X } from 'lucide-react';
-import { useOfflineSync } from '@/hooks/useOfflineSync';
+import { Plus, Search, RotateCw, FileSpreadsheet, Tag, Printer, X, Download } from 'lucide-react';
+import { downloadXlsx } from '@/utils/xlsx';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
@@ -11,7 +11,7 @@ import { ProductForm } from './ProductsForm';
 import { ProductCard } from './ProductCard';
 import { BulkProductImportModal } from './BulkProductImportModal';
 import { BulkPrintLabelsModal } from '@/modules/labels/BulkPrintLabelsModal';
-import { Alert, LoadingState, Badge, Button, Card, CardContent } from '@/components/ui/uiComponents';
+import { Alert, LoadingState, Button, Card, CardContent } from '@/components/ui/uiComponents';
 
 export const ProductsList: React.FC = () => {
   const { tenantId } = useTenantId();
@@ -20,7 +20,6 @@ export const ProductsList: React.FC = () => {
   const canCreate = canDo('inventory', 'create');
   const canEdit   = canDo('inventory', 'edit');
   const canDelete = canDo('inventory', 'delete');
-  const { isOnline } = useOfflineSync();
   const hasStockAlerts = planFeatures.inventory && !(planFeatures as any).inventory_products_only;
   const [showForm, setShowForm] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
@@ -65,6 +64,43 @@ export const ProductsList: React.FC = () => {
     fuzzyMatch(searchTerm, p.name, p.sku, (p as any).sku2, (p as any).description)
   );
 
+  // Exporta a Excel con las MISMAS columnas que espera "Importar Excel", así el
+  // archivo se puede editar y volver a subir. Los números salen como número real
+  // (no texto) para poder sumarlos en Excel. Respeta el filtro de búsqueda activo.
+  const exportExcel = () => {
+    const header = [
+      'name', 'sku', 'sku2', 'description', 'supplier', 'unit_price', 'cost_price',
+      'stock_infinito', 'stock_quantity', 'min_stock_level', 'max_stock_level',
+      'category', 'unit_type', 'cabys_code', 'iva_rate',
+    ];
+    const rows = filteredProducts.map(p => {
+      const a = p as any;
+      const infinito = a.tracks_stock === false;
+      return [
+        p.name ?? '',
+        p.sku ?? '',
+        a.sku2 ?? '',
+        a.description ?? '',
+        a.supplier?.name ?? a.supplier_name ?? '',
+        Number(p.unit_price ?? 0),
+        Number(a.cost_price ?? 0),
+        infinito ? 'Sí' : 'No',
+        // Un producto de stock infinito no tiene cantidad real que exportar.
+        infinito ? '' : Number(p.stock_quantity ?? 0),
+        Number(p.min_stock_level ?? 0),
+        Number(a.max_stock_level ?? 0),
+        a.category?.name ?? a.category_name ?? '',
+        a.unit_type?.name ?? a.unit_type_name ?? '',
+        // El CABYS va como TEXTO: si sale como número, Excel come los ceros a la
+        // izquierda y el código queda inválido para Hacienda.
+        a.cabys_code ? String(a.cabys_code) : '',
+        Number(a.iva_rate ?? 0),
+      ];
+    });
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadXlsx(`productos-${stamp}`, [{ name: 'Productos', rows: [header, ...rows] }]);
+  };
+
   // Productos con stock infinito (tracks_stock=false) NO entran a las alertas:
   // su stock_quantity siempre es 0/N/A y no debería marcarse como "crítico".
   const trackedProducts = filteredProducts.filter(p => (p as any).tracks_stock !== false);
@@ -95,6 +131,17 @@ export const ProductsList: React.FC = () => {
               <Tag className="w-5 h-5 mr-2" /> Etiquetas
             </Button>
           )}
+          {!selectMode && (
+            <Button
+              onClick={exportExcel}
+              size="lg"
+              variant="secondary"
+              className="bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200"
+              disabled={loading || filteredProducts.length === 0}
+            >
+              <Download className="w-5 h-5 mr-2" /> Exportar Excel
+            </Button>
+          )}
           {!isReadOnly && canCreate && (
             <>
               <Button
@@ -118,11 +165,6 @@ export const ProductsList: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Estado de conexión */}
-      <Badge variant={isOnline ? 'success' : 'warning'}>
-        {isOnline ? 'En línea' : 'Sin conexión'}
-      </Badge>
 
       {/* Barra de selección para etiquetas */}
       {selectMode && (

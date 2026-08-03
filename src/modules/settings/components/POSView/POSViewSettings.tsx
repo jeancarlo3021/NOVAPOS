@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import {
   Hand, Mouse, Sparkles, Check, MonitorSmartphone,
-  LayoutGrid, List, Accessibility, KeyRound,
+  LayoutGrid, List, Accessibility, KeyRound, Banknote,
 } from 'lucide-react';
 import { usePOSViewMode, type POSViewPreference } from '@/hooks/usePOSViewMode';
 import { usePOSLayout, type POSLayout } from '@/hooks/usePOSLayout';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
+import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
 import { useAuth } from '@/context/AuthContext';
 
 interface Option {
@@ -39,6 +40,7 @@ const KIOSK_KEY = 'novapos_pos_kiosk_enabled';
 export function POSViewSettings() {
   const { layout, setLayout } = usePOSLayout();
   const { assisted, setAssisted } = useAssistedMode();
+  const { simpleCash, setSimpleCash } = useSimpleCashCount();
   const { planFeatures } = useAuth();
   const planAllowsKiosk = !!planFeatures?.pos_kiosk;
   const [kioskEnabled, setKioskEnabled] = useState<boolean>(() => {
@@ -140,6 +142,46 @@ export function POSViewSettings() {
       </button>
       </>
       )}
+
+      {/* ── Conteo de caja simple (un solo campo) ──────────────────────── */}
+      <div className="border-t border-gray-200 pt-6">
+        <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+          <Banknote size={24} className="text-teal-600" />
+          Conteo de caja simple
+        </h2>
+        <p className="text-gray-500 text-sm mt-1">
+          La apertura y el cierre piden un único campo con el monto de efectivo, en lugar de
+          contar billete por billete y moneda por moneda.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setSimpleCash(!simpleCash)}
+        className={`w-full text-left rounded-2xl border-2 p-5 transition flex items-start gap-4 ${
+          simpleCash
+            ? 'border-teal-500 bg-teal-50/50 shadow-md'
+            : 'border-gray-200 bg-white hover:border-gray-300'
+        }`}
+      >
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${simpleCash ? 'bg-teal-100' : 'bg-gray-100'}`}>
+          <Banknote size={22} className={simpleCash ? 'text-teal-600' : 'text-gray-400'} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-black text-gray-900 text-base mb-1">
+            {simpleCash ? 'Conteo simple ACTIVO' : 'Conteo simple (desactivado)'}
+          </h3>
+          <ul className="text-xs text-gray-600 space-y-0.5 mt-1">
+            <li>• Apertura: un solo campo con el fondo de caja</li>
+            <li>• Cierre: un solo campo con el efectivo contado</li>
+            <li>• <strong>El resto del cierre no cambia</strong>: tarjeta, SINPE, notas, resumen y diferencia siguen igual</li>
+            <li>• Más rápido, pero se pierde el desglose por billetes y monedas</li>
+          </ul>
+        </div>
+        <span className={`shrink-0 w-12 h-7 rounded-full p-0.5 transition ${simpleCash ? 'bg-teal-500' : 'bg-gray-300'}`}>
+          <span className={`block w-6 h-6 bg-white rounded-full shadow transition-transform ${simpleCash ? 'translate-x-5' : 'translate-x-0'}`} />
+        </span>
+      </button>
 
       {/* ── Sección 3: Modo Asistido ───────────────────────────────────── */}
       <div className="border-t border-gray-200 pt-6">

@@ -62,6 +62,8 @@ export interface ReceiptData {
     quantity: number;
     unitPrice: number;
     subtotal: number;
+    /** Nota de la línea (comidas: "sin cebolla", "para llevar"). */
+    notes?: string;
   }>;
   subtotal: number;
   tax: number;
@@ -288,6 +290,12 @@ export class POSPrinterService {
   async bluetoothStatus(tenantId: string): Promise<{ configured: boolean; connected: boolean }> {
     try {
       const cfg = await this.loadReceiptConfig(tenantId);
+      // Si el negocio imprime por NAVEGADOR o QZ, no hay Bluetooth que reportar
+      // aunque hayan quedado estaciones BT viejas en la config (si no, salía el
+      // aviso de "conectá el Bluetooth" en cuentas que imprimen por navegador).
+      if (cfg.printerType === 'browser' || cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+        return { configured: false, connected: true };
+      }
       const stations = (cfg.printers ?? []).filter((p: any) => p.is_active && p.connection === 'bluetooth');
       // Configurada si hay estaciones BT (aunque printerType se haya perdido).
       if (stations.length === 0 && cfg.printerType !== 'bluetooth') return { configured: false, connected: true };
@@ -385,6 +393,14 @@ export class POSPrinterService {
     // el mensaje de Bluetooth y no imprimía en cuentas de QZ).
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       for (let i = 0; i < copies; i++) await this.printQZTray(receiptData, cfg);
+      return;
+    }
+
+    // NAVEGADOR: igual que arriba, el tipo configurado manda. Sin este corte, una
+    // estación Bluetooth vieja que quedó en la config desviaba al flujo Bluetooth
+    // (salía el diálogo de Bluetooth y no imprimía nada por el navegador).
+    if (cfg.printerType === 'browser') {
+      for (let i = 0; i < copies; i++) await this.printBrowser(receiptData, cfg);
       return;
     }
 
@@ -1462,7 +1478,8 @@ export class POSPrinterService {
 
   private async printHTMLContent(html: string): Promise<void> {
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;';
+    iframe.style.cssText = 'position:fixed;top:0;left:-10000px;width:794px;height:1123px;border:0;'  // Tamaño REAL (A4 a 96dpi), no 1×1: el navegador maqueta el ticket contra
+      // el viewport del iframe, y con 1px salía comprimido/cortado en la vista previa.;
     document.body.appendChild(iframe);
     const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
     if (!doc) throw new Error('No se pudo crear el documento de impresión');
@@ -1567,7 +1584,8 @@ export class POSPrinterService {
     const html = this.generateHTML(receiptData, config);
 
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;';
+    iframe.style.cssText = 'position:fixed;top:0;left:-10000px;width:794px;height:1123px;border:0;'  // Tamaño REAL (A4 a 96dpi), no 1×1: el navegador maqueta el ticket contra
+      // el viewport del iframe, y con 1px salía comprimido/cortado en la vista previa.;
     document.body.appendChild(iframe);
 
     const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
@@ -1727,6 +1745,7 @@ export class POSPrinterService {
       <tr class="item-detail">
         <td colspan="3">&nbsp;&nbsp;${item.quantity} × ₡${fmt(wTax(item.unitPrice))}</td>
       </tr>
+      ${item.notes?.trim() ? `<tr class="item-detail"><td colspan="3"><b>&nbsp;&nbsp;* ${item.notes.trim()}</b></td></tr>` : ''}
     `).join('');
 
     const hasStoreInfo = (
@@ -1790,6 +1809,12 @@ export class POSPrinterService {
         image-rendering: pixelated !important;
       }
     }`}
+    html, body {
+      /* height:auto evita la PÁGINA EN BLANCO extra: sin esto el alto heredado del
+         viewport de impresión empujaba una segunda hoja vacía. */
+      height: auto;
+      overflow: visible;
+    }
     body {
       font-family: 'Courier New', Courier, monospace;
       font-size: 13px;
@@ -1797,12 +1822,24 @@ export class POSPrinterService {
       color: #000;
       background: #fff;
       width: ${widthMM};
+      max-width: 100%;
       margin: 0 auto;   /* centrado: evita que se corra a la derecha en papel más ancho */
       font-weight: 700;
     }
     .receipt {
       width: 100%;
       padding: 3mm 3mm 6mm;
+    }
+    /* Nada se parte a la mitad entre páginas: ni una línea de producto ni el total. */
+    tr, .total-line, .payment-block, .store-block, .footer, .section-label {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    /* Las palabras largas (nombres, correos, claves de 50 díg) se parten en vez de
+       desbordar el ancho del papel. */
+    .item-name, .customer-block, .footer, .store-line {
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .center { text-align: center; }
     .bold { font-weight: 900; }
@@ -2087,6 +2124,11 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       const spaces = charWidth - name.length - price.length;
       text(name + ' '.repeat(Math.max(1, spaces)) + price); nl();
       text(`  ${item.quantity} x ${withTax(item.unitPrice).toLocaleString('es-CR')}`); nl();
+      // Nota de la línea (cocina): se parte a lo ancho del papel.
+      if (item.notes?.trim()) {
+        const note = `  * ${item.notes.trim()}`;
+        for (let i = 0; i < note.length; i += charWidth) { text(note.slice(i, i + charWidth)); nl(); }
+      }
     }
 
     sep();

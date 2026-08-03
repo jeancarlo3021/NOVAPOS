@@ -8,6 +8,7 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { CashSession } from '@/types/Types_POS';
+import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
 
 const DENOMINATIONS = [
   { value: 50000, label: '₡50.000', type: 'billete' },
@@ -45,6 +46,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   const [error, setError] = useState('');
 
   // ── Efectivo ──
+  // Conteo simple: un solo campo con el efectivo (Configuración → POS).
+  const { simpleCash } = useSimpleCashCount();
+  const [simpleAmount, setSimpleAmount] = useState('');
   const [quantities, setQuantities] = useState<Record<number, number>>(
     Object.fromEntries(DENOMINATIONS.map(d => [d.value, 0]))
   );
@@ -167,7 +171,11 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
   // ── Totals contados ──
   const openingAmount = session.opening_amount ?? 0;
-  const cashTotal = DENOMINATIONS.reduce((s, d) => s + d.value * (quantities[d.value] ?? 0), 0);
+  // Conteo SIMPLE (Configuración → POS): un solo campo con el efectivo contado,
+  // sin desglose por denominación. El resto del cierre no cambia.
+  const cashTotal = simpleCash
+    ? Math.max(0, parseFloat(simpleAmount) || 0)
+    : DENOMINATIONS.reduce((s, d) => s + d.value * (quantities[d.value] ?? 0), 0);
   const cardTotal = parseFloat(cardAmount) || 0;
   const sinpeTotal = sinpeEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
   const grandTotal = cashTotal + cardTotal + sinpeTotal;
@@ -453,6 +461,32 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           {/* EFECTIVO */}
           {activeTab === 'cash' && (
             <div className="space-y-4">
+              {simpleCash ? (
+                <section>
+                  <p className="text-gray-500 text-sm font-black uppercase tracking-wider mb-2">
+                    💵 Efectivo contado en caja
+                  </p>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-black text-gray-400">₡</span>
+                    <input
+                      autoFocus
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={simpleAmount}
+                      onChange={e => setSimpleAmount(e.target.value)}
+                      placeholder="0"
+                      className="w-full text-right text-4xl font-black text-gray-900 bg-white border-2 border-gray-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:border-emerald-400 transition tabular-nums"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Contá TODO el efectivo de la caja (incluido el fondo de apertura). El desglose por
+                    billetes y monedas está desactivado en Configuración → POS.
+                  </p>
+                </section>
+              ) : (
+                <>
               <section>
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-xl">💵</span>
@@ -471,6 +505,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                   {monedas.map(d => <DenomCard key={d.value} d={d} />)}
                 </div>
               </section>
+                </>
+              )}
               <div className="flex items-center justify-between bg-emerald-500 rounded-2xl px-6 py-4">
                 <span className="text-emerald-100 text-lg font-bold">Total efectivo</span>
                 <span className="text-white text-3xl font-black">₡{cashTotal.toLocaleString()}</span>

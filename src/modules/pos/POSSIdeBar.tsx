@@ -7,7 +7,6 @@ interface POSSidebarProps {
   setSidebarOpen: (open: boolean) => void;
   currentSession: CashSession | null;
   user: any;
-  isOnline: boolean;
   pendingCount: number;
   onOpenCash: () => void;
   onCloseCash: () => void;
@@ -20,7 +19,6 @@ export const POSSidebar: React.FC<POSSidebarProps> = ({
   sidebarOpen,
   currentSession,
   user,
-  isOnline,
   onOpenCash,
   onCloseCash,
   onShowOriginalSidebar,
@@ -60,14 +58,6 @@ export const POSSidebar: React.FC<POSSidebarProps> = ({
       <div className="p-4 border-b border-slate-800">
         <p className="text-sm text-slate-300">Usuario:</p>
         <p className="text-xs text-slate-500">{user?.email}</p>
-      </div>
-
-      {/* Status */}
-      <div className="p-4 flex items-center gap-2">
-        <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}></div>
-        <span className="text-xs text-slate-400">
-          {isOnline ? 'En línea' : 'Sin conexión'}
-        </span>
       </div>
 
       {/* Spacer */}

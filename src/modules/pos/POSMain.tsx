@@ -40,6 +40,7 @@ import { CashOpenModal } from './cashManagement/CashOpenModal';
 import { CashCloseModal } from './cashManagement/CashCloseModal';
 import { PaymentConfirmationModal, PaymentData } from './cashManagement/PaymentConfirmationModal';
 import { QuickProductModal } from './QuickProductModal';
+import { PosShortcutsHint } from './PosShortcutsHint';
 import { BipperModal } from './BipperModal';
 import { BipperListModal } from './BipperListModal';
 import { FeQuotaWarning } from '@/components/FeQuotaWarning';
@@ -540,6 +541,13 @@ export const POSMain = () => {
         if (currentSession?.status === 'open') setShowQuickProduct(true);
         return;
       }
+      // F6: nueva venta en espera (pestaña). Va antes del guard de inputs porque
+      // el campo de captura del POS siempre tiene el foco.
+      if (e.key === 'F6') {
+        e.preventDefault();
+        if (!document.body.dataset.posModal) newTab();
+        return;
+      }
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'F12') {
@@ -554,7 +562,7 @@ export const POSMain = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cartItems.length, currentSession]);
+  }, [cartItems.length, currentSession, newTab]);
 
   // Pre-cargar configuración de impresión y conexión QZ Tray
   // para que el primer cobro sea instantáneo
@@ -742,6 +750,13 @@ export const POSMain = () => {
     }
   };
 
+  // Nota por línea (comidas: "sin cebolla", "para llevar"). Viaja con el item
+  // hasta la factura y sale impresa en el tiquete.
+  const handleSetItemNotes = (productId: string, notes: string) => {
+    setCartItems(prev => prev.map(item =>
+      item.product_id === productId ? { ...item, notes: notes.trim() || undefined } : item));
+  };
+
   const handleApplyDiscount = (productId: string, discount_percent: number) => {
     const cap = Math.max(0, Math.min(100, maxDiscountPercent));
     let pct = Math.max(0, Math.min(100, discount_percent));
@@ -810,6 +825,7 @@ export const POSMain = () => {
           quantity: item.quantity,
           unitPrice: item.unit_price,
           subtotal: item.subtotal,
+          notes: item.notes,
         })),
         subtotal: sub,
         tax,
@@ -887,7 +903,7 @@ export const POSMain = () => {
         invoiceNumber: 'PRE-TICKET',
         date: now.toLocaleDateString('es-CR'),
         time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
-        items: cartItems.map(it => ({ name: it.product.name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: it.subtotal })),
+        items: cartItems.map(it => ({ name: it.product.name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: it.subtotal, notes: it.notes })),
         subtotal, tax: taxAmount, total,
         paymentMethod: 'PROFORMA',
         customerName: selectedCustomer?.name,
@@ -999,7 +1015,7 @@ export const POSMain = () => {
         total: totSnapshot, payment_method: data.paymentMethod,
       });
       refreshPendingCount();
-      printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
+      if (!data.skipPrint) printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
       setInvoiceCounterKey(k => k + 1);
     };
 
@@ -1096,7 +1112,7 @@ export const POSMain = () => {
           }
         }
 
-        printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
+        if (!data.skipPrint) printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
         setInvoiceCounterKey(k => k + 1);
         return;
        } catch (netErr) {
@@ -1147,9 +1163,9 @@ export const POSMain = () => {
       data-assisted={assisted ? '1' : '0'}
     >
       <POSHeader
+        isOnline={isOnline}
         error={error}
         success={success}
-        isOnline={isOnline}
         pendingCount={pendingInvoices}
         syncing={syncing}
         productsCached={productsCached}
@@ -1253,9 +1269,6 @@ export const POSMain = () => {
                 <span className="text-emerald-300 mr-1">₡</span>
                 <span className="text-white">{total.toLocaleString('es-CR')}</span>
               </p>
-              <p className="text-[10px] sm:text-xs font-semibold text-emerald-200/70 mt-0.5">
-                Presiona <kbd className="px-1 py-0.5 rounded bg-emerald-500/30 border border-emerald-400/30 text-emerald-100 font-mono text-[10px]">F12</kbd> para cobrar
-              </p>
             </div>
           </div>
         </div>
@@ -1302,6 +1315,7 @@ export const POSMain = () => {
             onRemoveFromCart={handleRemoveFromCart}
             onChangeQuantity={handleChangeQuantity}
             onApplyDiscount={handleApplyDiscount}
+            onSetItemNotes={handleSetItemNotes}
             onPayment={startCobro}
             onPreTicket={printPreTicket}
             onSaveProforma={saveProforma}
@@ -1341,6 +1355,7 @@ export const POSMain = () => {
             onRemoveFromCart={handleRemoveFromCart}
             onChangeQuantity={handleChangeQuantity}
             onApplyDiscount={handleApplyDiscount}
+            onSetItemNotes={handleSetItemNotes}
             onPayment={startCobro}
             onPreTicket={printPreTicket}
             onSaveProforma={saveProforma}
@@ -1530,6 +1545,10 @@ export const POSMain = () => {
       {showDisplayTest && (
         <DisplayTestModal onClose={() => setShowDisplayTest(false)} />
       )}
+
+      {/* Comandos de teclado: chip discreto abajo a la izquierda (reemplaza los
+          recordatorios sueltos repartidos por la pantalla). */}
+      <PosShortcutsHint />
 
       {/* Aviso de cuota de comprobantes electrónicos (quedan 50/20/10 o agotados). */}
       <FeQuotaWarning />

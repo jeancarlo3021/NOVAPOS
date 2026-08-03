@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer, StickyNote } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 import type { AppliedCombo } from '@/services/promotions/promotionsService';
 
@@ -27,6 +27,15 @@ function QtyInput({ value, onCommit, className }: { value: number; onCommit: (n:
         if (!isNaN(n) && n > 0) onCommit(n);
       }}
       onBlur={() => { const n = parseFloat(text); if (isNaN(n) || n <= 0) setText(String(value)); }}
+      onKeyDown={e => {
+        // Enter/Esc confirma y DEVUELVE el foco al campo de captura del POS, para
+        // seguir digitando códigos sin tener que volver con el mouse.
+        if (e.key !== 'Enter' && e.key !== 'Escape') return;
+        e.preventDefault();
+        if (e.key === 'Escape') setText(String(value));
+        e.currentTarget.blur();
+        window.dispatchEvent(new CustomEvent('pos:focus-search'));
+      }}
       className={className}
     />
   );
@@ -57,6 +66,8 @@ interface POSCartPanelProps {
   /** Tope máximo de descuento (%) según configuración del negocio. */
   maxDiscountPercent?: number;
   onApplyDiscount?: (productId: string, discountPct: number) => void;
+  /** Guarda la nota de una línea (comidas: "sin cebolla", "para llevar"). */
+  onSetItemNotes?: (productId: string, notes: string) => void;
   onPayment: () => void;
   /** Imprime un pre-ticket (proforma, sin cobrar). */
   onPreTicket?: () => void;
@@ -89,6 +100,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   canDiscount,
   maxDiscountPercent = 100,
   onApplyDiscount,
+  onSetItemNotes,
   onPayment,
   onPreTicket,
   expanded = false,
@@ -98,6 +110,76 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
   const canPay = cartItems.length > 0 && currentSession?.status === 'open' && !loading;
+
+  // ── Selección del carrito con el teclado ─────────────────────────────────
+  // ↑ ↓ mueven la línea seleccionada y Supr (Delete) la borra. Se identifica por
+  // product_id, no por índice, para que la selección sobreviva a que se agreguen
+  // o quiten líneas. NO actúa mientras se escribe en un input (el campo de
+  // captura del POS usa las mismas flechas para elegir coincidencias).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Línea cuya nota se está escribiendo (product_id) + texto en edición.
+  const [notingId, setNotingId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+
+  const openNote = (item: CartItem) => {
+    setSelectedId(item.product_id);
+    setNotingId(item.product_id);
+    setNoteDraft(item.notes ?? '');
+  };
+  const commitNote = () => {
+    if (notingId) onSetItemNotes?.(notingId, noteDraft);
+    setNotingId(null);
+    setNoteDraft('');
+    window.dispatchEvent(new CustomEvent('pos:focus-search'));
+  };
+
+  // La selección se descarta si la línea ya no está (se borró o se cobró).
+  useEffect(() => {
+    if (selectedId && !cartItems.some(i => i.product_id === selectedId)) setSelectedId(null);
+  }, [cartItems, selectedId]);
+
+  useEffect(() => {
+    /** Aplica una tecla de navegación al carrito. Devuelve true si la consumió. */
+    const applyKey = (key: string): boolean => {
+      if (cartItems.length === 0) return false;
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        const cur = cartItems.findIndex(i => i.product_id === selectedId);
+        // Sin selección: ↓ toma la primera línea, ↑ la última.
+        const next = cur === -1
+          ? (key === 'ArrowDown' ? 0 : cartItems.length - 1)
+          : Math.max(0, Math.min(cartItems.length - 1, cur + (key === 'ArrowDown' ? 1 : -1)));
+        setSelectedId(cartItems[next].product_id);
+        return true;
+      }
+      if (key === 'Delete') {
+        if (!selectedId) return false;
+        // Se selecciona la línea siguiente para poder borrar varias seguidas.
+        const cur = cartItems.findIndex(i => i.product_id === selectedId);
+        const after = cartItems[cur + 1] ?? cartItems[cur - 1] ?? null;
+        onRemoveFromCart(selectedId);
+        setSelectedId(after?.product_id ?? null);
+        return true;
+      }
+      if (key === 'Escape') { setSelectedId(null); return true; }
+      return false;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (applyKey(e.key)) e.preventDefault();
+    };
+    // El campo de captura del POS siempre tiene el foco, así que nos REENVÍA las
+    // flechas/Supr cuando él no las necesita (sin coincidencias que recorrer).
+    const onForwarded = (e: Event) => applyKey((e as CustomEvent<{ key: string }>).detail?.key ?? '');
+
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pos:cart-key', onForwarded);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pos:cart-key', onForwarded);
+    };
+  }, [cartItems, selectedId, onRemoveFromCart]);
 
 
   const handlePaymentClick = () => {
@@ -173,6 +255,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
             <thead className="sticky top-0 bg-gray-50 border-b border-gray-200 text-[11px] uppercase tracking-wider text-gray-500 font-bold">
               <tr>
                 <th className="text-left px-3 py-2">Producto</th>
+                <th className="text-center px-2 py-2 w-20">Disp.</th>
                 <th className="text-center px-2 py-2 w-32">Cantidad</th>
                 <th className="text-right px-2 py-2 w-24">P/U</th>
                 {canDiscount && <th className="text-center px-2 py-2 w-20">Desc. %</th>}
@@ -187,7 +270,13 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                 const originalSubtotal = item.unit_price * item.quantity;
                 const showOriginal = hasDiscount || hasPromo;
                 return (
-                  <tr key={item.product_id} className="border-b border-gray-100 hover:bg-emerald-50/40">
+                  <tr key={item.product_id}
+                    onClick={() => setSelectedId(item.product_id)}
+                    className={`border-b border-gray-100 cursor-pointer ${
+                      selectedId === item.product_id
+                        ? 'bg-emerald-100/70 outline outline-2 -outline-offset-2 outline-emerald-500'
+                        : 'hover:bg-emerald-50/40'
+                    }`}>
                     <td className="px-3 py-1.5">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="font-bold text-gray-900 truncate">{item.product.name}</span>
@@ -197,7 +286,57 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                             {item.promo!.type === '2x1' ? '2×1' : item.promo!.type === 'percentage' ? `${item.promo!.value}%` : `-₡${item.promo!.value}`}
                           </span>
                         )}
+                        {/* Nota de la línea: se abre con el botón y se guarda con Enter. */}
+                        {onSetItemNotes && notingId !== item.product_id && (
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); openNote(item); }}
+                            title={item.notes ? `Nota: ${item.notes}` : 'Agregar nota (ej. sin cebolla)'}
+                            className={`shrink-0 p-1 rounded transition ${
+                              item.notes ? 'text-amber-600 hover:bg-amber-100' : 'text-gray-300 hover:text-gray-600 hover:bg-gray-100'
+                            }`}
+                          >
+                            <StickyNote size={14} />
+                          </button>
+                        )}
                       </div>
+                      {/* Nota guardada, visible bajo el nombre. */}
+                      {item.notes && notingId !== item.product_id && (
+                        <p className="text-[11px] text-amber-700 font-semibold truncate pl-0.5">↳ {item.notes}</p>
+                      )}
+                      {notingId === item.product_id && (
+                        <input
+                          autoFocus
+                          value={noteDraft}
+                          onChange={e => setNoteDraft(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          onBlur={commitNote}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') { e.preventDefault(); commitNote(); }
+                            else if (e.key === 'Escape') { e.preventDefault(); setNotingId(null); setNoteDraft(''); }
+                          }}
+                          placeholder="Nota: sin cebolla, para llevar…"
+                          className="mt-1 w-full text-[12px] border border-amber-300 bg-amber-50 rounded px-2 py-1 outline-none focus:border-amber-500"
+                        />
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
+                      {(() => {
+                        // Existencias que QUEDARÍAN al cobrar esta venta. Los productos
+                        // sin control de stock (tracks_stock=false) muestran ∞.
+                        const p: any = item.product ?? {};
+                        if (p.tracks_stock === false) {
+                          return <span className="text-blue-600 font-bold">∞</span>;
+                        }
+                        const left = Number(p.stock_quantity ?? 0) - Number(item.quantity ?? 0);
+                        return (
+                          <span className={`font-bold tabular-nums ${
+                            left < 0 ? 'text-red-600' : left === 0 ? 'text-amber-600' : 'text-gray-500'
+                          }`}>
+                            {Number.isInteger(left) ? left : left.toFixed(2)}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-2 py-1.5">
                       <div className="flex items-center justify-center gap-1">
@@ -270,7 +409,11 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               const showOriginal = hasDiscount || hasPromo;
 
               return (
-              <li key={item.product_id} className="py-1.5">
+              <li key={item.product_id}
+                onClick={() => setSelectedId(item.product_id)}
+                className={`py-1.5 px-1.5 -mx-1.5 rounded-lg cursor-pointer ${
+                  selectedId === item.product_id ? 'bg-emerald-100/70 ring-2 ring-emerald-500' : ''
+                }`}>
                 {/* Fila 1: nombre + subtotal + eliminar */}
                 <div className="flex items-center gap-2">
                   <span className="flex-1 min-w-0 text-gray-900 text-sm font-bold leading-tight truncate">

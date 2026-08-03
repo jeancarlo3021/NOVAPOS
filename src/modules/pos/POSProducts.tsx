@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Search, Package, Plus, CheckCircle2, XCircle, Star, StarOff } from 'lucide-react';
 import { Product, CashSession } from '@/types/Types_POS';
 import { WeightInputModal } from './WeightInputModal';
@@ -15,6 +15,7 @@ import { useTenantId } from '@/hooks/useTenant';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSLayout } from '@/hooks/usePOSLayout';
 import { ProductSearchModal } from './ProductSearchModal';
+import { fuzzyMatch } from '@/utils/fuzzySearch';
 
 // Abbreviations that require weight input when requires_weight is not set in DB
 const WEIGHT_ABBREVS = new Set(['kg', 'g', 'lb', 'lbs', 'oz', 'gr', 'kilo', 'kilos']);
@@ -88,11 +89,16 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   const [scanValue, setScanValue]           = useState('');
   const [scanFeedback, setScanFeedback]     = useState<ScanFeedback | null>(null);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  // Captura rápida del modo lista: texto digitado + índice resaltado.
+  const [quickTerm, setQuickTerm] = useState('');
+  const [quickIdx, setQuickIdx] = useState(0);
   // Lista de categorías cargada por separado del backend (más confiable que
   // depender del JOIN en /products que puede no estar disponible si el deploy
   // del backend es viejo o si vienen del cache offline sin la relación).
   const [allCategories, setAllCategories] = useState<{ id: string; name: string }[]>([]);
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const quickInputRef = useRef<HTMLInputElement>(null);
+  const nameSearchRef = useRef<HTMLInputElement>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -133,11 +139,56 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   // Hook: global scanner listener (fires when scanner types while no other input is focused)
   useBarcodeScanner({ inputRef: scanInputRef, onScan: handleScan, enabled: true });
 
-  // Auto-focus scanner input on mount
+  // Al cerrarse el modal de PESO/decimales o el buscador, el foco se queda en el
+  // modal desmontado y el siguiente código digitado se pierde. Lo devolvemos al
+  // campo de captura rápida. El timeout deja que el modal termine de desmontarse
+  // (si enfocamos antes, el propio modal se lo lleva de vuelta al salir).
   useEffect(() => {
-    scanInputRef.current?.focus();
+    if (layout !== 'list') return;
+    if (weightProduct || showSearchModal) return;
+    const t = setTimeout(() => quickInputRef.current?.focus(), 60);
+    return () => clearTimeout(t);
+  }, [layout, weightProduct, showSearchModal]);
+
+  // ── F2 = buscador (estilo Eleventa) ──────────────────────────────────────
+  // En modo LISTA abre DIRECTO el modal con categorías: el campo de captura ya
+  // queda enfocado solo, así que F2 no se gasta en enfocar. En modo cuadrícula
+  // (sin modal) enfoca la barra de búsqueda por nombre.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2') return;
+      // Con un modal abierto (p. ej. el de cobro, donde F2 = cobrar sin imprimir)
+      // el POS de fondo no debe abrir el buscador detrás.
+      if (document.body.dataset.posModal) return;
+      e.preventDefault();
+      if (layout === 'list') {
+        setShowSearchModal(true);
+      } else {
+        nameSearchRef.current?.focus();
+        nameSearchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [layout]);
+
+  // Foco al campo de captura a pedido de otros componentes (p. ej. al confirmar
+  // la cantidad editable del carrito con Enter).
+  useEffect(() => {
+    if (layout !== 'list') return;
+    const onFocusReq = () => quickInputRef.current?.focus();
+    window.addEventListener('pos:focus-search', onFocusReq);
+    return () => window.removeEventListener('pos:focus-search', onFocusReq);
+  }, [layout]);
+
+  // Auto-focus on mount. En modo LISTA el foco va al campo de captura rápida (se
+  // digita de una); la pistola sigue funcionando porque escribe en ese mismo campo
+  // y termina con Enter, que resuelve el código exacto igual que el escáner.
+  useEffect(() => {
+    if (layout === 'list') quickInputRef.current?.focus();
+    else scanInputRef.current?.focus();
     return () => { if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current); };
-  }, []);
+  }, [layout]);
 
   const products = Array.isArray(filteredProducts) ? filteredProducts : [];
 
@@ -223,6 +274,77 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
 
   const isListLayout = layout === 'list';
 
+  // ── Captura rápida del modo LISTA ────────────────────────────────────────
+  // Un solo campo sirve para las dos cosas: si lo digitado coincide EXACTO con
+  // un código (SKU o SKU2) se agrega de una; si no, se trata como nombre y se
+  // muestran coincidencias para agregar con Enter.
+  const quickPool = allProducts.length > 0 ? allProducts : products;
+
+  const quickMatches = useMemo(() => {
+    const t = quickTerm.trim();
+    if (t.length < 2) return [];
+    const norm = t.toLowerCase();
+    // Si es un código exacto no listamos nada: el Enter lo agrega directo.
+    const exact = quickPool.some(p =>
+      p.sku?.trim().toLowerCase() === norm || (p as any).sku2?.trim().toLowerCase() === norm);
+    if (exact) return [];
+    return quickPool
+      .filter(p => fuzzyMatch(t, p.name, p.sku, (p as any).sku2, p.description))
+      .slice(0, 6);
+  }, [quickTerm, quickPool]);
+
+  const addQuick = (p: Product) => {
+    handleAdd(p);
+    setQuickTerm('');
+    setQuickIdx(0);
+    quickInputRef.current?.focus();   // listo para el siguiente artículo
+  };
+
+  const handleQuickKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Reenvía al CARRITO lo que este campo no necesita: las flechas cuando no hay
+    // coincidencias que recorrer y Supr cuando no hay texto que borrar. Así se
+    // navegan y eliminan líneas del carrito sin sacar el foco de acá.
+    const toCart = (key: string) => {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('pos:cart-key', { detail: { key } }));
+    };
+    if (e.key === 'Delete' && !quickTerm) { toCart('Delete'); return; }
+    if (e.key === 'Escape') {
+      if (!quickTerm) { toCart('Escape'); return; }   // sin texto: limpia la selección
+      setQuickTerm(''); setQuickIdx(0);
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      if (quickMatches.length === 0) { toCart('ArrowDown'); return; }
+      e.preventDefault();
+      setQuickIdx(i => Math.min(i + 1, quickMatches.length - 1));
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      if (quickMatches.length === 0) { toCart('ArrowUp'); return; }
+      e.preventDefault();
+      setQuickIdx(i => Math.max(i - 1, 0));
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const t = quickTerm.trim();
+    if (!t) return;
+    // 1) ¿Es un código exacto? → al carrito, sin más.
+    const norm = t.toLowerCase();
+    const byCode = quickPool.find(p =>
+      p.sku?.trim().toLowerCase() === norm || (p as any).sku2?.trim().toLowerCase() === norm);
+    if (byCode) { addQuick(byCode); return; }
+    // 2) Si no, la coincidencia resaltada de la lista de nombres.
+    const pick = quickMatches[quickIdx] ?? quickMatches[0];
+    if (pick) { addQuick(pick); return; }
+    // 3) Nada: mismo aviso de "no encontrado" que usa la pistola.
+    setScanFeedback({ code: t, found: false });
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = setTimeout(() => setScanFeedback(null), 2500);
+    setQuickTerm('');
+  };
+
   // ── Modo LISTA: cabecera minimalista ───────────────────────────────────
   // El input del escáner permanece en el DOM (oculto fuera de pantalla) para
   // mantener el foco y permitir que la pistola siga disparando lecturas.
@@ -232,20 +354,53 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
     return (
       <>
         <div className="shrink-0 w-full bg-white border-b border-gray-200 px-3 py-3 flex items-center gap-3">
-          {/* Botón principal: abrir modal de búsqueda */}
-          <button
-            type="button"
-            onClick={() => setShowSearchModal(true)}
-            className="flex-1 h-12 flex items-center gap-3 px-4 rounded-xl border-2 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 active:scale-[0.99] transition text-left"
-          >
-            <Search size={22} className="text-emerald-600 shrink-0" />
-            <span className="flex-1 text-emerald-700 font-bold text-base">
-              Buscar producto…
-            </span>
-            <span className="hidden sm:inline text-xs font-mono text-emerald-600/60">
-              o usa la pistola
-            </span>
-          </button>
+          {/* Campo de captura rápida: se digita un CÓDIGO o un NOMBRE y con Enter
+              el producto entra directo al carrito, sin abrir el modal. */}
+          <div className="relative flex-1">
+            <Search size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600 pointer-events-none" />
+            <input
+              ref={quickInputRef}
+              type="text"
+              value={quickTerm}
+              onChange={e => { setQuickTerm(e.target.value); setQuickIdx(0); }}
+              onKeyDown={handleQuickKeyDown}
+              placeholder="Código o nombre + Enter…"
+              autoComplete="off"
+              className="w-full h-12 pl-11 pr-24 rounded-xl border-2 border-emerald-300 bg-emerald-50 focus:bg-white focus:border-emerald-500 outline-none font-bold text-base text-emerald-900 placeholder:text-emerald-600/60 placeholder:font-bold transition"
+            />
+            <button
+              type="button"
+              onClick={() => setShowSearchModal(true)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 transition"
+            >
+              Ver todos
+            </button>
+
+            {/* Coincidencias por nombre: Enter agrega la resaltada, ↑↓ cambia. */}
+            {quickMatches.length > 0 && (
+              <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+                {quickMatches.map((p, i) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onMouseEnter={() => setQuickIdx(i)}
+                    onClick={() => addQuick(p)}
+                    className={`w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left transition ${
+                      i === quickIdx ? 'bg-emerald-50' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-bold text-gray-800 truncate">{p.name}</span>
+                      {p.sku && <span className="block text-[11px] font-mono text-gray-400">{p.sku}</span>}
+                    </span>
+                    <span className="font-black text-emerald-600 shrink-0">
+                      ₡{Number(p.unit_price ?? 0).toLocaleString('es-CR')}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Feedback del escáner (toast inline) */}
           {scanFeedback && (
@@ -388,6 +543,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
           <input
             type="text"
             placeholder="Buscar producto..."
+            ref={nameSearchRef}
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-9 sm:pl-10 pr-3 py-2 sm:py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-400 text-sm font-medium transition"

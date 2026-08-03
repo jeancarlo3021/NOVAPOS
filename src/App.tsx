@@ -7,7 +7,6 @@ import { Login } from '@/modules/auth/Login';
 import { ResetPassword } from '@/modules/auth/ResetPassword';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/modules/dashboard/Dasboard';
-import { SyncIndicator } from '@/components/SyncIndicator';
 import { HelpCenter } from '@/components/HelpCenter';
 import { QzReconnectToast } from '@/components/QzReconnectToast';
 import { BluetoothReconnectButton } from '@/components/BluetoothReconnectButton';
@@ -195,7 +194,6 @@ function AppContent() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
-        <SyncIndicator />
         <QzReconnectToast />
         <BluetoothReconnectButton />
         <HelpCenter />

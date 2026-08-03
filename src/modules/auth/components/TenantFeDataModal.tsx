@@ -66,6 +66,8 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
   // Un archivo .p12 pendiente por ambiente.
   const [certFiles, setCertFiles] = useState<{ production: File | null; sandbox: File | null }>({ production: null, sandbox: null });
   const [uploadingEnv, setUploadingEnv] = useState<'production' | 'sandbox' | null>(null);
+  const [actInfo, setActInfo] = useState<any>(null);
+  const [loadingAct, setLoadingAct] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -84,6 +86,23 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
   useEffect(() => { load(); }, [load]);
 
   const set = <K extends keyof FeData>(k: K, v: FeData[K]) => setFe(prev => ({ ...prev, [k]: v }));
+
+  // Actividades económicas REGISTRADAS en el padrón de Hacienda para esta cédula.
+  // Poner una que no esté registrada/activa hace que Hacienda rechace con -407.
+  const loadActivities = async () => {
+    const ident = String(fe.emisor_identification ?? '').replace(/\D/g, '');
+    if (!ident) { onToast('Primero poné la cédula del emisor', 'error'); return; }
+    setLoadingAct(true);
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${owner.id}/hacienda-activities?identificacion=${ident}`);
+      // El backend compara contra lo GUARDADO; acá revalidamos contra lo que hay en pantalla.
+      const current = String(fe.economic_activity_code ?? '').replace(/\D/g, '') || null;
+      const activeCodes = (r?.activities ?? []).filter((a: any) => a.activa).map((a: any) => a.codigo);
+      setActInfo({ ...r, configured: current, configured_valid: current ? activeCodes.includes(current) : null });
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'No se pudo consultar Hacienda', 'error');
+    } finally { setLoadingAct(false); }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -289,10 +308,43 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                 </div>
               </div>
               <div className="mt-3">
-                <label className={labelCls}>Actividad económica (código)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className={labelCls}>Actividad económica (código)</label>
+                  <button type="button" onClick={loadActivities} disabled={loadingAct}
+                    className="text-[11px] font-bold text-cyan-700 hover:text-cyan-900 disabled:opacity-50">
+                    {loadingAct ? 'Consultando…' : '🔎 Traer de Hacienda'}
+                  </button>
+                </div>
                 <input value={fe.economic_activity_code ?? ''} inputMode="numeric"
                   onChange={e => set('economic_activity_code', e.target.value.replace(/[^\d.]/g, ''))}
                   placeholder="Ej. 620100" className={inputCls} />
+                {actInfo && (
+                  <div className="mt-2 text-[11px] rounded-lg border border-gray-200 bg-gray-50 p-2">
+                    <p className="font-bold text-gray-700">{actInfo.nombre ?? '—'} · céd. {actInfo.identificacion}</p>
+                    {actInfo.configured && actInfo.configured_valid === false && (
+                      <p className="text-red-600 font-bold mt-1">
+                        ⚠ El código {actInfo.configured} NO está registrado/activo para esta cédula → Hacienda rechaza con -407. Elegí uno de abajo.
+                      </p>
+                    )}
+                    {actInfo.configured_valid === true && (
+                      <p className="text-emerald-600 font-bold mt-1">✓ El código configurado está registrado y activo.</p>
+                    )}
+                    <div className="mt-1.5 space-y-1 max-h-40 overflow-y-auto">
+                      {(actInfo.activities ?? []).map((a: any) => (
+                        <button key={a.codigo} type="button" onClick={() => set('economic_activity_code', a.codigo)}
+                          className={`w-full text-left px-2 py-1 rounded transition ${
+                            fe.economic_activity_code === a.codigo ? 'bg-cyan-100 font-bold' : 'hover:bg-white'
+                          } ${a.activa ? 'text-gray-700' : 'text-gray-400 line-through'}`}>
+                          <span className="font-mono">{a.codigo}</span> — {a.descripcion}
+                          {!a.activa && <span className="ml-1">(inactiva)</span>}
+                        </button>
+                      ))}
+                      {(actInfo.activities ?? []).length === 0 && (
+                        <p className="text-gray-500">Hacienda no devolvió actividades para esta cédula.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

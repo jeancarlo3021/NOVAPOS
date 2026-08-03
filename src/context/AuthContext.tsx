@@ -11,6 +11,10 @@ import { identifySentryUser, clearSentryUser } from '@/lib/sentry';
 // AUTH CACHE (localStorage) — offline support
 // ============================================
 
+import {
+  saveOfflineCredential, saveOfflineSnapshot, readOfflineSnapshot, verifyOfflineCredential,
+} from '@/services/auth/offlineLoginService';
+
 const AUTH_CACHE_KEY = 'novapos_auth_cache';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -51,6 +55,10 @@ function writeAuthCache(data: Omit<AuthCache, 'cachedAt'>) {
   try {
     localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ...data, cachedAt: Date.now() }));
   } catch {}
+  // Copia para el LOGIN OFFLINE: a diferencia del auth-cache, esta sobrevive al
+  // logout y a la limpieza por expiración de sesión, y solo se usa si el usuario
+  // vuelve a autenticarse (contra el verificador local) sin internet.
+  saveOfflineSnapshot(data);
 }
 
 function clearAuthCache() {
@@ -941,16 +949,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
       if (signInError) {
+        // Sin internet (o Supabase inalcanzable): intentar el LOGIN OFFLINE con el
+        // verificador local. Solo aplica a errores de RED — una contraseña mala
+        // online sigue fallando igual.
+        if (isNetworkError(signInError) && await tryOfflineLogin(email, password)) return;
         setError(signInError.message);
         setLoading(false);
         throw signInError;
       }
+      // Renovar el verificador del login offline (hash local, nunca la contraseña).
+      // Fire-and-forget: no bloquea el login.
+      const uid = (await supabase.auth.getSession()).data.session?.user?.id;
+      if (uid) void saveOfflineCredential(email, password, uid);
       // onAuthStateChange fires SIGNED_IN and calls handleSession.
       // Navigation happens in Login.tsx via useEffect watching user+loading.
     } catch (err) {
+      if (isNetworkError(err) && await tryOfflineLogin(email, password)) return;
       setLoading(false);
       throw err;
     }
+  };
+
+  /** Restaura la sesión desde el snapshot local si la contraseña coincide con el
+   *  verificador guardado. Devuelve true si el login offline quedó activo. */
+  const tryOfflineLogin = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const userId = await verifyOfflineCredential(email, password);
+      if (!userId) return false;
+      const snap = readOfflineSnapshot<{
+        userId: string; user: AuthUser; tenant: Tenant | null; tenants: Tenant[];
+        planFeatures: PlanFeatures; planName: string;
+      }>();
+      if (!snap || snap.userId !== userId) return false;
+
+      setUser(snap.user);
+      setTenant(snap.tenant);
+      setTenants(snap.tenants);
+      setPlanFeatures(snap.planFeatures);
+      setPlanName(snap.planName);
+      if (snap.tenant) {
+        try { localStorage.setItem('novapos_current_tenant_id', snap.tenant.id); } catch { /* ignore */ }
+      }
+      setError(null);
+      setLoading(false);
+      console.info('[auth] Sesión OFFLINE restaurada — se trabaja con datos pre-cacheados y cola offline.');
+      return true;
+    } catch { return false; }
   };
 
   // ============================================

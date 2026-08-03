@@ -78,6 +78,8 @@ export interface CartItem {
   discount_percent?: number;
   subtotal: number;
   promo?: CartItemPromo;
+  /** Nota de la línea (comidas: "sin cebolla", "término medio", "para llevar"). */
+  notes?: string;
 }
 
 export interface ShoppingCart {

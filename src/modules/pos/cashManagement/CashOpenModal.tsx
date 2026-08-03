@@ -6,6 +6,7 @@ import { cashSessionService } from '@/services/cashManagement/cashSessionsServic
 import { cashSessionCacheService } from '@/services/cache/cashSessionCacheService';
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { CashSession } from '@/types/Types_POS';
+import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
 
 interface CashOpenModalProps {
   tenantId: string;
@@ -40,19 +41,25 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [usd, setUsd] = useState('');   // dólares en efectivo al abrir (opcional)
+  // Conteo SIMPLE: un solo campo con el monto, sin cuadrícula de denominaciones.
+  const { simpleCash } = useSimpleCashCount();
+  const [simpleAmount, setSimpleAmount] = useState('');
 
   const set = (value: number, qty: number) =>
     setQuantities(prev => ({ ...prev, [value]: Math.max(0, qty) }));
 
-  const totalAmount = DENOMINATIONS.reduce(
-    (sum, d) => sum + d.value * (quantities[d.value] ?? 0), 0
-  );
+  const totalAmount = simpleCash
+    ? Math.max(0, parseFloat(simpleAmount) || 0)
+    : DENOMINATIONS.reduce((sum, d) => sum + d.value * (quantities[d.value] ?? 0), 0);
 
   const billetes = DENOMINATIONS.filter(d => d.type === 'billete');
   const monedas  = DENOMINATIONS.filter(d => d.type === 'moneda');
 
   const handleConfirm = async () => {
-    if (totalAmount <= 0) { setError('Ingresa al menos una denominación'); return; }
+    if (totalAmount <= 0) {
+      setError(simpleCash ? 'Ingresá el monto de efectivo' : 'Ingresa al menos una denominación');
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -170,7 +177,9 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
           </div>
           <div className="flex-1">
             <h2 className="text-gray-900 font-black text-2xl leading-tight">Apertura de Caja</h2>
-            <p className="text-gray-400 text-sm">Cuenta el efectivo y toca + para cada denominación</p>
+            <p className="text-gray-400 text-sm">
+              {simpleCash ? 'Escribí el monto de efectivo con el que abrís la caja' : 'Cuenta el efectivo y toca + para cada denominación'}
+            </p>
           </div>
           <button
             onClick={onCancel}
@@ -188,27 +197,63 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
             </div>
           )}
 
-          {/* Billetes */}
-          <section>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-2xl">💵</span>
-              <h3 className="text-lg font-black text-gray-700 uppercase tracking-wide">Billetes</h3>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {billetes.map(d => <DenomCard key={d.value} d={d} />)}
-            </div>
-          </section>
+          {simpleCash ? (
+            /* Conteo SIMPLE: un solo campo con el efectivo de apertura. */
+            <section>
+              <label className="block text-lg font-black text-gray-700 uppercase tracking-wide mb-3">
+                💵 Efectivo en caja
+              </label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-black text-gray-400">₡</span>
+                <input
+                  autoFocus
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.01"
+                  value={simpleAmount}
+                  onChange={e => { setSimpleAmount(e.target.value); setError(''); }}
+                  onKeyDown={e => {
+                    // Enter abre la caja de una (solo en modo simple: hay un único
+                    // campo, no hay nada más que llenar).
+                    if (e.key !== 'Enter' || loading) return;
+                    e.preventDefault();
+                    handleConfirm();
+                  }}
+                  placeholder="0"
+                  className="w-full text-right text-4xl font-black text-gray-900 bg-white border-2 border-gray-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:border-emerald-400 transition tabular-nums"
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                Es el fondo con el que arranca la caja. El desglose por billetes y monedas está
+                desactivado en Configuración → POS.
+              </p>
+            </section>
+          ) : (
+            <>
+              {/* Billetes */}
+              <section>
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-2xl">💵</span>
+                  <h3 className="text-lg font-black text-gray-700 uppercase tracking-wide">Billetes</h3>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {billetes.map(d => <DenomCard key={d.value} d={d} />)}
+                </div>
+              </section>
 
-          {/* Monedas */}
-          <section>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-2xl">🪙</span>
-              <h3 className="text-lg font-black text-gray-700 uppercase tracking-wide">Monedas</h3>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {monedas.map(d => <DenomCard key={d.value} d={d} />)}
-            </div>
-          </section>
+              {/* Monedas */}
+              <section>
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-2xl">🪙</span>
+                  <h3 className="text-lg font-black text-gray-700 uppercase tracking-wide">Monedas</h3>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {monedas.map(d => <DenomCard key={d.value} d={d} />)}
+                </div>
+              </section>
+            </>
+          )}
         </div>
 
         {/* ── Footer ── */}
