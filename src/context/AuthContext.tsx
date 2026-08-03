@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useRef, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { apiFetch } from '@/lib/api';
 import { setRememberMe } from '@/lib/authStorage';
@@ -14,6 +14,7 @@ import { identifySentryUser, clearSentryUser } from '@/lib/sentry';
 import {
   saveOfflineCredential, saveOfflineSnapshot, readOfflineSnapshot, verifyOfflineCredential,
   setOfflineSessionActive, isOfflineSessionActive,
+  holdCredentialForReauth, takeCredentialForReauth,
 } from '@/services/auth/offlineLoginService';
 
 const AUTH_CACHE_KEY = 'novapos_auth_cache';
@@ -417,6 +418,13 @@ interface AuthContextType {
   // ── Modo solo-lectura por morosidad (>15 días vencido) ────────────────
   /** True cuando el tenant está suspendido por morosidad pero aún puede ver. */
   isReadOnly: boolean;
+  // ── Sesión abierta SIN internet ───────────────────────────────────────
+  /** La sesión se abrió offline, volvió la conexión y hace falta la contraseña
+   *  para obtener el token real (la app se recargó y se perdió de memoria). */
+  needsReauth: boolean;
+  /** Convierte la sesión offline en una real. Sin argumento usa la contraseña
+   *  que quedó en memoria; con argumento, la que escriba el usuario. */
+  reauthenticate: (password?: string) => Promise<boolean>;
 }
 
 export interface BranchLite {
@@ -1031,12 +1039,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // handler y borraba todo el estado recién restaurado.
       currentUserIdRef.current = userId;
       setOfflineSessionActive(true);
+      // Solo en memoria: sirve para conseguir el token real en cuanto vuelva el
+      // internet, sin interrumpir al cajero. Ver reauthOnReconnect.
+      holdCredentialForReauth(email, password);
       setError(null);
       setLoading(false);
       console.info('[auth] Sesión OFFLINE restaurada — se trabaja con datos pre-cacheados y cola offline.');
       return true;
     } catch { return false; }
   };
+
+  /** true cuando la sesión es offline, volvió el internet y NO tenemos la
+   *  contraseña en memoria (la app se recargó): hay que pedirla una vez. */
+  const [needsReauth, setNeedsReauth] = useState(false);
+
+  /** Convierte la sesión OFFLINE en una sesión real. Si no se pasa contraseña usa
+   *  la que quedó en memoria. Devuelve true si quedó autenticado de verdad. */
+  const reauthenticate = useCallback(async (password?: string): Promise<boolean> => {
+    if (!isOfflineSessionActive()) return true;   // ya es una sesión real
+    const held = takeCredentialForReauth();
+    const email = held?.email ?? user?.email;
+    const pass = password ?? held?.password;
+    if (!email || !pass) { setNeedsReauth(true); return false; }
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+      if (error) {
+        // Contraseña cambiada en el servidor mientras estaba offline.
+        if (!isNetworkError(error)) setNeedsReauth(true);
+        return false;
+      }
+      setOfflineSessionActive(false);
+      setNeedsReauth(false);
+      const uid = (await supabase.auth.getSession()).data.session?.user?.id;
+      if (uid) void saveOfflineCredential(email, pass, uid);
+      console.info('[auth] Sesión offline convertida en sesión real.');
+      return true;
+    } catch { return false; }
+  }, [user]);
+
+  // Al volver la conexión, conseguir el token real automáticamente. Sin esto, el
+  // backend responde 401 a todo y el cajero queda a mitad de jornada sin poder
+  // hacer nada hasta volver a loguearse a mano.
+  useEffect(() => {
+    if (!user || !isOfflineSessionActive()) return;
+    let alive = true;
+    const tick = async () => {
+      if (!alive || !isOfflineSessionActive()) return;
+      const { backendReachable } = await import('@/services/connectivity/connectivityService');
+      if (await backendReachable().catch(() => false)) {
+        const ok = await reauthenticate();
+        if (!ok && alive) setNeedsReauth(!takeCredentialForReauth());
+      }
+    };
+    void tick();
+    const iv = setInterval(tick, 30_000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [user, reauthenticate]);
 
   // ============================================
   // LOGOUT
@@ -1282,6 +1340,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         switchBranch,
         reloadBranches,
         isReadOnly,
+        needsReauth,
+        reauthenticate,
       }}
     >
       {children}

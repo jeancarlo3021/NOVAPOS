@@ -8,6 +8,7 @@ import { ResetPassword } from '@/modules/auth/ResetPassword';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/modules/dashboard/Dasboard';
 import { HelpCenter } from '@/components/HelpCenter';
+import { ReauthBanner } from '@/components/ReauthBanner';
 import { QzReconnectToast } from '@/components/QzReconnectToast';
 import { BluetoothReconnectButton } from '@/components/BluetoothReconnectButton';
 import { ClearCacheShortcut } from '@/components/ClearCacheShortcut';
@@ -194,6 +195,7 @@ function AppContent() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        <ReauthBanner />
         <QzReconnectToast />
         <BluetoothReconnectButton />
         <HelpCenter />

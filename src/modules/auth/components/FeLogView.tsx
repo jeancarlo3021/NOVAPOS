@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X, MailCheck } from 'lucide-react';
+import { FileText, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X, MailCheck, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { downloadXlsx } from '@/utils/xlsx';
 import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { crDateTime } from '@/utils/datetime';
 
@@ -81,6 +82,55 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
   const [retrying, setRetrying] = useState<string | null>(null);
   const [reemitting, setReemitting] = useState<string | null>(null);
   const [crediting, setCrediting] = useState<string | null>(null);
+
+  // Descarga la bitácora a Excel con UNA FILA por comprobante y el IVA desglosado
+  // por tarifa (0/1/2/4/13 %). Respeta los mismos filtros que la vista.
+  const [exporting, setExporting] = useState(false);
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const p = new URLSearchParams();
+      if (tenantId) p.set('tenant_id', tenantId);
+      if (search) p.set('search', search);
+      if (from) p.set('from', from);
+      if (to) p.set('to', to);
+      if (onlyErrors) p.set('status', 'error');
+      const qs = p.toString();
+      const r = await apiFetch<{ rows: any[]; rates: number[] }>(`/admin/fe-log/export${qs ? '?' + qs : ''}`);
+      const rows = r?.rows ?? [];
+      if (rows.length === 0) { window.alert('No hay comprobantes en el rango seleccionado.'); return; }
+      const rates = r?.rates ?? [0, 1, 2, 4, 13];
+
+      const header = [
+        'Negocio', 'Número', 'Tipo', 'Fecha', 'Cliente', 'Estado FE', 'Clave',
+        'Cédula emisor', 'Consecutivo FE', 'Método de pago', 'Anulada',
+        ...rates.flatMap(rt => [`Base ${rt}%`, `IVA ${rt}%`]),
+        'Subtotal', 'IVA total', 'Total', 'Error',
+      ];
+      const body = rows.map(x => [
+        x.negocio ?? '',
+        // El número va como TEXTO: si sale como número, Excel se come los ceros
+        // de la izquierda ("000677" → 677) y deja de coincidir con Hacienda.
+        String(x.numero ?? ''),
+        x.tipo ?? '',
+        x.fecha ? new Date(x.fecha).toLocaleString('es-CR') : '',
+        x.cliente ?? '',
+        x.estado_fe ?? '',
+        String(x.clave ?? ''),
+        String(x.emisor_cedula ?? ''),
+        String(x.consecutivo_fe ?? ''),
+        x.metodo_pago ?? '',
+        x.anulada ?? '',
+        ...rates.flatMap(rt => [Number(x[`base_${rt}`] ?? 0), Number(x[`iva_${rt}`] ?? 0)]),
+        Number(x.subtotal ?? 0), Number(x.iva_total ?? 0), Number(x.total ?? 0),
+        x.error ?? '',
+      ]);
+      const stamp = `${from || 'inicio'}_${to || 'hoy'}`;
+      downloadXlsx(`bitacora-fe-${stamp}`, [{ name: 'Bitácora FE', rows: [header, ...body] }]);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'No se pudo descargar la bitácora');
+    } finally { setExporting(false); }
+  };
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -190,9 +240,18 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
           <h2 className="text-lg font-black text-gray-900">Bitácora de Facturas Electrónicas</h2>
           <p className="text-sm text-gray-500">Todas las emisiones FE de las empresas. Filtrá por empresa, cliente o fecha para encontrar y resolver errores rápido.</p>
         </div>
-        <button onClick={() => load()} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50" title="Actualizar">
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportExcel}
+            disabled={exporting}
+            title="Descargar a Excel: una fila por comprobante, con el IVA desglosado por tarifa"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-teal-200 bg-teal-50 text-teal-700 text-sm font-bold hover:bg-teal-100 disabled:opacity-60">
+            <Download size={15} /> {exporting ? 'Generando…' : 'Excel'}
+          </button>
+          <button onClick={() => load()} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50" title="Actualizar">
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}

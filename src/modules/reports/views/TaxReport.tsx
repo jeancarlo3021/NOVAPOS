@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Receipt, Percent, DollarSign, RefreshCw, Download, ChevronRight, ChevronDown, FlaskConical, ShoppingBag } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
-import { downloadCsv } from '@/utils/csv';
 import { downloadXlsx } from '@/utils/xlsx';
 
 interface InvoiceRow {
@@ -142,27 +141,65 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
   // (No usar toFixed: devuelve string y Excel lo trata como texto.)
   const num = (x: number): number => Math.round((Number(x) || 0) * 100) / 100;
 
-  const dlInvoices = (label: string, pred: (r: InvoiceRow) => boolean, file: string) => {
+  /** Excel por tipo: una fila por comprobante con su base, tipo de IVA e IVA. */
+  const dlInvoicesXlsx = (label: string, pred: (r: InvoiceRow) => boolean, file: string) => {
     if (!data) return;
     const filtered = data.invoices.filter(pred).sort((a, b) => (a.issued_at || '').localeCompare(b.issued_at || ''));
-    const rows: (string | number | null | undefined)[][] = [
+    const rows: any[][] = [
       ['Fecha', 'Tipo', 'N° Factura', 'Cliente', 'Cédula', 'Base', 'Tipo IVA', 'IVA', 'Total'],
       ...filtered.map(r => [(r.issued_at || '').slice(0, 10), docLabel[r.document_type] ?? label,
-        r.invoice_number, r.customer_name, r.customer_identification ?? '',
+        String(r.invoice_number ?? ''), r.customer_name, String(r.customer_identification ?? ''),
         num(r.base), ivaTipo(r.base, r.iva), num(r.iva), num(r.total)]),
     ];
-    downloadCsv(`${file}_${from}_${to}`, rows);
+    downloadXlsx(`${file}_${from}_${to}`, [{ name: label.slice(0, 31), rows }]);
     setShowDl(false);
   };
-  const dlPurchases = () => {
+
+  const dlPurchasesXlsx = () => {
     if (!data) return;
-    const rows: (string | number | null | undefined)[][] = [
+    const rows: any[][] = [
       ['Fecha', 'Clave', 'Proveedor', 'Cédula', 'Base', 'Tipo IVA', 'IVA crédito', 'Total'],
-      ...data.purchases.map(p => [(p.doc_date || '').slice(0, 10), p.clave, p.issuer_name, p.issuer_id,
-        num(p.base), ivaTipo(p.base, p.iva), num(p.iva), num(p.total)]),
+      ...data.purchases.map(p => [(p.doc_date || '').slice(0, 10), String(p.clave ?? ''), p.issuer_name,
+        String(p.issuer_id ?? ''), num(p.base), ivaTipo(p.base, p.iva), num(p.iva), num(p.total)]),
     ];
-    downloadCsv(`compras_${from}_${to}`, rows);
+    downloadXlsx(`compras_${from}_${to}`, [{ name: 'Compras', rows }]);
     setShowDl(false);
+  };
+
+  // ── Excel tipo BITACORA: una fila por comprobante con TODAS las tarifas de IVA
+  //    que tiene (base e IVA por 0/1/2/4/13 %). Una factura con productos a 13 % y
+  //    a 1 % aparece con ambas columnas llenas, en la misma fila.
+  const [dlBreak, setDlBreak] = useState(false);
+  const dlBreakdown = async (label: string, kinds: string[] | null, file: string) => {
+    setDlBreak(true);
+    try {
+      const p = new URLSearchParams();
+      if (from) p.set('from', from);
+      if (to) p.set('to', to);
+      if (env) p.set('environment', env);
+      const r = await apiFetch<{ rows: any[]; rates: number[] }>(`/reports/taxes/breakdown?${p.toString()}`);
+      const rates = r?.rates ?? [0, 1, 2, 4, 13];
+      let rows = r?.rows ?? [];
+      if (kinds) rows = rows.filter(x => kinds.includes(String(x.tipo)));
+      if (rows.length === 0) { window.alert('No hay comprobantes de ese tipo en el rango.'); return; }
+      const header = [
+        'Fecha', 'Tipo', 'N° Factura', 'Cliente', 'Cédula', 'Clave', 'Anulada', 'Tiene NC', 'Tiene ND',
+        ...rates.flatMap(rt => [`Base ${rt}%`, `IVA ${rt}%`]),
+        'Subtotal', 'IVA total', 'Total',
+      ];
+      const body = rows.map(x => [
+        String(x.fecha ?? '').slice(0, 10),
+        docLabel[x.tipo] ?? x.tipo ?? '',
+        String(x.numero ?? ''), x.cliente ?? '', String(x.cedula ?? ''), String(x.clave ?? ''),
+        x.anulada ?? '', x.tiene_nc ?? '', x.tiene_nd ?? '',
+        ...rates.flatMap(rt => [Number(x[`base_${rt}`] ?? 0), Number(x[`iva_${rt}`] ?? 0)]),
+        Number(x.subtotal ?? 0), Number(x.iva_total ?? 0), Number(x.total ?? 0),
+      ]);
+      downloadXlsx(`${file}_iva_desglosado_${from}_${to}`, [{ name: label.slice(0, 31), rows: [header, ...body] }]);
+      setShowDl(false);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'No se pudo generar el desglose');
+    } finally { setDlBreak(false); }
   };
 
   // Descargar TODAS en un solo Excel, una HOJA por tipo.
@@ -190,17 +227,25 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
     setShowDl(false);
   };
 
-  const DL_OPTIONS: { label: string; count: number; run: () => void }[] = data ? [
-    { label: '⬇ TODAS — Excel (una hoja por tipo)', count: data.invoices.length + data.purchases.length, run: dlAll },
+  // Cada tipo ofrece DOS formatos: CSV (para importar en otros sistemas) y Excel
+  // (montos como número, listos para sumar).
+  const DL_OPTIONS: { label: string; count: number; xlsx: () => void; breakdown?: () => void }[] = data ? [
+    { label: '⬇ TODAS — una hoja por tipo', count: data.invoices.length + data.purchases.length, xlsx: dlAll,
+      breakdown: () => dlBreakdown('Todos', null, 'todos') },
     { label: 'Tiquetes electrónicos', count: data.invoices.filter(r => r.kind === 'venta' && r.document_type === 'tiquete_electronico').length,
-      run: () => dlInvoices('Tiquete electrónico', r => r.kind === 'venta' && r.document_type === 'tiquete_electronico', 'tiquetes_electronicos') },
+      xlsx: () => dlInvoicesXlsx('Tiquete electrónico', r => r.kind === 'venta' && r.document_type === 'tiquete_electronico', 'tiquetes_electronicos'),
+      breakdown: () => dlBreakdown('Tiquetes electrónicos', ['tiquete_electronico'], 'tiquetes_electronicos') },
     { label: 'Facturas electrónicas', count: data.invoices.filter(r => r.kind === 'venta' && r.document_type === 'factura_electronica').length,
-      run: () => dlInvoices('Factura electrónica', r => r.kind === 'venta' && r.document_type === 'factura_electronica', 'facturas_electronicas') },
+      xlsx: () => dlInvoicesXlsx('Factura electrónica', r => r.kind === 'venta' && r.document_type === 'factura_electronica', 'facturas_electronicas'),
+      breakdown: () => dlBreakdown('Facturas electrónicas', ['factura_electronica'], 'facturas_electronicas') },
+    { label: 'Corrientes', count: data.invoices.filter(r => r.kind === 'venta' && r.document_type === 'ticket').length,
+      xlsx: () => dlInvoicesXlsx('Corriente', r => r.kind === 'venta' && r.document_type === 'ticket', 'corrientes'),
+      breakdown: () => dlBreakdown('Corrientes', ['ticket'], 'corrientes') },
     { label: 'Notas de crédito', count: data.invoices.filter(r => r.kind === 'nc').length,
-      run: () => dlInvoices('Nota de crédito', r => r.kind === 'nc', 'notas_credito') },
+      xlsx: () => dlInvoicesXlsx('Nota de crédito', r => r.kind === 'nc', 'notas_credito') },
     { label: 'Notas de débito', count: data.invoices.filter(r => r.kind === 'nd').length,
-      run: () => dlInvoices('Nota de débito', r => r.kind === 'nd', 'notas_debito') },
-    { label: 'Compras (crédito fiscal)', count: data.purchases.length, run: dlPurchases },
+      xlsx: () => dlInvoicesXlsx('Nota de débito', r => r.kind === 'nd', 'notas_debito') },
+    { label: 'Compras (crédito fiscal)', count: data.purchases.length, xlsx: dlPurchasesXlsx },
   ] : [];
 
   if (loading) return <div className="flex items-center justify-center py-16 text-gray-400"><RefreshCw size={22} className="animate-spin" /></div>;
@@ -242,16 +287,27 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
         <div className="relative ml-auto" ref={dlRef}>
           <button onClick={() => setShowDl(v => !v)}
             className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg px-3 py-2">
-            <Download size={14} /> Descargar CSV <ChevronDown size={13} />
+            <Download size={14} /> Descargar <ChevronDown size={13} />
           </button>
           {showDl && (
-            <div className="absolute right-0 mt-1 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden">
+            <div className="absolute right-0 mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden">
               {DL_OPTIONS.map((o, i) => (
-                <button key={i} onClick={o.run} disabled={o.count === 0}
-                  className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-left hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed border-b border-gray-50 last:border-0">
-                  <span className="font-bold text-gray-700">{o.label}</span>
-                  <span className="text-[11px] text-gray-400">{o.count}</span>
-                </button>
+                <div key={i} className="flex items-center gap-2 px-3 py-2 border-b border-gray-50 last:border-0">
+                  <span className="flex-1 min-w-0 text-sm font-bold text-gray-700 truncate">{o.label}</span>
+                  <span className="text-[11px] text-gray-400 shrink-0">{o.count}</span>
+                  <button onClick={o.xlsx} disabled={o.count === 0}
+                    title="Excel: una fila por comprobante con su IVA"
+                    className="shrink-0 px-2 py-1 rounded-md text-[11px] font-black border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Excel
+                  </button>
+                  {o.breakdown && (
+                    <button onClick={o.breakdown} disabled={o.count === 0 || dlBreak}
+                      title="Excel tipo bitácora: una fila por comprobante con TODAS las tarifas de IVA que tiene (base e IVA por 0/1/2/4/13 %)"
+                      className="shrink-0 px-2 py-1 rounded-md text-[11px] font-black border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                      {dlBreak ? '…' : 'IVA ⊞'}
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -378,9 +434,9 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
             <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5"><ShoppingBag size={16} className="text-emerald-600" /> Compras (crédito fiscal)</h2>
             <p className="text-xs text-gray-400">Comprobantes electrónicos recibidos de proveedores · {T.purchCount} documento(s)</p>
           </div>
-          <button onClick={dlPurchases} disabled={T.purchCount === 0}
+          <button onClick={dlPurchasesXlsx} disabled={T.purchCount === 0}
             className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 rounded-lg px-3 py-1.5">
-            <Download size={13} /> CSV
+            <Download size={13} /> Excel
           </button>
         </div>
         {T.purchCount === 0 ? (

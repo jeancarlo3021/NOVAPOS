@@ -219,12 +219,29 @@ if (typeof window !== 'undefined') {
 
 const ACTIVE_KEY = 'novapos_offline_session_active';
 
+// ── Contraseña EN MEMORIA para reautenticar al volver el internet ───────────
+// NO se persiste NUNCA (ni localStorage ni IndexedDB): vive solo mientras la
+// pestaña esté abierta. Con esto, si el internet vuelve durante la jornada, la
+// sesión se convierte en una real sin molestar al cajero. Si la app se recargó,
+// la memoria se perdió y hay que pedir la contraseña una vez.
+let pendingCredential: { email: string; password: string } | null = null;
+
+export function holdCredentialForReauth(email: string, password: string): void {
+  pendingCredential = { email, password };
+}
+export function takeCredentialForReauth(): { email: string; password: string } | null {
+  return pendingCredential;
+}
+export function forgetCredentialForReauth(): void {
+  pendingCredential = null;
+}
+
 /** Marca que la sesión actual se abrió SIN internet (no hay token de Supabase).
  *  Se usa al recargar para restaurar el snapshot en vez de mandar al login. */
 export function setOfflineSessionActive(active: boolean): void {
   try {
     if (active) localStorage.setItem(ACTIVE_KEY, '1');
-    else        localStorage.removeItem(ACTIVE_KEY);
+    else        { localStorage.removeItem(ACTIVE_KEY); forgetCredentialForReauth(); }
   } catch { /* ignore */ }
 }
 
