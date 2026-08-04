@@ -22,7 +22,18 @@ export const TYPE_CFG = {
   fixed:      { label: 'Monto fijo',  icon: '₡', color: 'bg-blue-500'   },
   '2x1':      { label: '2×1',         icon: '2', color: 'bg-amber-500'  },
   combo:      { label: 'Combo',       icon: '🍔', color: 'bg-rose-500'  },
+  qty_bundle: { label: 'Por cantidad', icon: '⚖️', color: 'bg-emerald-500' },
 } as const;
+
+/**
+ * Configuración visual del tipo, con respaldo.
+ *
+ * Hay filas viejas con tipos que ya no se ofrecen ('bogo', 'bundle'); sin este
+ * respaldo, abrir la lista con una de ellas reventaba al leer `.color`.
+ */
+export const typeCfgOf = (t: string) =>
+  (TYPE_CFG as Record<string, { label: string; icon: string; color: string }>)[t]
+  ?? { label: t, icon: '★', color: 'bg-gray-400' };
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 

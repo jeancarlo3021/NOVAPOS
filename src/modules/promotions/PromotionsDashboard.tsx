@@ -18,7 +18,7 @@ import {
 import { StatusBadge } from './components/StatusBadge';
 import { KPI } from './components/KPI';
 import { FormModal } from './components/FormModal';
-import { TYPE_CFG, today, fmtDate, type FilterTab } from './components/types';
+import { typeCfgOf, today, fmtDate, type FilterTab } from './components/types';
 
 // ── Offline queue for promotions ──────────────────────────────────────────────
 
@@ -245,7 +245,7 @@ export const PromotionsDashboard: React.FC = () => {
             </p>
             <div className="flex flex-wrap gap-2">
               {activeToday.map(p => {
-                const typeCfg = TYPE_CFG[p.type];
+                const typeCfg = typeCfgOf(p.type);
                 return (
                   <div key={p.id}
                     className="flex items-center gap-2 bg-white border border-violet-200 rounded-xl px-3 py-2 shadow-sm">
@@ -295,7 +295,7 @@ export const PromotionsDashboard: React.FC = () => {
           <div className="space-y-3">
             {filtered.map(p => {
               const status     = getPromoStatus(p);
-              const typeCfg    = TYPE_CFG[p.type];
+              const typeCfg    = typeCfgOf(p.type);
               const isToggling = togglingId === p.id;
               const isDeleting = deletingId === p.id;
               const isLocal    = !!(p as any).__local;

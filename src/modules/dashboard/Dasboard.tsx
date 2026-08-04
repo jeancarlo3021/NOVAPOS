@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
   TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
-  Receipt, FileText, Inbox,
+  Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -38,10 +38,12 @@ interface Tile {
   icon: React.ElementType;
   path: string;
   bg: string; // gradient classes
+  /** Roles que NO ven este botón (separación de funciones, no permisos). */
+  hideForRoles?: string[];
 }
 
 const ALL_TILES: Tile[] = [
-  { feature: 'pos',              label: 'Vender',          icon: ShoppingCart,  path: '/pos',              bg: 'from-emerald-500 to-emerald-600' },
+  { feature: 'pos',              label: 'Vender',          icon: ShoppingCart,  path: '/pos',              bg: 'from-emerald-500 to-emerald-600', hideForRoles: ['cajero', 'agente'] },
   { feature: 'fe_pos',           label: 'POS Electrónico', icon: Receipt,     path: '/fe-pos',           bg: 'from-blue-600 to-indigo-600'      },
   { feature: 'proformas',        label: 'Proformas',       icon: FileText,      path: '/proformas',        bg: 'from-amber-500 to-orange-600'      },
   { feature: 'electronic_invoice', label: 'FE Facturas',   icon: FileText,     path: '/fe-facturas',      bg: 'from-cyan-500 to-sky-600'         },
@@ -57,6 +59,16 @@ const ALL_TILES: Tile[] = [
   { feature: 'customers',        label: 'Clientes',        icon: UserCircle,    path: '/customers',        bg: 'from-teal-500 to-cyan-600'        },
   { feature: 'distribution',     label: 'Distribución',    icon: Truck,         path: '/distribution',     bg: 'from-cyan-500 to-blue-600'        },
   { feature: 'distribution',     label: 'Repartidor',      icon: PackageCheck,  path: '/driver',           bg: 'from-blue-500 to-indigo-600'      },
+  // Flujo agente → caja. Cada rol ve solo el suyo (ver `hideForRoles` abajo).
+  { feature: 'sales_agents',     label: 'Caja',            icon: Inbox,         path: '/caja',             bg: 'from-emerald-600 to-teal-700',  hideForRoles: ['agente'] },
+  { feature: 'sales_agents',     label: 'Nuevo pedido',    icon: Send,          path: '/agent-orders',     bg: 'from-sky-500 to-blue-600',      hideForRoles: ['cajero'] },
+  { feature: 'sales_agents',     label: 'Agentes',         icon: UserCheck,     path: '/sales-agents',     bg: 'from-sky-600 to-indigo-600',    hideForRoles: ['cajero', 'agente'] },
+  { feature: 'returns',          label: 'Devoluciones',    icon: Undo2,         path: '/returns',          bg: 'from-rose-600 to-pink-700'        },
+  { feature: 'supplier_returns', label: 'Devol. proveedor', icon: Truck,        path: '/supplier-returns', bg: 'from-amber-600 to-orange-700'     },
+  { feature: 'tables',           label: 'Mapa de Mesas',   icon: LayoutGrid,    path: '/tables',           bg: 'from-orange-500 to-red-500'       },
+  { feature: 'modifiers',        label: 'Extras',          icon: Layers,        path: '/modifiers',        bg: 'from-violet-600 to-fuchsia-600'   },
+  // Vista de cartera del contador: datos del negocio, plan y comprobantes.
+  { feature: 'reports',           label: 'Negocios',        icon: Building2,     path: '/businesses',       bg: 'from-indigo-600 to-violet-700'    },
   { feature: 'users',            label: 'Usuarios',        icon: Users,         path: '/users',            bg: 'from-fuchsia-500 to-pink-500'     },
   { feature: 'settings',         label: 'Configuración',   icon: Settings,      path: '/settings',         bg: 'from-slate-600 to-slate-700'      },
 ];
@@ -196,6 +208,9 @@ export const Dashboard = () => {
   // Admin/owner: siempre ve la Recepción de facturas (por correo).
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
   const tiles = ALL_TILES.filter(t => {
+    // Separación de funciones: el cajero cobra pero no arma ventas; el agente
+    // arma pedidos pero no ve la caja. No es un "permiso", es el flujo.
+    if (t.hideForRoles?.includes(user?.role as any) && !isAdmin) return false;
     // Recepción de comprobantes: ahora es POR CORREO (no depende de Alanube).
     // El admin/owner siempre la ve; para el resto, requiere el plan + rol.
     if (t.path === '/fe-recepcion') {

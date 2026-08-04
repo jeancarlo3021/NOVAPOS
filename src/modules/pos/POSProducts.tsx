@@ -12,10 +12,13 @@ import {
 } from '@/services/promotions/promotionsService';
 import { categoriesService } from '@/services/Inventory/categoriesService';
 import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSLayout } from '@/hooks/usePOSLayout';
 import { ProductSearchModal } from './ProductSearchModal';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
+import { modifiersService, indexByProduct, type ModifierGroup, type SelectedModifier } from '@/services/modifiers/modifiersService';
+import { ModifierPickerModal } from './ModifierPickerModal';
 
 // Abbreviations that require weight input when requires_weight is not set in DB
 const WEIGHT_ABBREVS = new Set(['kg', 'g', 'lb', 'lbs', 'oz', 'gr', 'kilo', 'kilos']);
@@ -38,7 +41,7 @@ interface POSProductsPanelProps {
   allProducts?: Product[];          // full list for SKU lookup
   searchTerm: string;
   onSearchChange: (term: string) => void;
-  onAddToCart: (product: Product, quantity: number) => void;
+  onAddToCart: (product: Product, quantity: number, mods?: SelectedModifier[], note?: string) => void;
   currentSession: CashSession | null;
   productsError?: string | null;
   /** When true, stock_quantity is ignored — plan doesn't track stock */
@@ -54,6 +57,9 @@ interface POSProductsPanelProps {
   deliveryMode?: boolean;
   /** Quita TODOS los favoritos (botón en la vista de Favoritos). */
   onClearFavorites?: () => void;
+  /** Preguntar EXTRAS y modificadores al agregar un plato. Solo tiene sentido en
+   *  el POS de restaurante: en una tienda o en el pedido de un agente estorba. */
+  enableModifiers?: boolean;
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
@@ -71,8 +77,10 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   customerPrices = {},
   deliveryMode = false,
   onClearFavorites,
+  enableModifiers = false,
 }) => {
   const { tenantId } = useTenantId();
+  const { planFeatures } = useAuth();
   const { layout } = usePOSLayout();
 
   // IVA activado en la configuración → mostramos el IVA por producto en el POS.
@@ -89,6 +97,11 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   const [scanValue, setScanValue]           = useState('');
   const [scanFeedback, setScanFeedback]     = useState<ScanFeedback | null>(null);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  // ── Extras y modificadores ───────────────────────────────────────────────
+  // Se cargan TODOS los grupos una vez y se indexan por producto: así al tocar un
+  // plato se sabe al instante si hay que pedir extras, sin una consulta por toque.
+  const [modGroups, setModGroups] = useState<Map<string, ModifierGroup[]>>(new Map());
+  const [modFor, setModFor] = useState<{ product: Product; groups: ModifierGroup[] } | null>(null);
   // Captura rápida del modo lista: texto digitado + índice resaltado.
   const [quickTerm, setQuickTerm] = useState('');
   const [quickIdx, setQuickIdx] = useState(0);
@@ -100,6 +113,16 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   const quickInputRef = useRef<HTMLInputElement>(null);
   const nameSearchRef = useRef<HTMLInputElement>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Hacen falta las DOS cosas: que el negocio tenga la feature y que esta vista
+  // sea la del restaurante. Así no aparece en el POS de tienda ni en el del agente.
+  const modifiersOn = enableModifiers && (planFeatures as any)?.modifiers === true;
+  useEffect(() => {
+    if (!modifiersOn) { setModGroups(new Map()); return; }
+    modifiersService.list()
+      .then(gs => setModGroups(indexByProduct(gs ?? [])))
+      .catch(() => setModGroups(new Map()));
+  }, [tenantId, modifiersOn]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -124,6 +147,17 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
     );
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
     if (product) {
+      // Un plato con EXTRAS también los pide cuando entra por la pistola: si no,
+      // el mismo producto se agregaba con extras al tocarlo y sin ellos al
+      // escanearlo, y la cocina recibía la comanda incompleta.
+      const groups = modGroups.get(product.id);
+      if (groups && groups.length > 0) {
+        setModFor({ product, groups });
+        setScanFeedback({ code, found: true, productName: product.name });
+        setScanValue('');
+        feedbackTimerRef.current = setTimeout(() => setScanFeedback(null), 2500);
+        return;
+      }
       onAddToCart(product, 1);
       setScanFeedback({ code, found: true, productName: product.name });
     } else {
@@ -134,7 +168,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
     feedbackTimerRef.current = setTimeout(() => setScanFeedback(null), 2500);
     // Keep focus on scanner input for continuous scanning
     scanInputRef.current?.focus();
-  }, [allProducts, filteredProducts, currentSession, onAddToCart]);
+  }, [allProducts, filteredProducts, currentSession, onAddToCart, modGroups]);
 
   // Hook: global scanner listener (fires when scanner types while no other input is focused)
   useBarcodeScanner({ inputRef: scanInputRef, onScan: handleScan, enabled: true });
@@ -256,6 +290,12 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
       setScanFeedback({ code: '', found: false, productName: 'Abre una caja primero' });
       if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
       feedbackTimerRef.current = setTimeout(() => setScanFeedback(null), 2500);
+      return;
+    }
+    // Plato con extras/modificadores → primero se eligen, después se agrega.
+    const groups = modGroups.get(product.id);
+    if (groups && groups.length > 0) {
+      setModFor({ product, groups });
       return;
     }
     if (needsWeightInput(product)) {
@@ -471,6 +511,16 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             product={weightProduct}
             onConfirm={handleWeightConfirm}
             onClose={() => setWeightProduct(null)}
+          />
+        )}
+
+        {modFor && (
+          <ModifierPickerModal
+            product={modFor.product}
+            groups={modFor.groups}
+            basePrice={customerPrices[modFor.product.id] ?? Number(modFor.product.unit_price ?? 0)}
+            onConfirm={(mods, qty, _extra, note) => { onAddToCart(modFor.product, qty, mods, note); setModFor(null); }}
+            onClose={() => setModFor(null)}
           />
         )}
       </>
@@ -784,6 +834,17 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
           customerPrice={customerPrices?.[weightProduct.id]}
           onConfirm={handleWeightConfirm}
           onClose={() => setWeightProduct(null)}
+        />
+      )}
+
+      {/* Extras y modificadores (misma lógica que en modo lista) */}
+      {modFor && (
+        <ModifierPickerModal
+          product={modFor.product}
+          groups={modFor.groups}
+          basePrice={customerPrices[modFor.product.id] ?? Number(modFor.product.unit_price ?? 0)}
+          onConfirm={(mods, qty, _extra, note) => { onAddToCart(modFor.product, qty, mods, note); setModFor(null); }}
+          onClose={() => setModFor(null)}
         />
       )}
     </div>

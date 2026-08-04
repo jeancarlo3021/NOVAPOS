@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import type { UserRole } from '@/types/Types_Users';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -27,8 +28,7 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeInfo,
-  Inbox
-} from 'lucide-react';
+  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
@@ -44,6 +44,10 @@ interface NavItem {
   /** Módulo de role_permissions que gobierna este ítem. Si se define, el ítem
    *  solo aparece si el rol del usuario tiene can_access en ese módulo. */
   module?: string;
+  /** Roles que NO deben ver este ítem, pase lo que pase con los permisos.
+   *  Se usa para separaciones de función que no son "permiso" sino diseño del
+   *  flujo: el cajero no arma ventas y el agente no cobra. */
+  hideForRoles?: UserRole[];
 }
 
 interface NavGroup {
@@ -63,7 +67,7 @@ const NAV_GROUPS: NavGroup[] = [
     defaultOpen: true,
     items: [
       { name: 'Dashboard',      to: '/',             icon: LayoutDashboard, feature: 'always' },
-      { name: 'Punto de Venta', to: '/pos',          icon: ShoppingCart,    feature: 'pos',          module: 'pos'          },
+      { name: 'Punto de Venta', to: '/pos',          icon: ShoppingCart,    feature: 'pos',          module: 'pos', hideForRoles: ['cajero', 'agente'] },
       { name: 'Proformas',      to: '/proformas',    icon: FileText,        feature: 'proformas'    },
       { name: 'POS Electrónico', to: '/fe-pos',      icon: Receipt,         feature: 'fe_pos' },
       { name: 'FE Facturas',    to: '/fe-facturas',  icon: FileText,        feature: 'electronic_invoice' },
@@ -82,6 +86,16 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Recetas',           to: '/recipes',    icon: BookOpen,      feature: 'recipes',    module: 'recipes'    },
       { name: 'Promociones',       to: '/promotions', icon: Tag,           feature: 'promotions', module: 'promotions' },
       { name: 'Mapa de Mesas',     to: '/tables',     icon: LayoutGrid,    feature: 'tables',     module: 'restaurant' },
+      { name: 'Extras y modificadores', to: '/modifiers', icon: Layers,   feature: 'modifiers',  module: 'restaurant' },
+      // Vistas separadas: el CAJERO ve «Caja» (cobra), el AGENTE ve «Nuevo pedido»
+      // (arma y envía). Cada una con su propio módulo de permisos.
+      { name: 'Caja',               to: '/caja',          icon: Inbox,     feature: 'sales_agents', module: 'caja',         hideForRoles: ['agente'] },
+      { name: 'Nuevo pedido',       to: '/agent-orders',  icon: Send,      feature: 'sales_agents', module: 'agent_orders', hideForRoles: ['cajero'] },
+      { name: 'Agentes de venta',   to: '/sales-agents',  icon: UserCheck, feature: 'sales_agents', module: 'users'        },
+      { name: 'Portal del contador', to: '/accountant',       icon: Calculator, feature: 'always',       module: 'reports'   },
+      { name: 'Negocios',           to: '/businesses',        icon: Building2,  feature: 'always',       module: 'reports'   },
+      { name: 'Devoluciones',       to: '/returns',           icon: Undo2, feature: 'returns',          module: 'pos'       },
+      { name: 'Devolución a proveedor', to: '/supplier-returns', icon: Truck, feature: 'supplier_returns', module: 'purchases' },
       { name: 'Restaurante',       to: '/billing',    icon: Receipt,       feature: 'restaurant', module: 'restaurant' },
     ],
   },
@@ -153,7 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
   const [showMore, setShowMore] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(loadOpenGroups);
   const location = useLocation();
-  const isPOS = location.pathname === '/pos';
+  const isPOS = ['/pos', '/billing', '/caja', '/agent-orders'].includes(location.pathname);
 
   useEffect(() => {
     try { localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(openGroups)); } catch { /* ignore */ }
@@ -174,7 +188,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
       const planHas = (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
       if (!planHas) return false;
     }
-    // 2. El rol del usuario debe tener acceso al módulo (si está declarado)
+    // 2. Separación de funciones por rol (independiente de la matriz de permisos).
+    if (item.hideForRoles?.includes(user?.role as UserRole)) return false;
+    // 3. El rol del usuario debe tener acceso al módulo (si está declarado)
     if (module) return canAccess(module);
     return true;
   };

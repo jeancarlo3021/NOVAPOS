@@ -45,7 +45,16 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
   { group: 'Restaurante', items: [
     { key: 'restaurant', label: 'Restaurante (mesas + comandas)' },
     { key: 'tables', label: 'Mapa de mesas' },
+    { key: 'table_orders', label: 'Cuentas por mesa (abrir, sumar rondas y cobrar)' },
+    { key: 'modifiers', label: 'Extras y modificadores' },
     { key: 'recipes', label: 'Recetas' },
+  ]},
+  { group: 'Agentes de venta', items: [
+    { key: 'sales_agents', label: 'Agentes de venta (pedidos → caja)' },
+  ]},
+  { group: 'Devoluciones', items: [
+    { key: 'returns', label: 'Devoluciones y anulación de facturas' },
+    { key: 'supplier_returns', label: 'Devoluciones al proveedor' },
   ]},
   { group: 'Reportes y finanzas', items: [
     { key: 'reports', label: 'Reportes' },

@@ -32,9 +32,23 @@ interface BackgroundGeolocationPlugin {
     callback: (location?: BGLocation, error?: any) => void,
   ): Promise<string>;
   removeWatcher(options: { id: string }): Promise<void>;
+  /** Abre los ajustes de la app: es la ÚNICA vía para conceder "Permitir todo el
+   *  tiempo" en Android 11+, porque el sistema ya no lo ofrece en un diálogo. */
+  openSettings(): Promise<void>;
 }
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
+
+/** Estado del permiso de ubicación en segundo plano. 'denied' = el usuario dio
+ *  solo "Mientras se usa la app": el rastreo se corta al minimizar. */
+export type BgPermission = 'unknown' | 'granted' | 'denied';
+let bgPermission: BgPermission = 'unknown';
+const permissionListeners = new Set<(p: BgPermission) => void>();
+function setBgPermission(p: BgPermission) {
+  if (bgPermission === p) return;
+  bgPermission = p;
+  permissionListeners.forEach(fn => { try { fn(p); } catch { /* ignore */ } });
+}
 
 let watcherId: string | null = null;
 let webWatchId: number | null = null;   // geolocalización del navegador (web, primer plano)
@@ -138,8 +152,15 @@ export const truckTracking = {
             distanceFilter: 20,   // reportar cada 20 m de movimiento
           },
           (location, error) => {
-            if (error) { console.warn('[tracking]', error); return; }
-            if (location) void sendPosition(location);
+            if (error) {
+              console.warn('[tracking]', error);
+              // NOT_AUTHORIZED = falta "Permitir todo el tiempo". Android 10+ NO lo
+              // pide en el diálogo inicial: hay que mandarlo a los ajustes. Sin esto
+              // el rastreo funcionaba solo con la app abierta y nadie sabía por qué.
+              if (String(error?.code ?? '') === 'NOT_AUTHORIZED') setBgPermission('denied');
+              return;
+            }
+            if (location) { setBgPermission('granted'); void sendPosition(location); }
           },
         );
       } catch (e) {
@@ -147,6 +168,24 @@ export const truckTracking = {
         watcherId = null;
       }
     }
+  },
+
+  /** Estado del permiso de ubicación en segundo plano. */
+  getBgPermission(): BgPermission { return bgPermission; },
+
+  /** Avisa cuando cambia (para mostrar/ocultar el aviso en la UI). */
+  onBgPermissionChange(fn: (p: BgPermission) => void): () => void {
+    permissionListeners.add(fn);
+    return () => permissionListeners.delete(fn);
+  },
+
+  /** Abre los ajustes de la app para poner la ubicación en "Permitir todo el
+   *  tiempo". Es el único camino en Android 11+: el sistema ya no lo ofrece en un
+   *  diálogo, hay que entrar a Ajustes → Permisos → Ubicación. */
+  async openLocationSettings(): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
+    try { await BackgroundGeolocation.openSettings(); }
+    catch (e) { console.warn('[tracking] no se pudieron abrir los ajustes', e); }
   },
 
   /** Detiene el rastreo (al cerrar la ruta o salir). */

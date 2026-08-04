@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Building2, Plus, RefreshCw, AlertCircle, CheckCircle2, X, Trash2,
-  Crown, Layers, Wallet, BarChart3, FileText, Zap, ChevronDown, ChevronUp,
+  Crown, Layers, Wallet, BarChart3, Zap, ChevronDown, ChevronUp, UserPlus,
 } from 'lucide-react';
 import {
   tenantGroupsService,
   type TenantGroup, type BranchMember, type GroupBilling, type FePlan, type UserLite,
 } from '@/services/admin/tenantGroupsService';
+import { AddClientModal } from '@/modules/accountant/AddClientModal';
 
 const fmt = (n: number) => `₡${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
 const fmtDate = (s?: string | null) =>
@@ -35,6 +36,7 @@ export function TenantGroupView() {
   const [success,  setSuccess]  = useState('');
   const [showCreateGroup,  setShowCreateGroup]  = useState(false);
   const [showAddBranch,    setShowAddBranch]    = useState(false);
+  const [showAddClient,    setShowAddClient]    = useState(false);
   const [showTransfer,     setShowTransfer]     = useState(false);
   const [users,            setUsers]            = useState<UserLite[]>([]);
 
@@ -299,10 +301,18 @@ export function TenantGroupView() {
                             <p className="font-black text-gray-800 text-sm">
                               {d.members.length} sucursal{d.members.length === 1 ? '' : 'es'}
                             </p>
-                            <button onClick={() => { setActiveGroupId(g.id); setShowAddBranch(true); }}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
-                              <Plus size={11} /> Agregar sucursal
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => { setActiveGroupId(g.id); setShowAddBranch(true); }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
+                                <Plus size={11} /> Agregar sucursal
+                              </button>
+                              {/* Cliente = negocio de un tercero: se da de alta con sus datos de
+                                  Hacienda y con el usuario con el que él entra a su portal. */}
+                              <button onClick={() => { setActiveGroupId(g.id); setShowAddClient(true); }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition">
+                                <UserPlus size={11} /> Añadir cliente
+                              </button>
+                            </div>
                           </div>
                           {d.members.length === 0 ? (
                             <div className="py-6 text-center text-xs text-gray-400">
@@ -454,6 +464,21 @@ export function TenantGroupView() {
         />
       )}
 
+      {/* Modal: añadir cliente — negocio + Hacienda + credenciales, de una sola vez */}
+      {showAddClient && activeGroupId && (
+        <AddClientModal
+          submit={payload => tenantGroupsService.addClient(activeGroupId, payload)}
+          onClose={() => { setShowAddClient(false); setActiveGroupId(null); }}
+          onCreated={async (msg) => {
+            const gid = activeGroupId;
+            setShowAddClient(false);
+            setActiveGroupId(null);
+            if (gid) await loadDetail(gid);
+            flash(true, msg);
+          }}
+        />
+      )}
+
       {/* Modal: agregar sucursal — usa activeGroupId */}
       {showAddBranch && activeGroupId && (
         <AddBranchModal
@@ -484,6 +509,10 @@ function CreateGroupModal({
   const [name, setName]       = useState('');
   const [email, setEmail]     = useState('');
   const [ownerId, setOwnerId] = useState('');   // vacío = el creador queda como owner
+  // Qué tipo de grupo es. Cambia el sentido de todo: en sucursales las ventas se
+  // suman y se cobra por sucursal; en una cartera contable cada empresa es de un
+  // cliente distinto y solo comparten quién les configura la factura electrónica.
+  const [kind, setKind] = useState<'branches' | 'accounting'>('branches');
   const [saving, setSaving]   = useState(false);
   const [err, setErr]         = useState('');
 
@@ -495,6 +524,7 @@ function CreateGroupModal({
         name: name.trim(),
         billing_email: email.trim() || null,
         owner_id: ownerId || null,    // null = backend usa el JWT del creador
+        kind,
       });
       onCreated();
     } catch (e: any) { setErr(e?.message ?? 'Error'); }
@@ -513,12 +543,34 @@ function CreateGroupModal({
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">Nombre del grupo *</label>
             <input value={name} onChange={e => setName(e.target.value)} autoFocus
-              placeholder="Grupo Restaurantes Pérez"
+              placeholder={kind === 'accounting' ? "Clientes de Marta Jiménez" : "Grupo Restaurantes Pérez"}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400" />
           </div>
           <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">Tipo de grupo *</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setKind('branches')}
+                className={`px-3 py-2.5 rounded-xl border-2 text-left transition ${
+                  kind === 'branches' ? 'border-cyan-500 bg-cyan-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                <span className="block text-xs font-black text-gray-800">🏬 Sucursales</span>
+                <span className="block text-[10px] text-gray-500 leading-tight mt-0.5">
+                  Un mismo negocio con varios locales. Se suman las ventas y se cobra por sucursal.
+                </span>
+              </button>
+              <button type="button" onClick={() => setKind('accounting')}
+                className={`px-3 py-2.5 rounded-xl border-2 text-left transition ${
+                  kind === 'accounting' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                <span className="block text-xs font-black text-gray-800">🧮 Cartera de contador</span>
+                <span className="block text-[10px] text-gray-500 leading-tight mt-0.5">
+                  Empresas de clientes distintos. NO se suman entre sí; cada una paga lo suyo.
+                </span>
+              </button>
+            </div>
+          </div>
+          <div>
             <label className="flex items-center gap-1.5 text-xs font-bold text-gray-700 mb-1">
-              <Crown size={11} className="text-amber-500" /> Usuario principal del grupo
+              <Crown size={11} className="text-amber-500" />
+              {kind === 'accounting' ? 'Contador (dueño del grupo)' : 'Usuario principal del grupo'}
             </label>
             <select value={ownerId} onChange={e => setOwnerId(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400">

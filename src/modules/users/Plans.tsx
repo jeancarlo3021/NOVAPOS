@@ -7,7 +7,7 @@ import {
   Layers, Box, Truck, AlertTriangle, Sliders, Monitor,
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Shield, CalendarDays, History,
-  FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing,
+  FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing, UserCheck, Undo2,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { apiFetch } from '@/lib/api';
@@ -375,6 +375,11 @@ export default function Plans() {
     }
     if (pf.promotions) a.push('Promociones');
     if (pf.tables)     a.push('Mapa de Mesas');
+    if ((pf as any).table_orders)     a.push('Cuentas por mesa');
+    if ((pf as any).modifiers)        a.push('Extras y modificadores');
+    if ((pf as any).sales_agents)     a.push('Agentes de venta');
+    if ((pf as any).returns)          a.push('Devoluciones');
+    if ((pf as any).supplier_returns) a.push('Devol. proveedor');
     if (pf.recipes) a.push('Recetas');
     if (pf.hr) a.push('Recursos Humanos');
     if (pf.customers !== false) a.push('Clientes');
@@ -895,8 +900,28 @@ export default function Plans() {
                     onChange={v => set({ restaurant: v } as any)} />
                   <FeatureRow icon={LayoutGrid} color="bg-blue-500" title="Mapa de Mesas"
                     description="Editor del plano: crear mesas, sillas y zonas del local" checked={features.tables ?? false} onChange={v => set({ tables: v })} />
+                  <FeatureRow icon={LayoutGrid} color="bg-emerald-600" title="Cuentas por mesa"
+                    description="Abrir cuenta en una mesa, sumarle rondas de consumo y cobrarla al final"
+                    checked={(features as any).table_orders ?? false} onChange={v => set({ table_orders: v } as any)} />
+                  <FeatureRow icon={Layers} color="bg-violet-600" title="Extras y modificadores"
+                    description="Opciones por plato (término, extras, sin…) que suman o restan al precio"
+                    checked={(features as any).modifiers ?? false} onChange={v => set({ modifiers: v } as any)} />
                   <FeatureRow icon={BookOpen} color="bg-lime-500" title="Recetas"
                     description="Recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />
+                </section>
+
+                {/* ── Agentes y devoluciones ── */}
+                <section className="space-y-2">
+                  <h4 className="text-sm font-black text-gray-500 uppercase tracking-wider">Agentes y devoluciones</h4>
+                  <FeatureRow icon={UserCheck} color="bg-sky-600" title="Agentes de venta"
+                    description="El agente arma pedidos y el cajero los recibe y cobra. Incluye comisiones"
+                    checked={(features as any).sales_agents ?? false} onChange={v => set({ sales_agents: v } as any)} />
+                  <FeatureRow icon={Undo2} color="bg-rose-600" title="Devoluciones y anulaciones"
+                    description="Devolución parcial de una venta y anulación de facturas, con reposición de stock"
+                    checked={(features as any).returns ?? false} onChange={v => set({ returns: v } as any)} />
+                  <FeatureRow icon={Truck} color="bg-amber-600" title="Devoluciones al proveedor"
+                    description="Devolver mercadería al proveedor: baja de stock y saldo a favor"
+                    checked={(features as any).supplier_returns ?? false} onChange={v => set({ supplier_returns: v } as any)} />
                 </section>
 
                 {/* ── Marketing ── */}

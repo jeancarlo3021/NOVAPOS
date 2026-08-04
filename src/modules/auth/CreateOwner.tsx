@@ -7,13 +7,14 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet,
+  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator,
 } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import { TenantUsersModal } from './components/TenantUsersModal';
 import { TenantModulesModal } from './components/TenantModulesModal';
+import { TenantAccountantsModal } from './components/TenantAccountantsModal';
 import { TenantFeDataModal } from './components/TenantFeDataModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
@@ -96,6 +97,7 @@ export const CreateOwner: React.FC = () => {
   const [testingAlanube, setTestingAlanube] = useState(false);
   const [testingWa, setTestingWa] = useState(false);
   const [syncingCustomers, setSyncingCustomers] = useState(false);
+  const [accountantsFor, setAccountantsFor] = useState<any | null>(null);
   const [creatingAlanubeId, setCreatingAlanubeId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showCabys, setShowCabys] = useState(false);
@@ -1303,6 +1305,10 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-50">
                                     <Users2 size={13} /> Usuarios de la empresa
                                   </button>
+                                  <button onClick={() => { setOpenMenuId(null); setAccountantsFor(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">
+                                    <Calculator size={13} /> Contadores del negocio
+                                  </button>
                                   <button onClick={() => { setOpenMenuId(null); setManageModulesFor(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50">
                                     <Layers size={13} /> Módulos personalizados
@@ -1525,6 +1531,14 @@ export const CreateOwner: React.FC = () => {
           )}
         </div>
       </div>
+      )}
+
+      {accountantsFor && (
+        <TenantAccountantsModal
+          owner={accountantsFor}
+          onClose={() => setAccountantsFor(null)}
+          onToast={showToast}
+        />
       )}
 
       {showCabys && <CabysImport onClose={() => setShowCabys(false)} />}

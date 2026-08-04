@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api';
+import type { NewClientPayload, NewClientResult } from '@/services/accountant/accountantService';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────
 export interface TenantGroup {
@@ -7,6 +8,7 @@ export interface TenantGroup {
   owner_id: string;
   billing_email?: string | null;
   notes?: string | null;
+  kind?: 'branches' | 'accounting';
   created_at: string;
   updated_at: string;
 }
@@ -86,6 +88,9 @@ export interface CreateGroupPayload {
   main_tenant_id?: string | null;
   /** Si se omite, el creador del grupo queda como owner. */
   owner_id?: string | null;
+  /** 'branches' = sucursales del mismo negocio (se suman y se cobran juntas) ·
+   *  'accounting' = cartera de un contador (empresas de clientes distintos). */
+  kind?: 'branches' | 'accounting';
 }
 
 export interface UserLite {
@@ -170,6 +175,17 @@ export const tenantGroupsService = {
   // ── Sucursales ──
   addBranch(groupId: string, payload: AddBranchPayload): Promise<{ tenant_id: string; linked: true }> {
     return apiFetch(`/tenant-groups/${groupId}/branches`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Alta de un cliente en el grupo: negocio + datos de Hacienda + el usuario con
+   * el que el cliente entra a su portal, todo de una.
+   */
+  addClient(groupId: string, payload: NewClientPayload): Promise<NewClientResult> {
+    return apiFetch(`/tenant-groups/${groupId}/clients`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });

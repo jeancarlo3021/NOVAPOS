@@ -7,7 +7,6 @@ import { Login } from '@/modules/auth/Login';
 import { ResetPassword } from '@/modules/auth/ResetPassword';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/modules/dashboard/Dasboard';
-import { HelpCenter } from '@/components/HelpCenter';
 import { ReauthBanner } from '@/components/ReauthBanner';
 import { QzReconnectToast } from '@/components/QzReconnectToast';
 import { BluetoothReconnectButton } from '@/components/BluetoothReconnectButton';
@@ -44,6 +43,14 @@ const PromotionsDashboard      = lazy(() => import('./modules/promotions/Promoti
 const LabelsDashboard          = lazy(() => import('./modules/labels/LabelsDashboard').then(m => ({ default: m.LabelsDashboard })));
 const CreateOwner              = lazy(() => import('./modules/auth/CreateOwner').then(m => ({ default: m.CreateOwner })));
 const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashboard').then(m => ({ default: m.TablesDashboard })));
+const ModifiersManager         = lazy(() => import('./modules/modifiers/ModifiersManager').then(m => ({ default: m.ModifiersManager })));
+const SalesAgentsManager       = lazy(() => import('./modules/agents/SalesAgentsManager').then(m => ({ default: m.SalesAgentsManager })));
+const AgentOrderPOS            = lazy(() => import('./modules/agents/AgentOrderPOS').then(m => ({ default: m.AgentOrderPOS })));
+const CashierDesk              = lazy(() => import('./modules/agents/CashierDesk').then(m => ({ default: m.CashierDesk })));
+const SalesReturns             = lazy(() => import('./modules/returns/SalesReturns').then(m => ({ default: m.SalesReturns })));
+const AccountantPortal         = lazy(() => import('./modules/accountant/AccountantPortal').then(m => ({ default: m.AccountantPortal })));
+const BusinessesPanel          = lazy(() => import('./modules/accountant/BusinessesPanel').then(m => ({ default: m.BusinessesPanel })));
+const SupplierReturns          = lazy(() => import('./modules/returns/SupplierReturns').then(m => ({ default: m.SupplierReturns })));
 const BillingDashboard         = lazy(() => import('./modules/billing/BillingDashboard').then(m => ({ default: m.BillingDashboard })));
 const BranchesAdmin            = lazy(() => import('./modules/branches/BranchesAdmin').then(m => ({ default: m.BranchesAdmin })));
 const TransfersDashboard       = lazy(() => import('./modules/branches/TransfersDashboard').then(m => ({ default: m.TransfersDashboard })));
@@ -165,6 +172,30 @@ function AppContent() {
               <Route path="/tables" element={
                 <PlanGuard feature="tables"><TablesDashboard /></PlanGuard>
               } />
+              <Route path="/modifiers" element={
+                <PlanGuard feature="modifiers"><ModifiersManager /></PlanGuard>
+              } />
+              <Route path="/accountant" element={<AccountantPortal />} />
+              <Route path="/businesses" element={<BusinessesPanel />} />
+              <Route path="/sales-agents" element={
+                <PlanGuard feature="sales_agents"><SalesAgentsManager /></PlanGuard>
+              } />
+              <Route path="/returns" element={
+                <PlanGuard feature="returns"><SalesReturns /></PlanGuard>
+              } />
+              <Route path="/supplier-returns" element={
+                <PlanGuard feature="supplier_returns"><SupplierReturns /></PlanGuard>
+              } />
+              {/* Vistas SEPARADAS por rol: el cajero cobra pero no arma ventas,
+                  y el agente arma pedidos pero no ve la caja. */}
+              {/* CAJA: bandeja de pedidos + apertura/cierre/movimientos + cobro.
+                  NUEVO PEDIDO: el mismo POS de venta, pero envía a caja. */}
+              <Route path="/caja" element={
+                <PlanGuard feature="sales_agents"><CashierDesk /></PlanGuard>
+              } />
+              <Route path="/agent-orders" element={
+                <PlanGuard feature="sales_agents"><AgentOrderPOS /></PlanGuard>
+              } />
               <Route path="/billing" element={
                 <PlanGuard feature="restaurant"><BillingDashboard /></PlanGuard>
               } />
@@ -198,7 +229,6 @@ function AppContent() {
         <ReauthBanner />
         <QzReconnectToast />
         <BluetoothReconnectButton />
-        <HelpCenter />
     </>
     );
 }

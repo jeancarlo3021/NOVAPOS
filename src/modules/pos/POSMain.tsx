@@ -42,6 +42,8 @@ import { PaymentConfirmationModal, PaymentData } from './cashManagement/PaymentC
 import { QuickProductModal } from './QuickProductModal';
 import { useOfflineDaySync } from '@/hooks/useOfflineDaySync';
 import { PosShortcutsHint } from './PosShortcutsHint';
+import { useFeReady } from '@/hooks/POS/useFeReady';
+import type { SelectedModifier } from '@/services/modifiers/modifiersService';
 import { BipperModal } from './BipperModal';
 import { BipperListModal } from './BipperListModal';
 import { FeQuotaWarning } from '@/components/FeQuotaWarning';
@@ -103,6 +105,95 @@ export const POSMain = () => {
     }).catch(() => setError('No se pudo cargar la proforma'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, productsLoading, products.length]);
+
+  // ── Cargar la CUENTA DE UNA MESA dejada por el mapa de mesas ──────────────
+  // El panel de la mesa guarda el consumo en sessionStorage y navega al POS: acá
+  // se carga al carrito y, al completar el cobro, la cuenta se cierra ligada a la
+  // factura. Se cobra con el flujo normal (IVA, medios de pago, FE, impresión).
+  const tableOrderToClose = useRef<{ id: string; label: string } | null>(null);
+  useEffect(() => {
+    if (productsLoading || products.length === 0) return;
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem('novapos_pending_table_order'); } catch { return; }
+    if (!raw) return;
+    try { sessionStorage.removeItem('novapos_pending_table_order'); } catch { /* ignore */ }
+    try {
+      const pending = JSON.parse(raw) as {
+        order_id: string; table_label?: string;
+        items: Array<{ product_id?: string | null; product_name: string; quantity: number; unit_price: number; subtotal: number; notes?: string | null }>;
+      };
+      const cart = (pending.items ?? []).map(it => {
+        const prod = products.find(p => p.id === it.product_id)
+          ?? ({ id: it.product_id ?? '', name: it.product_name, unit_price: it.unit_price, stock_quantity: 0, tenant_id: tenantId ?? '' } as any);
+        return {
+          product_id: (it.product_id ?? prod.id) as string,
+          product_name: it.product_name,
+          product: prod,
+          unit_price: it.unit_price,
+          quantity: it.quantity,
+          subtotal: it.subtotal,
+          notes: it.notes ?? undefined,
+        };
+      });
+      if (cart.length === 0) return;
+      setCartItems(cart as any);
+      tableOrderToClose.current = { id: pending.order_id, label: pending.table_label ?? 'Mesa' };
+      setSuccess(`Cuenta de ${pending.table_label ?? 'la mesa'} cargada — completá el cobro para cerrarla`);
+    } catch { /* json corrupto: se ignora */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productsLoading, products.length]);
+
+  // ── Cargar el PEDIDO DE UN AGENTE dejado por la bandeja de caja ───────────
+  const agentOrderToClose = useRef<{ id: string; number?: string | null } | null>(null);
+  useEffect(() => {
+    if (productsLoading || products.length === 0) return;
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem('novapos_pending_agent_order'); } catch { return; }
+    if (!raw) return;
+    try { sessionStorage.removeItem('novapos_pending_agent_order'); } catch { /* ignore */ }
+    try {
+      const pending = JSON.parse(raw) as {
+        order_id: string; number?: string; agent_name?: string; customer_name?: string;
+        items: Array<{ product_id?: string | null; product_name: string; quantity: number; unit_price: number; subtotal: number; notes?: string | null }>;
+      };
+      const cart = (pending.items ?? []).map(it => {
+        const prod = products.find(p => p.id === it.product_id)
+          ?? ({ id: it.product_id ?? '', name: it.product_name, unit_price: it.unit_price, stock_quantity: 0, tenant_id: tenantId ?? '' } as any);
+        return {
+          product_id: (it.product_id ?? prod.id) as string,
+          product_name: it.product_name,
+          product: prod,
+          unit_price: it.unit_price,
+          quantity: it.quantity,
+          subtotal: it.subtotal,
+          notes: it.notes ?? undefined,
+        };
+      });
+      if (cart.length === 0) return;
+      setCartItems(cart as any);
+      if (pending.customer_name) setTabCustomerName(pending.customer_name);
+      agentOrderToClose.current = { id: pending.order_id, number: pending.number };
+      setSuccess(`Pedido ${pending.number ?? ''} de ${pending.agent_name ?? 'agente'} cargado — completá el cobro`);
+    } catch { /* json corrupto: se ignora */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productsLoading, products.length]);
+
+  /** Marca el pedido del agente como cobrado (y le acredita la comisión). */
+  const chargeAgentOrder = async (orderId: string, invoiceId: string | null, total: number) => {
+    try {
+      const { agentOrdersService } = await import('@/services/agents/salesAgentsService');
+      await agentOrdersService.charge(orderId, invoiceId, total);
+    } catch (e) { console.warn('[agentes] no se pudo marcar el pedido cobrado:', e); }
+  };
+
+  /** Cierra la cuenta de la mesa al cobrarse. Si falla (sin red), no rompe el
+   *  cobro: la venta ya está hecha y la cuenta se puede cerrar a mano. */
+  const closeTableOrder = async (orderId: string, invoiceId: string | null) => {
+    try {
+      const { tableOrdersService } = await import('@/services/tables/tableOrdersService');
+      await tableOrdersService.close(orderId, invoiceId);
+    } catch (e) { console.warn('[mesas] no se pudo cerrar la cuenta:', e); }
+  };
 
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
@@ -204,7 +295,6 @@ export const POSMain = () => {
     useState<import('./POSDesktopBar').DocumentType>('ticket');
   // ¿Está lista la emisión electrónica? Requiere ApiKey del emisor configurada.
   // Sin ApiKey no se puede facturar tiquete/factura electrónica.
-  const [feApiKeyReady, setFeApiKeyReady] = useState(false);
 
   // Bipper / localizador: número o nombre que sale en el ticket (feature del plan).
   const bipperEnabled = !!(planFeatures as any)?.pos_bipper;
@@ -218,46 +308,10 @@ export const POSMain = () => {
     else setShowPaymentModal(true);
   };
 
-  useEffect(() => {
-    // Si el plan no tiene FE, ni cargamos el default: siempre tiquete corriente.
-    if (!(planFeatures as any)?.electronic_invoice) { setFeApiKeyReady(false); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { apiFetch } = await import('@/lib/api');
-        const raw = await apiFetch<any>('/settings/electronic-invoice');
-        if (cancelled) return;
-        const cfg = raw?.config ?? raw ?? {};
-        const env = cfg.environment === 'sandbox' ? 'sandbox' : 'production';
-        // La condición para emitir electrónico DEPENDE del proveedor:
-        //  · Facturemos → hace falta la ApiKey del emisor (por ambiente).
-        //  · Alanube    → no usa ApiKey; el token vive en el servidor y la emisión
-        //    usa la empresa principal de la cuenta. Basta con que FE esté activa
-        //    (empresa registrada / main existente / config habilitada).
-        const provider = cfg.fe_provider === 'alanube' ? 'alanube' : 'facturemos';
-        let apiKeyOk: boolean;
-        if (provider === 'alanube') {
-          const companyId = env === 'sandbox' ? cfg.alanube_company_id_sandbox : cfg.alanube_company_id_production;
-          apiKeyOk = cfg.enabled !== false
-            && (!!companyId || !!cfg.alanube_company_id || !!cfg.alanube_main_exists || !!cfg.alanube_registered_at || cfg.enabled === true);
-        } else {
-          // Facturemos: ApiKey según ambiente (con fallback a la legacy).
-          const envKey = env === 'sandbox'
-            ? (cfg.api_key_emisor_sandbox || cfg.api_key_emisor)
-            : (cfg.api_key_emisor_production || cfg.api_key_emisor);
-          apiKeyOk = !!String(envKey ?? '').trim();
-        }
-        setFeApiKeyReady(apiKeyOk);
-        const allowed = ['ticket', 'tiquete_electronico', 'factura_electronica'];
-        if (cfg.default_document_type && allowed.includes(cfg.default_document_type)) {
-          const isElectronicDefault = cfg.default_document_type !== 'ticket';
-          // Solo aplicamos el default electrónico si hay ApiKey; si no, ticket corriente.
-          setDocumentType((isElectronicDefault && !apiKeyOk) ? 'ticket' : cfg.default_document_type);
-        }
-      } catch { /* sin config aún, dejamos ticket */ }
-    })();
-    return () => { cancelled = true; };
-  }, [planFeatures]);
+  // La lógica de "¿se puede emitir electrónico?" vive en useFeReady y la comparten
+  // el POS y el pedido del agente: duplicarla garantizaba que se desincronizaran.
+  const { feReady: feApiKeyReady, defaultDocType } = useFeReady();
+  useEffect(() => { setDocumentType(defaultDocType); }, [defaultDocType]);
 
   // Sin ApiKey no se puede emitir electrónico → forzar tiquete corriente.
   useEffect(() => {
@@ -653,7 +707,27 @@ export const POSMain = () => {
     refetchProducts();
   };
 
-  const handleAddToCart = (product: Product, quantity: number = 1) => {
+  const handleAddToCart = (product: Product, quantity: number = 1, mods?: SelectedModifier[], note?: string) => {
+    // Con MODIFICADORES la línea es única aunque el producto se repita: un casado
+    // "sin cebolla" y otro "con extra queso" no se pueden fusionar ni comparten
+    // precio. Se agrega como línea propia, con su unitario ya ajustado.
+    if ((mods && mods.length > 0) || note) {
+      const extra = (mods ?? []).reduce((sum, m) => sum + Number(m.price_delta || 0), 0);
+      const unit = round2(priceFor(product) + extra);
+      setCartItems(prev => [...prev, {
+        product_id: product.id,
+        product,
+        quantity,
+        unit_price: unit,
+        subtotal: round2(unit * quantity),
+        modifiers: mods,
+        // La nota es lo que ve la cocina en la comanda y el cliente en el ticket:
+        // extras elegidos + lo que se escribió a mano («sin cebolla»).
+        notes: [(mods ?? []).map(m => m.name).join(', '), note].filter(Boolean).join(' · ') || undefined,
+      } as any]);
+      return;
+    }
+
     const promo = getProductPromotion(
       product.id,
       (product as any).category_id ?? (product as any).category?.id ?? null,
@@ -1007,6 +1081,15 @@ export const POSMain = () => {
       setPaymentLoading(false);
       const isElec = documentType === 'factura_electronica' || documentType === 'tiquete_electronico';
       setSuccess(`Venta guardada sin conexión (${invoiceNumber})${isElec ? ' — se emitirá a Hacienda' : ''} — se sincroniza al reconectar`);
+      if (tableOrderToClose.current) {
+        // Offline: la cuenta se cierra sin invoice_id (la factura aún no existe arriba).
+        void closeTableOrder(tableOrderToClose.current.id, null);
+        tableOrderToClose.current = null;
+      }
+      if (agentOrderToClose.current) {
+        void chargeAgentOrder(agentOrderToClose.current.id, null, totSnapshot);
+        agentOrderToClose.current = null;
+      }
       if (proformaToConvert.current) {
         proformasService.convert(proformaToConvert.current, invoiceNumber).catch(() => {});
         proformaToConvert.current = null;
@@ -1063,6 +1146,14 @@ export const POSMain = () => {
         setLastInvoice(invoice);
         setPaymentData(data);
         setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
+        if (tableOrderToClose.current) {
+          void closeTableOrder(tableOrderToClose.current.id, invoice.id);
+          tableOrderToClose.current = null;
+        }
+        if (agentOrderToClose.current) {
+          void chargeAgentOrder(agentOrderToClose.current.id, invoice.id, totSnapshot);
+          agentOrderToClose.current = null;
+        }
         if (proformaToConvert.current) {
           proformasService.convert(proformaToConvert.current, invoice.invoice_number).catch(() => {});
           proformaToConvert.current = null;
@@ -1277,6 +1368,8 @@ export const POSMain = () => {
 
       <div className={`flex flex-1 overflow-hidden ${isListLayout ? 'flex-col' : 'flex-row'}`}>
         <POSProductsPanel
+          // Extras solo en el POS de RESTAURANTE. En una tienda no aplican.
+          enableModifiers={(planFeatures as any).restaurant === true}
           viewMode={posViewMode}
           searchTabsEnabled={!!(planFeatures as any).pos_search_tabs}
           filteredProducts={filteredProducts}

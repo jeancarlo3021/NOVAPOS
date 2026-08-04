@@ -35,7 +35,7 @@ function enqueuePromoOp(tid: string, op: Record<string, unknown>) {
 // ── Default empty form ────────────────────────────────────────────────────────
 
 const EMPTY: PromotionPayload = {
-  name: '', description: null, type: 'percentage', value: 10, combo_mode: 'price',
+  name: '', description: null, type: 'percentage', value: 10, combo_mode: 'price', bundle_qty: 2,
   applies_to: 'all', category_id: null, product_ids: [],
   starts_at: today(), ends_at: today(), is_active: true,
 };
@@ -47,6 +47,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
     ? {
         name: editing.name, description: editing.description, type: editing.type,
         value: editing.value, combo_mode: editing.combo_mode ?? 'price',
+        bundle_qty: editing.bundle_qty ?? 2,
         applies_to: editing.applies_to, category_id: editing.category_id,
         product_ids: editing.product_ids ?? [], starts_at: editing.starts_at,
         ends_at: editing.ends_at ?? '', is_active: editing.is_active,
@@ -97,6 +98,13 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
     if (!form.name.trim()) { setError('El nombre es requerido'); return; }
     if (form.type !== '2x1' && form.value <= 0) { setError('El valor del descuento debe ser mayor a 0'); return; }
     if (form.type === 'combo' && form.product_ids.length < 2) { setError('Un combo necesita al menos 2 productos'); return; }
+    if (form.type === 'qty_bundle') {
+      if (!(Number(form.bundle_qty) > 0)) { setError('Indicá cuántas unidades forman el paquete (ej. 2 kg).'); return; }
+      if (form.applies_to === 'all') {
+        setError('La promoción por cantidad va sobre productos o una categoría, no sobre todo el carrito.');
+        return;
+      }
+    }
     if (form.type !== 'combo' && form.applies_to === 'category' && !form.category_id) { setError('Selecciona una categoría'); return; }
     if (form.type !== 'combo' && form.applies_to === 'products' && form.product_ids.length === 0) { setError('Selecciona al menos un producto'); return; }
     if (form.ends_at && form.starts_at > form.ends_at) { setError('La fecha de inicio no puede ser posterior a la de fin'); return; }
@@ -132,6 +140,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
             type: form.type,
             value: form.value,
             combo_mode: form.combo_mode ?? null,
+            bundle_qty: form.type === 'qty_bundle' ? Number(form.bundle_qty) : null,
             applies_to: form.applies_to,
             category_id: form.category_id ?? null,
             product_ids: form.product_ids ?? [],
@@ -156,8 +165,11 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
         onClose();
         return;
       }
-      if (editing) await promotionsService.update(editing.id, form);
-      else         await promotionsService.create(tenantId, form);
+      // `bundle_qty` solo tiene sentido en la promo por cantidad: si el usuario
+      // probó ese tipo y se cambió a otro, no debe quedar guardado.
+      const payload = { ...form, bundle_qty: form.type === 'qty_bundle' ? Number(form.bundle_qty) : null };
+      if (editing) await promotionsService.update(editing.id, payload);
+      else         await promotionsService.create(tenantId, payload);
       // Refresh active-promotions cache + notify POS immediately
       promotionsService.getActiveToday(tenantId)
         .then(data => {
@@ -215,8 +227,8 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           {/* Tipo de descuento */}
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-2">Tipo de descuento *</label>
-            <div className="grid grid-cols-4 gap-2">
-              {(['percentage', 'fixed', '2x1', 'combo'] as PromoType[]).map(t => {
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+              {(['percentage', 'fixed', '2x1', 'combo', 'qty_bundle'] as PromoType[]).map(t => {
                 const cfg = TYPE_CFG[t];
                 return (
                   <button key={t} type="button" onClick={() => set('type', t)}
@@ -260,6 +272,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
               <label className="block text-xs font-bold text-gray-600 mb-1">
                 {form.type === 'combo'
                   ? ((form.combo_mode ?? 'price') === 'percent' ? 'Descuento del combo (%)' : 'Precio total del combo (₡)')
+                  : form.type === 'qty_bundle' ? 'Precio del paquete (₡)'
                   : form.type === 'percentage' ? 'Porcentaje de descuento (%)' : 'Monto a descontar (₡)'}
               </label>
               <input type="number" min="0.01"
@@ -275,6 +288,37 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           {form.type === '2x1' && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
               El cliente paga solo 1 de cada 2 unidades — el sistema calcula el total automáticamente.
+            </div>
+          )}
+
+          {/* Promo por cantidad: "2 kg por ₡1000" */}
+          {form.type === 'qty_bundle' && (
+            <div className="space-y-2">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">
+                  Cantidad del paquete *
+                </label>
+                <input type="number" min="0.001" step="0.5"
+                  value={form.bundle_qty ?? ''}
+                  onChange={e => set('bundle_qty', parseFloat(e.target.value) || 0)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                <p className="text-xs text-gray-400 mt-1">
+                  Unidades o kilos que hay que llevar para que aplique el precio del paquete.
+                </p>
+              </div>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-800">
+                <p className="font-bold mb-1">
+                  {Number(form.bundle_qty) > 0 ? `${form.bundle_qty} × ₡${Number(form.value || 0).toLocaleString('es-CR')}` : 'Definí la cantidad y el precio'}
+                </p>
+                {/* Lo importante es que se vea qué pasa cuando NO se llega al
+                    paquete y cuando se lleva de más: es donde la gente duda. */}
+                <p className="text-[12px]">
+                  Se cobra el precio del paquete por cada múltiplo completo y el sobrante va a
+                  precio normal. Si el paquete es {form.bundle_qty || 2}: llevar {form.bundle_qty || 2} paga
+                  ₡{Number(form.value || 0).toLocaleString('es-CR')}, llevar {Number(form.bundle_qty || 2) * 2} paga
+                  ₡{(Number(form.value || 0) * 2).toLocaleString('es-CR')}, y llevar menos va a precio normal.
+                </p>
+              </div>
             </div>
           )}
 

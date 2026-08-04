@@ -19,7 +19,8 @@ export interface User {
 export type UserRole =
   | 'owner' | 'admin' | 'gerente'
   | 'asistente_1' | 'asistente_2' | 'asistente_3'
-  | 'cocinero' | 'mesero' | 'cajero' | 'almacenero' | 'contador' | 'repartidor';
+  | 'cocinero' | 'mesero' | 'cajero' | 'almacenero' | 'contador' | 'repartidor'
+  | 'agente';
 
 export const USER_ROLES: Record<UserRole, string> = {
   owner: 'Propietario',
@@ -34,6 +35,7 @@ export const USER_ROLES: Record<UserRole, string> = {
   almacenero: 'Almacenero',
   contador: 'Contador',
   repartidor: 'Repartidor',
+  agente: 'Agente de venta',
 };
 
 // Metadatos visuales por rol (color del badge, descripción, jerarquía)
@@ -92,8 +94,15 @@ export const ROLE_META: Record<UserRole, RoleMeta> = {
     label: 'Cajero',
     color: 'emerald',
     emoji: '💵',
-    description: 'Maneja el POS, cobros y cierre de caja.',
+    description: 'Recibe los pedidos de los agentes, cobra y cierra caja. No arma ventas.',
     level: 40,
+  },
+  agente: {
+    label: 'Agente de venta',
+    color: 'sky',
+    emoji: '🤝',
+    description: 'Arma pedidos y los envía a caja. No cobra ni ve la caja.',
+    level: 35,
   },
   mesero: {
     label: 'Mesero',
@@ -151,6 +160,7 @@ export const ROLE_REQUIRED_FEATURES: Record<UserRole, string[]> = {
   cocinero:    ['tables'],                  // solo si hay mapa de mesas
   mesero:      ['tables'],                  // solo si hay mapa de mesas
   cajero:      ['pos'],
+  agente:      ['pos'],
   almacenero:  ['inventory', 'purchases'],
   contador:    ['reports', 'expenses', 'accounts_payable'],
   repartidor:  ['distribution'],            // solo si el plan tiene Distribución
@@ -159,7 +169,11 @@ export const ROLE_REQUIRED_FEATURES: Record<UserRole, string[]> = {
 export type UserModule =
   | 'pos' | 'inventory' | 'reports' | 'expenses'
   | 'purchases' | 'users' | 'promotions' | 'accounts_payable' | 'hr'
-  | 'customers' | 'restaurant' | 'recipes' | 'distribution';
+  | 'customers' | 'restaurant' | 'recipes' | 'distribution'
+  /** Bandeja del CAJERO: recibe pedidos de agentes y los cobra. No arma ventas. */
+  | 'caja'
+  /** Vista del AGENTE: arma pedidos y los envía a caja. No cobra. */
+  | 'agent_orders';
 
 export interface UserPermission {
   id: string;

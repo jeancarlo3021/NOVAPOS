@@ -138,6 +138,15 @@ export const haciendaService = {
   /** Proveedor de FE del tenant actual (para ocultar funciones de Alanube). */
   provider: () => apiFetch<{ provider: 'alanube' | 'facturemos'; enabled: boolean }>('/hacienda/provider'),
 
+  /**
+   * XML firmado y respuesta de Hacienda (base64). El XML es el comprobante que
+   * vale legalmente; el PDF es solo su representación gráfica.
+   */
+  feXml: (invoiceId: string) => apiFetch<{
+    xml: string | null; xmlHacienda: string | null;
+    filename: string; filename_hacienda: string;
+  }>(`/hacienda/fe-xml/${invoiceId}`),
+
   /** PDF generado por Alanube (base64) para el comprobante. */
   alanubePdf: (invoiceId: string) =>
     apiFetch<{ pdf: string; filename: string }>(`/hacienda/fe-pdf/${invoiceId}`),

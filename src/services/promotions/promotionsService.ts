@@ -23,7 +23,7 @@ import { apiFetch } from '@/lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type PromoType    = 'percentage' | 'fixed' | '2x1' | 'combo';
+export type PromoType    = 'percentage' | 'fixed' | '2x1' | 'combo' | 'qty_bundle';
 export type PromoScope   = 'all' | 'category' | 'products';
 export type PromoStatus  = 'active' | 'scheduled' | 'expired' | 'inactive';
 export type ComboMode    = 'price' | 'percent';   // precio fijo del combo / % de descuento
@@ -36,6 +36,8 @@ export interface Promotion {
   type:        PromoType;
   value:       number;
   combo_mode?: ComboMode | null;
+  /** Promo por cantidad: unidades/kg del paquete. `value` es su precio. */
+  bundle_qty?: number | null;
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
@@ -54,6 +56,7 @@ export interface PromotionPayload {
   type:        PromoType;
   value:       number;
   combo_mode?: ComboMode | null;
+  bundle_qty?: number | null;
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
@@ -83,13 +86,36 @@ export function getPromoStatus(p: Promotion): PromoStatus {
 export function calcPromoUnitPrice(unitPrice: number, promo: Promotion): number {
   if (promo.type === 'percentage') return unitPrice * (1 - promo.value / 100);
   if (promo.type === 'fixed')      return Math.max(0, unitPrice - promo.value);
-  return unitPrice; // 2x1: effective price depends on quantity, applied at subtotal level
+  // 2x1 y qty_bundle dependen de la cantidad: se resuelven en el subtotal.
+  return unitPrice;
+}
+
+/**
+ * Promo por cantidad: "2 kg por ₡1000".
+ *
+ * Se cobra el precio del paquete por cada múltiplo COMPLETO y lo que sobra va a
+ * precio normal — que es como lo entiende el cliente en el mostrador:
+ *   1 kg → normal · 2 kg → ₡1000 · 3 kg → ₡1000 + 1 normal · 4 kg → ₡2000
+ *
+ * El redondeo a 3 decimales es para el peso: sin él, 0.1+0.2 deja un sobrante
+ * fantasma y 3 kg terminaría cobrando un gramo de más.
+ */
+export function calcQtyBundleSubtotal(unitPrice: number, quantity: number, promo: Promotion): number {
+  const packQty = Number(promo.bundle_qty ?? 0);
+  const packPrice = Number(promo.value ?? 0);
+  if (!(packQty > 0)) return unitPrice * quantity;   // mal configurada: precio normal
+
+  const packs = Math.floor(Math.round((quantity / packQty) * 1000) / 1000);
+  if (packs < 1) return unitPrice * quantity;
+  const rest = Math.max(0, Math.round((quantity - packs * packQty) * 1000) / 1000);
+  return packs * packPrice + rest * unitPrice;
 }
 
 export function calcPromoSubtotal(unitPrice: number, quantity: number, promo: Promotion): number {
   if (promo.type === 'percentage') return unitPrice * (1 - promo.value / 100) * quantity;
   if (promo.type === 'fixed')      return Math.max(0, unitPrice - promo.value) * quantity;
   if (promo.type === '2x1')        return Math.ceil(quantity / 2) * unitPrice;
+  if (promo.type === 'qty_bundle') return calcQtyBundleSubtotal(unitPrice, quantity, promo);
   return unitPrice * quantity;
 }
 
@@ -97,6 +123,8 @@ export function promoLabel(promo: Promotion): string {
   if (promo.type === 'percentage') return `${promo.value}% desc.`;
   if (promo.type === 'fixed')      return `-₡${Number(promo.value).toLocaleString('es-CR')}`;
   if (promo.type === '2x1')        return '2×1';
+  if (promo.type === 'qty_bundle')
+    return `${Number(promo.bundle_qty ?? 0)} × ₡${Number(promo.value).toLocaleString('es-CR')}`;
   if (promo.type === 'combo')      return promo.combo_mode === 'percent'
                                      ? `Combo -${promo.value}%`
                                      : `Combo ₡${Number(promo.value).toLocaleString('es-CR')}`;

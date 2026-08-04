@@ -7,6 +7,7 @@ import { usePOSViewMode, type POSViewPreference } from '@/hooks/usePOSViewMode';
 import { usePOSLayout, type POSLayout } from '@/hooks/usePOSLayout';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
 import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
+import { useTerminal } from '@/hooks/useTerminal';
 import { useAuth } from '@/context/AuthContext';
 
 interface Option {
@@ -41,6 +42,7 @@ export function POSViewSettings() {
   const { layout, setLayout } = usePOSLayout();
   const { assisted, setAssisted } = useAssistedMode();
   const { simpleCash, setSimpleCash } = useSimpleCashCount();
+  const { terminal, setTerminal } = useTerminal();
   const { planFeatures } = useAuth();
   const planAllowsKiosk = !!planFeatures?.pos_kiosk;
   const [kioskEnabled, setKioskEnabled] = useState<boolean>(() => {
@@ -142,6 +144,37 @@ export function POSViewSettings() {
       </button>
       </>
       )}
+
+      {/* ── Terminal (caja) de este equipo ─────────────────────────────── */}
+      <div className="border-t border-gray-200 pt-6">
+        <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+          <MonitorSmartphone size={24} className="text-indigo-600" />
+          Número de caja (terminal)
+        </h2>
+        <p className="text-gray-500 text-sm mt-1">
+          Si varias computadoras facturan al mismo tiempo, cada una necesita su
+          propio número. Es lo que evita que dos equipos generen el mismo consecutivo.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border-2 border-gray-200 bg-white p-5 flex items-center gap-4">
+        <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+          <MonitorSmartphone size={22} className="text-indigo-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-black text-gray-900 text-base mb-1">Esta computadora es la caja Nº {terminal}</h3>
+          <ul className="text-xs text-gray-600 space-y-0.5">
+            <li>• El consecutivo de Hacienda lleva la terminal adentro: <b>001-{String(terminal).padStart(5, '0')}-01-0000000001</b></li>
+            <li>• Dos equipos con números distintos <b>nunca chocan</b>, aunque facturen a la vez o sin internet</li>
+            <li>• Poné 1 en la caja principal, 2 en la segunda, y así</li>
+          </ul>
+        </div>
+        <input
+          type="number" min={1} max={99999} value={terminal}
+          onChange={e => setTerminal(Number(e.target.value) || 1)}
+          className="w-24 shrink-0 text-center text-2xl font-black border-2 border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:border-indigo-400 tabular-nums"
+        />
+      </div>
 
       {/* ── Conteo de caja simple (un solo campo) ──────────────────────── */}
       <div className="border-t border-gray-200 pt-6">

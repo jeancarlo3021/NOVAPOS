@@ -215,6 +215,16 @@ export interface PlanFeatures {
   /** Módulo de restaurante: cobro por mesas, toma de pedido full-screen,
    *  adicionales/modificadores, dividir cuenta y comandas. */
   restaurant?: boolean;
+  /** Cuentas por MESA: abrir cuenta, sumar rondas y cobrar (requiere `tables`). */
+  table_orders?: boolean;
+  /** Extras y modificadores por producto (término, extras, sin…). */
+  modifiers?: boolean;
+  /** Agentes de venta: arman pedidos que el cajero recibe y cobra. */
+  sales_agents?: boolean;
+  /** Devoluciones de venta (parciales) y anulación de facturas. */
+  returns?: boolean;
+  /** Devoluciones al proveedor (baja de stock + saldo a favor). */
+  supplier_returns?: boolean;
   /** Facturación Electrónica (Hacienda CR) — habilita tab en Settings,
    *  dropdown de tipo doc en el POS, y emisión a Hacienda. */
   electronic_invoice?: boolean;
@@ -301,6 +311,11 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   promotions: false,
   labels: false,
   tables: false,
+  table_orders: false,
+  modifiers: false,
+  sales_agents: false,
+  returns: false,
+  supplier_returns: false,
   restaurant: false,
   electronic_invoice: false,
   fe_pos: false,
@@ -365,6 +380,11 @@ export const FULL_FEATURES: PlanFeatures = {
   promotions: true,
   labels: true,
   tables: true,
+  table_orders: true,
+  modifiers: true,
+  sales_agents: true,
+  returns: true,
+  supplier_returns: true,
   restaurant: true,
   electronic_invoice: true,
   fe_pos: true,
@@ -1021,10 +1041,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const userId = await verifyOfflineCredential(email, password);
       if (!userId) return false;
+      // Snapshot DE ESE usuario: en un POS pasan varios por la misma máquina y
+      // cada uno tiene el suyo.
       const snap = readOfflineSnapshot<{
         userId: string; user: AuthUser; tenant: Tenant | null; tenants: Tenant[];
         planFeatures: PlanFeatures; planName: string;
-      }>();
+      }>(userId);
       if (!snap || snap.userId !== userId) return false;
 
       setUser(snap.user);

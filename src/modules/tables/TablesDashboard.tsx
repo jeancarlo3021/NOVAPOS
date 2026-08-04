@@ -5,8 +5,11 @@ import {
   Square, BoxSelect, Armchair, Copy, ClipboardPaste, Maximize2,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/lib/api';
 import { MapItemShape } from './MapShapes';
+import { TableOrderPanel } from './TableOrderPanel';
+import { tableOrdersService, type TableOrder } from '@/services/tables/tableOrdersService';
 import {
   tableMeta, STATUS_FILL, STATUS_LABEL, ZONE_COLORS, migrateItems, itemSize,
   type MapItem, type TableType, type TableStatus, type ItemKind,
@@ -42,10 +45,29 @@ const KIND_Z: Record<ItemKind, number> = { zone: 0, wall: 1, table: 2, freeTable
 
 export function TablesDashboard() {
   const { tenantId } = useTenantId();
+  const { planFeatures } = useAuth();
   const [items, setItems] = useState<MapItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
+  // ── Cuentas abiertas por mesa ────────────────────────────────────────────
+  // El mapa era solo un plano: no se podía abrir una cuenta, sumarle consumos y
+  // cobrarla. Ahora en modo OPERAR cada mesa abre su cuenta.
+  const [orders, setOrders] = useState<TableOrder[]>([]);
+  const [panelFor, setPanelFor] = useState<{ id: string; label: string } | null>(null);
+  const tableOrdersOn = (planFeatures as any)?.table_orders === true;
+  const loadOrders = useCallback(async () => {
+    if (!tableOrdersOn) return;   // sin la feature, el mapa queda como plano
+    try { setOrders(await tableOrdersService.open()); } catch { /* sin conexión: el mapa igual sirve */ }
+  }, [tableOrdersOn]);
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
+  // Refresco periódico: varios meseros trabajan sobre el mismo mapa.
+  useEffect(() => {
+    if (editMode) return;
+    const iv = setInterval(() => void loadOrders(), 20_000);
+    return () => clearInterval(iv);
+  }, [editMode, loadOrders]);
+  const orderByTable = new Map(orders.map(o => [o.table_id, o]));
   const [dirty, setDirty] = useState(false);
 
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -559,17 +581,30 @@ export function TablesDashboard() {
                   onResizeStart={handleResizeStart}
                   onClick={(id) => {
                     if (!editMode) {
-                      // Operar: cicla estado en mesas (fijas, libres) y sillas.
                       const cur = items.find(x => x.id === id);
                       if (!cur) return;
-                      const cycles = cur.kind === 'table' || cur.kind === 'freeTable' || cur.kind === 'seat';
-                      if (!cycles) return;
+                      // MESAS → abren su cuenta (consumo, rondas, cobro).
+                      if (cur.kind === 'table' || cur.kind === 'freeTable') {
+                        // Sin «Cuentas por mesa» las mesas siguen ciclando estado,
+                        // como antes de que existiera el módulo.
+                        if (tableOrdersOn) {
+                          setPanelFor({ id, label: (cur as any).label || 'Mesa' });
+                          return;
+                        }
+                        const st: TableStatus[] = ['free', 'occupied', 'reserved'];
+                        const nx = st[(st.indexOf((cur as any).status) + 1) % st.length];
+                        setItems(prev => prev.map(x =>
+                          x.id === id && (x.kind === 'table' || x.kind === 'freeTable')
+                            ? ({ ...x, status: nx }) : x));
+                        setDirty(true);
+                        return;
+                      }
+                      // Las SILLAS siguen ciclando estado (libre/ocupada/reservada).
+                      if (cur.kind !== 'seat') return;
                       const order: TableStatus[] = ['free', 'occupied', 'reserved'];
                       const next = order[(order.indexOf((cur as any).status) + 1) % order.length];
                       setItems(prev => prev.map(x =>
-                        x.id === id && (x.kind === 'table' || x.kind === 'freeTable' || x.kind === 'seat')
-                          ? ({ ...x, status: next })
-                          : x
+                        x.id === id && x.kind === 'seat' ? ({ ...x, status: next }) : x
                       ));
                       setDirty(true);
                     } else {
@@ -578,6 +613,22 @@ export function TablesDashboard() {
                   }}
                 />
               ))}
+
+              {/* Total consumido sobre cada mesa con cuenta abierta. En modo EDITAR
+                  estorba, así que solo se muestra al operar. */}
+              {!editMode && sortedItems.map(it => {
+                if (it.kind !== 'table' && it.kind !== 'freeTable') return null;
+                const o = orderByTable.get(it.id);
+                if (!o) return null;
+                return (
+                  <g key={`t-${it.id}`} pointerEvents="none">
+                    <rect x={it.x - 34} y={it.y + 14} width={68} height={18} rx={9} fill="#111827" opacity={0.85} />
+                    <text x={it.x} y={it.y + 27} textAnchor="middle" fontSize={11} fontWeight={900} fill="#fff">
+                      ₡{Number(o.total || 0).toLocaleString('es-CR')}
+                    </text>
+                  </g>
+                );
+              })}
 
               {items.length === 0 && (
                 <g pointerEvents="none">
@@ -600,8 +651,20 @@ export function TablesDashboard() {
         <Hand size={12} />
         {editMode
           ? <span>Arrastra cualquier elemento · Click para seleccionar · Las zonas quedan detrás, mesas/sillas arriba</span>
-          : <span>Click sobre una mesa para cambiar su estado (Libre → Ocupada → Reservada)</span>}
+          : <span>Click sobre una mesa para abrir su cuenta · Click en una silla para cambiar su estado</span>}
       </div>
+
+      {panelFor && (
+        <TableOrderPanel
+          tableId={panelFor.id}
+          tableLabel={panelFor.label}
+          otherTables={items
+            .filter(x => (x.kind === 'table' || x.kind === 'freeTable') && x.id !== panelFor.id)
+            .map(x => ({ id: x.id, label: (x as any).label || 'Mesa' }))}
+          onClose={() => setPanelFor(null)}
+          onChanged={loadOrders}
+        />
+      )}
     </div>
   );
 }

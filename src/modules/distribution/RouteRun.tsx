@@ -103,6 +103,11 @@ export const RouteRun: React.FC = () => {
     else truckTracking.stop().catch(() => {});   // ruta cerrada / sin permiso / toggle apagado
   }, [id, route?.status, cfgAllows, trackingOn]);
 
+  // Aviso cuando el permiso quedó en "Solo mientras se usa la app": el rastreo se
+  // corta al minimizar y el camión "desaparece" del mapa sin explicación.
+  const [bgPerm, setBgPerm] = useState(truckTracking.getBgPermission());
+  useEffect(() => truckTracking.onBgPermissionChange(setBgPerm), []);
+
   const loadSales = useCallback(async () => {
     if (!id) return;
     setSalesLoading(true); setSalesErr(null);
@@ -221,6 +226,25 @@ export const RouteRun: React.FC = () => {
         )}
 
         {/* Rastreo GPS: activar/desactivar — SOLO el admin (dueño/administrador) lo ve */}
+        {bgPerm === 'denied' && route.status === 'open' && trackingOn && (
+          <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 mb-3">
+            <p className="text-sm font-black text-amber-900">La ubicación solo funciona con la app abierta</p>
+            <p className="text-xs text-amber-800/90 mt-1">
+              Android la tiene en <b>«Solo mientras se usa la app»</b>, así que el rastreo se detiene
+              al minimizar o apagar la pantalla. Para que el camión se siga viendo durante todo el
+              reparto, cambiala a <b>«Permitir todo el tiempo»</b>.
+            </p>
+            <button
+              onClick={() => truckTracking.openLocationSettings()}
+              className="mt-2 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-black">
+              Abrir ajustes de ubicación
+            </button>
+            <p className="text-[11px] text-amber-700/80 mt-1.5">
+              En Ajustes: <b>Permisos → Ubicación → Permitir todo el tiempo</b>.
+            </p>
+          </div>
+        )}
+
         {isAdmin && truckTracking.isSupported() && route.status === 'open' && (
           <button onClick={toggleTracking}
             className={`w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition ${trackingOn ? 'bg-emerald-400/90 text-emerald-950' : 'bg-white/15 text-white hover:bg-white/25'}`}>

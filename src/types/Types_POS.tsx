@@ -80,6 +80,9 @@ export interface CartItem {
   promo?: CartItemPromo;
   /** Nota de la línea (comidas: "sin cebolla", "término medio", "para llevar"). */
   notes?: string;
+  /** Extras/modificadores elegidos al agregar el plato. El unit_price ya los
+   *  incluye; esto queda para mostrarlos e imprimirlos por separado. */
+  modifiers?: Array<{ group: string; name: string; price_delta: number }>;
 }
 
 export interface ShoppingCart {

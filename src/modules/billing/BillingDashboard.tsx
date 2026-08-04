@@ -67,8 +67,8 @@ export function BillingDashboard() {
   useEffect(() => {
     if (!tenantId) return;
     setMapItems(loadMap(tenantId));   // cache local (rápido / offline)
+    // Primer pintado con el caché (instantáneo), y enseguida la BASE.
     setBills(billingService.load(tenantId));
-    // Traer el mapa desde la BD (fuente de verdad, compartido entre dispositivos).
     let cancelled = false;
     (async () => {
       try {
@@ -80,14 +80,31 @@ export function BillingDashboard() {
           try { localStorage.setItem(MAP_KEY(tenantId), JSON.stringify(items)); } catch { /* cuota */ }
         }
       } catch { /* offline: se queda con el cache */ }
+      // Cuentas desde la BASE: es lo que ven todos los dispositivos.
+      try {
+        const fresh = await billingService.fetch(tenantId);
+        if (!cancelled) setBills(fresh);
+      } catch { /* offline: sigue con el caché */ }
     })();
     return () => { cancelled = true; };
   }, [tenantId]);
 
-  // Persistencia automática de bills.
+  // Refresco periódico: varios meseros trabajan sobre las mismas mesas y una
+  // cuenta abierta en otra tablet tiene que aparecer acá sin recargar.
   useEffect(() => {
     if (!tenantId) return;
-    billingService.save(tenantId, bills);
+    const iv = setInterval(async () => {
+      // No pisamos lo que el usuario está editando en este momento.
+      if (selectedSpotId) return;
+      try { setBills(await billingService.fetch(tenantId)); } catch { /* ignore */ }
+    }, 20_000);
+    return () => clearInterval(iv);
+  }, [tenantId, selectedSpotId]);
+
+  // Persistencia automática de bills (caché al instante + subida a la base).
+  useEffect(() => {
+    if (!tenantId) return;
+    void billingService.save(tenantId, bills);
   }, [tenantId, bills]);
 
   const spotsById = useMemo(() => {

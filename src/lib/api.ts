@@ -150,6 +150,13 @@ export async function apiFetch<T = unknown>(
     // Sucursal activa: el backend la usa para filtrar/gating cuando aplique.
     let branchId: string | null = null;
     try { branchId = localStorage.getItem('novapos_current_branch_id'); } catch { /* SSR */ }
+    // Terminal (caja) de ESTE equipo. Solo se manda si NO es la 1 (la de por
+    // defecto), para no cambiarle el consecutivo a quien nunca configuró nada.
+    let terminalNo = 0;
+    try {
+      const n = parseInt(localStorage.getItem('novapos_terminal') ?? '', 10);
+      terminalNo = Number.isFinite(n) && n > 1 ? n : 0;
+    } catch { /* SSR */ }
 
     const res = await fetch(`${API_URL}/api${path}`, {
       ...options,
@@ -158,6 +165,9 @@ export async function apiFetch<T = unknown>(
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(branchId ? { 'x-branch-id': branchId } : {}),
+        // El backend la usa para armar el consecutivo de Hacienda: dos equipos
+        // facturando a la vez generan consecutivos distintos.
+        ...(terminalNo ? { 'x-terminal': String(terminalNo) } : {}),
         ...options.headers,
       },
     });

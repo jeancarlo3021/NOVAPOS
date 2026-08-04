@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Shield, AlertCircle, Loader2, X, Check, Lock, Settings2,
   ShoppingCart, Package, BarChart2, TrendingDown, ClipboardList,
-  Wallet, Tag, Users, UserCog, Truck,
+  Wallet, Tag, Users, UserCog, Truck, Inbox, Send,
 } from 'lucide-react';
 import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import { ROLE_META, USER_ROLES } from '@/types/Types_Users';
@@ -34,6 +34,10 @@ const MODULES: ModuleMeta[] = [
   { key: 'restaurant',       label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa',       icon: ShoppingCart,  color: 'bg-orange-500' },
   { key: 'recipes',          label: 'Recetas',           description: 'Recetas e ingredientes',         icon: Package,       color: 'bg-lime-500' },
   { key: 'distribution',     label: 'Distribución',      description: 'Rutas de reparto y repartidor',  icon: Truck,         color: 'bg-cyan-500' },
+  // Flujo agente → caja. Se gobiernan por separado del POS: el cajero cobra pero
+  // no arma ventas, y el agente arma pedidos pero no ve la caja.
+  { key: 'caja',             label: 'Caja',              description: 'Recibe pedidos de agentes y cobra', icon: Inbox,      color: 'bg-emerald-600' },
+  { key: 'agent_orders',     label: 'Pedidos de agente', description: 'Arma pedidos y los envía a caja',   icon: Send,       color: 'bg-sky-500' },
 ];
 
 // Roles configurables (owner siempre tiene acceso total → no editable)
@@ -74,7 +78,11 @@ export const RoleSettings: React.FC = () => {
   const { planFeatures } = useAuth();
   // Solo módulos que el plan actual incluye — si no hay HR en el plan, no
   // tiene sentido configurar permisos de HR para los roles.
-  const visibleModules = MODULES.filter(m => (planFeatures as any)?.[m.key] === true);
+  const visibleModules = MODULES.filter(m => {
+    // 'caja' y 'agent_orders' no son features del plan: dependen del POS.
+    if (m.key === 'caja' || m.key === 'agent_orders') return (planFeatures as any)?.pos === true;
+    return (planFeatures as any)?.[m.key] === true;
+  });
 
   const [matrices, setMatrices] = useState<Record<string, UserPermissionMatrix>>({});
   const [loading, setLoading] = useState(false);

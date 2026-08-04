@@ -35,8 +35,9 @@ export const MainLayout = () => {
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const [userPrefersCompact, setUserPrefersCompact] = useState(false);
   const location = useLocation();
-  // Pantalla completa (sin sidebar) para el POS y el Restaurante (cobro por mesas).
-  const isPOS = location.pathname === '/pos' || location.pathname === '/billing';
+  // Pantalla completa (sin sidebar): POS, Restaurante (cobro por mesas) y el
+  // flujo agente → caja, que son pantallas de trabajo continuo.
+  const isPOS = ['/pos', '/billing', '/caja', '/agent-orders'].includes(location.pathname);
   const isReports = location.pathname.startsWith('/reports');
 
   // Auto-colapsar sidebar principal cuando estamos en /reports

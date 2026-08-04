@@ -11,7 +11,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ setSidebarOpen }) => {
   const location = useLocation();
-  const isPOS = location.pathname === '/pos';
+  // Mismas rutas a pantalla completa que en MainLayout.
+  const isPOS = ['/pos', '/billing', '/caja', '/agent-orders'].includes(location.pathname);
   const [clearing, setClearing] = useState(false);
 
   if (isPOS) return null;

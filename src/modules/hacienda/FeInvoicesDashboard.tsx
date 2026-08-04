@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown } from 'lucide-react';
+import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown, FileCode2 } from 'lucide-react';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
@@ -155,6 +155,30 @@ export const FeInvoicesDashboard: React.FC = () => {
       await openFeInvoicePdf(row.id, { creditNote });
     }
     catch (e) { alert(e instanceof Error ? e.message : 'No se pudo generar el PDF'); }
+    finally { setBusyId(null); }
+  };
+
+  /**
+   * Descarga el XML del comprobante — y, si Hacienda ya contestó, también el XML
+   * de respuesta. Son los archivos que hay que conservar: el PDF no sustituye al
+   * XML ante Hacienda.
+   */
+  const downloadXml = async (row: FeRow) => {
+    setBusyId(row.id);
+    try {
+      const r = await haciendaService.feXml(row.id);
+      const save = (b64: string, filename: string) => {
+        const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/xml' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      };
+      if (r.xml) save(r.xml, r.filename || `${row.invoice_number}.xml`);
+      if (r.xmlHacienda) save(r.xmlHacienda, r.filename_hacienda || `${row.invoice_number}-respuesta.xml`);
+      if (!r.xml && !r.xmlHacienda) alert('El XML todavía no está disponible.');
+    } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo descargar el XML'); }
     finally { setBusyId(null); }
   };
 
@@ -364,6 +388,11 @@ export const FeInvoicesDashboard: React.FC = () => {
                               title="Ver / guardar PDF del comprobante"
                               className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-gray-700 border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50">
                               <FileDown size={12} /> PDF
+                            </button>
+                            <button onClick={() => downloadXml(r)} disabled={busyId === r.id || !r.fe_clave}
+                              title="Descargar XML firmado y respuesta de Hacienda"
+                              className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-indigo-700 border border-indigo-300 bg-white hover:bg-indigo-50 disabled:opacity-50">
+                              <FileCode2 size={12} /> XML
                             </button>
                             {r.fe_nc_clave && (
                               <button onClick={() => pdf(r, true)} disabled={busyId === r.id}

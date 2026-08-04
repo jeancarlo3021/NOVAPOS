@@ -117,14 +117,33 @@ async function pbkdf2(password: string, salt: Uint8Array, iterations: number): P
   return b64(outBuf);
 }
 
-function readCred(): OfflineCred | null {
+/**
+ * Verificadores de TODOS los usuarios que iniciaron sesión en este dispositivo,
+ * indexados por correo normalizado.
+ *
+ * Antes se guardaba UNO solo: si entraba el admin y después un cajero, el segundo
+ * pisaba al primero y solo el último podía entrar sin internet. En un POS pasan
+ * varios usuarios por la misma máquina, así que cada uno tiene el suyo.
+ */
+type CredMap = Record<string, OfflineCred>;
+
+function readCredMap(): CredMap {
   try {
     const raw = localStorage.getItem(CRED_KEY);
-    if (!raw) return null;
-    const c: OfflineCred = JSON.parse(raw);
-    if (Date.now() - c.updatedAt > MAX_AGE_MS) { localStorage.removeItem(CRED_KEY); return null; }
-    return c;
-  } catch { return null; }
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    // Compatibilidad: si venía el formato viejo (un solo objeto), se migra al mapa.
+    if (parsed && typeof parsed === 'object' && typeof parsed.emailNorm === 'string') {
+      const map: CredMap = { [parsed.emailNorm]: parsed as OfflineCred };
+      localStorage.setItem(CRED_KEY, JSON.stringify(map));
+      return map;
+    }
+    return (parsed ?? {}) as CredMap;
+  } catch { return {}; }
+}
+
+function writeCredMap(map: CredMap): void {
+  try { localStorage.setItem(CRED_KEY, JSON.stringify(map)); } catch { /* sin espacio */ }
 }
 
 /** Guarda/renueva el verificador tras un login ONLINE exitoso. Fire-and-forget. */
@@ -145,24 +164,45 @@ export async function saveOfflineCredential(email: string, password: string, use
       updatedAt: Date.now(),
       failedAttempts: 0,
     };
-    localStorage.setItem(CRED_KEY, JSON.stringify(cred));
+    const map = readCredMap();
+    map[cred.emailNorm] = cred;
+    writeCredMap(map);
   } catch (e) { console.warn('[offline-login] no se pudo guardar el verificador:', e); }
 }
 
 /** Snapshot del estado de auth para restaurar sin red. Lo escribe AuthContext
  *  junto con su cache normal; sobrevive al logout y a la expiración por edad. */
 export function saveOfflineSnapshot(snapshot: unknown): void {
-  try { localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ data: snapshot, savedAt: Date.now() })); }
-  catch { /* sin espacio */ }
+  try {
+    const userId = String((snapshot as any)?.userId ?? '');
+    if (!userId) return;
+    // Un snapshot POR USUARIO: con uno solo, el último en entrar borraba el del
+    // anterior y ese usuario ya no podía restaurar su sesión sin internet.
+    const all = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '{}');
+    const map = (all && typeof all === 'object' && !all.data) ? all : {};
+    map[userId] = { data: snapshot, savedAt: Date.now() };
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(map));
+  } catch { /* sin espacio */ }
 }
 
-export function readOfflineSnapshot<T = any>(): T | null {
+/** Snapshot de un usuario. Sin `userId` devuelve el más reciente (compatibilidad). */
+export function readOfflineSnapshot<T = any>(userId?: string): T | null {
   try {
     const raw = localStorage.getItem(SNAPSHOT_KEY);
     if (!raw) return null;
-    const { data, savedAt } = JSON.parse(raw);
-    if (Date.now() - savedAt > MAX_AGE_MS) { localStorage.removeItem(SNAPSHOT_KEY); return null; }
-    return data as T;
+    const parsed = JSON.parse(raw);
+    // Formato viejo: { data, savedAt } suelto.
+    if (parsed?.data) {
+      if (Date.now() - parsed.savedAt > MAX_AGE_MS) return null;
+      return parsed.data as T;
+    }
+    const entries = Object.entries(parsed ?? {}) as Array<[string, any]>;
+    const hit = userId
+      ? entries.find(([k]) => k === userId)?.[1]
+      : entries.sort((a, b) => (b[1]?.savedAt ?? 0) - (a[1]?.savedAt ?? 0))[0]?.[1];
+    if (!hit) return null;
+    if (Date.now() - hit.savedAt > MAX_AGE_MS) return null;
+    return hit.data as T;
   } catch { return null; }
 }
 
@@ -172,19 +212,25 @@ export function readOfflineSnapshot<T = any>(): T | null {
  * o se agotaron los intentos (en ese caso se borra el verificador).
  */
 export async function verifyOfflineCredential(email: string, password: string): Promise<string | null> {
-  const cred = readCred();
+  const emailNorm = email.trim().toLowerCase();
+  const map = readCredMap();
+  const cred = map[emailNorm];
   if (!cred) return null;
-  if (cred.emailNorm !== email.trim().toLowerCase()) return null;
+  if (Date.now() - cred.updatedAt > MAX_AGE_MS) { delete map[emailNorm]; writeCredMap(map); return null; }
   try {
     const hash = await pbkdf2(password, unb64(cred.saltB64), cred.iterations);
     if (hash === cred.hashB64) {
       cred.failedAttempts = 0;
-      localStorage.setItem(CRED_KEY, JSON.stringify(cred));
+      map[emailNorm] = cred;
+      writeCredMap(map);
       return cred.userId;
     }
+    // Los intentos fallidos se cuentan SOLO para ese usuario: que un cajero se
+    // equivoque de contraseña no debe dejar afuera a los demás.
     cred.failedAttempts = (cred.failedAttempts ?? 0) + 1;
-    if (cred.failedAttempts >= MAX_ATTEMPTS) localStorage.removeItem(CRED_KEY);
-    else localStorage.setItem(CRED_KEY, JSON.stringify(cred));
+    if (cred.failedAttempts >= MAX_ATTEMPTS) delete map[emailNorm];
+    else map[emailNorm] = cred;
+    writeCredMap(map);
     return null;
   } catch { return null; }
 }
@@ -192,24 +238,33 @@ export async function verifyOfflineCredential(email: string, password: string): 
 /** Estado del login offline en ESTE dispositivo. Para diagnosticar sin adivinar:
  *  en la consola del navegador → `window.novaposOfflineLogin()`. */
 export function offlineLoginStatus(): Record<string, any> {
-  const cred = readCred();
-  const snap = readOfflineSnapshot<any>();
+  const map = readCredMap();
+  const usuarios = Object.values(map).map(c => {
+    const snap = readOfflineSnapshot<any>(c.userId);
+    const dias = Math.floor((Date.now() - c.updatedAt) / 86400000);
+    return {
+      usuario: c.emailNorm,
+      listo: !!snap && !!c && dias <= 7,
+      snapshot_guardado: !!snap,
+      intentos_fallidos: c.failedAttempts ?? 0,
+      dias_desde_el_ultimo_login_online: dias,
+      nota: !snap
+        ? 'Tiene verificador pero NO snapshot: que inicie sesión online una vez más.'
+        : dias > 7 ? 'Vencido: pasaron más de 7 días del último login online.'
+        : 'Listo para entrar sin internet.',
+    };
+  });
   return {
-    listo: !!cred && !!snap && cred.userId === snap?.userId,
-    verificador_guardado: !!cred,
-    usuario_del_verificador: cred?.emailNorm ?? null,
-    intentos_fallidos: cred?.failedAttempts ?? 0,
-    dias_desde_el_ultimo_login_online: cred ? Math.floor((Date.now() - cred.updatedAt) / 86400000) : null,
-    snapshot_guardado: !!snap,
-    snapshot_coincide: !!cred && !!snap && cred.userId === snap?.userId,
+    usuarios,
+    total_usuarios: usuarios.length,
+    alguno_listo: usuarios.some(u => u.listo),
     sesion_offline_activa: isOfflineSessionActive(),
     webcrypto: hasWebCrypto(),
     contexto_seguro: typeof window !== 'undefined' ? (window as any).isSecureContext ?? null : null,
-    nota: !cred
-      ? 'Falta iniciar sesión ONLINE al menos una vez en este dispositivo (con la app ya actualizada).'
-      : !snap
-        ? 'Hay verificador pero no snapshot: iniciá sesión online una vez más.'
-        : 'Listo para iniciar sesión sin internet.',
+    nota: usuarios.length === 0
+      ? 'Ningún usuario inició sesión ONLINE en este dispositivo con la app ya actualizada. '
+        + 'Cada persona que vaya a entrar sin internet tiene que hacerlo UNA vez con conexión.'
+      : `${usuarios.filter(u => u.listo).length} de ${usuarios.length} usuario(s) pueden entrar sin internet.`,
   };
 }
 

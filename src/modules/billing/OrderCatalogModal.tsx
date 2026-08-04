@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Search, Plus, Minus, Check, ChevronLeft, UtensilsCrossed } from 'lucide-react';
+import { X, Search, ChevronLeft, UtensilsCrossed } from 'lucide-react';
 import { getAllProducts, categoriesService } from '@/services/Inventory/InventoryProductsService';
 import { modifiersService, type ModifierGroup } from '@/services/Inventory/modifiersService';
+import { ModifierPickerModal } from '@/modules/pos/ModifierPickerModal';
 import type { Product } from '@/types/Pos.types';
 import type { ProductCategory } from '@/services/Inventory/categoriesService';
-import type { BillItem, BillItemModifier } from './types';
+import type { BillItem } from './types';
 
 const fmt = (n: number) => `₡${Math.round(n).toLocaleString('es-CR')}`;
 
@@ -142,11 +143,26 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
             </div>
           </>
         ) : (
-          <ModifierPicker
-            product={configProduct}
-            groups={configGroups}
-            loading={loadingMods}
-            onConfirm={(item) => { onAdd(item); setConfigProduct(null); setConfigGroups([]); }}
+          /* Adicionales DENTRO del mismo modal: apilar un segundo modal encima
+             tapaba el catálogo y hacía perder el hilo de lo que se estaba pidiendo. */
+          <ModifierPickerModal
+            variant="embedded"
+            product={configProduct as any}
+            groups={configGroups as any}
+            basePrice={Number(configProduct.unit_price ?? 0)}
+            onConfirm={(mods, qty, _extra, note) => {
+              onAdd({
+                product_id: configProduct.id,
+                category_id: (configProduct as any).category_id ?? undefined,
+                name: configProduct.name,
+                unit_price: Number(configProduct.unit_price ?? 0),
+                quantity: qty,
+                modifiers: mods.map(m => ({ group: m.group, name: m.name, price_delta: m.price_delta })),
+                notes: note,
+              });
+              setConfigProduct(null); setConfigGroups([]);
+            }}
+            onClose={() => { setConfigProduct(null); setConfigGroups([]); }}
           />
         )}
       </div>
@@ -171,136 +187,5 @@ function CatTab({ label, active, onClick }: { label: string; active: boolean; on
   );
 }
 
-// ── Selector de adicionales ──────────────────────────────────────────────────
-function ModifierPicker({ product, groups, loading, onConfirm }: {
-  product: Product;
-  groups: ModifierGroup[];
-  loading: boolean;
-  onConfirm: (item: Omit<BillItem, 'id'>) => void;
-}) {
-  // selección: groupName → set de opciones elegidas (por name)
-  const [selected, setSelected] = useState<Record<string, BillItemModifier[]>>({});
-  const [notes, setNotes] = useState('');
-  const [qty, setQty] = useState(1);
-  const [error, setError] = useState('');
-
-  const toggle = (g: ModifierGroup, opt: { name: string; price_delta: number }) => {
-    setError('');
-    setSelected(prev => {
-      const cur = prev[g.name] ?? [];
-      const exists = cur.some(m => m.name === opt.name);
-      let next: BillItemModifier[];
-      if (exists) {
-        next = cur.filter(m => m.name !== opt.name);
-      } else if (g.max_select === 1) {
-        next = [{ group: g.name, name: opt.name, price_delta: opt.price_delta }];
-      } else {
-        if (cur.length >= g.max_select) return prev; // tope
-        next = [...cur, { group: g.name, name: opt.name, price_delta: opt.price_delta }];
-      }
-      return { ...prev, [g.name]: next };
-    });
-  };
-
-  const allMods = Object.values(selected).flat();
-  const modsTotal = allMods.reduce((s, m) => s + m.price_delta, 0);
-  const lineTotal = (product.unit_price + modsTotal) * qty;
-
-  const confirm = () => {
-    // Validar grupos obligatorios
-    for (const g of groups) {
-      const count = (selected[g.name] ?? []).length;
-      if (count < g.min_select) {
-        setError(`Elegí al menos ${g.min_select} en "${g.name}"`);
-        return;
-      }
-    }
-    onConfirm({
-      product_id: product.id,
-      category_id: (product as any).category_id ?? undefined,
-      name: product.name,
-      unit_price: product.unit_price,
-      quantity: qty,
-      modifiers: allMods,
-      notes: notes.trim() || undefined,
-    });
-  };
-
-  if (loading) return <div className="flex-1 flex items-center justify-center text-gray-400">Cargando opciones…</div>;
-
-  return (
-    <>
-      <div className="flex-1 overflow-y-auto p-5 space-y-4">
-        {groups.map((g, gi) => (
-          <div key={gi}>
-            <div className="flex items-center justify-between mb-2">
-              <p className="font-black text-gray-800 text-sm">{g.name}</p>
-              <span className="text-[10px] font-bold text-gray-400 uppercase">
-                {g.min_select > 0 ? 'Obligatorio' : 'Opcional'}
-                {g.max_select > 1 ? ` · hasta ${g.max_select}` : ''}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {g.modifiers.map((opt, oi) => {
-                const isSel = (selected[g.name] ?? []).some(m => m.name === opt.name);
-                return (
-                  <button key={oi} onClick={() => toggle(g, opt)}
-                    className={`flex items-center justify-between px-3 py-2.5 rounded-xl border-2 text-left transition ${
-                      isSel ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
-                    }`}>
-                    <span className="flex items-center gap-2">
-                      <span className={`w-5 h-5 rounded-${g.max_select === 1 ? 'full' : 'md'} border-2 flex items-center justify-center ${
-                        isSel ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300'
-                      }`}>
-                        {isSel && <Check size={12} className="text-white" />}
-                      </span>
-                      <span className="text-sm font-semibold text-gray-800">{opt.name}</span>
-                    </span>
-                    {opt.price_delta !== 0 && (
-                      <span className="text-xs font-bold text-emerald-600">
-                        {opt.price_delta > 0 ? '+' : ''}{fmt(opt.price_delta)}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-
-        {/* Nota */}
-        <div>
-          <p className="font-black text-gray-800 text-sm mb-2">Nota / solicitud especial</p>
-          <input value={notes} onChange={e => setNotes(e.target.value)}
-            placeholder="Ej: sin cebolla, bien cocido…"
-            className="w-full px-3 py-2 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-400" />
-        </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-3 py-2">{error}</div>
-        )}
-      </div>
-
-      {/* Footer: cantidad + confirmar */}
-      <div className="px-5 py-4 border-t border-gray-100 shrink-0 flex items-center gap-3">
-        <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
-          <button onClick={() => setQty(q => Math.max(1, q - 1))}
-            className="w-9 h-9 rounded-lg bg-white flex items-center justify-center text-gray-600 hover:bg-gray-50">
-            <Minus size={15} />
-          </button>
-          <span className="w-8 text-center font-black text-lg">{qty}</span>
-          <button onClick={() => setQty(q => q + 1)}
-            className="w-9 h-9 rounded-lg bg-white flex items-center justify-center text-gray-600 hover:bg-gray-50">
-            <Plus size={15} />
-          </button>
-        </div>
-        <button onClick={confirm}
-          className="flex-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black flex items-center justify-center gap-2 transition">
-          <Plus size={16} /> Agregar · {fmt(lineTotal)}
-        </button>
-      </div>
-    </>
-  );
-}
 
 export default OrderCatalogModal;

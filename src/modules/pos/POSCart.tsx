@@ -300,8 +300,14 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                           </button>
                         )}
                       </div>
+                      {/* Extras elegidos (ya incluidos en el precio unitario). */}
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <p className="text-[11px] text-violet-700 font-semibold truncate pl-0.5">
+                          + {item.modifiers.map(m => m.name).join(', ')}
+                        </p>
+                      )}
                       {/* Nota guardada, visible bajo el nombre. */}
-                      {item.notes && notingId !== item.product_id && (
+                      {item.notes && !item.modifiers?.length && notingId !== item.product_id && (
                         <p className="text-[11px] text-amber-700 font-semibold truncate pl-0.5">↳ {item.notes}</p>
                       )}
                       {notingId === item.product_id && (
