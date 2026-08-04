@@ -40,41 +40,79 @@
     <!--
       Salvavidas de arranque.
 
-      Si el bundle no carga —lo típico en una PWA instalada: el index.html
-      cacheado apunta a un chunk que ya no existe tras un deploy— React nunca
-      monta y el usuario se queda viendo una pantalla EN BLANCO, sin nada que
-      tocar. Este script vigila el arranque y, si a los 12 s el root sigue
-      vacío, muestra una salida: limpiar el caché y volver a entrar.
+      Si React no monta, el usuario se queda viendo una pantalla EN BLANCO sin
+      nada que tocar y sin forma de saber por qué. Este script vigila el
+      arranque, MUESTRA EL ERROR REAL y ofrece la única salida que suele servir:
+      limpiar el caché y volver a entrar.
 
       Va inline y antes del módulo a propósito: tiene que funcionar justamente
       cuando el bundle es lo que falló.
     -->
     <script>
       (function () {
-        var recovered = false;
+        var booted = false;
+        var shown = false;
+        var errors = [];
 
-        function recover(motivo) {
-          if (recovered) return;
-          recovered = true;
+        function note(msg) {
+          if (!msg) return;
+          msg = String(msg);
+          if (errors.indexOf(msg) === -1) errors.push(msg);
+          // Si ya reventó algo y el root sigue vacío, no tiene sentido esperar
+          // los 12 s completos: se muestra la salida enseguida.
+          setTimeout(function () { show(); }, 1200);
+        }
+
+        function show() {
+          if (booted || shown) return;
           var root = document.getElementById('root');
           if (!root || root.childElementCount > 0) return;
+          shown = true;
+
+          var detalle = errors.length
+            ? errors.slice(0, 3).join('\n')
+            : 'La app no terminó de cargar (sin error reportado).';
+
           root.innerHTML =
             '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;'
-            + 'font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;padding:24px">'
-            + '<div style="max-width:380px;width:100%;background:#fff;border-radius:16px;'
-            + 'box-shadow:0 10px 30px rgba(0,0,0,.08);padding:28px;text-align:center">'
-            + '<div style="font-size:40px;line-height:1;margin-bottom:12px">📦</div>'
-            + '<h1 style="font-size:18px;font-weight:800;color:#0f172a;margin:0 0 8px">No se pudo abrir la app</h1>'
-            + '<p style="font-size:13px;color:#475569;margin:0 0 18px">'
-            + 'Quedó una versión vieja guardada en el teléfono. Tocá el botón para bajar la última.</p>'
+            + 'font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;padding:20px">'
+            + '<div style="max-width:420px;width:100%;background:#fff;border-radius:16px;'
+            + 'box-shadow:0 10px 30px rgba(0,0,0,.08);padding:24px;text-align:center">'
+            + '<div style="font-size:38px;line-height:1;margin-bottom:10px">&#128230;</div>'
+            + '<h1 style="font-size:18px;font-weight:800;color:#0f172a;margin:0 0 6px">No se pudo abrir la app</h1>'
+            + '<p style="font-size:13px;color:#475569;margin:0 0 16px">'
+            + 'Prob&aacute; actualizar. Si sigue igual, mand&aacute; este detalle al soporte.</p>'
             + '<button id="cc-fix" style="width:100%;padding:12px;border:0;border-radius:12px;'
             + 'background:#10b981;color:#fff;font-weight:800;font-size:14px">Actualizar y entrar</button>'
-            + '<p style="font-size:11px;color:#94a3b8;margin:12px 0 0">' + motivo + '</p>'
+            + '<button id="cc-copy" style="width:100%;margin-top:8px;padding:10px;border:1px solid #e2e8f0;'
+            + 'border-radius:12px;background:#fff;color:#475569;font-weight:700;font-size:13px">Copiar detalle del error</button>'
+            + '<pre id="cc-err" style="margin:14px 0 0;padding:10px;background:#f1f5f9;border-radius:10px;'
+            + 'font-size:10px;color:#334155;text-align:left;white-space:pre-wrap;word-break:break-word;'
+            + 'max-height:180px;overflow:auto"></pre>'
             + '</div></div>';
+
+          // Como texto, no como HTML: el mensaje de error es contenido ajeno y no
+          // debe poder inyectar marcado en la pantalla de recuperaci&oacute;n.
+          document.getElementById('cc-err').textContent =
+            detalle + '\n\n' + navigator.userAgent;
+
+          document.getElementById('cc-copy').onclick = function () {
+            var t = document.getElementById('cc-err').textContent;
+            var self = this;
+            var done = function () { self.textContent = 'Copiado \u2713'; };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(t).then(done, function () { self.textContent = 'No se pudo copiar'; });
+            } else {
+              var ta = document.createElement('textarea');
+              ta.value = t; document.body.appendChild(ta); ta.select();
+              try { document.execCommand('copy'); done(); } catch (e) { self.textContent = 'No se pudo copiar'; }
+              document.body.removeChild(ta);
+            }
+          };
 
           document.getElementById('cc-fix').onclick = function () {
             this.disabled = true;
-            this.textContent = 'Actualizando…';
+            this.textContent = 'Actualizando\u2026';
             var jobs = [];
             try {
               if (window.caches && caches.keys) {
@@ -89,31 +127,35 @@
               }
             } catch (e) { /* si no se puede limpiar, igual recargamos */ }
             Promise.all(jobs)['catch'](function () {})['then'](function () {
-              // El query rompe cualquier caché intermedio que siga sirviendo el HTML viejo.
+              // El query rompe cualquier cach&eacute; intermedio que siga sirviendo el HTML viejo.
               location.replace(location.pathname + '?r=' + Date.now());
             });
           };
         }
 
-        // a) El bundle no cargó: se sabe de una, sin esperar.
+        // a) Recurso que no carg&oacute; (script/css) — se distingue por el target.
         window.addEventListener('error', function (e) {
           var t = e && e.target;
-          if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) recover('No se pudo cargar la aplicación.');
+          if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
+            note('No carg&oacute;: ' + (t.src || t.href || t.tagName));
+            return;
+          }
+          // b) Excepci&oacute;n de verdad (incluye las que tumban un m&oacute;dulo al evaluarse).
+          var msg = (e && e.message) || '';
+          if (msg) note(msg + (e.filename ? ' @ ' + e.filename + ':' + e.lineno : ''));
         }, true);
 
-        // b) Un import dinámico que falla llega como promesa rechazada.
+        // c) Promesa rechazada sin capturar (imports din&aacute;micos, entre otros).
         window.addEventListener('unhandledrejection', function (e) {
-          var m = e && e.reason && (e.reason.message || String(e.reason));
-          if (m && /dynamically imported module|Importing a module script failed|Failed to fetch/i.test(m)) {
-            recover('Faltan archivos de esta versión.');
-          }
+          var r = e && e.reason;
+          note((r && (r.message || r.toString())) || 'Promesa rechazada sin capturar');
         });
 
-        // c) Red de seguridad: nada se rompió a la vista, pero tampoco montó nada.
-        setTimeout(function () { recover('La app no terminó de cargar.'); }, 12000);
+        // d) Red de seguridad: nada revent&oacute; a la vista, pero tampoco mont&oacute; nada.
+        setTimeout(show, 12000);
 
-        // React montó → se cancela la vigilancia.
-        window.__ccBooted = function () { recovered = true; };
+        // React mont&oacute; &rarr; se apaga la vigilancia.
+        window.__ccBooted = function () { booted = true; };
       })();
     </script>
 

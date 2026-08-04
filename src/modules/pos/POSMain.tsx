@@ -757,7 +757,12 @@ export const POSMain = () => {
         unit_price: round2(base),
         subtotal,
         promo: promo
-          ? { id: promo.id, name: promo.name, type: promo.type, value: promo.value }
+          ? {
+              id: promo.id, name: promo.name, type: promo.type, value: promo.value,
+              // La promo por cantidad necesita el tamaño del paquete para
+              // recalcular el subtotal cuando cambia la cantidad en el carrito.
+              bundle_qty: promo.bundle_qty ?? null,
+            }
           : undefined,
       }];
     });

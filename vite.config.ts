@@ -137,6 +137,16 @@ export default defineConfig({
   },
 
   build: {
+    // Navegadores soportados.
+    //
+    // Vite 8 compila por defecto para navegadores MUY recientes. En un celular
+    // con Chrome/WebView viejo eso significa que el bundle ni siquiera se puede
+    // PARSEAR: no es que la app falle, es que nunca arranca — pantalla en blanco,
+    // sin error a la vista y sin que limpiar el caché sirva de nada.
+    //
+    // Bajar el target cuesta unos KB y elimina toda esa clase de problema.
+    target: ['es2019', 'chrome80', 'safari14', 'firefox78', 'edge88'],
+
     // Source maps para que Sentry pueda mapear stack traces minificados.
     sourcemap: true,
 
