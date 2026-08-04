@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import {
-  X, Loader2, UserPlus, ShieldCheck, KeyRound, Eye, EyeOff, Upload, CheckCircle2, AlertCircle,
+  X, Loader2, UserPlus, ShieldCheck, KeyRound, Eye, EyeOff, AlertCircle, Hash,
 } from 'lucide-react';
-import {
-  accountantService, type NewClientPayload, type NewClientResult,
-} from '@/services/accountant/accountantService';
+import type { NewClientPayload, NewClientResult } from '@/services/accountant/accountantService';
 
 interface Props {
   /** Cómo se crea el cliente. El Panel Admin lo hace dentro de un grupo; el
@@ -21,31 +19,26 @@ const field = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outlin
 const label = 'block text-[11px] font-bold text-gray-500 uppercase mb-1';
 
 /**
- * Alta de un cliente: negocio, datos de Hacienda y credenciales del portal.
+ * Alta de un cliente: nombre, desde qué consecutivo sigue y su acceso.
  *
- * Los pedazos van juntos a propósito. Antes había que crear el negocio en un
- * lado, cargarle la llave criptográfica en otro y darle el usuario al cliente en
- * un tercero — y cualquiera de los tres se olvidaba. Acá, apenas los datos están
- * completos y el .p12 sube, la empresa se registra sola en Alanube.
+ * Deliberadamente NO pide los datos del emisor ni la llave .p12. Dar de alta al
+ * cliente y configurarle la firma electrónica son dos momentos distintos —
+ * mezclarlos obligaba a tener el certificado a mano solo para crear el negocio.
+ * Lo único que no puede esperar es el consecutivo: si se arranca de 1 sobre una
+ * cédula que ya facturó, Hacienda rechaza todo con -99.
  *
  * El bloque de credenciales solo sale con `allowAccess`: crear usuarios es del
- * administrador. El contador carga los datos del negocio, nada más.
+ * administrador.
  */
 export const AddClientModal: React.FC<Props> = ({ submit, allowAccess = true, onClose, onCreated }) => {
-  const [name, setName]     = useState('');
-  const [ident, setIdent]   = useState('');
-  const [legal, setLegal]   = useState('');
-  const [comm, setComm]     = useState('');
-  const [email, setEmail]   = useState('');
-  const [phone, setPhone]   = useState('');
-  const [address, setAddress] = useState('');
-  const [activity, setActivity] = useState('');
-  const [env, setEnv] = useState<'production' | 'sandbox'>('production');
+  const [name, setName] = useState('');
 
-  const [pin, setPin]         = useState('');
-  const [atvUser, setAtvUser] = useState('');
-  const [atvPass, setAtvPass] = useState('');
-  const [cert, setCert]       = useState<{ name: string; base64: string } | null>(null);
+  // Último consecutivo YA emitido en el sistema anterior. Es lo único que hay que
+  // saber al dar de alta: el resto de los datos del emisor —y la llave .p12— los
+  // carga el administrador después.
+  const [lastFactura, setLastFactura] = useState('');
+  const [lastTiquete, setLastTiquete] = useState('');
+  const [lastNc, setLastNc] = useState('');
 
   const [withAccess, setWithAccess] = useState(allowAccess);
   const [username, setUsername] = useState('');
@@ -55,16 +48,6 @@ export const AddClientModal: React.FC<Props> = ({ submit, allowAccess = true, on
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState('');
   const [step, setStep]   = useState('');
-
-  const pickCert = (f: File | null) => {
-    if (!f) { setCert(null); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const res = String(reader.result ?? '');
-      setCert({ name: f.name, base64: res.slice(res.indexOf(',') + 1) });
-    };
-    reader.readAsDataURL(f);
-  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,44 +59,25 @@ export const AddClientModal: React.FC<Props> = ({ submit, allowAccess = true, on
     setBusy(true); setError('');
     try {
       setStep('Creando el negocio…');
+      const num = (v: string) => {
+        const n = parseInt(v.replace(/\D/g, ''), 10);
+        return Number.isFinite(n) && n > 0 ? n : undefined;
+      };
       const res = await submit({
         name: name.trim(),
-        hacienda: {
-          identification: ident.replace(/\D/g, '') || undefined,
-          name: legal.trim() || name.trim(),
-          commercial_name: comm.trim() || undefined,
-          email: email.trim() || undefined,
-          phone: phone.replace(/\D/g, '') || undefined,
-          address: address.trim() || undefined,
-          economic_activity_code: activity.replace(/\D/g, '') || undefined,
-          p12_password: pin || undefined,
-          atv_username: atvUser.trim() || undefined,
-          atv_password: atvPass || undefined,
-          environment: env,
+        consecutivos: {
+          factura: num(lastFactura),
+          tiquete: num(lastTiquete),
+          nota_credito: num(lastNc),
         },
         access: allowAccess && withAccess
           ? { username: username.trim(), password, full_name: name.trim() }
           : undefined,
       });
 
-      const tenantId = res.tenant_id;
-      let alanubeMsg = res.alanube?.message ?? '';
-
-      // El certificado va después: necesita el id del negocio recién creado. Al
-      // subirlo, el backend reintenta solo el alta en Alanube.
-      if (tenantId && cert) {
-        setStep('Subiendo la llave criptográfica…');
-        const up = await accountantService.uploadCertificate(tenantId, {
-          file_base64: cert.base64, filename: cert.name,
-          p12_password: pin || undefined, environment: env,
-        });
-        alanubeMsg = (up as any)?.alanube?.message ?? alanubeMsg;
-      }
-
       onCreated(
         `Cliente "${name.trim()}" creado`
-        + (res.user_email ? ` · usuario ${res.user_email.replace('@nexoerp.local', '')}` : '')
-        + (alanubeMsg ? ` · ${alanubeMsg}` : ''),
+        + (res.user_email ? ` · usuario ${res.user_email.replace('@nexoerp.local', '')}` : ''),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo crear el cliente');
@@ -150,80 +114,46 @@ export const AddClientModal: React.FC<Props> = ({ submit, allowAccess = true, on
               placeholder="Panadería La Espiga" autoFocus />
           </div>
 
-          {/* ── Hacienda ── */}
+          {/* ── Último consecutivo ── */}
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-              <ShieldCheck size={14} className="text-emerald-600" />
-              <p className="text-xs font-black text-gray-700">Datos de Hacienda</p>
-              <div className="ml-auto flex gap-1">
-                {(['production', 'sandbox'] as const).map(v => (
-                  <button key={v} type="button" onClick={() => setEnv(v)}
-                    className={`px-2 py-1 rounded-md text-[10px] font-black transition ${
-                      env === v ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-500'}`}>
-                    {v === 'production' ? 'Producción' : 'Pruebas'}
-                  </button>
-                ))}
-              </div>
+              <Hash size={14} className="text-indigo-600" />
+              <p className="text-xs font-black text-gray-700">Último consecutivo emitido</p>
             </div>
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className={label}>Cédula</label>
-                <input value={ident} onChange={e => setIdent(e.target.value)} className={field} placeholder="3101123456" />
+            <div className="p-4 space-y-3">
+              <p className="text-[11px] text-gray-500">
+                El <b>último número que el cliente ya emitió</b> en su sistema anterior. La
+                numeración sigue desde ahí: si se arranca de 1 sobre una cédula que ya
+                facturó, Hacienda rechaza con <span className="font-mono">-99</span> (consecutivo
+                duplicado). Dejalo vacío si nunca ha facturado electrónicamente.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className={label}>Factura</label>
+                  <input value={lastFactura} inputMode="numeric"
+                    onChange={e => setLastFactura(e.target.value.replace(/\D/g, ''))}
+                    className={field} placeholder="0" />
+                </div>
+                <div>
+                  <label className={label}>Tiquete</label>
+                  <input value={lastTiquete} inputMode="numeric"
+                    onChange={e => setLastTiquete(e.target.value.replace(/\D/g, ''))}
+                    className={field} placeholder="0" />
+                </div>
+                <div>
+                  <label className={label}>Nota de crédito</label>
+                  <input value={lastNc} inputMode="numeric"
+                    onChange={e => setLastNc(e.target.value.replace(/\D/g, ''))}
+                    className={field} placeholder="0" />
+                </div>
               </div>
-              <div>
-                <label className={label}>Actividad económica</label>
-                <input value={activity} onChange={e => setActivity(e.target.value)} className={field} placeholder="620100" />
-              </div>
-              <div>
-                <label className={label}>Razón social</label>
-                <input value={legal} onChange={e => setLegal(e.target.value)} className={field} placeholder="Igual al nombre si se deja vacío" />
-              </div>
-              <div>
-                <label className={label}>Nombre comercial</label>
-                <input value={comm} onChange={e => setComm(e.target.value)} className={field} />
-              </div>
-              <div>
-                <label className={label}>Correo</label>
-                <input value={email} onChange={e => setEmail(e.target.value)} className={field} placeholder="facturas@negocio.cr" />
-              </div>
-              <div>
-                <label className={label}>Teléfono</label>
-                <input value={phone} onChange={e => setPhone(e.target.value)} className={field} placeholder="88887777" />
-              </div>
-              <div className="sm:col-span-2">
-                <label className={label}>Dirección (otras señas)</label>
-                <input value={address} onChange={e => setAddress(e.target.value)} className={field} />
-              </div>
-
-              <div className="sm:col-span-2 border-t border-gray-100 pt-3">
-                <p className="text-[11px] text-gray-400 mb-2">
-                  Llave criptográfica y credenciales de ATV. Con esto completo, la empresa
-                  se registra sola en Alanube.
-                </p>
-              </div>
-              <div className="sm:col-span-2">
-                <label className={label}>Llave criptográfica (.p12)</label>
-                <label className={`flex items-center gap-2 px-3 py-2 border border-dashed rounded-lg cursor-pointer text-sm transition ${
-                  cert ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-gray-300 text-gray-500 hover:border-indigo-300'}`}>
-                  {cert ? <CheckCircle2 size={15} /> : <Upload size={15} />}
-                  <span className="truncate">{cert ? cert.name : 'Seleccionar archivo .p12'}</span>
-                  <input type="file" accept=".p12,.pfx" className="hidden"
-                    onChange={e => pickCert(e.target.files?.[0] ?? null)} />
-                </label>
-              </div>
-              <div>
-                <label className={label}>PIN del certificado</label>
-                <input type="password" value={pin} onChange={e => setPin(e.target.value)} className={field} />
-              </div>
-              <div />
-              <div>
-                <label className={label}>Usuario de API de ATV</label>
-                <input value={atvUser} onChange={e => setAtvUser(e.target.value)} className={field}
-                  placeholder="cpj-3-101-123456@stag.comprobanteselectronicos.go.cr" />
-              </div>
-              <div>
-                <label className={label}>Contraseña de API de ATV</label>
-                <input type="password" value={atvPass} onChange={e => setAtvPass(e.target.value)} className={field} />
+              <div className="flex items-start gap-2 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] text-indigo-800">
+                <ShieldCheck size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  Los datos del emisor (cédula, actividad, dirección) y la <b>llave
+                  criptográfica .p12</b> los carga el administrador desde la configuración de
+                  facturación electrónica.
+                </span>
               </div>
             </div>
           </div>

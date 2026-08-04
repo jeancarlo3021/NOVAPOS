@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDownCircle, ArrowUpCircle, Wallet, RefreshCw, Download, FileSpreadsheet } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Wallet, RefreshCw, Download, FileSpreadsheet, Pencil, X, Save, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { downloadCsv } from '@/utils/csv';
 import { downloadXlsx } from '@/utils/xlsx';
@@ -33,6 +33,18 @@ const parseDesc = (d: string) => {
   const prov = d.match(/·\s*Proveedor:\s*([^·]+)/i)?.[1]?.trim() ?? '';
   const fact = d.match(/·\s*Factura:\s*([^·]+)/i)?.[1]?.trim() ?? '';
   return { motivo, prov, fact };
+};
+
+/**
+ * Rearma la descripción con el mismo formato que escribe la caja
+ * («Motivo · Proveedor: X · Factura: Y»), para que `parseDesc` la vuelva a leer
+ * igual y el reporte y el Excel no se enteren de que se editó a mano.
+ */
+const buildDesc = (motivo: string, prov: string, fact: string) => {
+  const parts = [motivo.trim() || 'Sin motivo'];
+  if (prov.trim()) parts.push(`Proveedor: ${prov.trim()}`);
+  if (fact.trim()) parts.push(`Factura: ${fact.trim()}`);
+  return parts.join(' · ');
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -71,6 +83,8 @@ export const CashMovementsReport: React.FC<Props> = ({ tenantId, from, to }) => 
   }, [tenantId, from, to]);
 
   useEffect(() => { load(); }, [load]);
+
+  const [editing, setEditing] = useState<Movement | null>(null);
 
   const totals = useMemo(() => {
     let entradas = 0, salidas = 0;
@@ -144,11 +158,12 @@ export const CashMovementsReport: React.FC<Props> = ({ tenantId, from, to }) => 
               <th className="px-4 py-3 text-left font-bold">N° Factura</th>
               <th className="px-4 py-3 text-left font-bold">Cajero</th>
               <th className="px-4 py-3 text-right font-bold">Monto</th>
+              <th className="px-4 py-3 w-10"></th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Sin movimientos en el período.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Sin movimientos en el período.</td></tr>
             ) : rows.map(m => {
               const { motivo, prov, fact } = parseDesc(m.description || '');
               const entrada = isEntrada(m);
@@ -161,12 +176,25 @@ export const CashMovementsReport: React.FC<Props> = ({ tenantId, from, to }) => 
                       {entrada ? <ArrowDownCircle size={12} /> : <ArrowUpCircle size={12} />} {TYPE_LABEL[m.type] ?? m.type}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-gray-800">{motivo}</td>
+                  {/* Lo que falta se marca en ámbar: es justo lo que hay que ir a completar. */}
+                  <td className={`px-4 py-2.5 ${motivo ? 'text-gray-800' : 'text-amber-600 font-bold'}`}>
+                    {motivo || 'Sin motivo'}
+                  </td>
                   <td className="px-4 py-2.5 text-gray-600">{prov || '—'}</td>
                   <td className="px-4 py-2.5 text-gray-600 font-mono text-xs">{fact || m.reference_id || '—'}</td>
                   <td className="px-4 py-2.5 text-gray-600">{m.cashier_name || '—'}</td>
                   <td className={`px-4 py-2.5 text-right font-black ${entrada ? 'text-emerald-600' : 'text-red-600'}`}>
                     {entrada ? '+' : '−'}{fmt(abs)}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    {/* La apertura y el cierre son conteos, no movimientos con motivo. */}
+                    {(m.type === 'income' || m.type === 'expense' || m.type === 'adjustment') && (
+                      <button onClick={() => setEditing(m)}
+                        title="Completar motivo, proveedor o factura"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition">
+                        <Pencil size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -174,6 +202,114 @@ export const CashMovementsReport: React.FC<Props> = ({ tenantId, from, to }) => 
           </tbody>
         </table>
       </div>
+
+      {editing && (
+        <EditMovementModal
+          movement={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); void load(); }}
+        />
+      )}
+    </div>
+  );
+};
+
+/**
+ * Completa los datos que faltaron al registrar la entrada o salida.
+ *
+ * El monto y el tipo se muestran pero no se editan: si un arqueo ya cerró con ese
+ * número, cambiarlo desde un reporte dejaría la caja descuadrada sin rastro.
+ */
+const EditMovementModal: React.FC<{
+  movement: Movement;
+  onClose: () => void;
+  onSaved: () => void;
+}> = ({ movement, onClose, onSaved }) => {
+  const parsed = parseDesc(movement.description || '');
+  const [motivo, setMotivo] = useState(parsed.motivo);
+  const [prov, setProv]     = useState(parsed.prov);
+  const [fact, setFact]     = useState(parsed.fact || movement.reference_id || '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState('');
+
+  const entrada = isEntrada(movement);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!motivo.trim()) { setErr('Poné al menos el motivo del movimiento.'); return; }
+    setSaving(true); setErr('');
+    try {
+      await apiFetch(`/cash-sessions/movements/${movement.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          description: buildDesc(motivo, prov, fact),
+          reference_id: fact.trim() || null,
+        }),
+      });
+      onSaved();
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : 'No se pudo guardar');
+    } finally { setSaving(false); }
+  };
+
+  const input = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-blue-400';
+  const label = 'block text-[11px] font-bold text-gray-500 uppercase mb-1';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <form onSubmit={save} onClick={e => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-lg font-black text-gray-900">
+              Modificar {entrada ? 'entrada' : 'salida'}
+            </h3>
+            <p className="text-xs text-gray-500">
+              {fmtDate(movement.created_at)}
+              {movement.cashier_name ? ` · ${movement.cashier_name}` : ''}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          {err && (
+            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+              <AlertCircle size={14} className="mt-0.5 shrink-0" /> <span>{err}</span>
+            </div>
+          )}
+
+          <div className={`rounded-xl px-4 py-3 ${entrada ? 'bg-emerald-50' : 'bg-red-50'}`}>
+            <p className="text-[11px] font-bold text-gray-500 uppercase">Monto (no se modifica)</p>
+            <p className={`text-2xl font-black ${entrada ? 'text-emerald-700' : 'text-red-700'}`}>
+              {entrada ? '+' : '−'}{fmt(Math.abs(Number(movement.amount) || 0))}
+            </p>
+          </div>
+
+          <div>
+            <label className={label}>Motivo *</label>
+            <input value={motivo} onChange={e => setMotivo(e.target.value)} className={input}
+              placeholder="Pago a proveedor, compra de insumos…" autoFocus />
+          </div>
+          <div>
+            <label className={label}>Proveedor</label>
+            <input value={prov} onChange={e => setProv(e.target.value)} className={input} />
+          </div>
+          <div>
+            <label className={label}>N° de factura</label>
+            <input value={fact} onChange={e => setFact(e.target.value)} className={input} />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button type="submit" disabled={saving}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-black rounded-lg disabled:opacity-50 flex items-center gap-2">
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar
+          </button>
+        </div>
+      </form>
     </div>
   );
 };

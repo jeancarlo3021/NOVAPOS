@@ -93,6 +93,12 @@ export interface NewClientPayload {
     atv_password?: string;
     environment?: 'production' | 'sandbox';
   };
+  /** Último consecutivo YA emitido en el sistema anterior (se sigue desde ahí). */
+  consecutivos?: {
+    factura?: number;
+    tiquete?: number;
+    nota_credito?: number;
+  };
   access?: { username: string; password: string; full_name?: string };
 }
 

@@ -824,7 +824,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      // `getSession()` puede quedarse colgado: si el refresh_token venció, el SDK
+      // sale a la red y en un celular con la red intermitente no vuelve nunca.
+      // Sin este tope, `loading` se quedaba en true para siempre y la app no
+      // pasaba del arranque. Al vencerse, se sigue como si no hubiera sesión: el
+      // rescate offline de abajo y el login normal cubren el resto.
+      const session = await Promise.race([
+        supabase.auth.getSession().then(r => r.data.session).catch(() => null),
+        new Promise<null>(res => setTimeout(() => res(null), 8000)),
+      ]);
 
       if (!mounted) return;
 

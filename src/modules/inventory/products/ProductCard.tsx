@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer, Star } from 'lucide-react';
+import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer, Star, Scale } from 'lucide-react';
 import { PrintLabelModal } from '@/modules/labels/PrintLabelModal';
 import { Card, Badge } from '@/components/ui/uiComponents';
 import { Product } from '@/types/Types_POS';
@@ -99,6 +99,25 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
   const marginColor = MARGIN_TEXT[marginCol];
   const marginBg    = MARGIN_BG[marginCol];
 
+  // Unidad de medida configurada. Antes TODOS decían "unidades", incluidos los
+  // que se venden por kilo, y el stock se leía mal.
+  //
+  // Se resuelve por `unit_type_id` contra el catálogo que el login ya dejó
+  // cacheado, y no solo por el objeto `unit_type` embebido: así la unidad se ve
+  // aunque la respuesta del listado venga sin el join.
+  const unit = React.useMemo(() => {
+    if (product.unit_type) return product.unit_type;
+    const id = (product as any).unit_type_id;
+    if (!id || !tenantId) return null;
+    const cached = cacheGet<any[]>(cacheKey(tenantId, 'global_measurements'))
+      ?? cacheGet<any[]>(cacheKey(tenantId, 'unit_types'))
+      ?? [];
+    return cached.find(u => u?.id === id) ?? null;
+  }, [product, tenantId]);
+
+  const unitAbbr = (unit?.abbreviation || unit?.name || 'und').trim();
+  const unitLabel = (unit?.name || 'Unidades').trim();
+
   const minStock = product.min_stock_level ?? 0;
   const productTracksStock = (product as any).tracks_stock !== false;
   const isLowStock = productTracksStock && product.stock_quantity < minStock;
@@ -162,10 +181,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           )}
         </div>
 
-        {/* Categoría */}
-        {!isProductsOnly && product.category && (
-          <div className="mb-4">
-            <Badge variant="info" className="text-xs">{product.category.name}</Badge>
+        {/* Categoría y unidad de medida */}
+        {!isProductsOnly && (product.category || unit) && (
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            {product.category && <Badge variant="info" className="text-xs">{product.category.name}</Badge>}
+            {unit && (
+              <span
+                title={`Se vende por ${unitLabel.toLowerCase()}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold"
+              >
+                <Scale size={11} /> {unitLabel}
+              </span>
+            )}
           </div>
         )}
 
@@ -274,7 +301,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
                   stockStatus === 'optimal' ? 'text-green-600' :
                   stockStatus === 'warning'  ? 'text-orange-600' : 'text-red-600'
                 }`}>
-                  {product.stock_quantity} unidades
+                  {product.stock_quantity} {unitAbbr}
                 </span>
               </div>
             </div>
@@ -290,8 +317,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             </div>
 
             <div className="flex justify-between text-xs text-gray-500">
-              <span>Mínimo: {minStock}</span>
-              <span>Actual: {product.stock_quantity}</span>
+              <span>Mínimo: {minStock} {unitAbbr}</span>
+              <span>Actual: {product.stock_quantity} {unitAbbr}</span>
             </div>
           </div>
         )}

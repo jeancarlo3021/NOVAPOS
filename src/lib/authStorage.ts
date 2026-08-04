@@ -6,14 +6,85 @@
 // - New tabs
 // - Browser restarts (within 12h window)
 // - Until explicit logout or 12h timeout
+//
+// ── Por qué todo pasa por `safeLocal` / `safeSession` ──────────────────────
+// `localStorage` no siempre responde. En una PWA instalada, con "bloquear datos
+// de sitios" activado, en navegación privada o con el teléfono sin espacio,
+// cualquier acceso LANZA (SecurityError / QuotaExceededError). Como Supabase
+// llama a este storage mientras se crea el cliente —o sea, al importar el
+// módulo— una excepción acá tumbaba el arranque entero: React nunca montaba y
+// el usuario veía una PANTALLA EN BLANCO, sin error y sin que limpiar el caché
+// sirviera de nada.
+//
+// Con el respaldo en memoria la sesión no sobrevive a cerrar la app en esos
+// dispositivos, pero al menos se puede entrar y trabajar.
 
 const REMEMBER_KEY      = 'novapos_remember';
 const PERSIST_PREFIX    = 'novapos_p_';
 const SESSION_START_KEY = 'novapos_session_start';
 const SESSION_MAX_MS    = 12 * 60 * 60 * 1000; // 12 hours
 
+/** Respaldo cuando el navegador no deja usar su almacenamiento. */
+const memoryLocal   = new Map<string, string>();
+const memorySession = new Map<string, string>();
+
+function makeSafeStore(pick: () => Storage, fallback: Map<string, string>) {
+  let usable: boolean | null = null;
+
+  const available = (): boolean => {
+    if (usable !== null) return usable;
+    try {
+      const s = pick();
+      const probe = '__novapos_probe__';
+      s.setItem(probe, '1');
+      s.removeItem(probe);
+      usable = true;
+    } catch {
+      usable = false;
+      console.warn('[auth] El navegador bloquea el almacenamiento: la sesión se guarda solo en memoria.');
+    }
+    return usable;
+  };
+
+  return {
+    getItem(key: string): string | null {
+      if (!available()) return fallback.get(key) ?? null;
+      try { return pick().getItem(key); } catch { return fallback.get(key) ?? null; }
+    },
+    setItem(key: string, value: string): void {
+      fallback.set(key, value);
+      if (!available()) return;
+      // Si el disco se llenó, el valor ya quedó en memoria: no se pierde la
+      // sesión en curso ni se rompe el login.
+      try { pick().setItem(key, value); } catch { /* quota / bloqueado */ }
+    },
+    removeItem(key: string): void {
+      fallback.delete(key);
+      if (!available()) return;
+      try { pick().removeItem(key); } catch { /* ignore */ }
+    },
+    /** Claves presentes, para los barridos por prefijo. */
+    keys(): string[] {
+      const out = new Set<string>(fallback.keys());
+      if (available()) {
+        try {
+          const s = pick();
+          for (let i = 0; i < s.length; i++) {
+            const k = s.key(i);
+            if (k) out.add(k);
+          }
+        } catch { /* ignore */ }
+      }
+      return [...out];
+    },
+  };
+}
+
+const safeLocal   = makeSafeStore(() => window.localStorage, memoryLocal);
+const safeSession = makeSafeStore(() => window.sessionStorage, memorySession);
+
 function isSessionExpired(): boolean {
-  const startStr = localStorage.getItem(SESSION_START_KEY);
+  const startStr = safeLocal.getItem(SESSION_START_KEY);
   if (!startStr) return false;
   const start = parseInt(startStr, 10);
   if (isNaN(start)) return false;
@@ -21,23 +92,13 @@ function isSessionExpired(): boolean {
 }
 
 function clearAllAuthData(): void {
-  // Clear sessionStorage
-  const sessionKeys: string[] = [];
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const k = sessionStorage.key(i);
-    if (k?.startsWith('sb-') || k?.startsWith(PERSIST_PREFIX)) sessionKeys.push(k);
+  for (const k of safeSession.keys()) {
+    if (k.startsWith('sb-') || k.startsWith(PERSIST_PREFIX)) safeSession.removeItem(k);
   }
-  sessionKeys.forEach(k => sessionStorage.removeItem(k));
-
-  // Clear localStorage persisted tokens
-  const localKeys: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k?.startsWith(PERSIST_PREFIX) || k?.startsWith('sb-')) localKeys.push(k);
+  for (const k of safeLocal.keys()) {
+    if (k.startsWith(PERSIST_PREFIX) || k.startsWith('sb-')) safeLocal.removeItem(k);
   }
-  localKeys.forEach(k => localStorage.removeItem(k));
-
-  localStorage.removeItem(SESSION_START_KEY);
+  safeLocal.removeItem(SESSION_START_KEY);
 }
 
 export const authStorage = {
@@ -49,13 +110,13 @@ export const authStorage = {
     }
 
     // 1. Check current tab's sessionStorage first
-    const sessionVal = sessionStorage.getItem(key);
+    const sessionVal = safeSession.getItem(key);
     if (sessionVal !== null) return sessionVal;
 
     // 2. Always restore from localStorage (default = remember for 12h)
-    const persisted = localStorage.getItem(PERSIST_PREFIX + key);
+    const persisted = safeLocal.getItem(PERSIST_PREFIX + key);
     if (persisted !== null) {
-      sessionStorage.setItem(key, persisted);
+      safeSession.setItem(key, persisted);
       return persisted;
     }
 
@@ -63,38 +124,38 @@ export const authStorage = {
   },
 
   setItem(key: string, value: string): void {
-    sessionStorage.setItem(key, value);
+    safeSession.setItem(key, value);
     // Always mirror to localStorage (12h persistence)
-    localStorage.setItem(PERSIST_PREFIX + key, value);
+    safeLocal.setItem(PERSIST_PREFIX + key, value);
     // Track when session started to enforce 12h max
-    if (!localStorage.getItem(SESSION_START_KEY)) {
-      localStorage.setItem(SESSION_START_KEY, String(Date.now()));
+    if (!safeLocal.getItem(SESSION_START_KEY)) {
+      safeLocal.setItem(SESSION_START_KEY, String(Date.now()));
     }
   },
 
   removeItem(key: string): void {
-    sessionStorage.removeItem(key);
-    localStorage.removeItem(PERSIST_PREFIX + key);
+    safeSession.removeItem(key);
+    safeLocal.removeItem(PERSIST_PREFIX + key);
   },
 };
 
 // Call this BEFORE supabase.auth.signInWithPassword to track session start time.
 export function setRememberMe(remember: boolean): void {
   if (remember) {
-    localStorage.setItem(REMEMBER_KEY, '1');
+    safeLocal.setItem(REMEMBER_KEY, '1');
   } else {
-    localStorage.removeItem(REMEMBER_KEY);
+    safeLocal.removeItem(REMEMBER_KEY);
   }
   // Reset session timer on new login
-  localStorage.setItem(SESSION_START_KEY, String(Date.now()));
+  safeLocal.setItem(SESSION_START_KEY, String(Date.now()));
 }
 
 export function isRememberMeEnabled(): boolean {
-  return localStorage.getItem(REMEMBER_KEY) === '1';
+  return safeLocal.getItem(REMEMBER_KEY) === '1';
 }
 
 export function getSessionRemainingMs(): number {
-  const startStr = localStorage.getItem(SESSION_START_KEY);
+  const startStr = safeLocal.getItem(SESSION_START_KEY);
   if (!startStr) return SESSION_MAX_MS;
   const start = parseInt(startStr, 10);
   if (isNaN(start)) return SESSION_MAX_MS;
@@ -102,20 +163,21 @@ export function getSessionRemainingMs(): number {
 }
 
 export function clearSession(): void {
-  // Clear all auth-related data
-  const allKeys: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k?.startsWith(PERSIST_PREFIX) || k?.startsWith('sb-') || k === SESSION_START_KEY || k === REMEMBER_KEY) {
-      allKeys.push(k);
+  for (const k of safeLocal.keys()) {
+    if (k.startsWith(PERSIST_PREFIX) || k.startsWith('sb-') || k === SESSION_START_KEY || k === REMEMBER_KEY) {
+      safeLocal.removeItem(k);
     }
   }
-  allKeys.forEach(k => localStorage.removeItem(k));
-
-  const sessKeys: string[] = [];
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const k = sessionStorage.key(i);
-    if (k?.startsWith(PERSIST_PREFIX) || k?.startsWith('sb-')) sessKeys.push(k);
+  for (const k of safeSession.keys()) {
+    if (k.startsWith(PERSIST_PREFIX) || k.startsWith('sb-')) safeSession.removeItem(k);
   }
-  sessKeys.forEach(k => sessionStorage.removeItem(k));
+}
+
+/** ¿El navegador está dejando guardar la sesión en disco? (diagnóstico) */
+export function storageIsPersistent(): boolean {
+  try {
+    window.localStorage.setItem('__novapos_probe__', '1');
+    window.localStorage.removeItem('__novapos_probe__');
+    return true;
+  } catch { return false; }
 }

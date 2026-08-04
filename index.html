@@ -36,6 +36,87 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!--
+      Salvavidas de arranque.
+
+      Si el bundle no carga —lo típico en una PWA instalada: el index.html
+      cacheado apunta a un chunk que ya no existe tras un deploy— React nunca
+      monta y el usuario se queda viendo una pantalla EN BLANCO, sin nada que
+      tocar. Este script vigila el arranque y, si a los 12 s el root sigue
+      vacío, muestra una salida: limpiar el caché y volver a entrar.
+
+      Va inline y antes del módulo a propósito: tiene que funcionar justamente
+      cuando el bundle es lo que falló.
+    -->
+    <script>
+      (function () {
+        var recovered = false;
+
+        function recover(motivo) {
+          if (recovered) return;
+          recovered = true;
+          var root = document.getElementById('root');
+          if (!root || root.childElementCount > 0) return;
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;'
+            + 'font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;padding:24px">'
+            + '<div style="max-width:380px;width:100%;background:#fff;border-radius:16px;'
+            + 'box-shadow:0 10px 30px rgba(0,0,0,.08);padding:28px;text-align:center">'
+            + '<div style="font-size:40px;line-height:1;margin-bottom:12px">📦</div>'
+            + '<h1 style="font-size:18px;font-weight:800;color:#0f172a;margin:0 0 8px">No se pudo abrir la app</h1>'
+            + '<p style="font-size:13px;color:#475569;margin:0 0 18px">'
+            + 'Quedó una versión vieja guardada en el teléfono. Tocá el botón para bajar la última.</p>'
+            + '<button id="cc-fix" style="width:100%;padding:12px;border:0;border-radius:12px;'
+            + 'background:#10b981;color:#fff;font-weight:800;font-size:14px">Actualizar y entrar</button>'
+            + '<p style="font-size:11px;color:#94a3b8;margin:12px 0 0">' + motivo + '</p>'
+            + '</div></div>';
+
+          document.getElementById('cc-fix').onclick = function () {
+            this.disabled = true;
+            this.textContent = 'Actualizando…';
+            var jobs = [];
+            try {
+              if (window.caches && caches.keys) {
+                jobs.push(caches.keys().then(function (ks) {
+                  return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+                }));
+              }
+              if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+                  return Promise.all(rs.map(function (r) { return r.unregister(); }));
+                }));
+              }
+            } catch (e) { /* si no se puede limpiar, igual recargamos */ }
+            Promise.all(jobs)['catch'](function () {})['then'](function () {
+              // El query rompe cualquier caché intermedio que siga sirviendo el HTML viejo.
+              location.replace(location.pathname + '?r=' + Date.now());
+            });
+          };
+        }
+
+        // a) El bundle no cargó: se sabe de una, sin esperar.
+        window.addEventListener('error', function (e) {
+          var t = e && e.target;
+          if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) recover('No se pudo cargar la aplicación.');
+        }, true);
+
+        // b) Un import dinámico que falla llega como promesa rechazada.
+        window.addEventListener('unhandledrejection', function (e) {
+          var m = e && e.reason && (e.reason.message || String(e.reason));
+          if (m && /dynamically imported module|Importing a module script failed|Failed to fetch/i.test(m)) {
+            recover('Faltan archivos de esta versión.');
+          }
+        });
+
+        // c) Red de seguridad: nada se rompió a la vista, pero tampoco montó nada.
+        setTimeout(function () { recover('La app no terminó de cargar.'); }, 12000);
+
+        // React montó → se cancela la vigilancia.
+        window.__ccBooted = function () { recovered = true; };
+      })();
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

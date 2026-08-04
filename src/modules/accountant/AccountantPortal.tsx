@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Calculator, Loader2, AlertCircle, CheckCircle2, X, Upload, KeyRound, Save,
+  Calculator, Loader2, AlertCircle, CheckCircle2, X, KeyRound, Save,
   ArrowRightCircle, Search, UserPlus, RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -239,9 +239,6 @@ const ClientFeModal: React.FC<{
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const set = (k: string, v: any) => setFe(prev => ({ ...prev, [k]: v }));
 
@@ -268,43 +265,13 @@ const ClientFeModal: React.FC<{
     setSaving(true); setErr('');
     try {
       const res = await accountantService.saveFeConfig(client.tenant_id, fe);
-      // El alta en Alanube va pegada al guardado: si el certificado se sube en
-      // este mismo paso, el mensaje bueno es el de después de subirlo.
-      let sync = res.alanube ?? null;
-      if (file) sync = (await doUpload(false)) ?? sync;
+      // El alta en Alanube va pegada al guardado: si ya hay certificado, con esto
+      // la empresa queda registrada sin un paso aparte.
+      const sync = res.alanube ?? null;
       onSaved(`Datos de ${client.name} guardados.` + (sync?.message ? ` ${sync.message}` : ''));
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudo guardar');
     } finally { setSaving(false); }
-  };
-
-  const doUpload = async (close = true) => {
-    if (!file) return null;
-    setUploading(true); setErr('');
-    try {
-      const b64 = await new Promise<string>((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result));
-        r.onerror = () => rej(new Error('No se pudo leer el archivo'));
-        r.readAsDataURL(file);
-      });
-      const up = await accountantService.uploadCertificate(client.tenant_id, {
-        file_base64: b64,
-        filename: file.name,
-        p12_password: prod ? fe.p12_password_production : fe.p12_password_sandbox,
-        environment: prod ? 'production' : 'sandbox',
-      });
-      setFile(null);
-      if (fileRef.current) fileRef.current.value = '';
-      if (close) {
-        onSaved(`Llave criptográfica de ${client.name} cargada.`
-          + (up.alanube?.message ? ` ${up.alanube.message}` : ''));
-      }
-      return up.alanube ?? null;
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'No se pudo subir el certificado');
-      return null;
-    } finally { setUploading(false); }
   };
 
   const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-indigo-400';
@@ -316,7 +283,7 @@ const ClientFeModal: React.FC<{
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <div className="min-w-0">
             <h2 className="text-lg font-black text-gray-900 truncate">{client.name}</h2>
-            <p className="text-xs text-gray-500">Datos del emisor y llave criptográfica</p>
+            <p className="text-xs text-gray-500">Datos del emisor</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
         </div>
@@ -413,31 +380,25 @@ const ClientFeModal: React.FC<{
                 </p>
               </div>
 
-              {/* Llave criptográfica */}
+              {/* Llave criptográfica: solo el estado, sin poder tocarla.
+                  El .p12 y su PIN los carga el administrador — es el archivo con
+                  el que se firma a nombre del contribuyente. */}
               <div className="border-t border-gray-100 pt-3">
                 <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2">
                   Llave criptográfica (.p12) · {prod ? 'Producción' : 'QA / Sandbox'}
                 </p>
-                {client.has_certificate && !file && (
-                  <p className="text-xs text-emerald-700 font-bold mb-2">
-                    ✓ Ya tiene certificado cargado{client.certificate_name ? `: ${client.certificate_name}` : ''}
-                  </p>
-                )}
-                <div className="flex items-center gap-2">
-                  <input ref={fileRef} type="file" accept=".p12,application/x-pkcs12"
-                    onChange={e => setFile(e.target.files?.[0] ?? null)}
-                    className="flex-1 text-xs" />
-                  <button onClick={() => doUpload()} disabled={!file || uploading}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black disabled:bg-gray-200 disabled:text-gray-400">
-                    {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Subir
-                  </button>
-                </div>
-                <div className="mt-2">
-                  <label className={labelCls}>PIN del certificado</label>
-                  <input type="password"
-                    value={(prod ? fe.p12_password_production : fe.p12_password_sandbox) ?? ''}
-                    onChange={e => set(prod ? 'p12_password_production' : 'p12_password_sandbox', e.target.value)}
-                    autoComplete="new-password" className={`${inputCls} font-mono`} />
+                <div className={`flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs ${
+                  client.has_certificate
+                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                    : 'bg-amber-50 border border-amber-200 text-amber-800'}`}>
+                  {client.has_certificate
+                    ? <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
+                    : <AlertCircle size={14} className="shrink-0 mt-0.5" />}
+                  <span>
+                    {client.has_certificate
+                      ? <>Certificado cargado{client.certificate_name ? `: ${client.certificate_name}` : ''}.</>
+                      : <>Sin certificado. <b>Lo carga el administrador</b> junto con el PIN; el resto de los datos del emisor sí los completás vos.</>}
+                  </span>
                 </div>
               </div>
             </>

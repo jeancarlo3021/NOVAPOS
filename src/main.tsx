@@ -7,7 +7,11 @@ import { initSentry, Sentry } from './lib/sentry';
 
 // Inicializar Sentry antes que React monte. Si no hay DSN configurado,
 // se salta silenciosamente y la app corre sin tracking.
-initSentry();
+//
+// Va en try/catch porque esto corre ANTES de que exista el ErrorBoundary: si
+// Sentry reventara (bloqueado por el navegador, sin storage, etc.), la app
+// entera se quedaría en blanco por culpa del tracking.
+try { initSentry(); } catch (e) { console.warn('[sentry] no se pudo iniciar:', e); }
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -40,6 +44,11 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
+// React ya montó: se apaga el salvavidas de arranque de index.html, que si no
+// mostraría la pantalla de recuperación encima de la app.
+try { (window as any).__ccBooted?.(); } catch { /* ignore */ }
+
 // Registra el service worker para soporte PWA (offline + instalable).
-setupPWA();
+// Si el registro falla (contexto sin SW, permisos), la app debe seguir andando.
+try { setupPWA(); } catch (e) { console.warn('[pwa] no se pudo registrar el SW:', e); }
 // Build timestamp: 1779418611
