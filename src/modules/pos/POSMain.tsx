@@ -818,13 +818,20 @@ export const POSMain = () => {
   // Tope de descuento del negocio. Se respeta para todos los roles.
   const maxDiscountPercent: number = generalCfgCached?.maxDiscountPercent ?? 100;
 
-  // El botón de abrir cajón solo aplica con impresora Bluetooth (config real).
-  const isBluetoothPrinter = printerType === 'bluetooth';
+  // El cajón se abre con un pulso ESC/POS por la impresora: sirve tanto por
+  // Bluetooth como por QZ Tray / térmica. Con impresión por navegador no hay
+  // canal para bytes crudos, así que ahí el botón no se muestra.
+  const canOpenDrawer = printerType === 'bluetooth'
+    || printerType === 'qztray'
+    || printerType === 'thermal';
 
   const handleOpenDrawer = async () => {
     if (!tenantId) return;
     try {
-      await posPrinterService.openCashDrawer(tenantId);
+      const opened = await posPrinterService.openCashDrawer(tenantId);
+      if (!opened) {
+        setError('No se pudo abrir la caja. Revisá que la impresora esté encendida y conectada.');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo abrir el cajón');
     }
@@ -1029,6 +1036,15 @@ export const POSMain = () => {
     if (documentType === 'factura_electronica' || documentType === 'tiquete_electronico') {
       const { confirmFeQuota } = await import('@/services/hacienda/feQuotaGuard');
       if (!(await confirmFeQuota())) return;
+    }
+
+    // La caja de dinero se abre SIEMPRE que entre efectivo, se imprima o no.
+    // Antes el pulso viajaba pegado al recibo: cobrar "sin imprimir" dejaba la
+    // caja cerrada y el cajero tenía que abrirla con la llave para dar el vuelto.
+    const entraEfectivo = data.paymentMethod === 'cash'
+      || (data.payments ?? []).some((p: any) => p.method === 'cash' && Number(p.amount) > 0);
+    if (data.skipPrint && entraEfectivo) {
+      void posPrinterService.openCashDrawer(tenantId);
     }
 
     setPaymentLoading(true);
@@ -1277,7 +1293,7 @@ export const POSMain = () => {
         onReprintInvoice={() => setShowReprintModal(true)}
         onCashIn={currentSession?.status === 'open' ? () => setCashMovement('in') : undefined}
         onCashOut={currentSession?.status === 'open' ? () => setCashMovement('out') : undefined}
-        onOpenDrawer={(isBluetoothPrinter && currentSession?.status === 'open') ? handleOpenDrawer : undefined}
+        onOpenDrawer={(canOpenDrawer && currentSession?.status === 'open') ? handleOpenDrawer : undefined}
         onSync={isOnline ? syncOfflineInvoices : undefined}
       />
 

@@ -138,6 +138,15 @@ export const CashierDesk: React.FC = () => {
       // Marcar el pedido cobrado y acreditar la comisión del agente.
       await agentOrdersService.charge(charging.id, invoice?.id ?? null, total);
 
+      // La caja se abre igual cuando el cobro va en efectivo pero NO se imprime:
+      // el pulso del cajón viaja dentro del recibo, así que sin recibo la caja
+      // quedaba cerrada y había que abrirla con la llave para dar el vuelto.
+      const entraEfectivo = data.paymentMethod === 'cash'
+        || (data.payments ?? []).some((p: any) => p.method === 'cash' && Number(p.amount) > 0);
+      if (data.skipPrint && entraEfectivo) {
+        void posPrinterService.openCashDrawer(tenantId);
+      }
+
       // Ticket (no bloquea el cobro si la impresora falla).
       if (!data.skipPrint) {
         const now = new Date();

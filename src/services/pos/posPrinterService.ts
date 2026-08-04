@@ -2283,19 +2283,81 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     return new Uint8Array(cmds);
   }
 
-  /** Envía solo el pulso de apertura de cajón por Bluetooth (botón manual en POS). */
-  async openCashDrawer(tenantId: string): Promise<void> {
-    const cfg = await this.loadReceiptConfig(tenantId);
-    const bytes = new Uint8Array([0x1B, 0x70, 0x00, 0x19, 0xFA]);
-    const { btPrint, btPrintTo } = await import('./bluetoothPrinterService');
-    const stations = (cfg.printers ?? []).filter(
-      (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
-    );
-    if (stations.length > 0) {
-      for (const st of stations) await btPrintTo(st.id, bytes);
-    } else {
-      await btPrint(bytes);
+  /**
+   * Abre la caja de dinero SIN imprimir nada.
+   *
+   * El cajón no tiene cable propio: cuelga de la impresora y se abre con un pulso
+   * ESC/POS. Hasta ahora ese pulso viajaba pegado al recibo, así que cobrar "sin
+   * imprimir" —o imprimir por el navegador— dejaba la caja cerrada y había que
+   * abrirla con la llave. Acá se manda el pulso solo, por el mismo camino que
+   * usaría el recibo.
+   *
+   * Devuelve `false` (sin lanzar) cuando el equipo no puede abrirla: es un extra
+   * al cobrar, y no tiene por qué tumbar la venta.
+   */
+  async openCashDrawer(tenantId: string): Promise<boolean> {
+    try {
+      const cfg = await this.loadReceiptConfig(tenantId);
+      if ((cfg as any).openDrawer === false) return false;   // el negocio la desactivó
+      const bytes = new Uint8Array([0x1B, 0x70, 0x00, 0x19, 0xFA]);
+
+      // QZ Tray / térmica: por el mismo canal crudo del recibo.
+      if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+        if (!(await qzIsAvailable())) return false;
+        await qzConnect();
+        const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
+        if (receiptPrinters.length > 0) {
+          for (const printer of receiptPrinters) await qzPrintToPrinter(printer, bytes);
+        } else {
+          await qzPrintDefault(bytes);
+        }
+        return true;
+      }
+
+      const stations = (cfg.printers ?? []).filter(
+        (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
+      );
+      if (cfg.printerType === 'bluetooth' || stations.length > 0) {
+        if (!webBluetoothAvailable()) return false;
+        const { btPrint, btPrintTo, btReconnectFor, btIsConnectedFor } =
+          await import('./bluetoothPrinterService');
+        if (stations.length > 0) {
+          for (const st of stations) {
+            // Reconexión silenciosa: tras recargar la app se pierde la conexión en
+            // memoria, no el permiso. Sin esto el primer cobro del día no abría.
+            if (!btIsConnectedFor(st.id)) {
+              try { await btReconnectFor(st.id, (st as any).bt_mode ?? 'ble', (st as any).bt_device_id); }
+              catch { /* si no reconecta, btPrintTo avisa */ }
+            }
+            await btPrintTo(st.id, bytes);
+          }
+        } else {
+          await btPrint(bytes);
+        }
+        return true;
+      }
+
+      // Impresión por navegador: el diálogo de impresión del sistema no deja
+      // mandar bytes crudos, así que no hay forma de abrir el cajón desde acá.
+      return false;
+    } catch (e) {
+      console.warn('[drawer] no se pudo abrir la caja:', e);
+      return false;
     }
+  }
+
+  /** ¿Este equipo puede abrir la caja sin imprimir? (para mostrar u ocultar el botón) */
+  async canOpenCashDrawer(tenantId: string): Promise<boolean> {
+    try {
+      const cfg = await this.loadReceiptConfig(tenantId);
+      if ((cfg as any).openDrawer === false) return false;
+      if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') return true;
+      const stations = (cfg.printers ?? []).filter(
+        (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
+      );
+      if (cfg.printerType === 'bluetooth' || stations.length > 0) return webBluetoothAvailable();
+      return false;
+    } catch { return false; }
   }
 }
 
