@@ -126,9 +126,13 @@
                 }));
               }
             } catch (e) { /* si no se puede limpiar, igual recargamos */ }
+            try { localStorage.setItem('novapos_no_sw', '1'); } catch (e) {}
             Promise.all(jobs)['catch'](function () {})['then'](function () {
-              // El query rompe cualquier cach&eacute; intermedio que siga sirviendo el HTML viejo.
-              location.replace(location.pathname + '?r=' + Date.now());
+              // `nosw=1` hace que la app arranque SIN service worker. Sin esto, el
+              // SW se vuelve a registrar en la recarga y puede secuestrarla otra
+              // vez: recargar mil veces no rompe ese c&iacute;rculo, esto s&iacute;.
+              // El `r` rompe cualquier cach&eacute; intermedio que siga sirviendo el HTML viejo.
+              location.replace(location.pathname + '?nosw=1&r=' + Date.now());
             });
           };
         }

@@ -5,6 +5,33 @@ import {
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
 
+/**
+ * ¿Este navegador puede hablar con impresoras Bluetooth?
+ *
+ * Web Bluetooth existe en Chrome/Edge (y Chrome de Android) y NO existe en
+ * Firefox ni en Safari — no es un permiso que se pueda pedir, sencillamente no
+ * está implementado. Preguntarlo antes evita el error críptico en medio de un
+ * cobro y permite salir por el navegador, que siempre funciona.
+ *
+ * Además exige contexto seguro: en http:// (sin ser localhost) Chrome tampoco
+ * expone la API.
+ */
+export function webBluetoothAvailable(): boolean {
+  return typeof navigator !== 'undefined'
+    && !!(navigator as any).bluetooth
+    && (window.isSecureContext !== false);
+}
+
+/** Explicación para el cajero cuando pide Bluetooth donde no se puede. */
+export function unsupportedBluetoothMessage(): string {
+  const secure = typeof window === 'undefined' || window.isSecureContext !== false;
+  if (!secure) {
+    return 'El Bluetooth solo funciona en HTTPS. Abrí la app con https:// o usá impresión por el navegador.';
+  }
+  return 'Este navegador no puede imprimir por Bluetooth (Firefox y Safari no lo soportan). '
+    + 'Usá Chrome, o cambiá la impresión a "Navegador" en Configuración → Impresora.';
+}
+
 // ── Encoder CP437 single-byte para impresoras térmicas en modo Latin ───────
 // Las impresoras ESC/POS NO entienden UTF-8. Cada caracter latino debe ir
 // como UN byte equivalente en CP437. Si va en UTF-8, una "ó" (C3 B3) se
@@ -289,6 +316,10 @@ export class POSPrinterService {
   /** Estado de la impresora Bluetooth configurada: si hay una y si está conectada. */
   async bluetoothStatus(tenantId: string): Promise<{ configured: boolean; connected: boolean }> {
     try {
+      // Sin Web Bluetooth no hay nada que conectar ni que avisar: en Firefox el
+      // botón de "reconectar Bluetooth" solo sería un botón que no hace nada.
+      if (!webBluetoothAvailable()) return { configured: false, connected: true };
+
       const cfg = await this.loadReceiptConfig(tenantId);
       // Si el negocio imprime por NAVEGADOR o QZ, no hay Bluetooth que reportar
       // aunque hayan quedado estaciones BT viejas en la config (si no, salía el
@@ -410,6 +441,16 @@ export class POSPrinterService {
     const btStations = (cfg.printers ?? []).filter(
       (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',
     );
+
+    // Firefox (y Safari) NO implementan Web Bluetooth. Sin este corte, la caja se
+    // quedaba sin imprimir con un error críptico: mejor sacar el recibo por el
+    // navegador, que siempre está, que no sacar nada.
+    if ((cfg.printerType === 'bluetooth' || btStations.length > 0) && !webBluetoothAvailable()) {
+      console.warn('[print] Este navegador no soporta Bluetooth: se imprime por el navegador.');
+      for (let i = 0; i < copies; i++) await this.printBrowser(receiptData, cfg);
+      return;
+    }
+
     if (cfg.printerType === 'bluetooth' || btStations.length > 0) {
       const bytes = this.generateESCPOS(receiptData, cfg);
       const { btPrint, btPrintTo, btReconnectFor, btIsConnectedFor } =
@@ -459,6 +500,7 @@ export class POSPrinterService {
 
     // Bluetooth: enviar bytes ESC/POS por Web Bluetooth (igual que printAuto).
     if (cfg.printerType === 'bluetooth') {
+      if (!webBluetoothAvailable()) throw new Error(unsupportedBluetoothMessage());
       const { btPrint } = await import('./bluetoothPrinterService');
       await btPrint(this.generateESCPOS(testData, cfg));
       return;
@@ -648,7 +690,7 @@ export class POSPrinterService {
     }
 
     // Mismo ruteo que el cobro (printAuto): Bluetooth / QZ raw / navegador.
-    if (cfg.printerType === 'bluetooth') {
+    if (cfg.printerType === 'bluetooth' && webBluetoothAvailable()) {
       try {
         const { btPrint } = await import('./bluetoothPrinterService');
         await btPrint(this.generateCashCloseESCPOS(report, cfg, general));

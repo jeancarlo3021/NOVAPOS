@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { clearAppCache } from '@/utils/clearAppCache';
+import { enableServiceWorker, swDisabled } from '@/pwa';
 
 /**
  * Listener global del atajo de teclado para limpiar caché.
@@ -13,6 +14,11 @@ import { clearAppCache } from '@/utils/clearAppCache';
  */
 export function ClearCacheShortcut() {
   const [working, setWorking] = useState(false);
+  // El modo recuperación apaga el service worker; sin él no hay modo offline, así
+  // que hay que decirlo y dar la vuelta atrás. Si no, el negocio se queda sin
+  // offline para siempre sin enterarse.
+  const [noSw, setNoSw] = useState(false);
+  useEffect(() => { setNoSw(swDisabled()); }, []);
 
   useEffect(() => {
     const onKey = async (e: KeyboardEvent) => {
@@ -68,5 +74,25 @@ export function ClearCacheShortcut() {
     return () => window.removeEventListener('keydown', onKey);
   }, [working]);
 
-  return null;
+  if (!noSw) return null;
+
+  return (
+    <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 max-w-[92vw]">
+      <div className="flex items-center gap-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-xl px-3 py-2 shadow-lg text-xs">
+        <span className="font-bold">Modo recuperación: sin funcionamiento offline.</span>
+        <button
+          onClick={() => {
+            enableServiceWorker();
+            const url = new URL(location.href);
+            url.searchParams.delete('nosw');
+            url.searchParams.delete('r');
+            location.replace(url.toString());
+          }}
+          className="shrink-0 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-black"
+        >
+          Reactivar
+        </button>
+      </div>
+    </div>
+  );
 }

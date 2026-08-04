@@ -1,6 +1,55 @@
 import { registerSW } from 'virtual:pwa-register';
 
+/** Marca para arrancar SIN service worker (queda hasta que se quite a mano). */
+const NO_SW_KEY = 'novapos_no_sw';
+
+/**
+ * Desactiva el service worker y borra sus caches.
+ *
+ * Un SW roto secuestra la app entera: sirve una versión vieja o falla al
+ * responder y la pantalla queda en blanco, sin importar cuántas veces se
+ * recargue ni se limpie el caché desde el navegador. Este es el botón de
+ * emergencia. Con `?nosw=1` en la URL la app arranca directo de la red.
+ */
+export async function disableServiceWorker(): Promise<void> {
+  try { localStorage.setItem(NO_SW_KEY, '1'); } catch { /* ignore */ }
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch { /* ignore */ }
+  try {
+    if (typeof caches !== 'undefined') {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch { /* ignore */ }
+}
+
+/** Vuelve a permitir el service worker (offline otra vez disponible). */
+export function enableServiceWorker(): void {
+  try { localStorage.removeItem(NO_SW_KEY); } catch { /* ignore */ }
+}
+
+export function swDisabled(): boolean {
+  try {
+    if (new URLSearchParams(location.search).has('nosw')) return true;
+    return localStorage.getItem(NO_SW_KEY) === '1';
+  } catch { return false; }
+}
+
 export function setupPWA() {
+  // ── MODO SIN SERVICE WORKER ─────────────────────────────────────────────
+  // Se entra acá desde la pantalla de recuperación (`?nosw=1`). Es la única
+  // forma de romper el círculo cuando el SW quedó en mal estado: mientras siga
+  // registrado vuelve a tomar el control en cada recarga.
+  if (swDisabled()) {
+    void disableServiceWorker();
+    console.warn('[pwa] Service worker DESACTIVADO en este dispositivo (modo recuperación).');
+    return;
+  }
+
   // ── DESARROLLO: sin service worker ──────────────────────────────────────
   // En `npm run dev` no debe haber SW. Si quedó uno registrado de un build o
   // `preview` anterior, sigue interceptando y sirviendo CACHE VIEJO en
