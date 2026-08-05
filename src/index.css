@@ -12,7 +12,10 @@
    respaldo de 28px es para los Android que no la reportan (ahí el inset llega
    en 0 y el problema seguiría igual). */
 html.is-native {
-  --app-inset-top: max(env(safe-area-inset-top, 0px), 28px);
+  /* Si un día hay que subir o bajar el contenido dentro del APK, se cambia ACÁ:
+     es el único número que manda. El respaldo de 44px es para los Android que
+     reportan el inset en 0 — sin él, la fila de arriba vuelve a quedar tapada. */
+  --app-inset-top: max(env(safe-area-inset-top, 0px), 44px);
 }
 
 html.is-native body {

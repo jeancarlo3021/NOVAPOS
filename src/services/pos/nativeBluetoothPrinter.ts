@@ -8,18 +8,15 @@
  * (`escanear → conectar → escribir bytes`) para que el resto del POS no tenga
  * que enterarse de en cuál de los dos está corriendo.
  *
- * El plugin se carga con `import()` en caliente y a propósito: en el navegador no
- * está instalado, y un import estático rompería el build de la web.
- *
- * ── Para que esto funcione en el APK ──────────────────────────────────────
- *   1) npm i @capacitor-community/bluetooth-le
- *   2) npx cap sync android
- *   3) En android/app/src/main/AndroidManifest.xml, permisos de Android 12+:
- *        BLUETOOTH_SCAN (con android:usesPermissionFlags="neverForLocation")
- *        BLUETOOTH_CONNECT
- *   4) Recompilar el APK.
- * Sin esos pasos este módulo queda inerte y el POS avisa que hay que usar Chrome.
+ * El plugin se importa de forma ESTÁTICA. Antes se cargaba con `import(variable)`
+ * para no obligar a tenerlo instalado, y eso NO PODÍA FUNCIONAR NUNCA: en tiempo
+ * de ejecución el navegador recibe un especificador "desnudo"
+ * (`@capacitor-community/bluetooth-le`) que no sabe resolver sin un import map.
+ * Fallaba siempre y el POS respondía "la app no trae el módulo de impresión",
+ * incluso con el plugin instalado y los permisos dados. Importándolo arriba, el
+ * bundler lo empaqueta y el código llega resuelto.
  */
+import { BleClient } from '@capacitor-community/bluetooth-le';
 
 /** UUIDs de servicio típicos de impresoras térmicas ESC/POS por BLE. */
 const PRINTER_SERVICES = [
@@ -48,29 +45,36 @@ interface NativeConn {
 }
 
 const conns = new Map<string, NativeConn>();
-let bleModule: any = null;
+let initialized = false;
 
-async function ble(): Promise<any> {
-  if (bleModule) return bleModule;
-  try {
-    // El especificador va en una variable a propósito: así ni TypeScript ni el
-    // bundler intentan resolver un paquete que en la web NO está instalado.
-    // En el APK sí existe y el import se resuelve en tiempo de ejecución.
-    const pkg = '@capacitor-community/bluetooth-le';
-    const mod: any = await import(/* @vite-ignore */ pkg);
-    bleModule = mod.BleClient;
-    await bleModule.initialize({ androidNeverForLocation: true });
-    return bleModule;
-  } catch (e) {
-    throw new Error(
-      'La app de Android no trae el módulo de impresión Bluetooth. '
-      + 'Actualizá la app desde la tienda o imprimí desde Chrome.',
-    );
+/**
+ * Inicializa el cliente BLE una sola vez.
+ *
+ * `androidNeverForLocation` acompaña al permiso declarado en el manifiesto: el
+ * escaneo es solo para encontrar la impresora, no para ubicar al usuario. Sin
+ * eso Android 12+ exige además permiso de ubicación para poder imprimir.
+ */
+async function ble(): Promise<typeof BleClient> {
+  if (!initialized) {
+    await BleClient.initialize({ androidNeverForLocation: true });
+    initialized = true;
   }
+  return BleClient;
 }
 
+/**
+ * ¿Está el plugin NATIVO disponible?
+ *
+ * Se pregunta por el proxy que registra Capacitor, no por el import: el paquete
+ * trae también una implementación web (que usa Web Bluetooth por debajo), así que
+ * importarlo no prueba nada. Lo que importa es si hay plataforma nativa detrás.
+ */
 export function nativeBtAvailable(): boolean {
-  try { return !!(window as any).Capacitor?.Plugins?.BluetoothLe; } catch { return false; }
+  try {
+    const cap = (window as any).Capacitor;
+    if (!cap?.isNativePlatform?.()) return false;
+    return !!cap?.Plugins?.BluetoothLe;
+  } catch { return false; }
 }
 
 export function nativeBtIsConnected(id: string): boolean {
