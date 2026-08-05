@@ -44,6 +44,17 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
+// Dentro del APK el WebView dibuja DEBAJO de la barra de estado (el index.html
+// usa viewport-fit=cover), así que lo que queda pegado arriba —encabezados,
+// botones de cerrar de los modales— cae bajo el reloj y la hora y no se puede
+// tocar. Marcamos el documento para que el CSS baje todo esa distancia, y SOLO
+// acá: en la web y en el navegador del teléfono no hace falta.
+try {
+  if ((window as any).Capacitor?.isNativePlatform?.()) {
+    document.documentElement.classList.add('is-native');
+  }
+} catch { /* ignore */ }
+
 // React ya montó: se apaga el salvavidas de arranque de index.html, que si no
 // mostraría la pantalla de recuperación encima de la app.
 try { (window as any).__ccBooted?.(); } catch { /* ignore */ }

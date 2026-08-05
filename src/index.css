@@ -1,5 +1,49 @@
 @import "tailwindcss";
 
+/* ── APK de Android: dejar libre la barra de estado ──────────────────────────
+   El WebView de Capacitor dibuja a pantalla completa, por debajo del reloj y la
+   batería. Sin esto, la fila de arriba de cada pantalla (encabezado, pestañas,
+   la X de los modales) queda tapada y NO SE PUEDE TOCAR.
+
+   La clase `is-native` la pone main.tsx solo dentro del APK: en la web y en el
+   navegador del teléfono nada de esto aplica.
+
+   `env(safe-area-inset-top)` da la altura real de la barra en cada equipo; el
+   respaldo de 28px es para los Android que no la reportan (ahí el inset llega
+   en 0 y el problema seguiría igual). */
+html.is-native {
+  --app-inset-top: max(env(safe-area-inset-top, 0px), 28px);
+}
+
+html.is-native body {
+  padding-top: var(--app-inset-top);
+}
+
+/* Los contenedores de alto completo miden 100vh contando la barra de estado. Si
+   solo se agregara el padding de arriba, se irían por debajo del borde inferior
+   y quedarían inalcanzables los botones de ABAJO. */
+html.is-native .h-screen {
+  height: calc(100dvh - var(--app-inset-top));
+}
+
+html.is-native .min-h-screen {
+  min-height: calc(100dvh - var(--app-inset-top));
+}
+
+/* Los elementos `fixed` se posicionan contra la ventana, no contra el body: el
+   padding de arriba no les llega. Son justo los modales y las barras flotantes,
+   donde vive el botón de cerrar. */
+html.is-native .fixed.inset-0 {
+  padding-top: var(--app-inset-top);
+}
+
+/* Barras pegadas al borde superior (encabezados sticky). */
+html.is-native .fixed.top-0,
+html.is-native .sticky.top-0 {
+  top: var(--app-inset-top);
+}
+
+
 /* ── POS scrollbar grande para uso táctil ───────────────────────────────── */
 .pos-scroll {
   scrollbar-width: auto;

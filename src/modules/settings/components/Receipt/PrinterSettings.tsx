@@ -14,6 +14,8 @@ import {
   qzEnableAutoReconnect, qzDisableAutoReconnect, onQzStatus,
 } from '@/services/pos/qzTrayService';
 import type { PrinterEntry } from '@/services/pos/qzTrayService';
+import { nativeBtAvailable } from '@/services/pos/nativeBluetoothPrinter';
+import { isNativeApp } from '@/services/pos/nativePlatform';
 import { PrinterRow } from './components/PrinterRow';
 import { ComandaCategoryPicker } from './components/ComandaCategoryPicker';
 
@@ -509,9 +511,15 @@ function newBtPrinter(type: 'receipt' | 'comanda'): PrinterEntry {
 function BluetoothStations({ config, setConfig, tenantId }: {
   config: ReceiptConfig; setConfig: (c: ReceiptConfig) => void; tenantId: string;
 }) {
-  const hasBLE = typeof navigator !== 'undefined' && !!(navigator as any).bluetooth;
-  const hasSerial = typeof navigator !== 'undefined' && !!(navigator as any).serial;
-  const hasUSB = typeof navigator !== 'undefined' && !!(navigator as any).usb;
+  // Dentro del APK no existe `navigator.bluetooth` —el WebView de Android no
+  // implementa Web Bluetooth— pero SÍ se imprime, a través del plugin nativo.
+  // Mirar solo `navigator` hacía que la app instalada dijera "este navegador no
+  // soporta Bluetooth" justo donde el Bluetooth es la ÚNICA forma de imprimir.
+  const nativeBt = nativeBtAvailable();
+  const hasBLE = nativeBt || (typeof navigator !== 'undefined' && !!(navigator as any).bluetooth);
+  // Serie y USB son APIs de escritorio: en el teléfono no aplican.
+  const hasSerial = !isNativeApp() && typeof navigator !== 'undefined' && !!(navigator as any).serial;
+  const hasUSB = !isNativeApp() && typeof navigator !== 'undefined' && !!(navigator as any).usb;
 
   const printers = (config.printers ?? []).filter(p => p.connection === 'bluetooth');
   const receipts = printers.filter(p => p.type === 'receipt');
@@ -547,8 +555,11 @@ function BluetoothStations({ config, setConfig, tenantId }: {
   if (!hasBLE && !hasSerial && !hasUSB) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-        Este navegador no soporta Bluetooth, USB ni puerto serie web. Usá <strong>Chrome</strong> o
-        <strong> Edge</strong> sobre HTTPS. En iPhone/Safari no está disponible.
+        {isNativeApp()
+          ? <>Esta versión de la app no trae el módulo de impresión Bluetooth.
+              Actualizala desde <strong>App de Android</strong>.</>
+          : <>Este navegador no soporta Bluetooth, USB ni puerto serie web. Usá <strong>Chrome</strong> o
+              <strong> Edge</strong> sobre HTTPS. En iPhone/Safari no está disponible.</>}
       </div>
     );
   }
@@ -707,11 +718,13 @@ function BluetoothStationRow({ printer, tenantId, onChange, onRemove }: {
 
       {/* Fila 2: modo + conectar */}
       <div className="flex items-center gap-2 flex-wrap">
+        {/* En el APK solo hay BLE: puerto serie y USB son APIs de escritorio.
+            Ofrecerlos ahí solo lleva a elegir un modo que nunca va a conectar. */}
         <select value={printer.bt_mode ?? 'ble'} onChange={e => onChange({ bt_mode: e.target.value as any })}
           className="border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white">
           <option value="ble">📶 BLE (celular)</option>
-          <option value="serial">💻 COM (PC)</option>
-          <option value="usb">🔌 USB</option>
+          {!isNativeApp() && <option value="serial">💻 COM (PC)</option>}
+          {!isNativeApp() && <option value="usb">🔌 USB</option>}
         </select>
         <button onClick={connect} disabled={busy === 'connect'}
           className="flex-1 min-w-28 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50">
