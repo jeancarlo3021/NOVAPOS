@@ -1,0 +1,23 @@
+Acá va el APK de ColónClick.
+
+El módulo "App de Android" (/android-app) enlaza por defecto a:
+    /app/colonclick.apk
+
+Para publicarlo por esta vía, dejá el archivo con ESE nombre en esta carpeta:
+    public/app/colonclick.apk
+y volvé a desplegar el sitio. Vite copia public/ tal cual a dist/.
+
+Cómo generar el APK:
+    npm run build
+    npx cap sync android
+    cd android && ./gradlew assembleRelease
+    # queda en android/app/build/outputs/apk/release/
+
+Para pruebas internas sirve el de debug:
+    cd android && ./gradlew assembleDebug
+    # android/app/build/outputs/apk/debug/app-debug.apk
+
+ALTERNATIVA RECOMENDADA — no meter el APK en el repositorio.
+Subilo a un bucket público (Supabase Storage) y pegá esa URL en el módulo,
+con el botón "Cambiar enlace de descarga". Ventajas: no engorda el repo, y
+publicar una versión nueva no obliga a redesplegar el sitio.

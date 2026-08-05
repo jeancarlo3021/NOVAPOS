@@ -42,8 +42,21 @@ export function hasNativeBluetooth(): boolean {
   } catch { return false; }
 }
 
-/** Qué decirle al cajero cuando el APK no puede imprimir por sí solo. */
+/**
+ * Qué decirle al cajero cuando pide imprimir POR EL NAVEGADOR dentro del APK.
+ *
+ * El APK sí imprime tiquetes térmicos (por el plugin nativo de Bluetooth); lo que
+ * no tiene es el diálogo de impresión del sistema, que es lo que usan los
+ * formatos de página entera (A4, cierres, reportes).
+ */
 export function nativePrintingMessage(): string {
-  return 'La app instalada de Android todavía no puede imprimir por Bluetooth ni abrir '
-    + 'el diálogo de impresión. Abrí ColónClick en Chrome para imprimir.';
+  return 'La app de Android imprime tiquetes térmicos por Bluetooth, pero no puede abrir '
+    + 'el diálogo de impresión del sistema. Para imprimir en hoja completa, abrí '
+    + 'ColónClick en Chrome. Si querés tiquete, configurá la impresora como Bluetooth.';
+}
+
+/** Cuando el APK es viejo y no trae el módulo de impresión Bluetooth. */
+export function outdatedNativeAppMessage(): string {
+  return 'Esta versión de la app no trae el módulo de impresión Bluetooth. '
+    + 'Actualizala desde «App de Android» o imprimí abriendo ColónClick en Chrome.';
 }

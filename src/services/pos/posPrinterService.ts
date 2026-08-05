@@ -4,7 +4,7 @@ import {
   type PrinterEntry,
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
-import { isNativeApp, hasNativeBluetooth, nativePrintingMessage } from './nativePlatform';
+import { isNativeApp, hasNativeBluetooth, nativePrintingMessage, outdatedNativeAppMessage } from './nativePlatform';
 
 /**
  * ¿Este navegador puede hablar con impresoras Bluetooth?
@@ -28,7 +28,8 @@ export function webBluetoothAvailable(): boolean {
 
 /** Explicación para el cajero cuando pide Bluetooth donde no se puede. */
 export function unsupportedBluetoothMessage(): string {
-  if (isNativeApp()) return nativePrintingMessage();
+  // Dentro del APK solo puede faltar el plugin, y eso significa app desactualizada.
+  if (isNativeApp()) return outdatedNativeAppMessage();
   const secure = typeof window === 'undefined' || window.isSecureContext !== false;
   if (!secure) {
     return 'El Bluetooth solo funciona en HTTPS. Abrí la app con https:// o usá impresión por el navegador.';
