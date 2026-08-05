@@ -225,14 +225,27 @@ export const RouteRun: React.FC = () => {
           </div>
         )}
 
-        {/* Rastreo GPS: activar/desactivar — SOLO el admin (dueño/administrador) lo ve */}
-        {bgPerm === 'denied' && route.status === 'open' && trackingOn && (
+        {/*
+          Aviso de "Permitir todo el tiempo".
+          Antes solo salía con bgPerm === 'denied', y ese estado casi nunca llegaba:
+          con el permiso en "Solo mientras se usa la app" el plugin NO da error y
+          las posiciones llegan igual mientras la pantalla está encendida, así que
+          el aviso —y con él el atajo a los ajustes— no aparecía nunca. Android no
+          deja leer desde el WebView si el permiso es "todo el tiempo", así que en
+          Android se muestra siempre que el rastreo esté encendido.
+        */}
+        {(bgPerm === 'denied' || truckTracking.needsAlwaysAllowHint())
+          && route.status === 'open' && trackingOn && (
           <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 mb-3">
-            <p className="text-sm font-black text-amber-900">La ubicación solo funciona con la app abierta</p>
+            <p className="text-sm font-black text-amber-900">
+              {bgPerm === 'denied'
+                ? 'La ubicación solo funciona con la app abierta'
+                : 'Revisá que la ubicación esté en «Permitir todo el tiempo»'}
+            </p>
             <p className="text-xs text-amber-800/90 mt-1">
-              Android la tiene en <b>«Solo mientras se usa la app»</b>, así que el rastreo se detiene
-              al minimizar o apagar la pantalla. Para que el camión se siga viendo durante todo el
-              reparto, cambiala a <b>«Permitir todo el tiempo»</b>.
+              Android nunca ofrece <b>«Permitir todo el tiempo»</b> en el primer diálogo: hay que
+              activarlo a mano en los ajustes. Mientras esté en <b>«Solo mientras se usa la app»</b>,
+              el rastreo se detiene al minimizar o apagar la pantalla y el camión desaparece del mapa.
             </p>
             <button
               onClick={() => truckTracking.openLocationSettings()}

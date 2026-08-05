@@ -39,8 +39,20 @@ interface BackgroundGeolocationPlugin {
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
 
-/** Estado del permiso de ubicación en segundo plano. 'denied' = el usuario dio
- *  solo "Mientras se usa la app": el rastreo se corta al minimizar. */
+/**
+ * Estado del permiso de ubicación en segundo plano.
+ *
+ * 'denied'  = el plugin dijo NOT_AUTHORIZED (ubicación negada del todo).
+ * 'granted' = llegan posiciones… pero OJO: eso NO prueba que sea "todo el tiempo".
+ *             Con "Solo mientras se usa la app" las posiciones llegan igual
+ *             mientras la pantalla está encendida, y el plugin no se queja.
+ * 'unknown' = todavía no hay señal.
+ *
+ * Android no expone una forma de leer si es "todo el tiempo" desde el WebView, así
+ * que NO se puede afirmar que esté bien concedido. Por eso la UI ofrece siempre el
+ * atajo a los ajustes en vez de esconderlo detrás de un estado que no se puede
+ * determinar — que es justo lo que hacía que la opción "no apareciera nunca".
+ */
 export type BgPermission = 'unknown' | 'granted' | 'denied';
 let bgPermission: BgPermission = 'unknown';
 const permissionListeners = new Set<(p: BgPermission) => void>();
@@ -172,6 +184,19 @@ export const truckTracking = {
 
   /** Estado del permiso de ubicación en segundo plano. */
   getBgPermission(): BgPermission { return bgPermission; },
+
+  /**
+   * ¿Hay que recordarle al usuario lo de "Permitir todo el tiempo"?
+   *
+   * Solo en Android nativo: en la web y en iOS el permiso funciona distinto. Se
+   * responde que sí incluso cuando ya llegan posiciones, porque recibir
+   * posiciones con la app abierta no distingue entre "mientras se usa" y "todo
+   * el tiempo", y es precisamente la confusión que dejaba el rastreo cortado.
+   */
+  needsAlwaysAllowHint(): boolean {
+    if (!Capacitor.isNativePlatform()) return false;
+    return Capacitor.getPlatform() === 'android';
+  },
 
   /** Avisa cuando cambia (para mostrar/ocultar el aviso en la UI). */
   onBgPermissionChange(fn: (p: BgPermission) => void): () => void {

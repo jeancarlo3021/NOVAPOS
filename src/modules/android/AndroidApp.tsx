@@ -16,6 +16,18 @@ import { isNativeApp } from '@/services/pos/nativePlatform';
  * "permitir esta instalación" — sin eso la descarga termina y no pasa nada, que
  * es donde la gente se queda trabada.
  */
+/**
+ * De dónde se descarga la app.
+ *
+ * Vive en Supabase Storage y no dentro del sitio: publicar una versión nueva es
+ * reemplazar el archivo en el bucket, sin redesplegar ni engordar el repositorio
+ * con 10 MB por cada versión.
+ */
+const DEFAULT_APK_URL =
+  'https://hdmxpjscmkgfettmqcyl.supabase.co/storage/v1/object/public/apk/app-release.apk';
+
+export const AndroidAppUrl = DEFAULT_APK_URL;
+
 export const AndroidApp: React.FC = () => {
   const { settings, updateSettings } = useSettings('general');
   const { user } = useAuth();
@@ -29,11 +41,11 @@ export const AndroidApp: React.FC = () => {
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
 
-  // URL configurable: si el negocio (o el super-admin) puso una propia, manda esa.
+  // El negocio (o el super-admin) puede apuntar a otro archivo; si no, el oficial.
   const apkUrl: string = String(
     (settings as any)?.apkUrl
     || (import.meta as any).env?.VITE_APK_URL
-    || `${window.location.origin}/app/colonclick.apk`,
+    || DEFAULT_APK_URL,
   );
 
   // Se comprueba que el archivo EXISTA antes de ofrecerlo. Sin esto, el botón

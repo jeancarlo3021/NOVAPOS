@@ -5,9 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:frontend && npm run build:backend",
+    "build": "vite build",
     "build:frontend": "vite build",
-    "build:backend": "cd backend && npm run build",
     "lint": "eslint .",
     "preview": "vite preview",
     "cap:sync": "vite build && cap sync",
@@ -21,7 +20,10 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:head": "playwright test --headed",
     "test:e2e:install": "playwright install chromium",
-    "test:e2e:install:deps": "echo 'Fedora: instalá deps con: sudo dnf install -y nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr mesa-libgbm libxshmfence alsa-lib pango cairo'"
+    "test:e2e:install:deps": "echo 'Fedora: instalá deps con: sudo dnf install -y nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr mesa-libgbm libxshmfence alsa-lib pango cairo'",
+    "android:sync": "vite build && cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease",
+    "android:apk:dev": "npm run android:sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.26",

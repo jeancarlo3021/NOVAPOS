@@ -99,3 +99,11 @@ app/src/main/assets/public
 app/src/main/assets/capacitor.config.json
 app/src/main/assets/capacitor.plugins.json
 app/src/main/res/xml/config.xml
+
+# Firma del release — NUNCA al repositorio.
+# Con la llave cualquiera puede publicar una app que Android acepta como si fuera
+# la nuestra. Guardá una copia aparte: si se pierde, no se puede volver a
+# actualizar la app instalada.
+keystore.properties
+*.jks
+*.keystore

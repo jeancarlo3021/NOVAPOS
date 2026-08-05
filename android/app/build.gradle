@@ -1,5 +1,17 @@
 apply plugin: 'com.android.application'
 
+// Credenciales de firma del release.
+//
+// Un APK sin firmar NO se instala: Android lo rechaza con "aplicación no
+// instalada" sin decir por qué. Las credenciales viven en android/keystore.properties,
+// FUERA del repositorio, y si el archivo no está el release simplemente sale sin
+// firmar en vez de romper el build (útil en un equipo que no tiene la llave).
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 android {
     namespace = "cr.colonclick.pos"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,10 +28,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystoreProps.containsKey('storeFile')) {
+                storeFile     rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias      keystoreProps['keyAlias']
+                keyPassword   keystoreProps['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystoreProps.containsKey('storeFile')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
