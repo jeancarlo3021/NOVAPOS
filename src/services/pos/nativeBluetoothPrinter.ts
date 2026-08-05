@@ -48,6 +48,44 @@ const conns = new Map<string, NativeConn>();
 let initialized = false;
 
 /**
+ * Impresoras que deben permanecer conectadas, con su deviceId.
+ *
+ * Se guarda aparte de `conns` a propósito: `conns` refleja lo que está conectado
+ * AHORA, y esto refleja lo que DEBERÍA estarlo. Cuando la impresora se apaga, se
+ * aleja o Android corta el enlace por ahorro de batería, hay que saber a qué
+ * volver a engancharse sin que el cajero toque nada.
+ */
+const wanted = new Map<string, string>();   // stationId → deviceId
+const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Reintento con espera creciente: 2s, 4s, 8s… hasta 30s. */
+function scheduleReconnect(id: string, attempt = 1): void {
+  const prev = retryTimers.get(id);
+  if (prev) clearTimeout(prev);
+  const delay = Math.min(2000 * 2 ** (attempt - 1), 30000);
+  retryTimers.set(id, setTimeout(async () => {
+    retryTimers.delete(id);
+    const deviceId = wanted.get(id);
+    if (!deviceId || conns.has(id)) return;     // ya no interesa o ya volvió
+    try {
+      await nativeBtReconnect(id, deviceId);
+      console.info(`[bt] impresora ${id} reconectada`);
+    } catch {
+      // La impresora puede estar apagada; se sigue intentando sin molestar al
+      // usuario. Cuando la enciendan, engancha sola.
+      scheduleReconnect(id, attempt + 1);
+    }
+  }, delay));
+}
+
+/** Corta los reintentos de una estación (al desconectarla a propósito). */
+function stopRetrying(id: string): void {
+  wanted.delete(id);
+  const t = retryTimers.get(id);
+  if (t) { clearTimeout(t); retryTimers.delete(id); }
+}
+
+/**
  * Inicializa el cliente BLE una sola vez.
  *
  * `androidNeverForLocation` acompaña al permiso declarado en el manifiesto: el
@@ -116,10 +154,14 @@ export async function nativeBtConnect(id: string): Promise<string> {
     services: [],
     optionalServices: PRINTER_SERVICES,
   });
-  await client.connect(device.deviceId, () => { conns.delete(id); });
+  await client.connect(device.deviceId, () => {
+    conns.delete(id);
+    scheduleReconnect(id);          // se cayó: volver a engancharse sola
+  });
   const target = await resolveWriteTarget(client, device.deviceId);
   const name = device.name || 'Impresora BT';
   conns.set(id, { deviceId: device.deviceId, name, ...target });
+  wanted.set(id, device.deviceId);
   return name;
 }
 
@@ -130,10 +172,14 @@ export async function nativeBtConnect(id: string): Promise<string> {
 export async function nativeBtReconnect(id: string, deviceId?: string): Promise<string> {
   if (!deviceId) throw new Error('La impresora no está emparejada todavía. Conectala una vez.');
   const client = await ble();
-  await client.connect(deviceId, () => { conns.delete(id); });
+  await client.connect(deviceId, () => {
+    conns.delete(id);
+    scheduleReconnect(id);
+  });
   const target = await resolveWriteTarget(client, deviceId);
   const name = (await client.getDevices?.([deviceId]).catch(() => []))?.[0]?.name || 'Impresora BT';
   conns.set(id, { deviceId, name, ...target });
+  wanted.set(id, deviceId);
   return name;
 }
 
@@ -144,6 +190,12 @@ export async function nativeBtReconnect(id: string, deviceId?: string): Promise<
  * son chicos y, mandando de corrido, cortan el tiquete a la mitad.
  */
 export async function nativeBtPrint(id: string, bytes: Uint8Array): Promise<void> {
+  // Si el enlace se cayó entre dos ventas, se reengancha ACÁ mismo antes de
+  // rendirse: es mejor un tiquete que tarda un segundo más que uno que no sale.
+  if (!conns.has(id)) {
+    const deviceId = wanted.get(id);
+    if (deviceId) { try { await nativeBtReconnect(id, deviceId); } catch { /* abajo avisa */ } }
+  }
   const conn = conns.get(id);
   if (!conn) throw new Error('Esa impresora no está conectada. Conectala primero.');
   const client = await ble();
@@ -162,8 +214,34 @@ export async function nativeBtPrint(id: string, bytes: Uint8Array): Promise<void
 }
 
 export async function nativeBtDisconnect(id: string): Promise<void> {
+  stopRetrying(id);               // desconexión a propósito: no reintentar
   const conn = conns.get(id);
   conns.delete(id);
   if (!conn) return;
   try { (await ble()).disconnect(conn.deviceId); } catch { /* ignore */ }
 }
+
+
+/**
+ * Al volver la app al frente, reengancha lo que se haya caído.
+ *
+ * Android corta las conexiones BLE de las apps en segundo plano para ahorrar
+ * batería. Sin esto, el cajero volvía a la app y el primer tiquete del día no
+ * salía hasta reconectar a mano.
+ */
+try {
+  const cap = (window as any).Capacitor;
+  if (cap?.isNativePlatform?.()) {
+    document.addEventListener('resume', () => {
+      for (const [id, deviceId] of wanted) {
+        if (!conns.has(id)) void nativeBtReconnect(id, deviceId).catch(() => scheduleReconnect(id));
+      }
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      for (const [id, deviceId] of wanted) {
+        if (!conns.has(id)) void nativeBtReconnect(id, deviceId).catch(() => scheduleReconnect(id));
+      }
+    });
+  }
+} catch { /* si no se puede escuchar, quedan los reintentos por tiempo */ }

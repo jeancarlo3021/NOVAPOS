@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
-import { Lock, LogOut, Menu as MenuIcon, RefreshCw } from 'lucide-react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Lock, LogOut, Menu as MenuIcon, RefreshCw, Settings } from 'lucide-react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { useAuth } from '@/context/AuthContext';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 
 // Banner sticky en la parte superior cuando el tenant está en modo solo-lectura
 // por morosidad. Indica al usuario que solo puede ver inventario y le da un
@@ -58,6 +59,13 @@ export const MainLayout = () => {
     }
   };
 
+  // Configuración en la barra de abajo: en el teléfono la tuerca vivía arriba del
+  // todo, donde la barra de estado la tapa y no se puede tocar. Acá, al lado de
+  // «Menú», queda siempre al alcance del pulgar.
+  const navigate = useNavigate();
+  const { canAccess } = useRolePermissions();
+  const showSettings = canAccess('settings');
+
   // Limpiar caché: quita el service worker + cachés y recarga con la última versión.
   // Útil en la app del repartidor cuando quedó una versión vieja cacheada.
   const clearCacheAndReload = async () => {
@@ -104,6 +112,15 @@ export const MainLayout = () => {
               className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-gray-600 active:bg-gray-100">
               <MenuIcon size={20} /><span className="text-[10px] font-bold">Menú</span>
             </button>
+            {showSettings && (
+              <>
+                <div className="w-px bg-gray-200 my-1.5" />
+                <button onClick={() => navigate('/settings')}
+                  className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-gray-600 active:bg-gray-100">
+                  <Settings size={20} /><span className="text-[10px] font-bold">Configuración</span>
+                </button>
+              </>
+            )}
             <div className="w-px bg-gray-200 my-1.5" />
             <button onClick={clearCacheAndReload}
               className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-gray-600 active:bg-gray-100">
