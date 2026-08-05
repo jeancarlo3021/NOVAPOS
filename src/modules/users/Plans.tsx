@@ -380,6 +380,7 @@ export default function Plans() {
     if ((pf as any).sales_agents)     a.push('Agentes de venta');
     if ((pf as any).returns)          a.push('Devoluciones');
     if ((pf as any).supplier_returns) a.push('Devol. proveedor');
+    if ((pf as any).android_app)      a.push('App de Android');
     if (pf.recipes) a.push('Recetas');
     if (pf.hr) a.push('Recursos Humanos');
     if (pf.customers !== false) a.push('Clientes');
@@ -922,6 +923,9 @@ export default function Plans() {
                   <FeatureRow icon={Truck} color="bg-amber-600" title="Devoluciones al proveedor"
                     description="Devolver mercadería al proveedor: baja de stock y saldo a favor"
                     checked={(features as any).supplier_returns ?? false} onChange={v => set({ supplier_returns: v } as any)} />
+                  <FeatureRow icon={Smartphone} color="bg-teal-600" title="App de Android"
+                    description="Deja descargar el APK desde el panel del negocio"
+                    checked={(features as any).android_app ?? false} onChange={v => set({ android_app: v } as any)} />
                 </section>
 
                 {/* ── Marketing ── */}

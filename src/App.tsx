@@ -50,6 +50,7 @@ const CashierDesk              = lazy(() => import('./modules/agents/CashierDesk
 const SalesReturns             = lazy(() => import('./modules/returns/SalesReturns').then(m => ({ default: m.SalesReturns })));
 const AccountantPortal         = lazy(() => import('./modules/accountant/AccountantPortal').then(m => ({ default: m.AccountantPortal })));
 const BusinessesPanel          = lazy(() => import('./modules/accountant/BusinessesPanel').then(m => ({ default: m.BusinessesPanel })));
+const AndroidApp               = lazy(() => import('./modules/android/AndroidApp').then(m => ({ default: m.AndroidApp })));
 const SupplierReturns          = lazy(() => import('./modules/returns/SupplierReturns').then(m => ({ default: m.SupplierReturns })));
 const BillingDashboard         = lazy(() => import('./modules/billing/BillingDashboard').then(m => ({ default: m.BillingDashboard })));
 const BranchesAdmin            = lazy(() => import('./modules/branches/BranchesAdmin').then(m => ({ default: m.BranchesAdmin })));
@@ -177,6 +178,7 @@ function AppContent() {
               } />
               <Route path="/accountant" element={<AccountantPortal />} />
               <Route path="/businesses" element={<BusinessesPanel />} />
+              <Route path="/android-app" element={<PlanGuard feature="android_app"><AndroidApp /></PlanGuard>} />
               <Route path="/sales-agents" element={
                 <PlanGuard feature="sales_agents"><SalesAgentsManager /></PlanGuard>
               } />

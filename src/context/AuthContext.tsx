@@ -225,6 +225,8 @@ export interface PlanFeatures {
   returns?: boolean;
   /** Devoluciones al proveedor (baja de stock + saldo a favor). */
   supplier_returns?: boolean;
+  /** App de Android: muestra la pantalla de descarga del APK. */
+  android_app?: boolean;
   /** Facturación Electrónica (Hacienda CR) — habilita tab en Settings,
    *  dropdown de tipo doc en el POS, y emisión a Hacienda. */
   electronic_invoice?: boolean;
@@ -316,6 +318,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   sales_agents: false,
   returns: false,
   supplier_returns: false,
+  android_app: false,
   restaurant: false,
   electronic_invoice: false,
   fe_pos: false,
@@ -385,6 +388,7 @@ export const FULL_FEATURES: PlanFeatures = {
   sales_agents: true,
   returns: true,
   supplier_returns: true,
+  android_app: true,
   restaurant: true,
   electronic_invoice: true,
   fe_pos: true,

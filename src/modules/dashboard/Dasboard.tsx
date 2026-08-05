@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
   TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
-  Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2,
+  Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -69,6 +69,7 @@ const ALL_TILES: Tile[] = [
   { feature: 'modifiers',        label: 'Extras',          icon: Layers,        path: '/modifiers',        bg: 'from-violet-600 to-fuchsia-600'   },
   // Vista de cartera del contador: datos del negocio, plan y comprobantes.
   { feature: 'reports',           label: 'Negocios',        icon: Building2,     path: '/businesses',       bg: 'from-indigo-600 to-violet-700'    },
+  { feature: 'android_app',      label: 'App Android',     icon: Smartphone,    path: '/android-app',      bg: 'from-emerald-600 to-green-700'    },
   { feature: 'users',            label: 'Usuarios',        icon: Users,         path: '/users',            bg: 'from-fuchsia-500 to-pink-500'     },
   { feature: 'settings',         label: 'Configuración',   icon: Settings,      path: '/settings',         bg: 'from-slate-600 to-slate-700'      },
 ];

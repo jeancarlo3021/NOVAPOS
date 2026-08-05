@@ -56,6 +56,9 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'returns', label: 'Devoluciones y anulación de facturas' },
     { key: 'supplier_returns', label: 'Devoluciones al proveedor' },
   ]},
+  { group: 'App móvil', items: [
+    { key: 'android_app', label: 'App de Android (descarga del APK)' },
+  ]},
   { group: 'Reportes y finanzas', items: [
     { key: 'reports', label: 'Reportes' },
     { key: 'expenses', label: 'Gastos' },

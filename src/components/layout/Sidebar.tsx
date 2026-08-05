@@ -28,7 +28,7 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeInfo,
-  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2 } from 'lucide-react';
+  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
@@ -94,6 +94,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Agentes de venta',   to: '/sales-agents',  icon: UserCheck, feature: 'sales_agents', module: 'users'        },
       { name: 'Portal del contador', to: '/accountant',       icon: Calculator, feature: 'always',       module: 'reports'   },
       { name: 'Negocios',           to: '/businesses',        icon: Building2,  feature: 'always',       module: 'reports'   },
+      { name: 'App de Android',     to: '/android-app',       icon: Smartphone, feature: 'android_app',  module: 'settings'  },
       { name: 'Devoluciones',       to: '/returns',           icon: Undo2, feature: 'returns',          module: 'pos'       },
       { name: 'Devolución a proveedor', to: '/supplier-returns', icon: Truck, feature: 'supplier_returns', module: 'purchases' },
       { name: 'Restaurante',       to: '/billing',    icon: Receipt,       feature: 'restaurant', module: 'restaurant' },
