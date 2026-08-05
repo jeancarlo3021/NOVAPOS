@@ -68,10 +68,10 @@ y desplegá el sitio como siempre. Después hay que apuntar el módulo a
 defecto a:
 
 ```
-https://hdmxpjscmkgfettmqcyl.supabase.co/storage/v1/object/public/apk/app-release.apk
+https://hdmxpjscmkgfettmqcyl.supabase.co/storage/v1/object/public/app/app-release.apk
 ```
 
-Publicar una versión nueva es **reemplazar ese archivo en el bucket `apk`**. No
+Publicar una versión nueva es **reemplazar ese archivo en el bucket `app`**. No
 hace falta redesplegar el sitio ni tocar código. Mantené el mismo nombre de
 archivo (`app-release.apk`) o el enlace deja de servir.
 

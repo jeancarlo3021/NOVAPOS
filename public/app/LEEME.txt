@@ -1,12 +1,12 @@
 Acá NO hace falta dejar nada: el APK vive en Supabase Storage.
 
 URL oficial de descarga (es la que trae el módulo por defecto):
-    https://hdmxpjscmkgfettmqcyl.supabase.co/storage/v1/object/public/apk/app-release.apk
+    https://hdmxpjscmkgfettmqcyl.supabase.co/storage/v1/object/public/app/app-release.apk
 
 PARA PUBLICAR UNA VERSIÓN NUEVA
     1) Subí el versionCode en android/app/build.gradle
     2) npm run android:apk
-    3) Reemplazá app-release.apk en el bucket "apk" de Supabase
+    3) Reemplazá app-release.apk en el bucket "app" de Supabase
     No hace falta redesplegar el sitio.
 
 Guía completa: android/COMO-GENERAR-EL-APK.md

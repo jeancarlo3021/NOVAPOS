@@ -24,7 +24,7 @@ import { isNativeApp } from '@/services/pos/nativePlatform';
  * con 10 MB por cada versión.
  */
 const DEFAULT_APK_URL =
-  'https://hdmxpjscmkgfettmqcyl.supabase.co/storage/v1/object/public/apk/app-release.apk';
+  'https://hdmxpjscmkgfettmqcyl.supabase.co/storage/v1/object/public/app/app-release.apk';
 
 export const AndroidAppUrl = DEFAULT_APK_URL;
 
