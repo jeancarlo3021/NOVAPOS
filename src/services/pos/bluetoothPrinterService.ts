@@ -3,6 +3,11 @@
 // conexión, identificadas por un `id`. Funciona con impresoras térmicas ESC/POS
 // en Chrome/Edge sobre HTTPS. Modos: BLE (Web Bluetooth), Serial (COM) y USB.
 
+import {
+  nativeBtAvailable, nativeBtConnect, nativeBtReconnect, nativeBtPrint,
+  nativeBtIsConnected, nativeBtDeviceName, nativeBtDeviceId, nativeBtDisconnect,
+} from './nativeBluetoothPrinter';
+
 const PRINTER_SERVICE_UUIDS = [
   0x18f0,
   '000018f0-0000-1000-8000-00805f9b34fb',
@@ -30,12 +35,17 @@ const conns = new Map<string, Conn>();
 const SINGLE = '__single__';
 
 // ── Soporte del navegador ──────────────────────────────────────────────────────
-export const btIsSupported     = () => typeof navigator !== 'undefined' && !!(navigator as any).bluetooth;
+// Dentro del APK no hay Web Bluetooth: el WebView de Android no la implementa.
+// Ahí el trabajo lo hace el plugin nativo (nativeBluetoothPrinter), y estas
+// funciones lo enrutan para que el resto del POS no cambie.
+export const btIsSupported     = () =>
+  nativeBtAvailable() || (typeof navigator !== 'undefined' && !!(navigator as any).bluetooth);
 export const serialIsSupported = () => typeof navigator !== 'undefined' && !!(navigator as any).serial;
 export const usbIsSupported    = () => typeof navigator !== 'undefined' && !!(navigator as any).usb;
 
 // ── Estado por estación ─────────────────────────────────────────────────────────
 export function btIsConnectedFor(id: string): boolean {
+  if (nativeBtAvailable()) return nativeBtIsConnected(id);
   const c = conns.get(id);
   if (!c) return false;
   if (c.mode === 'serial') return !!c.serialPort;
@@ -43,12 +53,15 @@ export function btIsConnectedFor(id: string): boolean {
   return !!c.characteristic && !!c.device?.gatt?.connected;
 }
 export function btDeviceNameFor(id: string): string | null {
+  if (nativeBtAvailable()) return nativeBtDeviceName(id);
   return conns.get(id)?.name ?? null;
 }
 export function btDeviceIdFor(id: string): string | null {
+  if (nativeBtAvailable()) return nativeBtDeviceId(id);
   return conns.get(id)?.deviceId ?? null;
 }
 export function btDisconnectFor(id: string): void {
+  if (nativeBtAvailable()) { void nativeBtDisconnect(id); return; }
   const c = conns.get(id);
   if (!c) return;
   try { c.device?.gatt?.disconnect(); } catch { /* ignore */ }
@@ -59,7 +72,9 @@ export function btDisconnectFor(id: string): void {
 
 // ── Conexión por estación ───────────────────────────────────────────────────────
 async function connectBleFor(id: string): Promise<string> {
-  if (!btIsSupported()) throw new Error('Este navegador no soporta Bluetooth web (usá Chrome/Edge en HTTPS).');
+  if (!(navigator as any)?.bluetooth) {
+    throw new Error('Este navegador no soporta Bluetooth web (usá Chrome/Edge en HTTPS).');
+  }
   const device = await (navigator as any).bluetooth.requestDevice({
     acceptAllDevices: true, optionalServices: PRINTER_SERVICE_UUIDS,
   });
@@ -88,6 +103,8 @@ async function findWriteChar(server: any): Promise<any> {
 }
 
 export async function btReconnectFor(id: string, mode: BtMode, deviceId?: string): Promise<string> {
+  // En el APK solo existe BLE nativo: serie y USB son APIs de escritorio.
+  if (nativeBtAvailable()) return nativeBtReconnect(id, deviceId);
   if (mode === 'ble') {
     const bt = (navigator as any).bluetooth;
     if (!bt?.getDevices) throw new Error('Reconexión BLE no soportada por este navegador.');
@@ -165,6 +182,7 @@ async function connectUsbFor(id: string): Promise<string> {
 
 /** Conecta un dispositivo para una estación específica. */
 export async function btConnectFor(id: string, mode: BtMode): Promise<string> {
+  if (nativeBtAvailable()) return nativeBtConnect(id);
   if (mode === 'ble')    return connectBleFor(id);
   if (mode === 'serial') return connectSerialFor(id);
   return connectUsbFor(id);
@@ -172,6 +190,7 @@ export async function btConnectFor(id: string, mode: BtMode): Promise<string> {
 
 /** Envía bytes ESC/POS a la estación indicada. */
 export async function btPrintTo(id: string, bytes: Uint8Array): Promise<void> {
+  if (nativeBtAvailable()) return nativeBtPrint(id, bytes);
   const c = conns.get(id);
   if (!c) throw new Error('Esa impresora Bluetooth no está conectada. Conéctala primero.');
 

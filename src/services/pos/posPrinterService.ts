@@ -4,6 +4,7 @@ import {
   type PrinterEntry,
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
+import { isNativeApp, hasNativeBluetooth, nativePrintingMessage } from './nativePlatform';
 
 /**
  * ¿Este navegador puede hablar con impresoras Bluetooth?
@@ -17,6 +18,9 @@ import { formatComanda, type ComandaItem } from './comandaFormatter';
  * expone la API.
  */
 export function webBluetoothAvailable(): boolean {
+  // Dentro del APK, Web Bluetooth no existe: el WebView de Android no la
+  // implementa. Solo vale si está el plugin nativo.
+  if (isNativeApp()) return hasNativeBluetooth();
   return typeof navigator !== 'undefined'
     && !!(navigator as any).bluetooth
     && (window.isSecureContext !== false);
@@ -24,6 +28,7 @@ export function webBluetoothAvailable(): boolean {
 
 /** Explicación para el cajero cuando pide Bluetooth donde no se puede. */
 export function unsupportedBluetoothMessage(): string {
+  if (isNativeApp()) return nativePrintingMessage();
   const secure = typeof window === 'undefined' || window.isSecureContext !== false;
   if (!secure) {
     return 'El Bluetooth solo funciona en HTTPS. Abrí la app con https:// o usá impresión por el navegador.';
@@ -1519,6 +1524,11 @@ export class POSPrinterService {
   }
 
   private async printHTMLContent(html: string): Promise<void> {
+    // En el APK, `window.print()` existe pero NO HACE NADA: el WebView de Android
+    // no trae el diálogo de impresión. Sin este corte, la venta se cerraba, no
+    // salía ningún tiquete y nadie se enteraba hasta que el cliente lo pedía.
+    if (isNativeApp()) throw new Error(nativePrintingMessage());
+
     const iframe = document.createElement('iframe');
     iframe.style.cssText = 'position:fixed;top:0;left:-10000px;width:794px;height:1123px;border:0;'  // Tamaño REAL (A4 a 96dpi), no 1×1: el navegador maqueta el ticket contra
       // el viewport del iframe, y con 1px salía comprimido/cortado en la vista previa.;
@@ -1624,6 +1634,10 @@ export class POSPrinterService {
   async printBrowser(receiptData: ReceiptData, cfg?: ReceiptConfig): Promise<void> {
     const config = cfg ?? this.getDefaultConfig();
     const html = this.generateHTML(receiptData, config);
+
+    // Igual que en printHTMLContent: en el APK esto no imprime nada y hay que
+    // decirlo, no simular que salió.
+    if (isNativeApp()) throw new Error(nativePrintingMessage());
 
     const iframe = document.createElement('iframe');
     iframe.style.cssText = 'position:fixed;top:0;left:-10000px;width:794px;height:1123px;border:0;'  // Tamaño REAL (A4 a 96dpi), no 1×1: el navegador maqueta el ticket contra
