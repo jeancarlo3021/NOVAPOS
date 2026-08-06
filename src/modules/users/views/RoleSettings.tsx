@@ -281,6 +281,20 @@ export const RoleSettings: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3">
+              {/* Un rol sin nada guardado se abre con TODO encendido, porque así
+                  se comporta el sistema mientras no se configure. Sin decirlo, el
+                  dueño creía estar viendo permisos guardados y cerraba sin tocar
+                  Guardar — y nada quedaba escrito. */}
+              {!(matrices[editingRole] && Object.keys(matrices[editingRole]).length > 0) && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-3 py-2.5 text-xs">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>
+                    Este rol está <b>sin configurar</b>: se muestra todo activado porque hoy puede
+                    hacer todo lo que el plan permita. <b>Nada queda guardado hasta que toques
+                    Guardar.</b>
+                  </span>
+                </div>
+              )}
               {visibleModules.map(mod => {
                 const Icon = mod.icon;
                 const row = draft[mod.key] ?? { can_access: false, can_create: false, can_edit: false, can_delete: false };

@@ -94,8 +94,19 @@ export function useRolePermissions() {
    * marcado como «cajero» se quedaba sin el botón de Vender y no había forma de
    * devolvérselo salvo cambiarle el rol.
    */
-  const isExplicitlyGranted = (module: string): boolean =>
-    matrix[module]?.can_access === true;
+  const isExplicitlyGranted = (module: string): boolean => {
+    // Sin matriz guardada, el rol está SIN CONFIGURAR y todo el sistema lo trata
+    // como permitido (canAccess/canDo devuelven true, y la pantalla de Roles
+    // muestra todos los módulos encendidos). Esta regla tiene que decir lo mismo.
+    //
+    // Cuando no lo hacía, un cajero sin permisos configurados se quedaba sin el
+    // botón de Vender y NO había manera de devolvérselo: la pantalla de Roles ya
+    // le mostraba «Punto de venta» activado, así que el dueño no tenía nada que
+    // marcar. La separación cajero/agente sigue en pie para quien SÍ configura
+    // los roles: basta con destildar el módulo y guardar.
+    if (!hasMatrix) return true;
+    return matrix[module]?.can_access === true;
+  };
 
   return { matrix, loaded, isOwnerOrAdmin, canAccess, canDo, isExplicitlyGranted };
 }
