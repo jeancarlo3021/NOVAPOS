@@ -8,7 +8,7 @@ import {
   Bell,
   Printer,
   ChevronRight,
-  X,
+  ChevronLeft,
   MonitorSmartphone,
   FileText,
   ShieldCheck,
@@ -88,7 +88,16 @@ const SETTINGS_TABS = [
 
 export const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingTab>('general');
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  /**
+   * En teléfono, Configuración funciona como una lista: primero se ven TODAS las
+   * secciones (igual que el menú lateral) y al tocar una se entra a ella.
+   *
+   * Antes las secciones estaban escondidas detrás de una tuerca flotante en la
+   * esquina de arriba, que en el APK queda debajo de la barra de estado y no se
+   * podía tocar: el usuario entraba a Configuración y solo veía «General», sin
+   * forma de llegar al resto.
+   */
+  const [showMobileList, setShowMobileList] = useState(true);
 const { planFeatures, user } = useAuth();
 const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
 
@@ -182,51 +191,54 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
         </nav>
       </div>
 
-      {/* Mobile Menu Button */}
-      <div className="md:hidden fixed top-4 left-4 z-40">
-        <button
-          onClick={() => setShowMobileMenu(!showMobileMenu)}
-          className="p-2 bg-white rounded-lg border border-gray-200"
-        >
-          <Settings size={24} />
-        </button>
-      </div>
-
-      {/* Mobile Menu */}
-      {showMobileMenu && (
-        <div className="md:hidden fixed inset-0 bg-black/50 z-30">
-          <div className="bg-white w-64 h-full shadow-lg">
-            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <h1 className="text-xl font-black">Configuración</h1>
-              <button onClick={() => setShowMobileMenu(false)}>
-                <X size={24} />
-              </button>
-            </div>
-            <nav className="p-4 space-y-2">
-              {visibleTabs.map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id);
-                      setShowMobileMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-3 rounded-lg hover:bg-gray-50 flex items-center gap-3"
-                  >
-                    <Icon size={20} />
-                    <span className="font-semibold">{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-        </div>
-      )}
-
-      {/* Main Content */}
+      {/* Contenido — en escritorio siempre la sección; en teléfono, lista o sección */}
       <div className="flex-1 overflow-y-auto">
-        <div className="p-6 md:p-8 max-w-4xl">
+        {/* Teléfono: índice de secciones */}
+        <div className={`md:hidden ${showMobileList ? '' : 'hidden'}`}>
+          <div className="px-4 pt-5 pb-3 flex items-center gap-2">
+            <Settings size={24} className="text-blue-600" />
+            <h1 className="text-2xl font-black text-gray-900">Configuración</h1>
+          </div>
+          <nav className="px-4 pb-6 space-y-2">
+            {visibleTabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => { setActiveTab(tab.id); setShowMobileList(false); }}
+                  className="w-full text-left px-4 py-3 rounded-xl bg-white border border-gray-200 active:bg-gray-50 flex items-center gap-3"
+                >
+                  <Icon size={20} className="text-blue-600 shrink-0" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-bold text-sm text-gray-900">{tab.label}</span>
+                    <span className="block text-xs text-gray-500 truncate">{tab.description}</span>
+                  </span>
+                  <ChevronRight size={18} className="text-gray-300 shrink-0" />
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Teléfono: sección abierta, con vuelta al índice */}
+        <div className={`md:hidden ${showMobileList ? 'hidden' : ''}`}>
+          <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-3 py-3 flex items-center gap-2">
+            <button
+              onClick={() => setShowMobileList(true)}
+              className="p-2 -ml-1 rounded-lg text-gray-600 active:bg-gray-100"
+              aria-label="Volver a Configuración"
+            >
+              <ChevronLeft size={22} />
+            </button>
+            <span className="font-black text-gray-900 truncate">
+              {visibleTabs.find(t => t.id === activeTab)?.label ?? 'Configuración'}
+            </span>
+          </div>
+          <div className="p-4">{renderContent()}</div>
+        </div>
+
+        {/* Escritorio */}
+        <div className="hidden md:block p-6 md:p-8 max-w-4xl">
           {renderContent()}
         </div>
       </div>

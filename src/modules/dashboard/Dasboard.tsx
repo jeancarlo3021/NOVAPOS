@@ -203,7 +203,7 @@ export const Dashboard = () => {
   })();
   const showSubBanner = subDaysLeft !== null && subDaysLeft <= 15;
 
-  const { canAccess } = useRolePermissions();
+  const { canAccess, isExplicitlyGranted } = useRolePermissions();
   // Solo mostrar tiles habilitados por plan Y por el rol del user.
   // Settings/Configuración pasa por plan + rol (si el owner lo cerró, gerente no la ve).
   // Admin/owner: siempre ve la Recepción de facturas (por correo).
@@ -211,7 +211,11 @@ export const Dashboard = () => {
   const tiles = ALL_TILES.filter(t => {
     // Separación de funciones: el cajero cobra pero no arma ventas; el agente
     // arma pedidos pero no ve la caja. No es un "permiso", es el flujo.
-    if (t.hideForRoles?.includes(user?.role as any) && !isAdmin) return false;
+    // El rol oculta por defecto, pero un permiso concedido a mano lo destraba:
+    // si no, un empleado marcado como «cajero» se quedaba sin el botón de Vender
+    // y solo se podía arreglar cambiándole el rol.
+    if (t.hideForRoles?.includes(user?.role as any) && !isAdmin
+        && !isExplicitlyGranted(t.feature as string)) return false;
     // Recepción de comprobantes: ahora es POR CORREO (no depende de Alanube).
     // El admin/owner siempre la ve; para el resto, requiere el plan + rol.
     if (t.path === '/fe-recepcion') {

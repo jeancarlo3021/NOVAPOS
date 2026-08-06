@@ -164,7 +164,7 @@ function loadOpenGroups(): Record<string, boolean> {
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, setIsCompact }) => {
   const { user, logout, planFeatures } = useAuth();
   const { assisted } = useAssistedMode();
-  const { canAccess } = useRolePermissions();
+  const { canAccess, isExplicitlyGranted } = useRolePermissions();
   const [showMore, setShowMore] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(loadOpenGroups);
   const location = useLocation();
@@ -189,8 +189,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
       const planHas = (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
       if (!planHas) return false;
     }
-    // 2. Separación de funciones por rol (independiente de la matriz de permisos).
-    if (item.hideForRoles?.includes(user?.role as UserRole)) return false;
+    // 2. Separación de funciones por rol. Es un valor por defecto: si el dueño
+    //    le concedió el módulo a ese rol en Usuarios → Roles, eso manda.
+    if (item.hideForRoles?.includes(user?.role as UserRole)
+        && !(item.module && isExplicitlyGranted(item.module))) return false;
     // 3. El rol del usuario debe tener acceso al módulo (si está declarado)
     if (module) return canAccess(module);
     return true;

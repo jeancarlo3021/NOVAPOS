@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, UserPlus, RefreshCw, Check, Users2, Save } from 'lucide-react';
+import { X, UserPlus, RefreshCw, Check, Users2, Save, Shield } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { usernameToEmail, emailToUsername } from '@/services/users/usersService';
 import { USER_ROLES, ROLE_META } from '@/types/Types_Users';
 import type { UserRole } from '@/types/Types_Users';
+import { TenantRolePermissionsModal } from './TenantRolePermissionsModal';
 
 interface TenantUser {
   id: string;
@@ -28,6 +29,8 @@ const ROLES = (Object.keys(USER_ROLES) as UserRole[]).filter(r => r !== 'owner')
 
 export const TenantUsersModal: React.FC<Props> = ({ owner, onClose, onToast }) => {
   const [users, setUsers] = useState<TenantUser[]>([]);
+  /** Editor de permisos por rol de ESTA empresa (sin salir del panel). */
+  const [showRoles, setShowRoles] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -101,6 +104,21 @@ export const TenantUsersModal: React.FC<Props> = ({ owner, onClose, onToast }) =
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* El rol define QUÉ puede hacer cada usuario; crear la cuenta sin
+              revisar eso deja al empleado con lo que el plan permita. */}
+          <button
+            onClick={() => setShowRoles(true)}
+            className="w-full flex items-center gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 px-4 py-3 text-left transition"
+          >
+            <Shield size={18} className="text-amber-600 shrink-0" />
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-black text-amber-900">Roles y permisos</span>
+              <span className="block text-xs text-amber-800/80">
+                Qué puede ver y modificar cada rol en esta empresa
+              </span>
+            </span>
+          </button>
+
           {/* Alta */}
           <form onSubmit={handleCreate} className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
             <p className="text-xs font-black text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
@@ -143,6 +161,14 @@ export const TenantUsersModal: React.FC<Props> = ({ owner, onClose, onToast }) =
           </div>
         </div>
       </div>
+
+      {showRoles && (
+        <TenantRolePermissionsModal
+          owner={owner}
+          onClose={() => setShowRoles(false)}
+          onToast={onToast}
+        />
+      )}
     </div>
   );
 };

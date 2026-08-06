@@ -58,16 +58,46 @@ export function useRolePermissions() {
     return matrix[module]?.can_access === true;
   };
 
+  /**
+   * Permiso para ESCRIBIR (crear / editar / borrar).
+   *
+   * A diferencia de `canAccess`, acá un módulo que no está en la matriz se
+   * NIEGA: si el dueño se tomó el trabajo de configurar permisos, lo que no
+   * concedió no está concedido. Con la regla anterior —"módulo no configurado →
+   * permitido"— a un empleado con permisos configurados para otras áreas le
+   * quedaba abierto todo lo que no aparecía en la lista, y así terminó pudiendo
+   * modificar el inventario.
+   *
+   * Si el negocio NO configuró ninguna matriz se sigue permitiendo: ahí nadie
+   * decidió nada todavía y bloquear de golpe dejaría a los empleados sin trabajar.
+   *
+   * Esto es la mitad de la historia: la otra mitad la aplica el servidor
+   * (middleware `requirePermission`). Esconder el botón evita el error honesto;
+   * el servidor evita el resto.
+   */
   const canDo = (module: string, action: 'create' | 'edit' | 'delete'): boolean => {
     if (isOwnerOrAdmin) return true;
     if (!hasMatrix) return true;
-    if (!(module in matrix)) return true;  // módulo no configurado → permitido
     const row = matrix[module];
-    if (!row?.can_access) return false;
+    if (!row) return false;               // configurado pero no concedido
+    if (!row.can_access) return false;
     return row[`can_${action}` as 'can_create' | 'can_edit' | 'can_delete'] === true;
   };
 
-  return { matrix, loaded, isOwnerOrAdmin, canAccess, canDo };
+  /**
+   * ¿El dueño le concedió este módulo a este rol EXPLÍCITAMENTE?
+   *
+   * Sirve para las separaciones de funciones que están escritas en el código
+   * (por ejemplo: el cajero no ve el POS de venta, el agente no ve la caja).
+   * Son un valor por defecto razonable, no una ley: si el dueño entra a Usuarios
+   * → Roles y le da acceso al módulo, eso manda. Sin esta salida, un empleado
+   * marcado como «cajero» se quedaba sin el botón de Vender y no había forma de
+   * devolvérselo salvo cambiarle el rol.
+   */
+  const isExplicitlyGranted = (module: string): boolean =>
+    matrix[module]?.can_access === true;
+
+  return { matrix, loaded, isOwnerOrAdmin, canAccess, canDo, isExplicitlyGranted };
 }
 
 // Invalidador externo — para llamar tras guardar permisos y forzar refetch.

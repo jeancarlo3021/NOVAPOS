@@ -11,12 +11,6 @@ import { identifySentryUser, clearSentryUser } from '@/lib/sentry';
 // AUTH CACHE (localStorage) — offline support
 // ============================================
 
-import {
-  saveOfflineCredential, saveOfflineSnapshot, readOfflineSnapshot, verifyOfflineCredential,
-  setOfflineSessionActive, isOfflineSessionActive,
-  holdCredentialForReauth, takeCredentialForReauth,
-} from '@/services/auth/offlineLoginService';
-
 const AUTH_CACHE_KEY = 'novapos_auth_cache';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -57,10 +51,6 @@ function writeAuthCache(data: Omit<AuthCache, 'cachedAt'>) {
   try {
     localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ...data, cachedAt: Date.now() }));
   } catch {}
-  // Copia para el LOGIN OFFLINE: a diferencia del auth-cache, esta sobrevive al
-  // logout y a la limpieza por expiración de sesión, y solo se usa si el usuario
-  // vuelve a autenticarse (contra el verificador local) sin internet.
-  saveOfflineSnapshot(data);
 }
 
 function clearAuthCache() {
@@ -841,25 +831,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!mounted) return;
 
       if (!session) {
-        // Sesión OFFLINE activa: no hay token de Supabase (nunca lo hubo), pero el
-        // usuario se autenticó contra el verificador local. Sin este rescate, al
-        // recargar la página se perdía la sesión y volvía al login — que es
-        // justamente lo que hacía inservible el login sin internet.
-        const snap = isOfflineSessionActive() ? readOfflineSnapshot<any>() : null;
-        if (snap?.user) {
-          currentUserIdRef.current = snap.userId;
-          setUser(snap.user);
-          setTenant(snap.tenant);
-          setTenants(snap.tenants);
-          setPlanFeatures(snap.planFeatures);
-          setPlanName(snap.planName);
-          if (snap.tenant) {
-            try { localStorage.setItem('novapos_current_tenant_id', snap.tenant.id); } catch { /* ignore */ }
-          }
-          setLoading(false);
-          console.info('[auth] Sesión OFFLINE recuperada tras recargar.');
-          return;
-        }
         // No valid session — clear any stale cache and state
         if (cache) {
           clearAuthCache();
@@ -1016,7 +987,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         new Promise<{ kind: 'timeout' }>(res => setTimeout(() => res({ kind: 'timeout' }), TIMEOUT_MS)),
       ]);
       if (timed.kind === 'timeout') {
-        if (await tryOfflineLogin(email, password)) return;
         setError('El servidor no responde. Revisá la conexión e intentá de nuevo.');
         setLoading(false);
         throw new Error('Tiempo de espera agotado al iniciar sesión');
@@ -1027,108 +997,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Sin internet (o Supabase inalcanzable): intentar el LOGIN OFFLINE con el
         // verificador local. Solo aplica a errores de RED — una contraseña mala
         // online sigue fallando igual.
-        if (isNetworkError(signInError) && await tryOfflineLogin(email, password)) return;
         setError(signInError.message);
         setLoading(false);
         throw signInError;
       }
-      // Renovar el verificador del login offline (hash local, nunca la contraseña).
-      // Fire-and-forget: no bloquea el login.
-      const uid = (await supabase.auth.getSession()).data.session?.user?.id;
-      if (uid) void saveOfflineCredential(email, password, uid);
-      // Login ONLINE exitoso: ya hay token real, la sesión deja de ser offline.
-      setOfflineSessionActive(false);
       // onAuthStateChange fires SIGNED_IN and calls handleSession.
       // Navigation happens in Login.tsx via useEffect watching user+loading.
     } catch (err) {
-      if (isNetworkError(err) && await tryOfflineLogin(email, password)) return;
       setLoading(false);
       throw err;
     }
   };
 
-  /** Restaura la sesión desde el snapshot local si la contraseña coincide con el
-   *  verificador guardado. Devuelve true si el login offline quedó activo. */
-  const tryOfflineLogin = async (email: string, password: string): Promise<boolean> => {
-    try {
-      const userId = await verifyOfflineCredential(email, password);
-      if (!userId) return false;
-      // Snapshot DE ESE usuario: en un POS pasan varios por la misma máquina y
-      // cada uno tiene el suyo.
-      const snap = readOfflineSnapshot<{
-        userId: string; user: AuthUser; tenant: Tenant | null; tenants: Tenant[];
-        planFeatures: PlanFeatures; planName: string;
-      }>(userId);
-      if (!snap || snap.userId !== userId) return false;
-
-      setUser(snap.user);
-      setTenant(snap.tenant);
-      setTenants(snap.tenants);
-      setPlanFeatures(snap.planFeatures);
-      setPlanName(snap.planName);
-      if (snap.tenant) {
-        try { localStorage.setItem('novapos_current_tenant_id', snap.tenant.id); } catch { /* ignore */ }
-      }
-      // Sin esto, un SIGNED_OUT de Supabase (que no tiene sesión real) entraba al
-      // handler y borraba todo el estado recién restaurado.
-      currentUserIdRef.current = userId;
-      setOfflineSessionActive(true);
-      // Solo en memoria: sirve para conseguir el token real en cuanto vuelva el
-      // internet, sin interrumpir al cajero. Ver reauthOnReconnect.
-      holdCredentialForReauth(email, password);
-      setError(null);
-      setLoading(false);
-      console.info('[auth] Sesión OFFLINE restaurada — se trabaja con datos pre-cacheados y cola offline.');
-      return true;
-    } catch { return false; }
-  };
-
-  /** true cuando la sesión es offline, volvió el internet y NO tenemos la
-   *  contraseña en memoria (la app se recargó): hay que pedirla una vez. */
-  const [needsReauth, setNeedsReauth] = useState(false);
-
-  /** Convierte la sesión OFFLINE en una sesión real. Si no se pasa contraseña usa
-   *  la que quedó en memoria. Devuelve true si quedó autenticado de verdad. */
-  const reauthenticate = useCallback(async (password?: string): Promise<boolean> => {
-    if (!isOfflineSessionActive()) return true;   // ya es una sesión real
-    const held = takeCredentialForReauth();
-    const email = held?.email ?? user?.email;
-    const pass = password ?? held?.password;
-    if (!email || !pass) { setNeedsReauth(true); return false; }
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-      if (error) {
-        // Contraseña cambiada en el servidor mientras estaba offline.
-        if (!isNetworkError(error)) setNeedsReauth(true);
-        return false;
-      }
-      setOfflineSessionActive(false);
-      setNeedsReauth(false);
-      const uid = (await supabase.auth.getSession()).data.session?.user?.id;
-      if (uid) void saveOfflineCredential(email, pass, uid);
-      console.info('[auth] Sesión offline convertida en sesión real.');
-      return true;
-    } catch { return false; }
-  }, [user]);
-
-  // Al volver la conexión, conseguir el token real automáticamente. Sin esto, el
-  // backend responde 401 a todo y el cajero queda a mitad de jornada sin poder
-  // hacer nada hasta volver a loguearse a mano.
-  useEffect(() => {
-    if (!user || !isOfflineSessionActive()) return;
-    let alive = true;
-    const tick = async () => {
-      if (!alive || !isOfflineSessionActive()) return;
-      const { backendReachable } = await import('@/services/connectivity/connectivityService');
-      if (await backendReachable().catch(() => false)) {
-        const ok = await reauthenticate();
-        if (!ok && alive) setNeedsReauth(!takeCredentialForReauth());
-      }
-    };
-    void tick();
-    const iv = setInterval(tick, 30_000);
-    return () => { alive = false; clearInterval(iv); };
-  }, [user, reauthenticate]);
+  /**
+   * Reautenticación: quedó como API vacía.
+   *
+   * Existía para convertir una sesión OFFLINE en una real cuando volvía el
+   * internet. Sin login offline no hay nada que convertir: o hay token de
+   * Supabase, o el usuario está en la pantalla de login. Se conserva la forma
+   * para no romper a quien la consume.
+   */
+  const [needsReauth] = useState(false);
+  const reauthenticate = useCallback(async (_password?: string): Promise<boolean> => true, []);
 
   // ============================================
   // LOGOUT
@@ -1142,8 +1032,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Limpiamos cualquier rastro del modo solo-lectura antes de salir, así
       // el próximo usuario que entre desde este navegador no hereda el bloqueo.
       try { localStorage.removeItem('novapos_read_only'); } catch { /* ignore */ }
-      // Salir de verdad también apaga la sesión offline (si no, al recargar volvía a entrar).
-      setOfflineSessionActive(false);
       // Limpiamos el timestamp del login para el timeout de sesión por edad.
       try { localStorage.removeItem(SESSION_LOGIN_TS_KEY); } catch { /* ignore */ }
 
