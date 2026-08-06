@@ -592,6 +592,10 @@ export class POSPrinterService {
     system_cash?: number;
     system_card?: number;
     system_sinpe?: number;
+    /** Ventas a crédito (quedan por cobrar). */
+    system_credit?: number;
+    /** Transferencia bancaria, distinta de SINPE. */
+    system_transfer?: number;
     system_other?: number;
     // Montos contados por el cajero
     cash_total: number;
@@ -599,6 +603,8 @@ export class POSPrinterService {
     sinpe_total: number;
     closing_amount: number;
     expected_amount: number;     // efectivo esperado = fondo + ventas efvo + entradas - salidas
+    /** Ventas a CRÉDITO y otros métodos: no dejan dinero contable en la caja. */
+    non_countable_sales?: number;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
     invoices_count: number;
     invoices_total: number;
@@ -652,7 +658,12 @@ export class POSPrinterService {
         { t: 'row', a: 'Efectivo', b: money(report.system_cash ?? 0) },
         { t: 'row', a: 'Tarjeta', b: money(report.system_card ?? 0) },
         { t: 'row', a: 'SINPE', b: money(report.system_sinpe ?? 0) },
-        { t: 'row', a: 'Otros', b: money(report.system_other ?? 0) },
+        ...(Number(report.system_transfer ?? 0) > 0
+          ? [{ t: 'row' as const, a: 'Transferencia', b: money(report.system_transfer ?? 0) }] : []),
+        ...(Number(report.system_credit ?? 0) > 0
+          ? [{ t: 'row' as const, a: 'Crédito', b: money(report.system_credit ?? 0) }] : []),
+        ...(Number(report.system_other ?? 0) > 0
+          ? [{ t: 'row' as const, a: 'Otros', b: money(report.system_other ?? 0) }] : []),
         { t: 'row', a: 'Facturas', b: `${report.invoices_count} · ${money(report.invoices_total)}` },
         ...(((report.voids_count ?? 0) > 0) ? [
           { t: 'row' as const, a: 'Anulaciones', b: `${report.voids_count} · ${money(report.voids_total ?? 0)}` },
@@ -985,8 +996,10 @@ export class POSPrinterService {
     const sCash = Number(report.system_cash ?? 0);
     const sCard = Number(report.system_card ?? 0);
     const sSinpe = Number(report.system_sinpe ?? 0);
+    const sCredit = Number(report.system_credit ?? 0);
+    const sTransfer = Number(report.system_transfer ?? 0);
     const sOther = Number(report.system_other ?? 0);
-    const systemTotal = sCash + sCard + sSinpe + sOther;
+    const systemTotal = sCash + sCard + sSinpe + sCredit + sTransfer + sOther;
 
     // Init (igual que el ticket de venta)
     push(0x1B, 0x40);               // ESC @ reset
@@ -1008,6 +1021,10 @@ export class POSPrinterService {
     row('Efectivo:', fmt(sCash));
     row('Datafono:', fmt(sCard));
     row('SINPE:', fmt(sSinpe));
+    // Cada método con su nombre: «Otros» no dejaba saber si era crédito por
+    // cobrar o una transferencia ya recibida, que se resuelven muy distinto.
+    if (sTransfer > 0) row('Transferencia:', fmt(sTransfer));
+    if (sCredit > 0) row('Credito:', fmt(sCredit));
     if (sOther > 0) row('Otros:', fmt(sOther));
     sep();
     row('Total ventas:', fmt(systemTotal));
@@ -1037,10 +1054,22 @@ export class POSPrinterService {
       sep();
     }
 
-    // Arqueo (sobre el total: fondo + ventas del día)
+    // Arqueo: SOLO lo que deja dinero contable en la caja.
+    //
+    // El crédito (y cualquier otro método que no sea efectivo/tarjeta/SINPE)
+    // queda como cuenta por cobrar. Antes se sumaba al esperado y el tiquete
+    // marcaba un FALTANTE idéntico al crédito del día, aunque todo cuadrara.
+    const nonCountable = Number(report.non_countable_sales ?? 0);
+    const countableSales = systemTotal - nonCountable;
     centerText('ARQUEO');
     row('Fondo de caja:', fmt(report.opening_amount));
-    row('+ Total ventas:', fmt(systemTotal));
+    row('+ Ventas arqueables:', fmt(countableSales));
+    if (nonCountable > 0) {
+      row('No arquea:', `-${fmt(nonCountable)}`);
+      if (sCredit > 0) row('  Credito:', fmt(sCredit));
+      if (sTransfer > 0) row('  Transferencia:', fmt(sTransfer));
+      if (sOther > 0) row('  Otros:', fmt(sOther));
+    }
     if (report.cash_movements?.some((m: any) => m.type === 'in')) row('+ Entradas:', fmt(movs.filter(m => m.type === 'in').reduce((s, m) => s + m.amount, 0)));
     if (report.cash_movements?.some((m: any) => m.type === 'out')) row('- Salidas:', fmt(movs.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0)));
     row('ESPERADO:', fmt(report.expected_amount));
@@ -1087,10 +1116,21 @@ export class POSPrinterService {
     push(0x1B, 0x21, 0x00);         // modo normal
     sep();
 
+    // Firmas: el cierre es un documento que se archiva, así que necesita quién
+    // lo contó y quién lo recibió, con nombre en letra de molde bajo la raya —
+    // una firma sola no dice de quién es cuando se revisa meses después.
     nl();
-    centerText('FIRMA');
-    nl(); nl();
-    centerText('____________________');
+    centerText('FIRMAS');
+    nl();
+    text('____________________________'); nl();
+    text('Cajero'); nl();
+    text(`${(report.cashier_name ?? '').substring(0, charWidth)}`); nl();
+    nl();
+    text('____________________________'); nl();
+    text('Recibido por'); nl();
+    text('Nombre:'); nl();
+    nl();
+    centerText(`Fecha: ${new Date(report.closed_at).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' })}`);
     nl();
 
     // Feed + corte (SIN cajón — el cierre no abre caja)
@@ -1169,8 +1209,10 @@ export class POSPrinterService {
     <tr><td>Efectivo:</td><td style="text-align:right">${fmt(report.system_cash ?? 0)}</td></tr>
     <tr><td>Datáfono:</td><td style="text-align:right">${fmt(report.system_card ?? 0)}</td></tr>
     <tr><td>SINPE:</td><td style="text-align:right">${fmt(report.system_sinpe ?? 0)}</td></tr>
+    ${(report.system_transfer ?? 0) > 0 ? `<tr><td>Transferencia:</td><td style="text-align:right">${fmt(report.system_transfer)}</td></tr>` : ''}
+    ${(report.system_credit ?? 0) > 0 ? `<tr><td>Crédito:</td><td style="text-align:right">${fmt(report.system_credit)}</td></tr>` : ''}
     ${(report.system_other ?? 0) > 0 ? `<tr><td>Otros:</td><td style="text-align:right">${fmt(report.system_other)}</td></tr>` : ''}
-    <tr><td><strong>Total ventas:</strong></td><td style="text-align:right"><strong>${fmt((report.system_cash ?? 0) + (report.system_card ?? 0) + (report.system_sinpe ?? 0) + (report.system_other ?? 0))}</strong></td></tr>
+    <tr><td><strong>Total ventas:</strong></td><td style="text-align:right"><strong>${fmt((report.system_cash ?? 0) + (report.system_card ?? 0) + (report.system_sinpe ?? 0) + (report.system_credit ?? 0) + (report.system_transfer ?? 0) + (report.system_other ?? 0))}</strong></td></tr>
     <tr><td>Facturas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
     ${(report.voids_count ?? 0) > 0 ? `<tr><td>Anulaciones:</td><td style="text-align:right">${report.voids_count} · ${fmt(report.voids_total ?? 0)}</td></tr>` : ''}
   </table>
@@ -1217,9 +1259,21 @@ export class POSPrinterService {
     ${diffLabel}<br>${fmt(Math.abs(report.difference))}
   </div>
 
-  <div class="section">FIRMA</div>
-  <div style="text-align:center;margin-top:14px;font-size:16px;font-weight:900;letter-spacing:3px;">
-    _______________________
+  <div class="section">FIRMAS</div>
+  <div style="margin-top:14px;font-size:11px;">
+    <div style="margin-bottom:16px;">
+      <div style="border-bottom:1px solid #000;height:26px;"></div>
+      <div style="font-weight:700;">Cajero</div>
+      <div>${report.cashier_name ?? ''}</div>
+    </div>
+    <div>
+      <div style="border-bottom:1px solid #000;height:26px;"></div>
+      <div style="font-weight:700;">Recibido por</div>
+      <div>Nombre:</div>
+    </div>
+    <div style="text-align:center;margin-top:12px;color:#555;">
+      Fecha: ${fmtDateTime(report.closed_at)}
+    </div>
   </div>
 
   <div class="feed">&nbsp;</div>

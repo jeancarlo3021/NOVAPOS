@@ -65,7 +65,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   // ── Ventas del sistema (lo que el POS registró en esta sesión) ──
   interface SysMovement { type: 'in' | 'out'; amount: number; reason: string }
   interface SysTotals {
-    cash: number; card: number; sinpe: number; other: number;
+    cash: number; card: number; sinpe: number;
+    /** Ventas a crédito: quedan por cobrar, no entran a la caja. */
+    credit: number;
+    /** Transferencia bancaria (distinta de SINPE): tampoco entra a la caja. */
+    transfer: number;
+    /** Cualquier método que no encaje arriba. Debería quedar en 0. */
+    other: number;
     invoicesCount: number; invoicesTotal: number;
     voidsCount: number; voidsTotal: number;
     deliveryCount: number; deliveryTotal: number; deliveryNet: number;
@@ -76,7 +82,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     loaded: boolean;
   }
   const [sys, setSys] = useState<SysTotals>({
-    cash: 0, card: 0, sinpe: 0, other: 0, invoicesCount: 0, invoicesTotal: 0,
+    cash: 0, card: 0, sinpe: 0, credit: 0, transfer: 0, other: 0,
+    invoicesCount: 0, invoicesTotal: 0,
     voidsCount: 0, voidsTotal: 0, deliveryCount: 0, deliveryTotal: 0, deliveryNet: 0,
     excludedCount: 0, excludedTotal: 0,
     cashIn: 0, cashOut: 0, movements: [], usdReceived: 0, usdChangeOut: 0, loaded: false,
@@ -108,7 +115,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         const voidedInv = allInv.filter((i: any) => i.status === 'cancelled');
         const voidsCount = voidedInv.length;
         const voidsTotal = voidedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
-        let sCash = 0, sCard = 0, sSinpe = 0, sOther = 0;
+        let sCash = 0, sCard = 0, sSinpe = 0, sCredit = 0, sTransfer = 0, sOther = 0;
         let usdReceived = 0, usdChangeOut = 0, usdCrcChangeOut = 0;
         for (const inv of invoices) {
           // Venta pagada en DÓLARES efectivo: no entran colones por la venta.
@@ -123,21 +130,26 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             continue;
           }
           const pays = Array.isArray(inv.payments) ? inv.payments : null;
-          if (pays && pays.length) {
-            for (const p of pays) {
-              const a = Number(p.amount || 0);
-              if (p.method === 'cash') sCash += a;
-              else if (p.method === 'card') sCard += a;
-              else if (p.method === 'sinpe') sSinpe += a;
-              else sOther += a;
+          // Cada método a su propia bolsa. Antes todo lo que no fuera efectivo,
+          // tarjeta o SINPE caía en «Otros», así que el cierre no decía si eran
+          // ventas a crédito o transferencias — dos cosas muy distintas a la hora
+          // de cuadrar y de cobrar después.
+          const addByMethod = (method: string, a: number) => {
+            switch (method) {
+              case 'cash':     sCash += a; break;
+              case 'card':     sCard += a; break;
+              case 'sinpe':    sSinpe += a; break;
+              case 'credit':   sCredit += a; break;
+              case 'transfer':
+              case 'transferencia':
+              case 'bank_transfer': sTransfer += a; break;
+              default:         sOther += a;
             }
+          };
+          if (pays && pays.length) {
+            for (const p of pays) addByMethod(String(p.method ?? ''), Number(p.amount || 0));
           } else {
-            const a = Number(inv.total || 0);
-            const m = inv.payment_method;
-            if (m === 'cash') sCash += a;
-            else if (m === 'card') sCard += a;
-            else if (m === 'sinpe') sSinpe += a;
-            else sOther += a;
+            addByMethod(String(inv.payment_method ?? ''), Number(inv.total || 0));
           }
         }
         // Movimientos manuales de efectivo: entradas = 'income', salidas = 'expense'.
@@ -154,7 +166,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         // El vuelto en ₡ de ventas pagadas en $ también es efectivo que SALE de la caja.
         const cashOut = movements.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0) + usdCrcChangeOut;
         setSys({
-          cash: sCash, card: sCard, sinpe: sSinpe, other: sOther,
+          cash: sCash, card: sCard, sinpe: sSinpe,
+          credit: sCredit, transfer: sTransfer, other: sOther,
           invoicesCount: invoices.length,
           invoicesTotal: invoices.reduce((s: number, i: any) => s + Number(i.total || 0), 0),
           voidsCount, voidsTotal,
@@ -181,9 +194,24 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   const grandTotal = cashTotal + cardTotal + sinpeTotal;
 
   // Total de ventas del día registradas por el sistema (todos los métodos).
-  const systemSalesTotal = sys.cash + sys.card + sys.sinpe + sys.other;
-  // Esperado = fondo de caja + total de ventas del día (efectivo + tarjeta + SINPE).
-  const expectedTotal = openingAmount + systemSalesTotal + sys.cashIn - sys.cashOut;
+  // Es informativo: el arqueo NO se hace contra este número (ver `arqueableSales`).
+  const systemSalesTotal = sys.cash + sys.card + sys.sinpe + sys.credit + sys.transfer + sys.other;
+  void systemSalesTotal;
+
+  /**
+   * Lo ARQUEABLE: solo lo que deja dinero que el cajero pueda contar.
+   *
+   * El crédito y las transferencias no dejan dinero en la gaveta: el crédito
+   * queda como cuenta por cobrar y la transferencia entra al banco. Sumarlos
+   * al esperado inventaba un faltante exactamente igual al crédito del día —el
+   * cajero cuadraba peso por peso y el tiquete igual le marcaba FALTANTE, sin
+   * ninguna forma de encontrar el error, porque no había ningún error.
+   */
+  const arqueableSales = sys.cash + sys.card + sys.sinpe;
+  /** Lo que se vendió pero NO entra a la caja: crédito, transferencia y demás. */
+  const noArqueable = sys.credit + sys.transfer + sys.other;
+  // Esperado = fondo de caja + ventas arqueables + movimientos manuales de efectivo.
+  const expectedTotal = openingAmount + arqueableSales + sys.cashIn - sys.cashOut;
   // Faltante/sobrante sobre el TOTAL (lo contado en todos los métodos vs lo esperado).
   const difference = grandTotal - expectedTotal;
 
@@ -215,7 +243,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     try {
       const breakdown = JSON.stringify({
         counted: { cash: cashTotal, card: cardTotal, sinpe: sinpeTotal },
-        system: { cash: sys.cash, card: sys.card, sinpe: sys.sinpe, other: sys.other },
+        system: {
+          cash: sys.cash, card: sys.card, sinpe: sys.sinpe,
+          credit: sys.credit, transfer: sys.transfer, other: sys.other,
+        },
         expectedTotal, difference, sinpeEntries,
       });
       const closingUsd = parseFloat(usd) || 0;
@@ -281,6 +312,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             system_cash: sys.cash,
             system_card: sys.card,
             system_sinpe: sys.sinpe,
+            system_credit: sys.credit,
+            system_transfer: sys.transfer,
             system_other: sys.other,
             // Lo que el cajero contó por método
             cash_total: cashTotal,
@@ -289,6 +322,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             closing_amount: grandTotal,
             // Efectivo: esperado vs contado → faltante/sobrante
             expected_amount: expectedTotal,
+            // Ventas que NO se arquean (crédito y otros métodos). Van al tiquete
+            // para que quede claro por qué el esperado es menor que el total.
+            non_countable_sales: noArqueable,
             difference,
             invoices_count: sys.invoicesCount,
             invoices_total: sys.invoicesTotal,
