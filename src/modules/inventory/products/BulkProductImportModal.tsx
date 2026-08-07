@@ -30,6 +30,8 @@ interface ParsedRow {
   category?: string;     // nombre, se resuelve a id
   unit_type?: string;    // nombre o abreviación, se resuelve a id
   _error?: string;
+  /** Aviso no bloqueante: se importa igual, pero conviene revisarlo. */
+  _warn?: string;
 }
 
 /**
@@ -236,6 +238,38 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
           cabys_code:       (r[idx('cabys_code')] ?? '').trim() || undefined,
           iva_rate:         num(r[idx('iva_rate')]) ?? 13,
         };
+
+        // ── Rescate de columnas corridas ──────────────────────────────────
+        // Un CSV mal armado corre los valores una columna y el CABYS termina en
+        // el IVA. Se detecta sin ambigüedad porque son datos incompatibles: el
+        // IVA en Costa Rica es 0–13 y jamás tiene 10 dígitos; un CABYS SIEMPRE
+        // los tiene. Ante esa combinación se devuelve cada valor a su lugar en
+        // vez de guardar un CABYS en 0 y un IVA absurdo.
+        const ivaRaw = (r[idx('iva_rate')] ?? '').toString().replace(/\D/g, '');
+        const cabysRaw = String(row.cabys_code ?? '').replace(/\D/g, '');
+        if (ivaRaw.length >= 10 && (cabysRaw === '' || cabysRaw === '0')) {
+          row.cabys_code = ivaRaw;
+          // El IVA real suele haber quedado en la columna anterior (la del CABYS).
+          const prevIdx = idx('cabys_code');
+          const prev = prevIdx >= 0 ? num(r[prevIdx]) : undefined;
+          row.iva_rate = prev !== undefined && prev >= 0 && prev <= 100 ? prev : 13;
+          row._warn = `Columnas corridas: el CABYS estaba en la columna de IVA. Se corrigió (IVA ${row.iva_rate}%).`;
+        }
+        // Un IVA imposible NO se guarda en silencio.
+        if (row.iva_rate !== undefined && (row.iva_rate < 0 || row.iva_rate > 100)) {
+          row._error = `Fila ${i + 2}: IVA inválido (${row.iva_rate}). Revisá que las columnas calcen.`;
+        }
+        // CABYS: se conserva TAL CUAL (con ceros a la izquierda). Solo se avisa
+        // si no tiene los 13 dígitos que pide Hacienda.
+        if (row.cabys_code) {
+          const d = String(row.cabys_code).replace(/\D/g, '');
+          row.cabys_code = d || undefined;
+          if (d && d.length !== 13) {
+            row._warn = (row._warn ? row._warn + ' ' : '')
+              + `CABYS de ${d.length} dígitos (Hacienda pide 13).`;
+          }
+        }
+
         // Validaciones — se permite precio 0 o vacío (queda en 0).
         if (!row.name)                  row._error = `Fila ${i + 2}: nombre vacío`;
         else if (price !== undefined && price < 0) row._error = `Fila ${i + 2}: precio inválido`;
@@ -444,6 +478,11 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                   {errorRows.length > 0 && (
                     <span className="text-red-600 font-bold ml-2">· {errorRows.length} con errores</span>
                   )}
+                  {rows.filter(r => r._warn && !r._error).length > 0 && (
+                    <span className="text-amber-700 font-bold ml-2">
+                      · {rows.filter(r => r._warn && !r._error).length} corregidos
+                    </span>
+                  )}
                 </div>
                 {!importing && (
                   <button onClick={reset}
@@ -511,6 +550,10 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                         <td className="px-3 py-1.5">
                           {r._error ? (
                             <span className="text-red-600 text-[10px]">{r._error}</span>
+                          ) : r._warn ? (
+                            // Se importa igual, pero el usuario tiene que verlo:
+                            // una corrección silenciosa es tan mala como el error.
+                            <span className="text-amber-700 text-[10px]" title={r._warn}>⚠ {r._warn}</span>
                           ) : (
                             <CheckCircle2 size={12} className="text-emerald-500" />
                           )}
