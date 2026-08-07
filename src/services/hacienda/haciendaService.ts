@@ -201,6 +201,22 @@ export const haciendaService = {
     available: number | null; overage: number; extra_charge: number;
   }>('/hacienda/quota'),
 
+  /**
+   * Prueba en seco: arma el comprobante con los datos REALES pero con un
+   * consecutivo imaginario, sin guardar la factura ni enviar nada a Hacienda.
+   */
+  emitPreview: (payload: any) => apiFetch<{
+    preview: true; provider: string; tipo: string; document_type: string;
+    consecutivo_imaginario: string; proximo_consecutivo_real: string;
+    ambiente: string;
+    totales: { subtotal: number; iva: number; total: number };
+    lineas: number;
+    faltantes: string[];
+    documento: any;
+  }>('/hacienda/emit-direct', {
+    method: 'POST', body: JSON.stringify({ ...payload, preview: true }),
+  }),
+
   /** POS de FE: crea la factura desde el carrito (precio/IVA editables) y emite. */
   emitDirect: (payload: {
     document_type: 'tiquete_electronico' | 'factura_electronica';

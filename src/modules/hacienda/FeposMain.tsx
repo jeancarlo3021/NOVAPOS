@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Plus, Trash2, UserPlus, X, Loader2, FileText, Check, ShoppingCart } from 'lucide-react';
+import { Search, Plus, Trash2, UserPlus, X, Loader2, FileText, Check, ShoppingCart, FlaskConical } from 'lucide-react';
+import { posPrinterService } from '@/services/pos/posPrinterService';
 import { getAllProducts, createProduct } from '@/services/Inventory/InventoryProductsService';
 import { proformasService } from '@/services/proformas/proformasService';
 import type { Product } from '@/types/Types_POS';
@@ -130,6 +131,74 @@ export const FeposMain: React.FC = () => {
     finally { setSavingPf(false); }
   };
 
+  /**
+   * Prueba en seco.
+   *
+   * Arma el comprobante con los datos reales del emisor, del cliente y de los
+   * productos del carrito, tal cual saldría a Hacienda — pero con un consecutivo
+   * imaginario y sin enviar ni guardar nada. Sirve para descubrir un CABYS
+   * faltante o un dato del emisor incompleto ANTES de quemar un consecutivo:
+   * una emisión fallida deja el número consumido igual.
+   */
+  const [preview, setPreview] = useState<any | null>(null);
+  const [testing, setTesting] = useState(false);
+  const runTest = async () => {
+    if (lines.length === 0) { setMsg({ ok: false, text: 'Agregá al menos un producto para probar' }); return; }
+    setTesting(true); setMsg(null);
+    try {
+      const res = await haciendaService.emitPreview({
+        document_type: documentType,
+        payment_method: paymentMethod,
+        session_id: currentSession?.id ?? null,
+        customer: customer ?? undefined,
+        lines: lines.map(l => ({
+          product_id: l.product_id, name: l.name, sku: l.sku,
+          quantity: l.quantity, unit_price: l.unit_price, iva_rate: l.iva_rate,
+          cabys_code: l.cabys_code, unit: l.unit,
+        })),
+      });
+      // Lo que de verdad se quiere ver es el TIQUETE: cómo sale en papel, con los
+      // productos, los totales y el consecutivo. Se imprime siempre, marcado como
+      // prueba para que nadie lo confunda con un comprobante válido.
+      let printErr: string | null = null;
+      try {
+        const now = new Date();
+        await posPrinterService.printAuto({
+          invoiceNumber: res.consecutivo_imaginario ?? 'PRUEBA',
+          date: now.toLocaleDateString('es-CR'),
+          time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+          customerName: customer?.name ?? undefined,
+          customerEmail: (customer as any)?.email ?? undefined,
+          items: lines.map(l => ({
+            name: l.name, quantity: l.quantity,
+            unitPrice: l.unit_price,
+            subtotal: Math.round(l.quantity * l.unit_price * 100) / 100,
+          })),
+          subtotal: res.totales?.subtotal ?? 0,
+          tax: res.totales?.iva ?? 0,
+          total: res.totales?.total ?? 0,
+          paymentMethod: paymentMethod,
+          // `copyLabel` sale centrado y en grande arriba del tiquete, y además
+          // fuerza UNA sola copia: una prueba no se imprime por duplicado.
+          copyLabel: 'PRUEBA - SIN VALOR FISCAL',
+          hideThanks: true,
+        }, tenantId ?? '');
+      } catch (pe) {
+        printErr = pe instanceof Error ? pe.message : 'No se pudo imprimir la prueba';
+      }
+
+      // El modal solo aparece cuando tiene algo que decir: si falta un dato o la
+      // impresión falló. Si todo salió bien, el papel ya es la respuesta.
+      if (res.faltantes?.length > 0 || printErr) {
+        setPreview({ ...res, _printErr: printErr });
+      } else {
+        setMsg({ ok: true, text: `Prueba impresa ✓ · el consecutivo real sería ${res.proximo_consecutivo_real}` });
+      }
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo generar la prueba' });
+    } finally { setTesting(false); }
+  };
+
   const emit = async () => {
     if (lines.length === 0) { setMsg({ ok: false, text: 'Agregá al menos un producto' }); return; }
     if (documentType === 'factura_electronica' && !feReceptorComplete(customer)) {
@@ -213,6 +282,15 @@ export const FeposMain: React.FC = () => {
         <div className="p-3 border-b border-gray-100 flex items-center gap-2">
           <FileText size={18} className="text-blue-600" />
           <h2 className="font-black text-gray-900">Comprobante electrónico</h2>
+          {/* Prueba en seco, al lado del título: es lo que se hace ANTES de
+              emitir, así que conviene tenerlo a la vista desde el inicio y no
+              hasta el fondo del carrito. */}
+          <button onClick={runTest} disabled={testing || lines.length === 0}
+            title="Arma el comprobante con los datos reales, sin enviarlo ni consumir consecutivo"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 text-[11px] font-bold disabled:opacity-40">
+            {testing ? <Loader2 size={11} className="animate-spin" /> : <FlaskConical size={11} />}
+            Probar
+          </button>
           {quota && quota.available !== null && (
             <span className={`ml-auto text-xs font-bold px-2 py-1 rounded-full ${quota.available <= 0 ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
               {quota.available <= 0 ? `Sin cupo · ₡${Number(quota.extra_fee).toLocaleString('es-CR')} c/u` : `${quota.available} disponibles`}
@@ -316,6 +394,92 @@ export const FeposMain: React.FC = () => {
         </div>
       </div>
       </div>
+
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPreview(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                  <FlaskConical size={18} className="text-amber-600" /> Prueba — no se envió nada
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {preview.tipo === '01' ? 'Factura electrónica' : 'Tiquete electrónico'} ·
+                  {' '}{preview.ambiente === 'sandbox' ? 'Ambiente de pruebas' : 'Ambiente de producción'} ·
+                  {' '}{preview.provider}
+                </p>
+              </div>
+              <button onClick={() => setPreview(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {preview._printErr && (
+                <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                  <b>No se pudo imprimir la prueba:</b> {preview._printErr}
+                </div>
+              )}
+              {preview.faltantes?.length > 0 ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+                  <p className="text-sm font-black text-amber-900 mb-1">
+                    {preview.faltantes.length} cosa(s) que revisar antes de emitir
+                  </p>
+                  <ul className="text-[13px] text-amber-900 space-y-0.5">
+                    {preview.faltantes.map((f: string, i: number) => <li key={i}>• {f}</li>)}
+                  </ul>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+                  ✓ El comprobante está completo. No se detectaron datos faltantes.
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-xl border border-gray-200 p-3">
+                  <p className="text-[11px] font-black text-gray-400 uppercase">Consecutivo de la prueba</p>
+                  <p className="font-mono text-xs text-gray-500 break-all">{preview.consecutivo_imaginario}</p>
+                  <p className="text-[11px] text-gray-400 mt-1">Imaginario: no se consumió.</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 p-3">
+                  <p className="text-[11px] font-black text-gray-400 uppercase">El real sería</p>
+                  <p className="font-mono text-xs text-gray-800 break-all">{preview.proximo_consecutivo_real}</p>
+                  <p className="text-[11px] text-gray-400 mt-1">Se usa al emitir de verdad.</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 p-3 text-sm">
+                <div className="flex justify-between"><span className="text-gray-500">Líneas</span><b>{preview.lineas}</b></div>
+                <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><b>₡{Number(preview.totales?.subtotal ?? 0).toLocaleString('es-CR')}</b></div>
+                <div className="flex justify-between"><span className="text-gray-500">IVA</span><b>₡{Number(preview.totales?.iva ?? 0).toLocaleString('es-CR')}</b></div>
+                <div className="flex justify-between border-t border-gray-100 mt-1 pt-1">
+                  <span className="font-black text-gray-700">Total</span>
+                  <b className="text-blue-700">₡{Number(preview.totales?.total ?? 0).toLocaleString('es-CR')}</b>
+                </div>
+              </div>
+
+              <details className="rounded-xl border border-gray-200">
+                <summary className="px-3 py-2 text-xs font-black text-gray-600 cursor-pointer">
+                  Ver el documento exacto que se enviaría
+                </summary>
+                <pre className="px-3 pb-3 text-[10px] text-gray-600 overflow-x-auto whitespace-pre-wrap break-all">
+                  {JSON.stringify(preview.documento, null, 2)}
+                </pre>
+              </details>
+            </div>
+
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 shrink-0">
+              <button onClick={() => setPreview(null)}
+                className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-lg">Cerrar</button>
+              <button
+                onClick={() => { setPreview(null); void emit(); }}
+                disabled={preview.faltantes?.length > 0}
+                title={preview.faltantes?.length > 0 ? 'Corregí lo que falta antes de emitir' : ''}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-black rounded-lg disabled:opacity-40">
+                Emitir de verdad
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Botón flotante del carrito (solo móvil) */}
       <button onClick={() => setCartOpen(true)}

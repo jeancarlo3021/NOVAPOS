@@ -2183,7 +2183,13 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
 
     // Header
     centerText('=== TICKET DE VENTA ===');
-    if (receiptData.copyLabel) { centerText(`** ${receiptData.copyLabel} **`); }
+    if (receiptData.copyLabel) {
+      // En doble alto: si el tiquete es una PRUEBA, tiene que verse de lejos.
+      // Un papel de ensayo confundido con un comprobante real es un problema.
+      push(0x1B, 0x21, 0x10);
+      centerText(`** ${receiptData.copyLabel} **`);
+      push(0x1B, 0x21, 0x00);
+    }
     if (cfg.showInvoiceNumber) { centerText(`#${receiptData.invoiceNumber}`); }
     // Comprobante electrónico: tipo + consecutivo + clave, junto al nº de factura.
     if (receiptData.feClave) {
