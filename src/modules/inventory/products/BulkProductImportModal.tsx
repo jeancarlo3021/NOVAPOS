@@ -32,6 +32,48 @@ interface ParsedRow {
   _error?: string;
 }
 
+/**
+ * Encabezado del archivo → columna del sistema.
+ *
+ * La clienta arma el Excel con los nombres que le salen naturales («Nombre»,
+ * «Precio», «Costo»…), no con los del sistema. Si no se reconocen, la columna
+ * queda sin mapear y los datos terminan corridos o vacíos — que es exactamente
+ * lo que estaba pasando.
+ */
+const HEADER_ALIASES: Record<string, string> = {
+  nombre: 'name', producto: 'name', descripcion_producto: 'name',
+  codigo: 'sku', code: 'sku', barras: 'sku', codigo_barras: 'sku',
+  codigo2: 'sku2', barras2: 'sku2',
+  descripcion: 'description', detalle: 'description',
+  proveedor: 'supplier',
+  precio: 'unit_price', precio_venta: 'unit_price', venta: 'unit_price', pvp: 'unit_price',
+  costo: 'cost_price', precio_costo: 'cost_price', compra: 'cost_price',
+  stock: 'stock_quantity', existencias: 'stock_quantity', cantidad: 'stock_quantity',
+  minimo: 'min_stock_level', stock_minimo: 'min_stock_level',
+  maximo: 'max_stock_level', stock_maximo: 'max_stock_level',
+  infinito: 'stock_infinito', sin_stock: 'stock_infinito',
+  categoria: 'category', familia: 'category',
+  unidad: 'unit_type', unidad_medida: 'unit_type', medida: 'unit_type',
+  cabys: 'cabys_code', codigo_cabys: 'cabys_code',
+  iva: 'iva_rate', impuesto: 'iva_rate', tarifa: 'iva_rate',
+};
+
+/** Deja el encabezado comparable: sin tildes, sin espacios raros, en minúscula. */
+function normalizeHeader(h: string): string {
+  const clean = String(h ?? '')
+    .replace(/\u00a0/g, ' ')                      // espacio duro de Excel
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // tildes
+    .trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')                  // espacios y signos → _
+    .replace(/^_+|_+$/g, '');
+  return HEADER_ALIASES[clean] ?? clean;
+}
+
+/** Limpia una celda: espacios normales, duros y comillas sueltas de Excel. */
+function cleanCell(v: any): string {
+  return String(v ?? '').replace(/\u00a0/g, ' ').trim().replace(/^"(.*)"$/s, '$1').trim();
+}
+
 const HEADERS = [
   'name', 'sku', 'sku2', 'description', 'supplier', 'unit_price', 'cost_price',
   'stock_infinito', 'stock_quantity', 'min_stock_level', 'max_stock_level',
@@ -87,6 +129,11 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, errors: 0 });
   const [error, setError] = useState('');
+  /** Qué columna del archivo se reconoció como qué. Se muestra ANTES de importar:
+   *  ver el mapeo es lo que evita darse cuenta del error después de crear 300
+   *  productos con el costo en la columna equivocada. */
+  const [mapping, setMapping] = useState<{ reconocidas: string[]; ignoradas: string[] }>(
+    { reconocidas: [], ignoradas: [] });
   const fileRef = useRef<HTMLInputElement>(null);
 
   const downloadTemplate = () => {
@@ -99,32 +146,66 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     URL.revokeObjectURL(url);
   };
 
+  /** Lee el archivo y devuelve una grilla de texto, sea Excel o CSV. */
+  const readGrid = async (file: File): Promise<string[][]> => {
+    // Excel NATIVO. Antes había que "guardarlo como CSV", y ahí se dañaba: Excel
+    // en español exporta con ';', mete comillas y agrega columnas vacías, con lo
+    // que los datos terminaban corridos de columna. Leer el .xlsx directo elimina
+    // ese paso y el problema con él. La librería ya estaba en el proyecto.
+    if (/\.xlsx?$/i.test(file.name)) {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) return [];
+      // raw:false → los números salen como los ve el usuario en Excel, y los
+      // códigos largos (CABYS, barras) no se convierten a notación científica.
+      return (XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, raw: false, defval: '' }) as any[][])
+        .map(r => (r ?? []).map(cleanCell));
+    }
+
+    const text = await file.text();
+    // Auto-detectar delimitador según la primera línea: ';' (Excel ES), tab (pegado
+    // desde Excel/Sheets) o ','. Elegimos el que más columnas produce.
+    const firstLine = text.split(/\r?\n/)[0] ?? '';
+    const counts: Array<[string, number]> = [
+      [';', firstLine.split(';').length],
+      ['\t', firstLine.split('\t').length],
+      [',', firstLine.split(',').length],
+    ];
+    const delim = counts.sort((x, y) => y[1] - x[1])[0][1] > 1 ? counts[0][0] : ',';
+    return parseCSV(text, delim).map(r => r.map(cleanCell));
+  };
+
   const handleFile = async (file: File) => {
     setError(''); setRows([]); setFileName(file.name);
-    if (!/\.csv$|\.txt$/i.test(file.name)) {
-      // Excel directo: pedimos al usuario que lo guarde como CSV.
-      // Soportar XLSX nativo requiere lib pesada (SheetJS).
-      setError('Archivo no soportado. Guardá el Excel como CSV (Archivo → Guardar como → CSV UTF-8).');
+    if (!/\.csv$|\.txt$|\.xlsx?$/i.test(file.name)) {
+      setError('Archivo no soportado. Subí un Excel (.xlsx) o un CSV.');
       return;
     }
     try {
-      const text = await file.text();
-      // Auto-detectar delimitador según la primera línea: ';' (Excel ES), tab (pegado
-      // desde Excel/Sheets) o ','. Elegimos el que más columnas produce.
-      const firstLine = text.split(/\r?\n/)[0] ?? '';
-      const counts: Array<[string, number]> = [
-        [';', firstLine.split(';').length],
-        ['\t', firstLine.split('\t').length],
-        [',', firstLine.split(',').length],
-      ];
-      const delim = counts.sort((a, b) => b[1] - a[1])[0][1] > 1 ? counts[0][0] : ',';
-      const grid = parseCSV(text, delim).filter(r => r.some(c => c.trim() !== ''));
+      const grid = (await readGrid(file)).filter(r => r.some(c => c !== ''));
       if (grid.length === 0) { setError('Archivo vacío'); return; }
-      // Primera fila = headers
-      const headerRow = grid[0].map(h => h.trim().toLowerCase());
-      const dataRows = grid.slice(1);
+
+      // Encabezados normalizados (acepta «Nombre», «Precio», «Costo»…).
+      const headerRow = grid[0].map(normalizeHeader);
+
+      // Columnas de sobra al final: Excel arrastra columnas vacías y esas son las
+      // que corrían los datos. Se recortan comparando contra el encabezado.
+      const lastNamed = headerRow.reduce((last, h, i) => (h ? i : last), -1);
+      const width = lastNamed + 1;
+      const dataRows = grid.slice(1).map(r => {
+        const row = r.slice(0, width);
+        while (row.length < width) row.push('');   // filas cortas: se rellenan
+        return row;
+      });
 
       const idx = (h: string) => headerRow.indexOf(h);
+      setMapping({
+        reconocidas: HEADERS.filter(h => headerRow.includes(h)),
+        ignoradas: grid[0].map((raw, i) => ({ raw, norm: headerRow[i] }))
+          .filter(x => x.raw && !HEADERS.includes(x.norm))
+          .map(x => x.raw),
+      });
       const required = ['name', 'unit_price'];
       const missing = required.filter(h => idx(h) === -1);
       if (missing.length > 0) {
@@ -306,7 +387,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
             <FileSpreadsheet size={22} className="text-emerald-600" />
             <div>
               <h2 className="text-lg font-black text-gray-900">Importar productos masivamente</h2>
-              <p className="text-xs text-gray-500">Excel guardado como CSV (UTF-8)</p>
+              <p className="text-xs text-gray-500">Excel (.xlsx) o CSV — el Excel se lee directo, sin convertir</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
@@ -340,7 +421,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                 <Upload size={32} className="mx-auto text-gray-400 mb-2" />
                 <p className="font-bold text-gray-700">Subí el archivo CSV</p>
                 <p className="text-xs text-gray-500 mt-1">o arrastralo acá</p>
-                <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden"
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden"
                   onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
               </div>
             </label>
@@ -369,6 +450,26 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                     className="flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-red-600">
                     <Trash2 size={12} /> Cambiar archivo
                   </button>
+                )}
+              </div>
+
+              {/* Qué columna se reconoció como qué. Se muestra ANTES de importar
+                  porque descubrir que el costo entró en la columna equivocada
+                  después de crear 300 productos es mucho más caro que revisarlo acá. */}
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px]">
+                <p className="font-black text-gray-600 uppercase tracking-wide mb-1">Columnas reconocidas</p>
+                <p className="text-gray-700">
+                  {mapping.reconocidas.length > 0 ? mapping.reconocidas.join(' · ') : 'Ninguna'}
+                </p>
+                {mapping.ignoradas.length > 0 && (
+                  <p className="text-amber-700 mt-1">
+                    <b>Ignoradas:</b> {mapping.ignoradas.join(' · ')} — esas columnas no se importan.
+                  </p>
+                )}
+                {!mapping.reconocidas.includes('cost_price') && (
+                  <p className="text-gray-500 mt-1">
+                    Sin columna de costo: los productos quedan con costo <b>0</b>, no con un valor inventado.
+                  </p>
                 )}
               </div>
 

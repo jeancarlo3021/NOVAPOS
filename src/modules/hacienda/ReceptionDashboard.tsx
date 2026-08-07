@@ -94,9 +94,48 @@ export const ReceptionDashboard: React.FC = () => {
     }
   };
 
-  // Compra a proveedor: abre el modal para relacionar/crear la orden de compra,
-  // comparar los items y actualizar CABYS/precio antes de agregar a compras.
+  // Detalle de compra: abre el modal para relacionar/crear la ORDEN DE COMPRA,
+  // comparar los items y actualizar CABYS/precio. Es opcional: la mayoría de los
+  // negocios no lleva órdenes de compra y solo necesita la etiqueta.
   const asCompra = (row: ReceivedDoc) => setCompraFor(row);
+
+  /**
+   * Marca el comprobante como COMPRA sin más trámite.
+   *
+   * No crea orden de compra ni toca inventario: para casi todos los negocios una
+   * factura de proveedor es simplemente una compra, y obligarlos a armar una
+   * orden por cada una era trabajo sin beneficio. Quien sí las lleva tiene el
+   * botón «Orden» al lado.
+   */
+  const marcarCompra = async (row: ReceivedDoc) => {
+    setBusyId(row.id);
+    try {
+      await haciendaService.classifyReceived(row.id, 'compra');
+      setRows(prev => prev.map(x => x.id === row.id ? { ...x, kind: 'compra' } : x));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudo marcar como compra');
+    } finally { setBusyId(null); }
+  };
+
+  /** Marca de una vez todas las que quedaron sin categorizar. */
+  const [bulking, setBulking] = useState(false);
+  const pendingKind = rows.filter(r => !r.kind).length;
+  const marcarTodas = async () => {
+    if (pendingKind === 0) return;
+    if (!confirm(
+      `Se van a marcar ${pendingKind} comprobante(s) como COMPRA.\n\n`
+      + 'Solo se les pone la etiqueta: no se crean órdenes de compra, no se toca '
+      + 'el inventario y no se confirma nada ante Hacienda.\n\n¿Continuar?'
+    )) return;
+    setBulking(true);
+    try {
+      const res = await haciendaService.classifyAllReceived('compra');
+      setRows(prev => prev.map(x => x.kind ? x : { ...x, kind: 'compra' }));
+      alert(`${res.updated} comprobante(s) marcados como compra.`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudieron marcar');
+    } finally { setBulking(false); }
+  };
 
   // Gasto: abre el modal de gasto (con categorías) prellenado con el comprobante.
   const asGasto = (row: ReceivedDoc) => setGastoFor(row);
@@ -155,6 +194,14 @@ export const ReceptionDashboard: React.FC = () => {
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-bold">
           <Plus size={15} /> Registrar recibido
         </button>
+        {canCompra && pendingKind > 0 && (
+          <button onClick={marcarTodas} disabled={bulking}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50"
+            title="Marcar como compra todas las que están sin categorizar">
+            {bulking ? <RefreshCw size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+            Marcar {pendingKind} como compra
+          </button>
+        )}
         <button onClick={load} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50" title="Actualizar">
           <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
         </button>
@@ -246,13 +293,15 @@ export const ReceptionDashboard: React.FC = () => {
                         // Ya confirmado como compra → ver la orden y RECARGAR sus items
                         // (útil si la factura ya se aceptó y la orden quedó incompleta).
                         <div className="inline-flex items-center gap-1">
-                          <button onClick={() => asCompra(r)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-black text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-black text-blue-700 bg-blue-50 border border-blue-200">
                             🧾 {(r as any).purchase_number ?? 'Compra'}
-                          </button>
-                          <button onClick={() => asCompra(r)} title="Recargar los items de la compra"
+                          </span>
+                          {/* La orden de compra es opcional: solo se ofrece armarla
+                              o recargarla a quien de verdad las lleva. */}
+                          <button onClick={() => asCompra(r)}
+                            title={(r as any).purchase_number ? 'Ver o recargar la orden de compra' : 'Armar la orden de compra (opcional)'}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50">
-                            <RefreshCw size={11} /> Recargar
+                            <RefreshCw size={11} /> {(r as any).purchase_number ? 'Recargar' : 'Orden'}
                           </button>
                         </div>
                       ) : r.kind === 'gasto' ? (
@@ -260,8 +309,14 @@ export const ReceptionDashboard: React.FC = () => {
                       ) : (
                         <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
                           {canCompra && (
-                            <button onClick={() => asCompra(r)} disabled={busyId === r.id}
+                            <button onClick={() => marcarCompra(r)} disabled={busyId === r.id}
+                              title="Marcar como compra (sin orden de compra)"
                               className="px-2 py-1 text-[11px] font-bold bg-white text-gray-500 hover:bg-gray-50 disabled:opacity-50">Compra</button>
+                          )}
+                          {canCompra && (
+                            <button onClick={() => asCompra(r)} disabled={busyId === r.id}
+                              title="Armar la orden de compra con inventario (opcional)"
+                              className="px-2 py-1 text-[11px] font-bold bg-white text-gray-500 hover:bg-gray-50 disabled:opacity-50 border-l border-gray-200">Orden</button>
                           )}
                           {canGasto && (
                             <button onClick={() => asGasto(r)}

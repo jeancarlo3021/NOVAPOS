@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown, FileCode2 } from 'lucide-react';
+import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown, FileCode2, ShieldCheck } from 'lucide-react';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
 import { formatWallClock } from '@/utils/datetime';
 import { useAuth } from '@/context/AuthContext';
+import { downloadXlsx } from '@/utils/xlsx';
 
 // Fecha/hora en Costa Rica. Usa created_at (UTC real de la BD) convertido a CR;
 // si no está, cae al issued_at (que puede venir como hora local ya).
@@ -182,6 +183,72 @@ export const FeInvoicesDashboard: React.FC = () => {
     finally { setBusyId(null); }
   };
 
+  /**
+   * Reporte de trazabilidad de la numeración.
+   *
+   * Es el respaldo para una fiscalización: por cada número que falta en una
+   * serie, dice qué comprobante de OTRA serie se lo llevó. Así el hueco deja de
+   * ser una laguna y pasa a ser un desglose que se puede cotejar contra el ATV.
+   */
+  const [auditing, setAuditing] = useState(false);
+  const downloadAudit = async () => {
+    setAuditing(true);
+    try {
+      const a = await haciendaService.consecutivoAudit(from || undefined, to || undefined);
+
+      const resumen: any[][] = [
+        ['TRAZABILIDAD DE CONSECUTIVOS'],
+        ['Generado', new Date(a.generado).toLocaleString('es-CR')],
+        ['Período', `${a.desde ?? 'inicio'} → ${a.hasta ?? 'hoy'}`],
+        ['Comprobantes', a.total_documentos],
+        [],
+        ['Serie', 'Tipo', 'Emitidos', 'Desde', 'Hasta', 'Huecos', 'Explicados', 'SIN EXPLICAR', 'Repetidos'],
+        ...a.series.map(s2 => [
+          s2.serie, s2.tipo_label, s2.emitidos, s2.desde, s2.hasta,
+          s2.huecos_total, s2.huecos_explicados, s2.huecos_sin_explicar, s2.repetidos.length,
+        ]),
+        [],
+        ['Números repetidos (requieren atención)', a.resumen.repetidos],
+        ['Huecos sin explicación', a.resumen.huecos_sin_explicar],
+      ];
+
+      const huecos: any[][] = [
+        ['Serie', 'Tipo', 'N° faltante', '¿Explicado?', 'Lo usó', 'Consecutivo', 'Clave', 'Fecha', 'Monto'],
+      ];
+      for (const s2 of a.series) {
+        for (const h of s2.huecos) {
+          if (h.usado_por.length === 0) {
+            huecos.push([s2.serie, s2.tipo_label, h.numero, 'NO', '—', '', '', '', '']);
+          } else {
+            for (const u of h.usado_por) {
+              huecos.push([s2.serie, s2.tipo_label, h.numero, 'Sí', u.tipo, u.consecutivo,
+                u.clave, u.fecha ? new Date(u.fecha).toLocaleString('es-CR') : '', Number(u.total)]);
+            }
+          }
+        }
+      }
+
+      const detalle: any[][] = [
+        ['Serie', 'Tipo', 'Número', 'Consecutivo (20)', 'Clave (50)', 'Fecha', 'Monto', 'Estado', 'N° interno'],
+      ];
+      for (const s2 of a.series) {
+        for (const d of s2.documentos) {
+          detalle.push([s2.serie, d.tipo_label, d.numero, d.consecutivo, d.clave,
+            d.fecha ? new Date(d.fecha).toLocaleString('es-CR') : '', Number(d.total), d.estado, d.factura]);
+        }
+      }
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadXlsx(`trazabilidad_consecutivos_${stamp}`, [
+        { name: 'Resumen', rows: resumen },
+        { name: 'Huecos explicados', rows: huecos },
+        { name: 'Detalle', rows: detalle },
+      ]);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudo generar el reporte');
+    } finally { setAuditing(false); }
+  };
+
   const creditNote = async (row: FeRow) => {
     const reason = window.prompt('Motivo de la nota de crédito (anulación):', 'Anulación por error en facturación');
     if (reason === null) return;
@@ -336,7 +403,13 @@ export const FeInvoicesDashboard: React.FC = () => {
           <button onClick={() => { setStatusFilter(''); setProviderFilter(''); setFrom(''); setTo(''); }}
             className="px-3 py-1.5 rounded-lg text-gray-500 text-xs font-bold hover:bg-gray-100">Limpiar</button>
         )}
-        <span className="ml-auto text-xs text-gray-400 self-center">{visibleRows.length} comprobante(s)</span>
+        <button onClick={downloadAudit} disabled={auditing}
+          title="Reporte de trazabilidad: qué número usó cada comprobante y por qué faltan los que faltan"
+          className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 bg-white hover:bg-indigo-50 text-xs font-bold disabled:opacity-50">
+          {auditing ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+          Trazabilidad de consecutivos
+        </button>
+        <span className="text-xs text-gray-400 self-center">{visibleRows.length} comprobante(s)</span>
       </div>
 
       {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>}

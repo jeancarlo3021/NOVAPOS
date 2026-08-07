@@ -57,6 +57,7 @@ interface FeData {
   consecutivo_factura?: string;
   consecutivo_tiquete?: string;
   consecutivo_nc?: string;
+  consecutivo_nd?: string;
   [k: string]: any; // conserva otras claves (bolsa, etc.) al guardar
 }
 
@@ -539,7 +540,21 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                     onChange={e => set('terminal', e.target.value.replace(/\D/g, '').slice(0, 5))} className={inputCls} />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-2 mt-2">
+              {/* Cada tipo lleva SU PROPIA numeración: factura, tiquete, nota de
+                  crédito y nota de débito son cuatro series independientes ante
+                  Hacienda. Se piden por separado porque compartirlas es lo que
+                  provocaba saltos en los tiquetes y consecutivos repetidos en las
+                  notas. */}
+              <div className="mt-3 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
+                <p className="text-[11px] font-black text-blue-900">Consecutivo inicial por tipo</p>
+                <p className="text-[11px] text-blue-800 mt-0.5">
+                  Poné el <b>SIGUIENTE</b> número, no el último emitido. Si la última factura
+                  del cliente fue la <span className="font-mono">000145</span>, acá va
+                  <span className="font-mono"> 146</span>. Dejalo vacío si el cliente nunca
+                  facturó electrónicamente.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
                 <div>
                   <label className={labelCls}>Próx. Factura</label>
                   <input value={fe.consecutivo_factura ?? ''} inputMode="numeric" placeholder="1" maxLength={10}
@@ -554,6 +569,11 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                   <label className={labelCls}>Próx. NC</label>
                   <input value={fe.consecutivo_nc ?? ''} inputMode="numeric" placeholder="1" maxLength={10}
                     onChange={e => set('consecutivo_nc', e.target.value.replace(/\D/g, '').slice(0, 10))} className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Próx. ND</label>
+                  <input value={fe.consecutivo_nd ?? ''} inputMode="numeric" placeholder="1" maxLength={10}
+                    onChange={e => set('consecutivo_nd', e.target.value.replace(/\D/g, '').slice(0, 10))} className={inputCls} />
                 </div>
               </div>
               {(() => {

@@ -60,6 +60,29 @@ export interface ReconcileBody {
   items: Array<{ detail: string; quantity: number; unit_price: number; total?: number; cabys?: string | null; product_id?: string | null; action: 'update' | 'create' | 'skip'; no_stock?: boolean }>;
 }
 
+/** Reporte de trazabilidad de consecutivos (para respaldar una fiscalización). */
+export interface ConsecutivoAudit {
+  generado: string;
+  desde: string | null;
+  hasta: string | null;
+  total_documentos: number;
+  resumen: { huecos_sin_explicar: number; repetidos: number };
+  series: Array<{
+    serie: string; tipo: string; tipo_label: string;
+    emitidos: number; desde: number; hasta: number;
+    huecos_total: number; huecos_explicados: number; huecos_sin_explicar: number;
+    repetidos: number[];
+    huecos: Array<{
+      numero: number; explicado: boolean;
+      usado_por: Array<{ tipo: string; consecutivo: string; clave: string; fecha: string; total: number }>;
+    }>;
+    documentos: Array<{
+      tipo_label: string; numero: number; consecutivo: string; clave: string;
+      fecha: string; total: number; estado: string; factura: string;
+    }>;
+  }>;
+}
+
 export const haciendaService = {
   /** Verifica la conexión con Facturemos (token + emisor). */
   testConnection: () => apiFetch<{ token_ok: boolean; emisor_configured: boolean; message?: string }>(
@@ -121,6 +144,26 @@ export const haciendaService = {
   classifyReceived: (id: string, kind: 'gasto' | 'compra') =>
     apiFetch<{ ok: boolean; kind: string }>('/hacienda/received/classify',
       { method: 'POST', body: JSON.stringify({ id, kind }) }),
+  /**
+   * Trazabilidad de la numeración: qué se emitió por serie y tipo, qué números
+   * faltan y quién consumió cada uno de los que faltan.
+   */
+  consecutivoAudit: (from?: string, to?: string) => {
+    const p = new URLSearchParams();
+    if (from) p.set('from', from);
+    if (to) p.set('to', to);
+    const qs = p.toString();
+    return apiFetch<ConsecutivoAudit>(`/hacienda/consecutivo-audit${qs ? '?' + qs : ''}`);
+  },
+
+  /**
+   * Marca de una vez todos los comprobantes sin categorizar.
+   * Solo escribe la etiqueta: no crea órdenes de compra ni confirma a Hacienda.
+   */
+  classifyAllReceived: (kind: 'gasto' | 'compra' = 'compra') =>
+    apiFetch<{ updated: number; kind: string }>('/hacienda/received/classify-all',
+      { method: 'POST', body: JSON.stringify({ kind }) }),
+
   /** Convierte un recibido en una compra a proveedor (crea proveedor + compra). */
   receivedToPurchase: (id: string) =>
     apiFetch<{ ok: boolean; purchase_id: string; supplier_id: string }>('/hacienda/received/to-purchase',
