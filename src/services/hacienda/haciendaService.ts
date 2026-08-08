@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api';
+import { BULK_CHUNK_SIZE, chunked } from '@/utils/bulkChunks';
 
 export interface ReceivedItem {
   detail: string; quantity: number; unit?: string | null;
@@ -58,6 +59,28 @@ export interface ReconcileBody {
    *  sí se registra en la orden de compra. */
   no_products?: boolean;
   items: Array<{ detail: string; quantity: number; unit_price: number; total?: number; cabys?: string | null; product_id?: string | null; action: 'update' | 'create' | 'skip'; no_stock?: boolean }>;
+  /**
+   * Conciliación por lotes (ver `reconcileReceivedInBatches`).
+   *  · 'products' → procesa este lote de líneas y devuelve las resueltas.
+   *  · 'finish'   → arma la orden con las líneas acumuladas de todos los lotes.
+   * Sin `stage` va todo en una sola llamada (comportamiento de siempre).
+   */
+  stage?: 'products' | 'finish';
+  /** Solo en 'finish': líneas ya resueltas por los lotes anteriores. */
+  lines?: ReconciledLine[];
+  /** Solo en 'finish': monto de las líneas que no generan producto. */
+  skipped_total?: number;
+  /** Solo en 'finish': conteos acumulados, para el mensaje de resumen. */
+  created?: number;
+  updated?: number;
+}
+
+/** Línea ya resuelta a un producto real, lista para entrar a la orden de compra. */
+export interface ReconciledLine {
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
 }
 
 /** Reporte de trazabilidad de consecutivos (para respaldar una fiscalización). */
@@ -177,6 +200,73 @@ export const haciendaService = {
   reconcileReceived: (body: ReconcileBody) =>
     apiFetch<{ ok: boolean; purchase_id: string; created: number; updated: number; messages: string[] }>(
       '/hacienda/received/reconcile', { method: 'POST', body: JSON.stringify(body) }),
+
+  /**
+   * Conciliación POR LOTES — la que hay que usar desde la pantalla.
+   *
+   * Un comprobante de proveedor con 250 líneas tumbaba la conciliación: cada
+   * línea es una consulta a la base, y todas juntas pasaban del tiempo máximo de
+   * la petición. El proxy la cortaba y el usuario veía un error… con la mitad de
+   * los productos ya creados y ninguna orden de compra.
+   *
+   * Acá las líneas van en tandas de 50. Cada tanda es una petición corta que
+   * devuelve sus líneas ya resueltas a producto; cuando terminan todas, una
+   * última llamada arma la orden de compra con el total completo.
+   *
+   * El orden importa: la orden se crea AL FINAL, nunca por lote. Si un lote
+   * falla, no quedó ninguna orden a medias que haya que ir a borrar a mano.
+   */
+  reconcileReceivedInBatches: async (
+    body: ReconcileBody,
+    onProgress?: (done: number, total: number) => void,
+  ) => {
+    const total = body.items.length;
+    // Pocas líneas: una sola llamada, como siempre. No tiene sentido pagar dos
+    // viajes de red por un comprobante de 6 artículos.
+    if (total <= BULK_CHUNK_SIZE) {
+      onProgress?.(0, total);
+      const res = await haciendaService.reconcileReceived(body);
+      onProgress?.(total, total);
+      return res;
+    }
+
+    const lines: ReconciledLine[] = [];
+    let skipped = 0, created = 0, updated = 0;
+    const warnings: string[] = [];
+    let done = 0;
+    onProgress?.(0, total);
+
+    for (const batch of chunked(body.items, BULK_CHUNK_SIZE)) {
+      const r = await apiFetch<{
+        lines: ReconciledLine[]; skipped_total: number;
+        created: number; updated: number; messages: string[];
+      }>('/hacienda/received/reconcile', {
+        method: 'POST',
+        body: JSON.stringify({ ...body, items: batch, stage: 'products' }),
+      });
+      lines.push(...(r.lines ?? []));
+      skipped += r.skipped_total ?? 0;
+      created += r.created ?? 0;
+      updated += r.updated ?? 0;
+      // De los mensajes por línea solo interesan los problemas: 250 líneas de
+      // «➕ Creado» no las lee nadie y esconderían justo lo que falló.
+      warnings.push(...(r.messages ?? []).filter(m => m.startsWith('⚠️')));
+      done += batch.length;
+      onProgress?.(done, total);
+    }
+
+    const res = await apiFetch<{ ok: boolean; purchase_id: string; created: number; updated: number; messages: string[] }>(
+      '/hacienda/received/reconcile', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: body.id, purchase_id: body.purchase_id,
+          no_inventory: body.no_inventory, no_products: body.no_products,
+          items: [], stage: 'finish',
+          lines, skipped_total: skipped, created, updated,
+        }),
+      });
+    return { ...res, messages: [...(res.messages ?? []), ...warnings] };
+  },
 
   /** Proveedor de FE del tenant actual (para ocultar funciones de Alanube). */
   provider: () => apiFetch<{ provider: 'alanube' | 'facturemos'; enabled: boolean }>('/hacienda/provider'),

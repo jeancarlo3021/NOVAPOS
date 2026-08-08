@@ -4,18 +4,27 @@ import React, { useEffect, useState } from 'react';
 import { X, Loader2, ShoppingCart, Info, CheckCircle2, Plus, Ban, AlertTriangle, Link2, Search } from 'lucide-react';
 import { haciendaService, type ReceivedMatch } from '@/services/hacienda/haciendaService';
 import { apiFetch } from '@/lib/api';
+import { BULK_CHUNK_SIZE } from '@/utils/bulkChunks';
 
 interface PickProduct { id: string; name: string; sku?: string | null; cabys_code?: string | null }
 
 const fmt = (n: number) => `₡${Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // Algunos proveedores meten datos internos en el <Detalle> tras un ';' (ej.
-// "Casco X L;32100.98;24;;P001688;..."). Nos quedamos con el nombre real. Se
-// limpia también acá (además del backend) para que no dependa del deploy del server.
+// "Casco X L;32100.98;24;;P001688;..."), y otros anteponen su código entre
+// corchetes ("[MXP39] PIÑON TRASERO XL125 38T"). Nos quedamos con el nombre real:
+// el código ya se guarda aparte como SKU y en el nombre solo estorba.
+//
+// Se limpia también acá (además del backend) para que no dependa del deploy del
+// server, y para que la vista previa muestre el nombre que va a quedar de verdad.
+const SUPPLIER_CODE_PREFIX = /^\[[A-Za-z0-9][A-Za-z0-9._/+-]*\]\s*/;
+
 const cleanName = (s: any): string => {
   const str = String(s ?? '').trim();
   const m = str.match(/^(.*?);\s*\d/);
-  return (m ? m[1] : str).trim();
+  const base = (m ? m[1] : str).trim();
+  const stripped = base.replace(SUPPLIER_CODE_PREFIX, '').trim();
+  return stripped || base;
 };
 
 type Action = 'update' | 'create' | 'skip';
@@ -42,6 +51,8 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
   const [orderId, setOrderId] = useState<string>('new');   // 'new' o id de una orden existente
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  /** Avance de la carga por lotes (null = una sola llamada, sin lotes). */
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState('');
   const [result, setResult] = useState<string[] | null>(null);
   const [noInventory, setNoInventory] = useState(false);   // no afectar stock del inventario
@@ -123,9 +134,11 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
 
   const accept = async () => {
     if (!data) return;
-    setSaving(true); setErr('');
+    setSaving(true); setErr(''); setProgress(null);
     try {
-      const res = await haciendaService.reconcileReceived({
+      // Por lotes: con comprobantes de cientos de líneas, mandarlas todas en una
+      // sola petición se pasaba del tiempo máximo y fallaba a medio camino.
+      const res = await haciendaService.reconcileReceivedInBatches({
         id: data.id,
         purchase_id: orderId === 'new' ? null : orderId,
         no_inventory: noInventory,
@@ -135,12 +148,13 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
           cabys: r.cabys ?? null, product_id: r.product_id, action: r.action,
           no_stock: r.noStock ?? noInventory,
         })),
-      });
+      }, (done, total) => setProgress({ done, total }));
       setResult(res.messages ?? []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudo procesar');
     } finally {
       setSaving(false);
+      setProgress(null);
     }
   };
 
@@ -352,12 +366,32 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                   <span className="text-purple-700">📦 {fmt(skippedTotal)} sin crear producto</span>
                 )}
               </div>
+              {/* Avance por lotes: con cientos de líneas el proceso tarda, y sin
+                  esto el usuario no sabe si va avanzando o si se colgó. */}
+              {saving && progress && progress.total > 0 && (
+                <div className="mb-2">
+                  <div className="flex justify-between text-xs font-bold text-gray-600 mb-1">
+                    <span>Procesando por lotes de {BULK_CHUNK_SIZE}…</span>
+                    <span>{progress.done} / {progress.total} líneas</span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-600 transition-all duration-300"
+                      style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }} />
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    No cierres esta ventana: la orden de compra se crea al terminar todos los lotes.
+                  </p>
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <div className="text-sm text-gray-500 mr-auto">Se registrará en la orden de compra</div>
                 <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm">Cancelar</button>
                 <button onClick={accept} disabled={saving}
                   className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold text-sm flex items-center gap-2">
-                  {saving ? <><Loader2 size={15} className="animate-spin" /> Procesando…</>
+                  {saving ? <><Loader2 size={15} className="animate-spin" />
+                      {progress && progress.total > 0
+                        ? `Procesando ${progress.done}/${progress.total}…`
+                        : 'Procesando…'}</>
                     : (data?.linked_purchase_id && orderId === data.linked_purchase_id)
                       ? <>🔄 Recargar orden de compra</>
                       : <>Aceptar y agregar a compras</>}

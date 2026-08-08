@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { createProduct, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { apiFetch } from '@/lib/api';
+import { BULK_CHUNK_SIZE, chunked, mapWithConcurrency } from '@/utils/bulkChunks';
 
 interface Props {
   tenantId: string;
@@ -291,6 +292,8 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     // Modo admin: enviamos TODAS las filas al backend, que resuelve categorías/
     // unidades y crea los productos para el tenant destino (service-role).
     if (adminMode) {
+      // Fuera del try: si un lote falla, hay que poder decir cuántos SÍ entraron.
+      let created = 0, errors = 0;
       try {
         const payload = validRows.map(r => ({
           name: r.name, sku: r.sku ?? '', sku2: r.sku2 ?? null, description: r.description,
@@ -301,13 +304,27 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
           category: r.category ?? null, unit_type: r.unit_type ?? null,
           cabys_code: r.cabys_code ?? null, iva_rate: r.iva_rate ?? 13,
         }));
-        const res = await apiFetch<{ created: number; errors: number; error_detail?: string | null }>(`/admin/tenants/${tenantId}/products-import`, {
-          method: 'POST', body: JSON.stringify({ rows: payload }),
-        }, 180000);   // hasta 3 min: la importación puede ser de cientos de filas
-        setProgress({ done: validRows.length, total: validRows.length, errors: res?.errors ?? 0 });
+
+        // POR LOTES de 50. Antes iba todo en una sola petición con 3 minutos de
+        // espera: con cientos de filas el proxy la cortaba igual y el catálogo
+        // quedaba a medias, sin saber por dónde se había quedado. Cada lote es
+        // una petición corta, y si uno falla los anteriores YA quedaron.
+        let detailMsg: string | null = null;
+        for (const batch of chunked(payload, BULK_CHUNK_SIZE)) {
+          const r = await apiFetch<{ created: number; errors: number; error_detail?: string | null }>(
+            `/admin/tenants/${tenantId}/products-import`,
+            { method: 'POST', body: JSON.stringify({ rows: batch }) },
+            60000,   // un lote de 50 nunca debería acercarse a esto
+          );
+          created += r?.created ?? 0;
+          errors  += r?.errors ?? 0;
+          if (!detailMsg && r?.error_detail) detailMsg = r.error_detail;
+          setProgress({ done: created + errors, total: payload.length, errors });
+        }
+
         setImporting(false);
-        const detail = res?.error_detail ? ` Detalle: ${res.error_detail}` : '';
-        const created = res?.created ?? 0;
+        const detail = detailMsg ? ` Detalle: ${detailMsg}` : '';
+        const res = { created, errors };
         if (created === 0) {
           // Dejamos el modal ABIERTO con el error visible (no llamamos onDone,
           // que lo cerraría desde el panel admin).
@@ -318,7 +335,12 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         }
       } catch (e) {
         setImporting(false);
-        setError(e instanceof Error ? e.message : 'No se pudo importar (¿backend sin desplegar?).');
+        const base = e instanceof Error ? e.message : 'No se pudo importar (¿backend sin desplegar?).';
+        // Los lotes ya confirmados NO se pierden ni se repiten: se le dice al
+        // usuario dónde quedó para que reintente solo con lo que falta.
+        setError(created > 0
+          ? `${base} Se alcanzaron a crear ${created} de ${validRows.length} productos: volvé a importar solo las filas que faltan.`
+          : base);
         // No cerramos: el usuario necesita ver el error.
       }
       return;
@@ -371,36 +393,54 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
       }
     };
 
-    // 2. Importar fila por fila resolviendo cat + unidad
+    // 2. Importar EN LOTES de 50, resolviendo cat + unidad.
+    //
+    // Antes era una fila detrás de otra: 250 productos eran 250 esperas
+    // encadenadas y la importación se hacía eterna (y el usuario, creyéndola
+    // colgada, cerraba el modal a medio camino). Ahora van de a 50, con 5
+    // simultáneas dentro de cada lote.
+    //
+    // El primer lote se hace de a UNA petición: las categorías y unidades nuevas
+    // se crean bajo demanda, y si 5 filas de la misma categoría entran a la vez
+    // se crearía cinco veces la misma. Con la primera tanda en serie los caches
+    // ya quedan llenos y el resto puede ir en paralelo sin duplicar nada.
     let okCount = 0, errCount = 0;
-    for (let i = 0; i < validRows.length; i++) {
-      const r = validRows[i];
-      try {
-        const [category_id, unit_type_id] = await Promise.all([
-          resolveCategory(r.category),
-          resolveUnit(r.unit_type),
-        ]);
-        await createProduct(tenantId, {
-          name:            r.name,
-          sku:             r.sku ?? '',
-          sku2:            r.sku2 ?? null,
-          description:     r.description,
-          unit_price:      r.unit_price,
-          cost_price:      r.cost_price,
-          stock_quantity:  r.stock_quantity ?? 0,
-          min_stock_level: r.min_stock_level ?? 0,
-          max_stock_level: r.max_stock_level ?? 100,
-          tracks_stock:    r.tracks_stock !== false,
-          category_id,
-          unit_type_id,
-          cabys_code:      r.cabys_code ?? null,
-          iva_rate:        r.iva_rate ?? 13,
-        } as any);
-        okCount++;
-      } catch (e) {
-        errCount++;
-        console.warn('[bulk-import] fallo:', r.name, e);
-      }
+    const batches = chunked(validRows, BULK_CHUNK_SIZE);
+    for (let b = 0; b < batches.length; b++) {
+      const results = await mapWithConcurrency(
+        batches[b],
+        async (r) => {
+          const [category_id, unit_type_id] = await Promise.all([
+            resolveCategory(r.category),
+            resolveUnit(r.unit_type),
+          ]);
+          await createProduct(tenantId, {
+            name:            r.name,
+            sku:             r.sku ?? '',
+            sku2:            r.sku2 ?? null,
+            description:     r.description,
+            unit_price:      r.unit_price,
+            cost_price:      r.cost_price,
+            stock_quantity:  r.stock_quantity ?? 0,
+            min_stock_level: r.min_stock_level ?? 0,
+            max_stock_level: r.max_stock_level ?? 100,
+            tracks_stock:    r.tracks_stock !== false,
+            category_id,
+            unit_type_id,
+            cabys_code:      r.cabys_code ?? null,
+            iva_rate:        r.iva_rate ?? 13,
+          } as any);
+        },
+        {
+          concurrency: b === 0 ? 1 : 5,
+          onProgress: (doneInBatch) =>
+            setProgress({ done: okCount + errCount + doneInBatch, total: validRows.length, errors: errCount }),
+        },
+      );
+      results.forEach((res, i) => {
+        if (res.ok) okCount++;
+        else { errCount++; console.warn('[bulk-import] fallo:', batches[b][i].name, res.error); }
+      });
       setProgress({ done: okCount + errCount, total: validRows.length, errors: errCount });
     }
     setImporting(false);

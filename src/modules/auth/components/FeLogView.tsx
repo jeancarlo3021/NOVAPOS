@@ -81,6 +81,8 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [reemitting, setReemitting] = useState<string | null>(null);
+  /** Factura para la que se está eligiendo el consecutivo de re-emisión. */
+  const [reemitFor, setReemitFor] = useState<{ id: string; num?: string } | null>(null);
   const [crediting, setCrediting] = useState<string | null>(null);
 
   // Descarga la bitácora a Excel con UNA FILA por comprobante y el IVA desglosado
@@ -173,20 +175,22 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
   // Re-emitir: vuelve a enviar la MISMA factura corrigiendo el consecutivo (usa el
   // "Próx." configurado en Datos de FE). Solo admin. Ojo: si Hacienda ya la aceptó,
   // esto genera un comprobante NUEVO con otro número.
-  const reemitOne = async (id: string, num?: string) => {
-    if (!window.confirm(
-      `¿Re-emitir la factura ${num ? `#${num}` : ''} con los datos ACTUALES del negocio?\n\n`
-      + 'Se vuelve a enviar a Hacienda con la cédula, el certificado, la actividad económica y la '
-      + 'empresa de Alanube que el negocio tiene configurados AHORA, y con un consecutivo nuevo '
-      + '(el ya transmitido queda quemado).\n\n'
-      + 'Si la factura YA fue aceptada por Hacienda, anulala primero con nota de crédito: si no, '
-      + 'quedan DOS comprobantes válidos por la misma venta.'
-    )) return;
+  // Se abre el modal en vez de re-emitir de una: el consecutivo hay que poder
+  // ELEGIRLO. Cuando el contador quedó atrasado respecto de lo que Hacienda ya
+  // recibió, «el siguiente» es justo el número que acaba de ser rechazado, y
+  // reintentar sin tocarlo falla siempre igual.
+  const reemitOne = (id: string, num?: string) => setReemitFor({ id, num });
+
+  const doReemit = async (id: string, consecutivo?: number) => {
+    setReemitFor(null);
     setReemitting(id);
     try {
-      const r = await apiFetch<any>(`/admin/fe-reemit/${id}`, { method: 'POST' });
+      const r = await apiFetch<any>(`/admin/fe-reemit/${id}`, {
+        method: 'POST',
+        body: JSON.stringify(consecutivo ? { consecutivo } : {}),
+      });
       await load(true);
-      window.alert(`Re-emitida ✓\nConsecutivo: ${r?.clave ?? r?.consecutivo ?? '—'}\nEstado: ${r?.alanube_status ?? r?.tipo ?? 'enviada'}`);
+      window.alert(`Re-emitida ✓\nClave: ${r?.clave ?? r?.consecutivo ?? '—'}\nEstado: ${r?.alanube_status ?? r?.tipo ?? 'enviada'}`);
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'No se pudo re-emitir');
     } finally { setReemitting(null); }
@@ -465,6 +469,157 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
           </div>
         </div>
       )}
+
+      {reemitFor && (
+        <ReemitModal
+          invoiceId={reemitFor.id}
+          invoiceNumber={reemitFor.num}
+          onClose={() => setReemitFor(null)}
+          onConfirm={(consec) => void doReemit(reemitFor.id, consec)}
+        />
+      )}
+    </div>
+  );
+};
+
+/** Datos del contador para la factura que se va a re-emitir. */
+interface NextConsec {
+  tipo: string; sucursal: string; terminal: string;
+  last_number: number; suggested: number; configured_next: number | null;
+}
+
+/**
+ * Elegir con qué consecutivo se re-emite.
+ *
+ * Antes la re-emisión tomaba siempre «el siguiente» de la serie. Eso funciona
+ * cuando la factura falló por datos malos, pero no cuando el contador quedó
+ * ATRASADO respecto de lo que Hacienda ya recibió —por ejemplo si el negocio
+ * emitió antes con otro sistema, o si un envío llegó y la respuesta se perdió—:
+ * ahí Hacienda contesta «numeration was already used» y cada reintento vuelve a
+ * pedir el mismo número quemado. La única salida es poder escribirlo a mano.
+ *
+ * El número que se ponga acá también ADELANTA el contador, así que las ventas
+ * normales siguen desde ahí y no vuelven a chocar.
+ */
+const ReemitModal: React.FC<{
+  invoiceId: string;
+  invoiceNumber?: string;
+  onClose: () => void;
+  onConfirm: (consecutivo?: number) => void;
+}> = ({ invoiceId, invoiceNumber, onClose, onConfirm }) => {
+  const [info, setInfo] = useState<NextConsec | null>(null);
+  const [value, setValue] = useState('');
+  const [manual, setManual] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch<NextConsec>(`/admin/fe-next-consecutivo/${invoiceId}`)
+      .then(d => { if (alive) { setInfo(d); setValue(String(d?.suggested ?? '')); } })
+      .catch(() => { /* sin contador se puede escribir igual */ })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [invoiceId]);
+
+  const n = Number(value.replace(/\D/g, ''));
+  const valid = !manual || (Number.isFinite(n) && n >= 1);
+  const tipoLabel = info?.tipo === '01' ? 'Factura electrónica' : 'Tiquete electrónico';
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="font-black text-gray-900">
+            Re-emitir {invoiceNumber ? `#${invoiceNumber}` : 'comprobante'}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 text-xs space-y-1.5">
+            <p>
+              Se vuelve a enviar con la cédula, el certificado, la actividad económica y la empresa de
+              Alanube que el negocio tiene configurados <b>ahora</b>.
+            </p>
+            <p>
+              Si Hacienda <b>ya la aceptó</b>, anulala primero con nota de crédito: si no, quedan dos
+              comprobantes válidos por la misma venta.
+            </p>
+          </div>
+
+          {loading ? (
+            <p className="text-sm text-gray-400">Consultando el contador…</p>
+          ) : (
+            <>
+              {info && (
+                <div className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 space-y-1">
+                  <p><b>{tipoLabel}</b> · sucursal {info.sucursal} · terminal {info.terminal}</p>
+                  <p>Último emitido según el sistema: <b>{String(info.last_number).padStart(10, '0')}</b></p>
+                  {info.configured_next ? (
+                    <p>Mínimo configurado en Datos de FE: {String(info.configured_next).padStart(10, '0')}</p>
+                  ) : null}
+                </div>
+              )}
+
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input type="radio" checked={!manual} onChange={() => setManual(false)} className="mt-1" />
+                <span>
+                  <b>El siguiente de la serie</b>
+                  {info ? <> — {String(info.suggested).padStart(10, '0')}</> : null}
+                  <span className="block text-xs text-gray-500">
+                    Lo normal cuando la factura falló por datos incorrectos.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input type="radio" checked={manual} onChange={() => setManual(true)} className="mt-1" />
+                <span className="flex-1">
+                  <b>Escribir el consecutivo</b>
+                  <span className="block text-xs text-gray-500 mb-2">
+                    Usalo si Hacienda respondió «numeration was already used»: significa que ese número
+                    ya se gastó y hay que saltar al primero libre.
+                  </span>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={value}
+                    onChange={e => { setValue(e.target.value); setManual(true); }}
+                    onFocus={() => setManual(true)}
+                    placeholder="Ej. 260"
+                    className="w-44 px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500"
+                  />
+                  {manual && n >= 1 && (
+                    <span className="block text-xs text-gray-500 mt-1.5">
+                      Sale como <b className="font-mono">{String(n).padStart(10, '0')}</b>.
+                      El contador queda en ese número, así que la próxima venta usa el {n + 1}.
+                    </span>
+                  )}
+                  {manual && info && n > 0 && n <= info.last_number && (
+                    <span className="block text-xs text-red-600 mt-1.5">
+                      ⚠️ El sistema ya usó hasta el {info.last_number}. Un número igual o menor lo más
+                      probable es que Hacienda lo rechace otra vez.
+                    </span>
+                  )}
+                </span>
+              </label>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100">
+            Cancelar
+          </button>
+          <button
+            onClick={() => onConfirm(manual ? n : undefined)}
+            disabled={loading || !valid}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-black">
+            Re-emitir
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
