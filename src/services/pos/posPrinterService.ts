@@ -605,6 +605,8 @@ export class POSPrinterService {
     expected_amount: number;     // efectivo esperado = fondo + ventas efvo + entradas - salidas
     /** Ventas a CRÉDITO y otros métodos: no dejan dinero contable en la caja. */
     non_countable_sales?: number;
+    /** Detalle de las ventas del turno (para cotejar el arqueo una por una). */
+    sales?: Array<{ number: string; time: string; method: string; total: number; kind?: string }>;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
     invoices_count: number;
     invoices_total: number;
@@ -2356,6 +2358,165 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
 
     return new Uint8Array(cmds);
+  }
+
+  /**
+   * CIERRE DEL DÍA: consolidado de todas las cajas del día natural.
+   *
+   * No reemplaza al cierre de cada caja —ese es el arqueo de cada cajero, con su
+   * firma—; esto es el resumen del negocio: cuánto se vendió en total entre las
+   * 00:00 y las 24:00, sin importar cuántas veces se abrió y cerró caja.
+   */
+  async printDailyClose(summary: {
+    date: string;
+    sessions: Array<{
+      cashier?: string; opened_at?: string; closed_at?: string; status?: string;
+      opening_amount?: number; closing_amount?: number; count?: number; total?: number;
+      cash?: number; card?: number; sinpe?: number;
+    }>;
+    totals: {
+      sesiones: number; abiertas: number; facturas: number;
+      cash: number; card: number; sinpe: number; credit: number; transfer: number; other: number;
+      ventas: number; arqueable: number; fondos: number; contado: number;
+      anuladas: number; anuladas_total: number; delivery: number; delivery_total: number;
+    } | null;
+  }, tenantId: string): Promise<void> {
+    const cfg = await this.loadReceiptConfig(tenantId);
+    // Datos del local desde cache (igual que el cierre de caja).
+    let general: any = null;
+    try {
+      const cached = localStorage.getItem(`novapos_cache_${tenantId}_settings_general`);
+      if (cached) { const parsed = JSON.parse(cached); general = parsed?.data ?? parsed; }
+    } catch { /* sin nombre del negocio, el tiquete sale igual */ }
+    const t = summary.totals;
+    if (!t) throw new Error('No hubo cierres de caja hoy.');
+
+    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
+    const cmds: number[] = [];
+    const push = (...b2: number[]) => cmds.push(...b2);
+    const text = (str: string) => push(...encodeCP437(str));
+    const nl = () => push(0x0A);
+    const sep = () => { text('-'.repeat(charWidth)); nl(); };
+    const centerText = (str: string) => {
+      const pad = Math.max(0, Math.floor((charWidth - str.length) / 2));
+      text(' '.repeat(pad) + str); nl();
+    };
+    const row = (label: string, val: string) => {
+      const sp = Math.max(1, charWidth - label.length - val.length);
+      text(label + ' '.repeat(sp) + val); nl();
+    };
+    const fmt = (n: number) => `${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
+    const hora = (v?: string) => {
+      try { return v ? new Date(v).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }) : '--:--'; }
+      catch { return '--:--'; }
+    };
+
+    push(0x1B, 0x40); push(0x1C, 0x2E); push(0x1B, 0x52, 0x00); push(0x1B, 0x74, 0x00);
+
+    push(0x1B, 0x21, 0x10);
+    centerText('CIERRE DEL DIA');
+    push(0x1B, 0x21, 0x00);
+    if (general?.businessName) centerText(String(general.businessName));
+    centerText(new Date(`${summary.date}T12:00:00`).toLocaleDateString('es-CR', { dateStyle: 'full' }));
+    centerText('00:00 a 24:00');
+    sep();
+
+    // Una línea por caja: es lo que permite ubicar de quién viene un descuadre.
+    centerText(`CAJAS DEL DIA (${t.sesiones})`);
+    for (const s2 of summary.sessions) {
+      const quien = (s2.cashier || 'Sin nombre').slice(0, charWidth - 14);
+      row(`${hora(s2.opened_at)}-${hora(s2.closed_at)} ${quien}`, fmt(s2.total ?? 0));
+    }
+    if (t.abiertas > 0) {
+      nl();
+      centerText(`** ${t.abiertas} CAJA(S) SIN CERRAR **`);
+    }
+    sep();
+
+    centerText('VENTAS DEL DIA');
+    row('Efectivo:', fmt(t.cash));
+    row('Datafono:', fmt(t.card));
+    row('SINPE:', fmt(t.sinpe));
+    if (t.transfer > 0) row('Transferencia:', fmt(t.transfer));
+    if (t.credit > 0) row('Credito:', fmt(t.credit));
+    if (t.other > 0) row('Otros:', fmt(t.other));
+    sep();
+    push(0x1B, 0x21, 0x10);
+    row('TOTAL:', fmt(t.ventas));
+    push(0x1B, 0x21, 0x00);
+    row('Facturas:', String(t.facturas));
+    if (t.anuladas > 0) row('Anuladas:', `${t.anuladas} · ${fmt(t.anuladas_total)}`);
+    if (t.delivery > 0) row('Delivery (aparte):', `${t.delivery} · ${fmt(t.delivery_total)}`);
+    sep();
+
+    // El arqueo del día: solo lo que deja dinero contable en las cajas.
+    centerText('ARQUEO DEL DIA');
+    row('Fondos de apertura:', fmt(t.fondos));
+    row('+ Ventas arqueables:', fmt(t.arqueable));
+    const esperado = t.fondos + t.arqueable;
+    row('ESPERADO:', fmt(esperado));
+    row('CONTADO:', fmt(t.contado));
+    const dif = t.contado - esperado;
+    push(0x1B, 0x21, 0x10);
+    centerText(`${dif === 0 ? 'CUADRADO' : dif > 0 ? 'SOBRANTE' : 'FALTANTE'}: ${fmt(Math.abs(dif))}`);
+    push(0x1B, 0x21, 0x00);
+    if (t.credit > 0 || t.transfer > 0) {
+      nl();
+      text('No arquea (credito/transferencia):'); nl();
+      row('', fmt(t.credit + t.transfer));
+    }
+    sep();
+
+    nl();
+    centerText('FIRMA RESPONSABLE');
+    nl(); nl();
+    centerText('____________________');
+    nl();
+    centerText(`Impreso ${new Date().toLocaleString('es-CR')}`);
+
+    nl(); nl();
+    push(0x1D, 0x56, 0x00);
+
+    const bytes = new Uint8Array(cmds);
+    // Mismo ruteo que el cierre de caja: Bluetooth / QZ / navegador.
+    if (cfg.printerType === 'bluetooth' && webBluetoothAvailable()) {
+      const { btPrint } = await import('./bluetoothPrinterService');
+      await btPrint(bytes);
+      return;
+    }
+    if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+      if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
+      await qzConnect();
+      const receiptPrinters = (cfg.printers ?? []).filter(p2 => p2.type === 'receipt' && p2.is_active);
+      if (receiptPrinters.length > 0) for (const p2 of receiptPrinters) await qzPrintToPrinter(p2, bytes);
+      else await qzPrintDefault(bytes);
+      return;
+    }
+    // Navegador: versión en HTML.
+    await this.printHTMLContent(this.renderA4FromLines([
+      { t: 'title', a: 'CIERRE DEL DÍA' },
+      ...(general?.businessName ? [{ t: 'center' as const, a: String(general.businessName) }] : []),
+      { t: 'center', a: `${summary.date} · 00:00 a 24:00` },
+      { t: 'sep' }, { t: 'title', a: `CAJAS (${t.sesiones})` },
+      ...summary.sessions.map(s2 => ({
+        t: 'row', a: `${hora(s2.opened_at)}-${hora(s2.closed_at)} ${s2.cashier || 'Sin nombre'}`,
+        b: `₡${fmt(s2.total ?? 0)}`,
+      })),
+      { t: 'sep' }, { t: 'title', a: 'VENTAS DEL DÍA' },
+      { t: 'row', a: 'Efectivo', b: `₡${fmt(t.cash)}` },
+      { t: 'row', a: 'Datáfono', b: `₡${fmt(t.card)}` },
+      { t: 'row', a: 'SINPE', b: `₡${fmt(t.sinpe)}` },
+      ...(t.transfer > 0 ? [{ t: 'row' as const, a: 'Transferencia', b: `₡${fmt(t.transfer)}` }] : []),
+      ...(t.credit > 0 ? [{ t: 'row' as const, a: 'Crédito', b: `₡${fmt(t.credit)}` }] : []),
+      { t: 'row', a: 'TOTAL', b: `₡${fmt(t.ventas)}` },
+      { t: 'row', a: 'Facturas', b: String(t.facturas) },
+      { t: 'sep' }, { t: 'title', a: 'ARQUEO DEL DÍA' },
+      { t: 'row', a: 'Fondos de apertura', b: `₡${fmt(t.fondos)}` },
+      { t: 'row', a: 'Ventas arqueables', b: `₡${fmt(t.arqueable)}` },
+      { t: 'row', a: 'Esperado', b: `₡${fmt(esperado)}` },
+      { t: 'row', a: 'Contado', b: `₡${fmt(t.contado)}` },
+      { t: 'row', a: dif === 0 ? 'CUADRADO' : dif > 0 ? 'SOBRANTE' : 'FALTANTE', b: `₡${fmt(Math.abs(dif))}` },
+    ]));
   }
 
   /**

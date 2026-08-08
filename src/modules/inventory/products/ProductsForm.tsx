@@ -373,9 +373,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
       if (!isProductsOnly) {
         productData.category_id = formData.category_id || undefined;
         productData.unit_type_id = formData.unit_type_id || undefined;
-        productData.stock_quantity = parseInt(formData.stock_quantity) || 0;
-        productData.min_stock_level = parseInt(formData.min_stock_level) || 10;
-        productData.max_stock_level = parseInt(formData.max_stock_level) || 100;
+        // parseFloat, NO parseInt: un producto por peso tiene 2.5 kg de
+        // existencia, y con parseInt se guardaba 2 — media unidad evaporada en
+        // cada guardado.
+        productData.stock_quantity = parseFloat(formData.stock_quantity) || 0;
+        productData.min_stock_level = parseFloat(formData.min_stock_level) || 10;
+        productData.max_stock_level = parseFloat(formData.max_stock_level) || 100;
       }
       // Proveedor (relación opcional). null explícito para poder desasociar.
       (productData as any).supplier_id = formData.supplier_id || null;
@@ -917,6 +920,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     onChange={handleChange}
                     placeholder="0"
                     min="0"
+                    /* Sin `step`, el navegador asume 1 y marca inválido cualquier
+                       decimal: por eso no dejaba escribir 2.5 kg. */
+                    step="any"
                     disabled={submitting}
                     className="w-full px-4 py-2.5 text-lg font-bold border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 tabular-nums"
                   />
@@ -1088,6 +1094,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                         onChange={handleChange}
                         placeholder="10"
                         min="0"
+                        step="any"
                         disabled={submitting}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                       />
@@ -1101,6 +1108,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                         onChange={handleChange}
                         placeholder="100"
                         min="0"
+                        step="any"
                         disabled={submitting}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                       />

@@ -387,7 +387,14 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                           <td colSpan={7} className="px-6 py-3 space-y-3">
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                               <p className="text-[11px] text-gray-400">
-                                Consecutivo actual: <b className="font-mono text-gray-600">#{r.invoice_number}</b>
+                                {/* Son DOS numeraciones distintas y conviene decirlo:
+                                    el N° interno es el de la venta en el sistema
+                                    (corre para todas las facturas del negocio), y el
+                                    consecutivo de Hacienda es propio de cada tipo de
+                                    comprobante. Que no coincidan es lo NORMAL. */}
+                                N° interno de la venta:{' '}
+                                <b className="font-mono text-gray-600">#{r.invoice_number}</b>
+                                <span className="text-gray-300"> (no es el consecutivo de Hacienda)</span>
                                 {r.emisor_cedula && (
                                   <>
                                     {' · '}Emisor en la clave:{' '}

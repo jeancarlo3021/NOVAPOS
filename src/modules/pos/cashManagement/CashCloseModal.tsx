@@ -39,10 +39,16 @@ interface CashCloseModalProps {
   onCancel: () => void;
 }
 
+/** A partir de esta hora (CR) se ofrece el cierre del día al cerrar una caja. */
+const DAILY_CLOSE_FROM_HOUR = 18;
+
 export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSuccess, onCancel }) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('cash');
   const [loading, setLoading] = useState(false);
+  /** Cierre del día pendiente de ofrecer (sesión ya cerrada). */
+  const [askDaily, setAskDaily] = useState<CashSession | null>(null);
+
   const [error, setError] = useState('');
 
   // ── Efectivo ──
@@ -77,6 +83,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     deliveryCount: number; deliveryTotal: number; deliveryNet: number;
     excludedCount: number; excludedTotal: number;   // clientes excluidos del cierre (ej. empleados)
     cashIn: number; cashOut: number; movements: SysMovement[];
+    /** Detalle de las ventas del turno, para imprimirlo en el cierre. */
+    sales: Array<{ number: string; time: string; method: string; total: number; kind: string }>;
     usdReceived: number;   // dólares recibidos en ventas en efectivo $
     usdChangeOut: number;  // dólares entregados como vuelto
     loaded: boolean;
@@ -86,7 +94,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     invoicesCount: 0, invoicesTotal: 0,
     voidsCount: 0, voidsTotal: 0, deliveryCount: 0, deliveryTotal: 0, deliveryNet: 0,
     excludedCount: 0, excludedTotal: 0,
-    cashIn: 0, cashOut: 0, movements: [], usdReceived: 0, usdChangeOut: 0, loaded: false,
+    cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, loaded: false,
   });
 
   useEffect(() => {
@@ -165,6 +173,18 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         const cashIn = movements.filter(m => m.type === 'in').reduce((s, m) => s + m.amount, 0);
         // El vuelto en ₡ de ventas pagadas en $ también es efectivo que SALE de la caja.
         const cashOut = movements.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0) + usdCrcChangeOut;
+        // Detalle de ventas del turno, ordenado por hora. Se imprime en el cierre
+        // para que el arqueo pueda cotejarse venta por venta.
+        const salesDetail = invoices
+          .map((i: any) => ({
+            number: String(i.invoice_number ?? i.id ?? ''),
+            time: String(i.issued_at ?? i.created_at ?? ''),
+            method: String(i.payment_method ?? ''),
+            total: Number(i.total ?? 0),
+            kind: String(i.document_type ?? ''),
+          }))
+          .sort((x: any, y: any) => String(x.time).localeCompare(String(y.time)));
+
         setSys({
           cash: sCash, card: sCard, sinpe: sSinpe,
           credit: sCredit, transfer: sTransfer, other: sOther,
@@ -173,7 +193,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           voidsCount, voidsTotal,
           deliveryCount, deliveryTotal, deliveryNet,
           excludedCount, excludedTotal,
-          cashIn, cashOut, movements, usdReceived, usdChangeOut, loaded: true,
+          cashIn, cashOut, movements, sales: salesDetail,
+          usdReceived, usdChangeOut, loaded: true,
         });
       } catch {
         if (!cancel) setSys(prev => ({ ...prev, loaded: true }));
@@ -385,6 +406,17 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           }),
         }).catch(() => {});
       } catch { /* no bloquear el cierre */ }
+
+      // Cierre del día: se ofrece SOLO de tarde, cuando ya no se va a volver a
+      // abrir caja. Antes de esa hora el consolidado estaría incompleto y
+      // preguntarlo en cada cambio de turno sería puro ruido.
+      const hora = Number(new Date().toLocaleString('en-US', {
+        timeZone: 'America/Costa_Rica', hour: '2-digit', hour12: false,
+      }));
+      if (hora >= DAILY_CLOSE_FROM_HOUR) {
+        setAskDaily(updatedSession);
+        return;   // el modal del día se encarga de cerrar esta pantalla
+      }
 
       onSuccess(updatedSession);
     } catch (err) {
@@ -708,6 +740,67 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           </div>
         </div>
 
+      </div>
+
+      {askDaily && (
+        <DailyCloseAsk
+          tenantId={user?.tenant_id ?? ''}
+          onDone={() => { const ses = askDaily; setAskDaily(null); onSuccess(ses); }}
+        />
+      )}
+    </div>
+  );
+};
+
+/**
+ * Cierre del día.
+ *
+ * Aparece después de cerrar una caja, solo de tarde. Junta TODAS las cajas del
+ * día natural (00:00 a 24:00) en un consolidado: un negocio abre y cierra caja
+ * varias veces —turnos, dos cajeros— y hasta ahora saber cuánto vendió el día
+ * entero era sumar tiquetes a mano.
+ */
+const DailyCloseAsk: React.FC<{
+  tenantId: string;
+  onDone: () => void;
+}> = ({ tenantId, onDone }) => {
+  const [printing, setPrinting] = useState(false);
+  const [err, setErr] = useState('');
+
+  const print = async () => {
+    setPrinting(true); setErr('');
+    try {
+      const data = await apiFetch<any>('/cash-sessions/daily-summary');
+      if (!data?.totals) { setErr('Hoy no hay cierres de caja para consolidar.'); return; }
+      await posPrinterService.printDailyClose(data, tenantId);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo imprimir el cierre del día');
+    } finally { setPrinting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+        <div className="text-4xl mb-2">🌙</div>
+        <h3 className="text-lg font-black text-gray-900">¿Imprimir el cierre del día?</h3>
+        <p className="text-sm text-gray-600 mt-1">
+          Un consolidado de <b>todas las cajas de hoy</b> (00:00 a 24:00): ventas por método,
+          arqueo y diferencia del día completo.
+        </p>
+        {err && (
+          <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>
+        )}
+        <div className="flex gap-2 mt-5">
+          <button onClick={onDone} disabled={printing}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-bold text-sm disabled:opacity-50">
+            Ahora no
+          </button>
+          <button onClick={print} disabled={printing}
+            className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-sm disabled:opacity-50">
+            {printing ? 'Imprimiendo…' : 'Imprimir'}
+          </button>
+        </div>
       </div>
     </div>
   );
