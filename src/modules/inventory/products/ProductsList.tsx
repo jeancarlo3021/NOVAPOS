@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, RotateCw, FileSpreadsheet, Tag, Printer, X, Download } from 'lucide-react';
+import { Plus, Search, RotateCw, FileSpreadsheet, Tag, Printer, X, Download, Truck } from 'lucide-react';
 import { downloadXlsx } from '@/utils/xlsx';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
@@ -25,6 +25,8 @@ export const ProductsList: React.FC = () => {
   const [showBulk, setShowBulk] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  // '' = todos · '__none__' = productos sin proveedor asignado
+  const [supplierFilter, setSupplierFilter] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Impresión masiva de etiquetas
   const [selectMode, setSelectMode] = useState(false);
@@ -60,9 +62,32 @@ export const ProductsList: React.FC = () => {
     }
   };
 
-  const filteredProducts = products.filter(p =>
-    fuzzyMatch(searchTerm, p.name, p.sku, (p as any).sku2, (p as any).description)
-  );
+  // Proveedores para el desplegable: se sacan de los propios productos en vez de
+  // pedir la lista completa. Así el filtro solo ofrece proveedores que de verdad
+  // tienen productos —elegir uno nunca deja la pantalla vacía— y no hace falta
+  // una consulta más para dibujar el catálogo.
+  const suppliersEnabled = (planFeatures as any)?.inventory_suppliers !== false;
+  const supplierOptions = React.useMemo(() => {
+    const byId = new Map<string, string>();
+    let sinProveedor = 0;
+    for (const p of products) {
+      const id = (p as any).supplier_id;
+      if (!id) { sinProveedor++; continue; }
+      byId.set(id, (p as any).supplier?.name ?? (p as any).supplier_name ?? 'Proveedor sin nombre');
+    }
+    return {
+      list: [...byId].map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'es')),
+      sinProveedor,
+    };
+  }, [products]);
+
+  const filteredProducts = products.filter(p => {
+    if (!fuzzyMatch(searchTerm, p.name, p.sku, (p as any).sku2, (p as any).description)) return false;
+    if (!supplierFilter) return true;
+    const id = (p as any).supplier_id ?? null;
+    return supplierFilter === '__none__' ? !id : id === supplierFilter;
+  });
 
   // Exporta a Excel con las MISMAS columnas que espera "Importar Excel", así el
   // archivo se puede editar y volver a subir. Los números salen como número real
@@ -249,17 +274,47 @@ export const ProductsList: React.FC = () => {
         <Alert type="warning" message={`⚠️ ${lowStockProducts.length} producto(s) con stock bajo`} />
       )}
 
-      {/* Buscador */}
-      <div className="relative">
-        <Search className="absolute left-3 top-3 text-gray-400" size={20} />
-        <input
-          type="text"
-          placeholder="Buscar por nombre o SKU..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          disabled={loading}
-          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-        />
+      {/* Buscador + filtro por proveedor */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+          <input
+            type="text"
+            placeholder="Buscar por nombre o SKU..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            disabled={loading}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+          />
+        </div>
+        {suppliersEnabled && (supplierOptions.list.length > 0 || supplierFilter) && (
+          <div className="relative sm:w-64">
+            <Truck className="absolute left-3 top-3 text-gray-400 pointer-events-none" size={18} />
+            <select
+              value={supplierFilter}
+              onChange={(e) => setSupplierFilter(e.target.value)}
+              disabled={loading}
+              className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 appearance-none"
+            >
+              <option value="">Todos los proveedores</option>
+              {supplierOptions.list.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+              {supplierOptions.sinProveedor > 0 && (
+                <option value="__none__">Sin proveedor ({supplierOptions.sinProveedor})</option>
+              )}
+            </select>
+          </div>
+        )}
+        {supplierFilter && (
+          <Button
+            onClick={() => setSupplierFilter('')}
+            variant="secondary"
+            className="flex items-center gap-1.5 shrink-0"
+          >
+            <X size={16} /> Quitar filtro
+          </Button>
+        )}
       </div>
 
       {/* Contenido Principal */}
@@ -308,9 +363,17 @@ export const ProductsList: React.FC = () => {
         <Card>
           <CardContent className="text-center py-12">
             <p className="text-gray-500 text-lg">
-              {searchTerm ? 'No hay productos que coincidan con tu búsqueda' : 'No hay productos registrados'}
+              {searchTerm || supplierFilter
+                ? 'No hay productos que coincidan con los filtros'
+                : 'No hay productos registrados'}
             </p>
-            {!searchTerm && !isReadOnly && canCreate && (
+            {supplierFilter && (
+              <Button onClick={() => { setSupplierFilter(''); setSearchTerm(''); }}
+                variant="secondary" className="mt-4">
+                Quitar filtros
+              </Button>
+            )}
+            {!searchTerm && !supplierFilter && !isReadOnly && canCreate && (
               <Button
                 onClick={() => { setEditingId(null); setShowForm(true); }}
                 className="mt-4 bg-blue-600 hover:bg-blue-700"
