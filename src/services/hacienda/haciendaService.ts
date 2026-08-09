@@ -58,7 +58,18 @@ export interface ReconcileBody {
   /** La compra NO genera productos de catálogo (insumos de proceso), pero su monto
    *  sí se registra en la orden de compra. */
   no_products?: boolean;
-  items: Array<{ detail: string; quantity: number; unit_price: number; total?: number; cabys?: string | null; product_id?: string | null; action: 'update' | 'create' | 'skip'; no_stock?: boolean }>;
+  items: Array<{
+    detail: string; quantity: number; unit_price: number; total?: number;
+    cabys?: string | null; product_id?: string | null;
+    action: 'update' | 'create' | 'skip'; no_stock?: boolean;
+    /** Precio de venta ya calculado (costo × margen), redondeado al colón. */
+    sale_price?: number;
+    /** Segundo código del producto (barras / proveedor). null = no tocarlo. */
+    sku2?: string | null;
+    /** Escribir `sale_price` en el producto. En los que ya existen va apagado
+     *  salvo que el usuario lo pida: si no, una compra reescribiría precios. */
+    reprice?: boolean;
+  }>;
   /**
    * Conciliación por lotes (ver `reconcileReceivedInBatches`).
    *  · 'products' → procesa este lote de líneas y devuelve las resueltas.

@@ -17,6 +17,7 @@ import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { usePOSLayout } from '@/hooks/usePOSLayout';
 import { ProductSearchModal } from './ProductSearchModal';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
+import { displayPrice, productIvaPct } from '@/utils/priceUtils';
 import { modifiersService, indexByProduct, type ModifierGroup, type SelectedModifier } from '@/services/modifiers/modifiersService';
 import { ModifierPickerModal } from './ModifierPickerModal';
 
@@ -60,6 +61,12 @@ interface POSProductsPanelProps {
   /** Preguntar EXTRAS y modificadores al agregar un plato. Solo tiene sentido en
    *  el POS de restaurante: en una tienda o en el pedido de un agente estorba. */
   enableModifiers?: boolean;
+  /** IVA activo en la configuración del negocio. */
+  taxEnabled?: boolean;
+  /** IVA global en tanto por uno (0.13). Solo se usa si el producto no trae el suyo. */
+  taxRate?: number;
+  /** Mostrar el precio YA con IVA. Solo presentación: no cambia lo que se cobra. */
+  showPricesWithTax?: boolean;
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
@@ -78,19 +85,31 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   deliveryMode = false,
   onClearFavorites,
   enableModifiers = false,
+  taxEnabled: taxEnabledProp,
+  taxRate: taxRateProp,
+  showPricesWithTax: showPricesWithTaxProp,
 }) => {
   const { tenantId } = useTenantId();
   const { planFeatures } = useAuth();
   const { layout } = usePOSLayout();
 
-  // IVA activado en la configuración → mostramos el IVA por producto en el POS.
-  const taxEnabled = (() => {
+  // Config de impuestos. Normalmente llega por props desde el POS; el respaldo
+  // desde el caché es para cuando este panel se monta suelto (y para no quedarse
+  // sin nada mientras la configuración carga).
+  const taxCfg = (() => {
     try {
       const c = cacheGet<any>(cacheKey(tenantId ?? '', 'settings_general')) ?? cacheGet<any>(cacheKey(tenantId ?? '', 'general_settings'));
-      const cfg = c?.config ?? c;
-      return cfg?.taxEnabled !== false;
-    } catch { return true; }
+      return c?.config ?? c ?? {};
+    } catch { return {} as any; }
   })();
+  const taxEnabled = taxEnabledProp ?? (taxCfg?.taxEnabled !== false);
+  const globalIvaPct = taxRateProp != null
+    ? taxRateProp * 100
+    : (typeof taxCfg?.taxPercentage === 'number' ? taxCfg.taxPercentage : 13);
+  const withTax = showPricesWithTaxProp ?? (taxCfg?.showPricesWithTax !== false);
+  /** Precio a MOSTRAR en las tarjetas: con IVA si así está configurado. */
+  const shownPrice = (price: number, product: any) =>
+    displayPrice(price, productIvaPct(product, globalIvaPct), { taxEnabled, withTax });
   // Categoría activa: 'all' o el id de la categoría seleccionada.
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [weightProduct, setWeightProduct]   = useState<Product | null>(null);
@@ -434,7 +453,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                       {p.sku && <span className="block text-[11px] font-mono text-gray-400">{p.sku}</span>}
                     </span>
                     <span className="font-black text-emerald-600 shrink-0">
-                      ₡{Number(p.unit_price ?? 0).toLocaleString('es-CR')}
+                      ₡{shownPrice(Number(p.unit_price ?? 0), p).toLocaleString('es-CR')}
                     </span>
                   </button>
                 ))}
@@ -788,11 +807,11 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                       <span className="mt-auto leading-none">
                         {hasSpecial && (
                           <span className="block text-sm font-bold text-gray-400 line-through">
-                            ₡{Math.round(Number(product.unit_price ?? 0)).toLocaleString('es-CR')}
+                            ₡{Math.round(shownPrice(Number(product.unit_price ?? 0), product)).toLocaleString('es-CR')}
                           </span>
                         )}
                         <span className={`font-black text-lg leading-none ${isDeliveryPrice ? 'text-orange-600' : hasSpecial ? 'text-violet-600' : 'text-emerald-600'}`}>
-                          ₡{Math.round(Number(shown ?? 0)).toLocaleString('es-CR')}
+                          ₡{Math.round(shownPrice(Number(shown ?? 0), product)).toLocaleString('es-CR')}
                           {isWeight && (
                             <span className="text-xs font-bold text-gray-400">
                               /{product.unit_type?.abbreviation ?? 'kg'}
@@ -805,9 +824,16 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                         {hasSpecial && (
                           <span className="block text-[10px] font-bold text-violet-600 uppercase tracking-wide">Precio cliente</span>
                         )}
+                        {/* Con precios CON IVA la etiqueta tiene que decir que ya
+                            está incluido: un "IVA 13%" al lado de un precio final
+                            se lee como que todavía falta sumarlo. */}
                         {taxEnabled && (product as any).iva_rate != null && (product as any).iva_rate !== '' && (
                           <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700">
-                            IVA {Number((product as any).iva_rate) === 0 ? 'Exento' : `${Number((product as any).iva_rate)}%`}
+                            {Number((product as any).iva_rate) === 0
+                              ? 'IVA Exento'
+                              : withTax
+                                ? `IVA ${Number((product as any).iva_rate)}% incl.`
+                                : `IVA ${Number((product as any).iva_rate)}%`}
                           </span>
                         )}
                       </span>

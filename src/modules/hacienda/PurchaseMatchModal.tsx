@@ -36,8 +36,28 @@ interface Row {
   infinite?: boolean;
   /** Para líneas NUEVAS: crear el producto sin control de stock (infinito). */
   noStock?: boolean;
+  /** Margen de venta de ESTA línea, en %. `null` = usar el margen general. */
+  margin?: number | null;
+  /** Segundo código del producto (código de barras, código del proveedor…). */
+  sku2?: string;
   action: Action;
 }
+
+/** Margen general de la última recepción: casi siempre se repite. */
+const MARGIN_KEY = 'novapos_reception_margin';
+const loadMargin = (): number => {
+  const v = Number(localStorage.getItem(MARGIN_KEY));
+  return Number.isFinite(v) && v >= 0 ? v : 30;
+};
+
+/**
+ * Precio de venta a partir del costo y el margen.
+ *
+ * Se redondea al colón: un precio de góndola de ₡10 358,40 no existe, y dejarlo
+ * con decimales obliga al cajero a corregirlo producto por producto después.
+ */
+const salePrice = (cost: number, marginPct: number): number =>
+  Math.round(cost * (1 + (Number(marginPct) || 0) / 100));
 
 interface Props {
   receivedId: string;
@@ -60,6 +80,14 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
   // empaques… todo lo que se compra pero no se vende en tienda. Pone todas las
   // líneas nuevas en "No agregar" de una sola vez.
   const [noProducts, setNoProducts] = useState(false);
+  // Margen de venta general (%). Se aplica a todas las líneas que no tengan uno
+  // propio. Sin esto los productos nuevos entraban con precio de venta IGUAL al
+  // costo y había que corregirlos uno por uno después de cada compra.
+  const [margin, setMargin] = useState<number>(loadMargin);
+  // Recalcular también el precio de los productos que YA existen. Va apagado a
+  // propósito: al conciliar una compra, reescribir de una los precios de venta
+  // del catálogo es demasiado destructivo para que pase sin pedirlo.
+  const [repriceExisting, setRepriceExisting] = useState(false);
   // Picker para relacionar una línea NUEVA con un producto existente.
   const [products, setProducts] = useState<PickProduct[]>([]);
   const [linkIdx, setLinkIdx] = useState<number | null>(null);
@@ -147,6 +175,11 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
           detail: cleanName(r.detail), quantity: r.quantity, unit_price: effUnit(r), total: r.total,
           cabys: r.cabys ?? null, product_id: r.product_id, action: r.action,
           no_stock: r.noStock ?? noInventory,
+          // Precio de venta ya calculado acá: es exactamente el que el usuario vio
+          // en la columna «P. Venta», así que no puede salir otro por redondeo.
+          sale_price: salePrice(effUnit(r), r.margin ?? margin),
+          sku2: (r.sku2 ?? '').trim() || null,
+          reprice: r.exists ? repriceExisting : true,
         })),
       }, (done, total) => setProgress({ done, total }));
       setResult(res.messages ?? []);
@@ -248,8 +281,11 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                   <tr>
                     <th className="text-left py-2">Artículo</th>
                     <th className="text-left py-2 pl-3">Código</th>
+                    <th className="text-left py-2 pl-3">2° código</th>
                     <th className="text-right py-2">Cant.</th>
-                    <th className="text-right py-2">P. Unit.</th>
+                    <th className="text-right py-2">Costo</th>
+                    <th className="text-center py-2 px-2">Margen</th>
+                    <th className="text-right py-2">P. Venta</th>
                     <th className="text-left py-2 pl-3">CABYS</th>
                     <th className="text-center py-2">Estado / Acción</th>
                   </tr>
@@ -322,8 +358,48 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                         )}
                       </td>
                       <td className="py-2 pl-3 font-mono text-[11px] text-gray-600">{r.code ?? '—'}</td>
+                      {/* Segundo código: el de barras, o el del proveedor cuando el
+                          primero ya se usó. Vacío = no se toca. */}
+                      <td className="py-2 pl-3">
+                        <input
+                          value={r.sku2 ?? ''}
+                          onChange={e => setRows(prev => prev.map((x, idx) => idx === i ? { ...x, sku2: e.target.value } : x))}
+                          disabled={r.action === 'skip'}
+                          placeholder="—"
+                          className="w-24 px-1.5 py-1 text-[11px] font-mono border border-gray-200 rounded focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-300"
+                        />
+                      </td>
                       <td className="py-2 text-right text-gray-600">{r.quantity}</td>
                       <td className="py-2 text-right text-gray-600">{fmt(effUnit(r))}</td>
+                      <td className="py-2 px-2 text-center">
+                        <div className="inline-flex items-center gap-0.5">
+                          <input
+                            type="text" inputMode="decimal"
+                            value={r.margin ?? ''}
+                            onChange={e => {
+                              const raw = e.target.value.replace(/[^\d.]/g, '');
+                              setRows(prev => prev.map((x, idx) => idx === i
+                                ? { ...x, margin: raw === '' ? null : Number(raw) } : x));
+                            }}
+                            disabled={r.action === 'skip'}
+                            placeholder={String(margin)}
+                            title="Margen de ESTA línea. Vacío = usa el margen general del pie."
+                            className="w-12 px-1 py-1 text-[11px] text-right border border-gray-200 rounded focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-300"
+                          />
+                          <span className="text-[10px] text-gray-400">%</span>
+                        </div>
+                      </td>
+                      <td className="py-2 text-right">
+                        {r.action === 'skip' ? (
+                          <span className="text-gray-300 text-[11px]">—</span>
+                        ) : r.exists && !repriceExisting ? (
+                          <span className="text-[10px] text-gray-400" title="El producto ya existe y no se está recalculando su precio de venta.">sin cambio</span>
+                        ) : (
+                          <span className="font-bold text-emerald-700">
+                            {fmt(salePrice(effUnit(r), r.margin ?? margin))}
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 pl-3 text-gray-400 font-mono text-[11px]">{r.cabys ?? '—'}</td>
                       <td className="py-2">
                         <div className="flex items-center justify-center gap-1">
@@ -358,6 +434,42 @@ export const PurchaseMatchModal: React.FC<Props> = ({ receivedId, onClose, onDon
                 <span className="text-sm font-bold text-gray-700">No añadir al inventario</span>
                 <span className="text-xs text-gray-400">(los productos no afectan el stock)</span>
               </label>
+
+              {/* Margen de venta general. Sin esto los productos nuevos entraban
+                  con precio de venta igual al costo. */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 bg-emerald-50/60 border border-emerald-100 rounded-lg px-3 py-2">
+                <label className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-gray-700">Margen de venta</span>
+                  <span className="inline-flex items-center gap-1">
+                    <input
+                      type="text" inputMode="decimal"
+                      value={String(margin)}
+                      onChange={e => {
+                        const raw = e.target.value.replace(/[^\d.]/g, '');
+                        const v = raw === '' ? 0 : Number(raw);
+                        setMargin(v);
+                        try { localStorage.setItem(MARGIN_KEY, String(v)); } catch { /* modo privado */ }
+                      }}
+                      className="w-16 px-2 py-1 text-sm text-right border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <span className="text-sm text-gray-500">%</span>
+                  </span>
+                </label>
+                <span className="text-xs text-gray-500">
+                  Se aplica sobre el costo del comprobante. Cada línea puede llevar el suyo.
+                </span>
+                <label className="flex items-center gap-2 cursor-pointer ml-auto">
+                  <input type="checkbox" checked={repriceExisting}
+                    onChange={e => setRepriceExisting(e.target.checked)} className="w-4 h-4 rounded" />
+                  <span className="text-xs font-bold text-gray-700">Recalcular también los que ya existen</span>
+                </label>
+                {repriceExisting && (
+                  <p className="w-full text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    ⚠️ Se va a sobrescribir el precio de venta de {updateCount} producto(s) del catálogo con
+                    costo × margen. Si alguno tiene un precio puesto a mano, se pierde.
+                  </p>
+                )}
+              </div>
               <div className="mb-2 text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="font-black text-gray-800">Total a registrar: {fmt(total)}</span>
                 {updateCount > 0 && <span className="text-emerald-700">✏️ {updateCount} coincide(n) → actualiza CABYS/precio</span>}

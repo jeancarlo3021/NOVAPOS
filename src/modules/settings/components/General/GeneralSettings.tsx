@@ -17,6 +17,11 @@ const DEFAULTS = {
   city: '',
   taxEnabled: true,
   taxPercentage: 13,
+  // Mostrar en el POS el precio CON IVA. Solo presentación: los precios se
+  // siguen guardando sin impuesto y el cobro no cambia. Va activo por defecto
+  // porque es lo que el cliente espera ver (y en CR el precio exhibido debe
+  // incluir los impuestos).
+  showPricesWithTax: true,
   // Apertura/cierre de caja. Si false, el POS vende sin caja (sesión automática).
   cashManagementEnabled: true,
   currency: 'CRC',
@@ -219,6 +224,38 @@ export const GeneralSettings: React.FC = () => {
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-semibold">%</span>
               </div>
+            </div>
+          )}
+
+          {/* Cómo se MUESTRAN los precios. No cambia lo que se guarda ni lo que
+              se cobra: solo si la pantalla enseña la base o el precio final. */}
+          {formData.taxEnabled && (
+            <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+              <div className="pr-3">
+                <p className="text-sm font-semibold text-gray-800">Mostrar precios con IVA incluido</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {formData.showPricesWithTax !== false
+                    ? 'El POS muestra el precio final que paga el cliente'
+                    : 'El POS muestra la base sin impuesto y el IVA se suma al cobrar'}
+                </p>
+                <p className="text-[11px] text-blue-600 mt-1">
+                  ℹ Solo afecta lo que se ve en pantalla. El total cobrado, la factura y los
+                  reportes no cambian.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, showPricesWithTax: prev.showPricesWithTax === false }))}
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                  formData.showPricesWithTax !== false ? 'bg-emerald-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                    formData.showPricesWithTax !== false ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
           )}
         </div>

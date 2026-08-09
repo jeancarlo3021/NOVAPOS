@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer, StickyNote } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 import type { AppliedCombo } from '@/services/promotions/promotionsService';
+import { displayPrice, productIvaPct } from '@/utils/priceUtils';
 
 // Formato de moneda con 2 decimales (el carrito muestra los céntimos).
 const money = (n: number) => Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -56,6 +57,9 @@ interface POSCartPanelProps {
   taxRate?: number;
   /** Desglose del IVA por tasa (ej. { 13: 1300, 1: 50 }). */
   taxBreakdown?: Record<number, number>;
+  /** Mostrar los precios de línea YA con IVA. Solo presentación: el total
+   *  cobrado es el mismo, y el resumen sigue mostrando base + IVA por separado. */
+  showPricesWithTax?: boolean;
   currentSession: CashSession | null;
   loading: boolean;
   /** El negocio desactivó apertura/cierre de caja: no mostramos "Abre la caja". */
@@ -92,6 +96,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   taxEnabled = true,
   taxRate = 0.13,
   taxBreakdown,
+  showPricesWithTax = true,
   currentSession,
   loading,
   cashDisabled = false,
@@ -110,6 +115,20 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
   const canPay = cartItems.length > 0 && currentSession?.status === 'open' && !loading;
+
+  // ── Precios de línea con IVA ─────────────────────────────────────────────
+  // El carrito calcula sobre la base sin impuesto (así lo exige la factura), pero
+  // lo que se ENSEÑA es el precio final: el cajero canta lo mismo que el cliente
+  // va a pagar. El IVA por línea se redondea igual que en POSMain, así que la
+  // suma de las líneas mostradas cuadra con el total de abajo.
+  const ivaPctOf = (item: CartItem) => productIvaPct(item.product as any, taxRate * 100);
+  /** Cualquier importe de esa línea, con el IVA del producto. */
+  const showAmount = (item: CartItem, amount: number) =>
+    displayPrice(amount, ivaPctOf(item), { taxEnabled, withTax: showPricesWithTax });
+  const showUnit = (item: CartItem) => showAmount(item, item.unit_price);
+  const showLine = (item: CartItem) => showAmount(item, item.subtotal);
+  /** ¿Los importes de línea llevan el IVA adentro? (para rotular el resumen) */
+  const linesWithTax = taxEnabled && showPricesWithTax;
 
   // ── Selección del carrito con el teclado ─────────────────────────────────
   // ↑ ↓ mueven la línea seleccionada y Supr (Delete) la borra. Se identifica por
@@ -257,7 +276,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                 <th className="text-left px-3 py-2">Producto</th>
                 <th className="text-center px-2 py-2 w-20">Disp.</th>
                 <th className="text-center px-2 py-2 w-32">Cantidad</th>
-                <th className="text-right px-2 py-2 w-24">P/U</th>
+                <th className="text-right px-2 py-2 w-24">P/U{linesWithTax && <span className="normal-case font-medium"> c/IVA</span>}</th>
                 {canDiscount && <th className="text-center px-2 py-2 w-20">Desc. %</th>}
                 <th className="text-right px-2 py-2 w-28">Subtotal</th>
                 <th className="w-10"></th>
@@ -366,7 +385,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                       </div>
                     </td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-600 font-semibold">
-                      ₡{money(item.unit_price)}
+                      ₡{money(showUnit(item))}
                     </td>
                     {canDiscount && (
                       <td className="px-2 py-1.5 text-center">
@@ -386,11 +405,11 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                     <td className="px-2 py-1.5 text-right tabular-nums">
                       {showOriginal && (
                         <div className="text-[10px] text-gray-300 line-through leading-none">
-                          ₡{money(originalSubtotal)}
+                          ₡{money(showAmount(item, originalSubtotal))}
                         </div>
                       )}
                       <div className={`font-black ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
-                        ₡{money(item.subtotal)}
+                        ₡{money(showLine(item))}
                       </div>
                     </td>
                     <td className="px-2 py-1.5 text-right">
@@ -431,10 +450,10 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                     )}
                   </span>
                   {showOriginal && (
-                    <span className="text-gray-300 text-[11px] line-through shrink-0">₡{money(originalSubtotal)}</span>
+                    <span className="text-gray-300 text-[11px] line-through shrink-0">₡{money(showAmount(item, originalSubtotal))}</span>
                   )}
                   <span className={`font-black text-sm shrink-0 tabular-nums ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
-                    ₡{money(item.subtotal)}
+                    ₡{money(showLine(item))}
                   </span>
                   <button
                     onPointerDown={() => onRemoveFromCart(item.product_id)}
@@ -463,7 +482,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                   >
                     <Plus size={14} />
                   </button>
-                  <span className="text-gray-400 text-[11px] font-medium ml-1 truncate">₡{money(item.unit_price)} c/u</span>
+                  <span className="text-gray-400 text-[11px] font-medium ml-1 truncate">₡{money(showUnit(item))} c/u</span>
 
                   {canDiscount && !hasPromo && (
                     <span className="ml-auto flex items-center gap-1 shrink-0">
@@ -508,8 +527,12 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
         {/* Resumen compacto de la venta (subtotal, IVA, descuentos, combos, redondeo).
             En formato lista se oculta: los totales ya se ven en la barra verde de arriba. */}
         {!expanded && cartItems.length > 0 && (() => {
-          const grossSubtotal = Math.round(cartItems.reduce((s, i) => s + i.unit_price * i.quantity, 0));
-          const totalDiscount = grossSubtotal - subtotal;
+          // El descuento se calcula con el MISMO criterio con que se muestran las
+          // líneas: si arriba los precios llevan IVA, la rebaja que se ve entre el
+          // precio tachado y el cobrado también lo lleva. Si no, los números de la
+          // lista y este renglón no coinciden.
+          const totalDiscount = Math.round(cartItems.reduce(
+            (s, i) => s + (showAmount(i, i.unit_price * i.quantity) - showLine(i)), 0));
           return (
             <div className="text-xs space-y-0.5">
               {totalDiscount > 0 && (
@@ -520,8 +543,11 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               )}
               {taxEnabled && taxAmount > 0 && (
                 <>
+                  {/* Con precios CON IVA arriba, este subtotal (la base, sin
+                      impuesto) es MENOR que la suma de las líneas de la lista.
+                      Sin decirlo, se lee como un error de cuentas. */}
                   <div className="flex justify-between text-gray-500">
-                    <span>Subtotal</span>
+                    <span>Subtotal{linesWithTax && ' sin IVA'}</span>
                     <span className="text-gray-800 font-bold">₡{money(subtotal)}</span>
                   </div>
                   {taxBreakdown && Object.keys(taxBreakdown).length > 0 ? (

@@ -229,6 +229,10 @@ export const POSMain = () => {
   // Apertura/cierre de caja (config del negocio). Si false, se vende sin caja.
   const [cashEnabled, setCashEnabled] = useState(true);
   const [taxRate, setTaxRate]         = useState(0.13);
+  // Mostrar los precios YA con IVA (Ajustes → General). Es solo presentación:
+  // el carrito sigue calculando sobre la base sin impuesto y el total cobrado es
+  // el mismo. Lo que cambia es que el cajero canta el precio que el cliente paga.
+  const [showPricesWithTax, setShowPricesWithTax] = useState(true);
   // Comisiones de delivery por plataforma (configuradas en Ajustes → Delivery).
   const [deliveryCommissions, setDeliveryCommissions] = useState<Record<string, number>>({});
   // Modo de venta: mesa (precio normal) o delivery (precio delivery). Solo si el
@@ -352,6 +356,9 @@ export const POSMain = () => {
       setCashEnabled(cfg.cashManagementEnabled !== false);
       if (typeof cfg.taxPercentage === 'number' && cfg.taxPercentage >= 0)
         setTaxRate(cfg.taxPercentage / 100);
+      // Precios con IVA en pantalla. Solo presentación: activo salvo que se
+      // apague a propósito (los negocios viejos no tienen el campo guardado).
+      setShowPricesWithTax(cfg.showPricesWithTax !== false);
     };
 
     // Apply cached config immediately
@@ -1405,6 +1412,9 @@ export const POSMain = () => {
           productsError={productsError}
           ignoreStock={!planFeatures.inventory || (planFeatures as any).inventory_products_only}
           activePromotions={activePromotions}
+          taxEnabled={taxEnabled}
+          taxRate={taxRate}
+          showPricesWithTax={showPricesWithTax}
         />
 
         {/* Carrito inline — solo en pantallas grandes (lg+). En formato lista se le da
@@ -1422,6 +1432,7 @@ export const POSMain = () => {
             taxEnabled={taxEnabled}
             taxRate={taxRate}
             taxBreakdown={taxBreakdown}
+            showPricesWithTax={showPricesWithTax}
             currentSession={currentSession}
             cashDisabled={!cashEnabled}
             loading={paymentLoading}
@@ -1462,6 +1473,7 @@ export const POSMain = () => {
             taxEnabled={taxEnabled}
             taxRate={taxRate}
             taxBreakdown={taxBreakdown}
+            showPricesWithTax={showPricesWithTax}
             currentSession={currentSession}
             cashDisabled={!cashEnabled}
             loading={paymentLoading}

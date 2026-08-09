@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Truck, RefreshCw, Percent } from 'lucide-react';
+import { Truck, RefreshCw, Percent, Ban } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { VoidSaleDialog } from '@/modules/pos/VoidSaleDialog';
 
 interface Week { week: string; count: number; total: number; net: number; iva: number; commission: number; netNoIva: number; }
 interface Platform { platform: string; count: number; total: number; net: number; iva: number; commission: number; netNoIva: number; }
-interface Invoice { id: string; invoice_number: string; customer_name?: string | null; total: number; tax_amount?: number; delivery_commission_pct?: number; delivery_net?: number; delivery_platform?: string | null; issued_at: string; }
+interface Invoice { id: string; invoice_number: string; customer_name?: string | null; total: number; tax_amount?: number; delivery_commission_pct?: number; delivery_net?: number; delivery_platform?: string | null; issued_at: string; fe_clave?: string | null; fe_nc_clave?: string | null; }
 interface Data { count: number; total: number; net: number; iva: number; commission: number; netNoIva: number; weeks: Week[]; platforms?: Platform[]; invoices: Invoice[]; }
 
 const platformStyle = (p: string): string => {
@@ -27,6 +28,9 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+  /** Venta de delivery que se está anulando (null = ninguna). */
+  const [voiding, setVoiding] = useState<Invoice | null>(null);
+  const [notice, setNotice] = useState('');
 
   const load = () => {
     setLoading(true); setErr('');
@@ -59,6 +63,13 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
         <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2"><Truck size={24} className="text-orange-600" /> Ventas por Delivery</h2>
         <button onClick={load} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50"><RefreshCw size={16} /></button>
       </div>
+
+      {notice && (
+        <div className="flex items-start justify-between gap-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-3 text-sm">
+          <span>{notice}</span>
+          <button onClick={() => setNotice('')} className="text-emerald-600 hover:text-emerald-900 font-bold shrink-0">×</button>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -160,6 +171,7 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                   <th className="text-right px-4 py-3">%</th>
                   <th className="text-right px-4 py-3">Neto</th>
                   <th className="text-right px-4 py-3">IVA</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
@@ -173,12 +185,36 @@ export const DeliveryReport: React.FC<Props> = ({ from, to }) => {
                     <td className="px-4 py-2 text-right text-gray-500">{Number(i.delivery_commission_pct ?? 0)}%</td>
                     <td className="px-4 py-2 text-right font-bold text-emerald-700">{fmt(Number(i.delivery_net ?? i.total ?? 0))}</td>
                     <td className="px-4 py-2 text-right text-amber-600">−{fmt(Number(i.tax_amount ?? 0))}</td>
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        onClick={() => setVoiding(i)}
+                        title="Anular esta venta de delivery"
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-600 hover:text-white transition"
+                      >
+                        <Ban size={12} /> Anular
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+
+      {voiding && (
+        <VoidSaleDialog
+          sale={voiding}
+          label={`Venta de delivery${voiding.delivery_platform ? ` · ${voiding.delivery_platform}` : ''}`}
+          onClose={() => setVoiding(null)}
+          onVoided={(sale, warning) => {
+            setVoiding(null);
+            setNotice(warning ?? `Venta ${sale.invoice_number} anulada.`);
+            // Se recarga en vez de quitar la fila a mano: al anular cambian las
+            // comisiones, los netos y los totales por semana y por plataforma.
+            load();
+          }}
+        />
       )}
     </div>
   );

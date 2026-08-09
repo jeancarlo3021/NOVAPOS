@@ -22,6 +22,41 @@ export function closedPriceBase(target: number, rate: number): { base: number; i
   return { base, iva: total - Math.round(base), total };
 }
 
+/**
+ * Tarifa de IVA que le toca a un producto, en porcentaje.
+ *
+ * No hay un IVA único: manda el `iva_rate` del producto (puede ser 0 en los
+ * exentos) y solo si no está definido se usa el global de Ajustes. Ojo con el
+ * `0`: es una tarifa VÁLIDA, no un "sin configurar", así que no sirve `||`.
+ */
+export function productIvaPct(product: any, globalPct: number): number {
+  const raw = product?.iva_rate;
+  return raw != null && raw !== '' ? Number(raw) : globalPct;
+}
+
+/**
+ * Precio con IVA incluido, para MOSTRAR.
+ *
+ * El sistema guarda los precios sin impuesto y lo suma al cobrar. Eso está bien
+ * para la contabilidad, pero al cliente hay que enseñarle lo que va a pagar —en
+ * Costa Rica el precio exhibido debe incluir los impuestos—, y al cajero también:
+ * cantar un precio y que la pantalla muestre otro al cobrar genera discusiones
+ * en la fila.
+ *
+ * Es SOLO presentación: no cambia lo que se guarda ni lo que se le cobra. El
+ * redondeo a 2 decimales es el mismo que usa el carrito para el IVA de cada
+ * línea, así que la suma de las líneas mostradas cuadra con el total.
+ */
+export function displayPrice(
+  base: number,
+  ivaPct: number,
+  opts: { taxEnabled: boolean; withTax: boolean },
+): number {
+  const b = Number(base) || 0;
+  if (!opts.withTax || !opts.taxEnabled) return b;
+  return r2(b + b * ((Number(ivaPct) || 0) / 100));
+}
+
 export interface MarginResult {
   value: number | null;   // percentage, null = cannot compute
   label: string;          // formatted string e.g. "45.3%"
