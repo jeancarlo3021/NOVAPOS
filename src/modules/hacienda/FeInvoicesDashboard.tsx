@@ -281,11 +281,12 @@ export const FeInvoicesDashboard: React.FC = () => {
   const [emailOk, setEmailOk] = useState(false);
   /** Qué documento se reenvía: la factura o una de sus notas. */
   const [emailKind, setEmailKind] = useState<'invoice' | 'nc' | 'nd'>('invoice');
+  const [emailWarn, setEmailWarn] = useState('');
 
   const openEmailModal = (row: FeRow) => {
     setEmailRow(row); setEmailValue(''); setEmailErr(''); setEmailOk(false);
     // Se abre en «factura», que es lo que se reenvía casi siempre.
-    setEmailKind('invoice');
+    setEmailKind('invoice'); setEmailWarn('');
   };
 
   const sendEmail = async () => {
@@ -294,7 +295,11 @@ export const FeInvoicesDashboard: React.FC = () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailErr('Ingresá un correo válido.'); return; }
     setEmailSending(true); setEmailErr('');
     try {
-      await haciendaService.resendEmail(emailRow.id, email, emailKind);
+      const r = await haciendaService.resendEmail(emailRow.id, email, emailKind);
+      // Sin PDF el correo igual es un comprobante entregado (los XML son los que
+      // valen ante Hacienda), pero hay que decirlo para que nadie lo descubra
+      // cuando el cliente reclame.
+      setEmailWarn((r as any)?.warning ?? '');
       setEmailOk(true);
       // El check de la bitácora significa «la FACTURA ya se envió»: una nota no
       // lo reemplaza, así que solo se marca cuando se mandó la factura.
@@ -546,9 +551,16 @@ export const FeInvoicesDashboard: React.FC = () => {
             </div>
 
             {emailOk ? (
-              <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3 mt-3 text-sm font-bold">
-                <CheckCircle2 size={18} /> Comprobante enviado
-              </div>
+              <>
+                <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3 mt-3 text-sm font-bold">
+                  <CheckCircle2 size={18} /> Comprobante enviado
+                </div>
+                {emailWarn && (
+                  <p className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    {emailWarn}
+                  </p>
+                )}
+              </>
             ) : (
               <>
                 {/* Qué documento se manda. Solo aparece si la factura tiene

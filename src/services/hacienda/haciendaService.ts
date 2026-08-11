@@ -165,7 +165,7 @@ export const haciendaService = {
    * él siempre iba la factura, así que una NC no se podía reenviar nunca.
    */
   resendEmail: (invoiceId: string, email: string, kind: 'invoice' | 'nc' | 'nd' = 'invoice') =>
-    apiFetch<{ ok: boolean; kind: string }>(
+    apiFetch<{ ok: boolean; kind: string; pdf: boolean; warning: string | null }>(
       '/hacienda/resend-email',
       { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, email, kind }) }),
 
