@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
+import { WindowQueueModal, useWindowQueue } from '@/modules/window/WindowQueueModal';
+import { useDeviceRole } from '@/hooks/useDeviceRole';
 import { ShoppingBag, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { proformasService } from '@/services/proformas/proformasService';
@@ -71,7 +73,14 @@ export const POSMain = () => {
   const { currentSession, loading: sessionLoading, refetchSession } = useCashSession();
   const { isOnline } = useOfflineSync();
   const { rate: exchangeRate } = useExchangeRate();
-  const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError, refetch: refetchProducts } = usePOSProducts();
+  // ── VENTANITA ───────────────────────────────────────────────────────────
+  // Es este mismo POS en otra ruta: abrir y cerrar caja, arqueo, medios de pago,
+  // factura electrónica, impresión y descuentos ya están acá, y duplicarlos
+  // habría dejado una caja paralela que no cuadra en el cierre. Lo único que
+  // cambia: vende RECETAS, el interruptor se llama «Comer acá / Para llevar» y
+  // el pedido entra a la fila de despacho.
+  const windowMode = useLocation().pathname.startsWith('/ventanita');
+  const { products, filteredProducts, searchTerm, setSearchTerm, loading: productsLoading, fromCache: productsCached, cachedAt: productsCachedAt, error: productsError, refetch: refetchProducts } = usePOSProducts(windowMode);
   const activePromotions = usePOSPromotions(tenantId);
 
   // Carrito multi-pestaña: cada tab tiene su propio cart + cliente, persistido
@@ -233,12 +242,28 @@ export const POSMain = () => {
   // el carrito sigue calculando sobre la base sin impuesto y el total cobrado es
   // el mismo. Lo que cambia es que el cajero canta el precio que el cliente paga.
   const [showPricesWithTax, setShowPricesWithTax] = useState(true);
+  // Estación de cocina por producto, tomada de su receta. En un ref y no en
+  // estado porque solo se lee al imprimir la comanda: meterlo en el estado
+  // volvería a renderizar el POS entero cada vez que carga.
+  const recipeStationsRef = useRef<Map<string, string>>(new Map());
   // Comisiones de delivery por plataforma (configuradas en Ajustes → Delivery).
   const [deliveryCommissions, setDeliveryCommissions] = useState<Record<string, number>>({});
   // Modo de venta: mesa (precio normal) o delivery (precio delivery). Solo si el
   // plan incluye la función.
   const deliveryEnabled = !!(planFeatures as any)?.pos_delivery;
+  // Este equipo cobra o solo manda comandas. Es del APARATO, no del usuario: en
+  // un restaurante varias tablets entran con la misma cuenta y solo una
+  // computadora es la caja. Se configura en Ajustes → Vista del POS.
+  const { isCaja } = useDeviceRole();
+  const [showQueue, setShowQueue] = useState(false);
+  /** Se incrementa al cobrar, para refrescar la fila sin esperar al reloj. */
+  const [queueTick, setQueueTick] = useState(0);
+  const windowQueue = useWindowQueue(windowMode);
+  useEffect(() => { if (queueTick > 0) void windowQueue.reload(); }, [queueTick]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [saleMode, setSaleMode] = useState<'mesa' | 'delivery'>('mesa');
+  // En la ventanita «Para llevar» ocupa el lugar de delivery: es lo que hace
+  // aparecer el selector de plataformas al cobrar. Sigue necesitando el plan de
+  // delivery para que las comisiones tengan sentido.
   const isDeliveryMode = deliveryEnabled && saleMode === 'delivery';
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -360,6 +385,19 @@ export const POSMain = () => {
       // apague a propósito (los negocios viejos no tienen el campo guardado).
       setShowPricesWithTax(cfg.showPricesWithTax !== false);
     };
+
+    // Estación de cocina de cada plato, para rutear la comanda. Solo si el plan
+    // la trae: es una llamada más al abrir el POS y no tiene sentido pagarla en
+    // un negocio que no es restaurante.
+    if ((planFeatures as any).recipe_stations) {
+      apiFetch<any[]>('/recipes').then(rows => {
+        const m = new Map<string, string>();
+        for (const r of rows ?? []) {
+          if (r?.product_id && r?.station) m.set(String(r.product_id), String(r.station));
+        }
+        recipeStationsRef.current = m;
+      }).catch(() => { /* sin estaciones se rutea por categoría, como antes */ });
+    }
 
     // Apply cached config immediately
     const cached = cacheGet<any>(ck) ?? cacheGet<any>(ckOld);
@@ -974,12 +1012,30 @@ export const POSMain = () => {
         await posPrinterService.printAuto(receiptData, tenantId);
       }
 
-      // Comandas (fire-and-forget — non-blocking)
+      // Comandas (fire-and-forget — non-blocking).
+      // Se manda la categoría (que faltaba, así que el reparto por estación
+      // nunca llegó a funcionar desde acá) y la estación de la receta, que es la
+      // que manda cuando existe.
       posPrinterService.printComandas(
         invoiceNumber,
-        items.map(item => ({ name: item.product.name, quantity: item.quantity })),
+        items.map(item => ({
+          name: item.product.name,
+          quantity: item.quantity,
+          notes: item.notes ?? undefined,
+          category_id: (item.product as any).category_id ?? undefined,
+          station: recipeStationsRef.current.get(item.product_id) ?? undefined,
+        })),
         tenantId,
         customerName,
+        {
+          // Ventanita: el bipper es lo que cocina busca al levantar el papel.
+          // Salón: la mesa. El consecutivo de la factura no le sirve a nadie ahí.
+          bipper: windowMode ? (bipper.trim() || undefined) : undefined,
+          tableInfo: tableOrderToClose.current?.label,
+          serviceMode: windowMode
+            ? (isDeliveryMode ? 'llevar' : 'aca')
+            : (tableOrderToClose.current ? 'mesa' : undefined),
+        },
       ).catch(err => console.warn('Error al imprimir comanda:', err));
 
     } catch (err) {
@@ -987,6 +1043,62 @@ export const POSMain = () => {
       setError(`Error al imprimir: ${err instanceof Error ? err.message : 'desconocido'}`);
     }
   }, [tenantId, user, activeCashier]);
+
+  /**
+   * Manda el pedido a COCINA sin cobrar.
+   *
+   * En la ventanita adelanta la preparación mientras el cliente paga; en las
+   * tablets del salón es la única acción posible, porque esos equipos no cobran.
+   *
+   * En la ventanita también entra a la fila de despacho, para que quien entrega
+   * lo vea aunque todavía no esté pagado. Al cobrarse después queda un segundo
+   * registro con la factura: preferible a que un pedido en cocina no aparezca en
+   * ninguna pantalla.
+   */
+  const sendKitchen = useCallback(async () => {
+    if (!tenantId || cartItems.length === 0) return;
+    const label = windowMode
+      ? (bipper.trim() ? `Bipper ${bipper.trim()}` : 'Ventanita')
+      : 'Pedido';
+    try {
+      await posPrinterService.printComandas(
+        label,
+        cartItems.map(item => ({
+          name: item.product.name,
+          quantity: item.quantity,
+          notes: item.notes ?? undefined,
+          category_id: (item.product as any).category_id ?? undefined,
+          station: recipeStationsRef.current.get(item.product_id) ?? undefined,
+        })),
+        tenantId,
+        undefined,
+        {
+          bipper: windowMode ? (bipper.trim() || undefined) : undefined,
+          serviceMode: windowMode ? (isDeliveryMode ? 'llevar' : 'aca') : undefined,
+        },
+      );
+      setSuccess('Pedido enviado a cocina');
+    } catch (e) {
+      setError(`No se pudo mandar la comanda: ${e instanceof Error ? e.message : 'error'}`);
+      return;
+    }
+
+    if (windowMode) {
+      try {
+        await apiFetch('/window-orders', {
+          method: 'POST',
+          body: JSON.stringify({
+            bipper: bipper.trim() || null,
+            items_summary: cartItems.map(i => `${i.quantity}× ${i.product.name}`).join(', ').slice(0, 200),
+            total: cartItems.reduce((s, i) => s + i.subtotal, 0),
+            notes: isDeliveryMode ? 'Para llevar' : 'Comer acá',
+          }),
+        });
+        setQueueTick(t => t + 1);
+      } catch (e) { console.warn('[ventanita] no se pudo encolar:', e); }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, cartItems, windowMode, bipper, isDeliveryMode]);
 
   // Pre-ticket / proforma: imprime el carrito SIN cobrar (documento no fiscal).
   const printPreTicket = useCallback(async () => {
@@ -1181,6 +1293,23 @@ export const POSMain = () => {
         if (agentOrderToClose.current) {
           void chargeAgentOrder(agentOrderToClose.current.id, invoice.id, totSnapshot);
           agentOrderToClose.current = null;
+        }
+        // Ventanita: el pedido entra a la fila de despacho con su bipper. Va sin
+        // `await` y con el error silenciado: la venta YA está hecha, y trabar la
+        // caja porque la fila no respondió sería el peor intercambio posible.
+        if (windowMode) {
+          void apiFetch('/window-orders', {
+            method: 'POST',
+            body: JSON.stringify({
+              invoice_id: invoice.id,
+              customer_name: invoice.customer_name ?? null,
+              bipper: bipperSnapshot || null,
+              items_summary: cartSnapshot.map((i: any) => `${i.quantity}× ${i.product_name ?? i.product?.name ?? ''}`).join(', ').slice(0, 200),
+              total: totSnapshot,
+              notes: data.isDelivery ? 'Para llevar' : 'Comer acá',
+            }),
+          }).then(() => setQueueTick(t => t + 1))
+            .catch(e => console.warn('[ventanita] no se pudo encolar:', e));
         }
         if (proformaToConvert.current) {
           proformasService.convert(proformaToConvert.current, invoice.invoice_number).catch(() => {});
@@ -1415,6 +1544,7 @@ export const POSMain = () => {
           taxEnabled={taxEnabled}
           taxRate={taxRate}
           showPricesWithTax={showPricesWithTax}
+          recipesOnly={windowMode}
         />
 
         {/* Carrito inline — solo en pantallas grandes (lg+). En formato lista se le da
@@ -1444,10 +1574,13 @@ export const POSMain = () => {
             onSetItemNotes={handleSetItemNotes}
             onPayment={startCobro}
             onPreTicket={printPreTicket}
+            onSendKitchen={(windowMode || !isCaja) ? sendKitchen : undefined}
+            canCharge={isCaja}
             onSaveProforma={saveProforma}
             expanded={isListLayout}
-            deliveryEnabled={deliveryEnabled}
+            deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
+            windowMode={windowMode}
             onSaleModeChange={setSaleMode}
           />
         </div>
@@ -1485,10 +1618,13 @@ export const POSMain = () => {
             onSetItemNotes={handleSetItemNotes}
             onPayment={startCobro}
             onPreTicket={printPreTicket}
+            onSendKitchen={(windowMode || !isCaja) ? sendKitchen : undefined}
+            canCharge={isCaja}
             onSaveProforma={saveProforma}
             expanded
-            deliveryEnabled={deliveryEnabled}
+            deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
+            windowMode={windowMode}
             onSaleModeChange={setSaleMode}
           />
         </div>
@@ -1607,6 +1743,31 @@ export const POSMain = () => {
             setCashMovement(null);
           }}
         />
+      )}
+
+      {/* Ventanita: la FILA de despacho. Es lo único que la ventanita agrega al
+          POS — todo lo demás (caja, cobro, FE, impresión) ya está acá. */}
+      {windowMode && (
+        <>
+          <button onClick={() => setShowQueue(true)}
+            title="Ver la fila de pedidos"
+            className="fixed bottom-4 left-4 z-30 inline-flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-sm font-black bg-orange-600 text-white hover:bg-orange-700">
+            🍳 Fila
+            {windowQueue.queue.length > 0 && (
+              <span className="bg-white text-orange-700 rounded-full px-2 py-0.5 text-xs tabular-nums">
+                {windowQueue.queue.length}
+              </span>
+            )}
+          </button>
+          {showQueue && (
+            <WindowQueueModal
+              queue={windowQueue.queue}
+              available={windowQueue.available}
+              onReload={() => void windowQueue.reload()}
+              onClose={() => setShowQueue(false)}
+            />
+          )}
+        </>
       )}
 
       {/* Bipper: botón flotante para VER la lista de bippers de hoy */}

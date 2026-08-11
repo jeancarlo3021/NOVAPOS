@@ -5,6 +5,7 @@ import {
   TrendingUp, BarChart2, ShoppingCart, Package, Users,
   Lock, RefreshCw, ChevronDown, TrendingDown, Vault, Target, WifiOff, Clock,
   FileText, ChevronRight, ChevronLeft, Truck, HandCoins, Percent, Receipt, Activity, Wallet,
+  ChefHat, Scale,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -27,6 +28,8 @@ import { ReceivablesReport } from './views/ReceivablesReport';
 import { TaxReport } from './views/TaxReport';
 import { VouchersReport } from './views/VouchersReport';
 import { DeliveryReport } from './views/DeliveryReport';
+import { MenuEngineeringReport } from './views/MenuEngineeringReport';
+import { FoodCostReport } from './views/FoodCostReport';
 import { UserActivityReport } from './views/UserActivityReport';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
@@ -45,7 +48,7 @@ function getDateRange(days: number) {
 
 type TabId =
   | 'basic' | 'advanced' | 'hourly' | 'purchases' | 'stock' | 'stock_adjustments'
-  | 'sellers' | 'expenses' | 'products' | 'products_ranking' | 'cash' | 'cash_movements' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery' | 'user_activity';
+  | 'sellers' | 'expenses' | 'products' | 'products_ranking' | 'cash' | 'cash_movements' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery' | 'menu_engineering' | 'food_cost' | 'user_activity';
 
 interface Tab {
   id: TabId;
@@ -62,11 +65,17 @@ const TABS: Tab[] = [
   { id: 'advanced', label: 'Ventas Avanzadas',  description: 'Análisis completo',         icon: BarChart2,     featureKey: 'report_advanced_sales', group: 'ventas' },
   { id: 'hourly',   label: 'Ventas por Hora',   description: 'Patrones horarios',         icon: Clock,         featureKey: 'report_hourly_sales',   group: 'ventas' },
   { id: 'delivery', label: 'Delivery',          description: 'Ventas por delivery (semanal)', icon: Truck,     featureKey: 'pos_delivery',          group: 'ventas' },
+  // Análisis de menú: cruza el costo de la receta con las ventas del plato.
+  { id: 'menu_engineering', label: 'Análisis de menú', description: 'Estrella, vaca, enigma o perro por plato', icon: ChefHat, featureKey: 'recipe_menu_engineering', group: 'ventas' },
+  // Food cost: lo que las recetas dicen que debió salir contra lo que salió.
 
   // Inventario
   { id: 'purchases', label: 'Compras',                  description: 'Órdenes y proveedores',           icon: ShoppingCart,  featureKey: 'report_purchases',           group: 'inventario' },
   { id: 'stock',     label: 'Stock',                    description: 'Inventario actual',               icon: Package,       featureKey: 'report_stock',               group: 'inventario' },
   { id: 'stock_adjustments', label: 'Movimientos de Stock', description: 'Ajustes manuales con motivo', icon: Package,       featureKey: 'report_stock_adjustments',   group: 'inventario' },
+  // Food cost: lo que las recetas dicen que debió salir contra lo que salió.
+  // Va en Inventario porque su otra mitad es la toma física, no la venta.
+  { id: 'food_cost', label: 'Food cost',                description: 'Consumo teórico vs. real: merma y varianza', icon: Scale, featureKey: 'recipe_consumption',   group: 'inventario' },
   { id: 'products',  label: 'Detalle Productos',        description: 'Análisis por producto',           icon: Package,       featureKey: 'report_product_detail',      group: 'inventario' },
   { id: 'products_ranking', label: 'Top Productos',     description: 'Todos los productos vendidos (ranking)', icon: BarChart2, featureKey: 'report_advanced_sales', group: 'ventas' },
 
@@ -399,6 +408,8 @@ const ReportsDashboard: React.FC = () => {
               case 'taxes':             return <TaxReport key={`tax-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'vouchers':          return <VouchersReport key={`vou-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'delivery':          return <DeliveryReport key={`del-${refreshKey}`} from={range.from} to={range.to} />;
+              case 'menu_engineering':  return <MenuEngineeringReport key={`menu-${refreshKey}`} from={range.from} to={range.to} />;
+              case 'food_cost':         return <FoodCostReport key={`fc-${refreshKey}`} from={range.from} to={range.to} />;
               case 'user_activity':     return <UserActivityReport key={`act-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               default:                  return null;
             }

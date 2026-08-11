@@ -67,6 +67,8 @@ interface POSProductsPanelProps {
   taxRate?: number;
   /** Mostrar el precio YA con IVA. Solo presentación: no cambia lo que se cobra. */
   showPricesWithTax?: boolean;
+  /** Esta pantalla vende RECETAS (ventanita), no el catálogo de inventario. */
+  recipesOnly?: boolean;
 }
 
 export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
@@ -88,6 +90,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
   taxEnabled: taxEnabledProp,
   taxRate: taxRateProp,
   showPricesWithTax: showPricesWithTaxProp,
+  recipesOnly = false,
 }) => {
   const { tenantId } = useTenantId();
   const { planFeatures } = useAuth();
@@ -681,11 +684,24 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             ))}
           </div>
         ) : displayed.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-4">
+          <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-3 px-6">
             <Package size={64} className="text-gray-300" />
-            <p className="text-2xl font-semibold">No hay productos disponibles</p>
+            {/* La ventanita vende RECETAS. Un «no hay productos» ahí manda a
+                buscar en el lugar equivocado: hay que decir exactamente qué
+                falta y dónde se arregla. */}
+            {recipesOnly ? (
+              <>
+                <p className="text-2xl font-semibold">No hay platos en el menú</p>
+                <p className="text-base text-center max-w-md leading-snug">
+                  La ventanita vende <b>recetas</b>, no el catálogo de inventario. Entrá a
+                  <b> Recetas</b>, abrí cada plato y marcá <b>«Se vende en el menú»</b> con su precio.
+                </p>
+              </>
+            ) : (
+              <p className="text-2xl font-semibold">No hay productos disponibles</p>
+            )}
             {productsError && (
-              <p className="text-base text-red-500 text-center max-w-xs">{productsError}</p>
+              <p className="text-base text-red-500 text-center max-w-md">{productsError}</p>
             )}
           </div>
         ) : (

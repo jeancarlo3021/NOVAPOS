@@ -209,6 +209,37 @@ export interface PlanFeatures {
   table_orders?: boolean;
   /** Extras y modificadores por producto (término, extras, sin…). */
   modifiers?: boolean;
+  /** El menú del restaurante lo arman las RECETAS, no el catálogo completo. */
+  restaurant_menu_recipes?: boolean;
+  /** Menú digital con QR: página pública que el cliente abre desde la mesa. */
+  digital_menu?: boolean;
+  /** Ventanita: mostrador con número de orden, bipper y fila de despacho. */
+  window_service?: boolean;
+  /**
+   * Las recetas pueden llevar INVENTARIO.
+   *
+   * Apagado, el plato se crea siempre con stock infinito: el negocio tiene carta
+   * y cobro, pero no existencias. Es lo que quiere una ventanita de comidas, y
+   * lo que separa un plan básico de uno con control de insumos.
+   */
+  recipe_inventory?: boolean;
+  // ── Recetas avanzadas (todas dentro de Restaurante, todas sobre `recipes`) ──
+  // Cada una se activa por separado a propósito: tocan inventario y costos, así
+  // que encenderlas de golpe le cambiaría los números a un negocio que ya opera.
+  /** Unidades de medida y conversión en el costeo (g ↔ kg, ml ↔ l…). */
+  recipe_units?: boolean;
+  /** Vender un plato descuenta los INGREDIENTES de su receta. */
+  recipe_consumption?: boolean;
+  /** Congela el costo en cada venta (food cost histórico real). */
+  recipe_cost_history?: boolean;
+  /** Los extras consumen ingredientes y tienen costo propio. */
+  recipe_modifier_cost?: boolean;
+  /** La comanda se rutea por la estación de cocina de la receta. */
+  recipe_stations?: boolean;
+  /** Producción de subrecetas por lote (hacer 5 L de salsa). */
+  recipe_production?: boolean;
+  /** Análisis de menú: estrella / vaca / enigma / perro. */
+  recipe_menu_engineering?: boolean;
   /** Agentes de venta: arman pedidos que el cajero recibe y cobra. */
   sales_agents?: boolean;
   /** Devoluciones de venta (parciales) y anulación de facturas. */
@@ -305,6 +336,19 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   tables: false,
   table_orders: false,
   modifiers: false,
+  restaurant_menu_recipes: false,
+  digital_menu: false,
+  window_service: false,
+  recipe_inventory: false,
+  // Recetas avanzadas: todas apagadas. Encienden inventario y costos, así que
+  // «no configurado» tiene que significar apagado.
+  recipe_units: false,
+  recipe_consumption: false,
+  recipe_cost_history: false,
+  recipe_modifier_cost: false,
+  recipe_stations: false,
+  recipe_production: false,
+  recipe_menu_engineering: false,
   sales_agents: false,
   returns: false,
   supplier_returns: false,
@@ -374,6 +418,17 @@ export const FULL_FEATURES: PlanFeatures = {
   labels: true,
   tables: true,
   table_orders: true,
+  restaurant_menu_recipes: true,
+  digital_menu: true,
+  window_service: true,
+  recipe_inventory: true,
+  recipe_units: true,
+  recipe_consumption: true,
+  recipe_cost_history: true,
+  recipe_modifier_cost: true,
+  recipe_stations: true,
+  recipe_production: true,
+  recipe_menu_engineering: true,
   modifiers: true,
   sales_agents: true,
   returns: true,

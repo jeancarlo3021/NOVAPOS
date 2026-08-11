@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Search, ChevronLeft, UtensilsCrossed } from 'lucide-react';
+import { X, Search, UtensilsCrossed } from 'lucide-react';
 import { getAllProducts, categoriesService } from '@/services/Inventory/InventoryProductsService';
+import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 import { modifiersService, type ModifierGroup } from '@/services/Inventory/modifiersService';
 import { ModifierPickerModal } from '@/modules/pos/ModifierPickerModal';
 import type { Product } from '@/types/Pos.types';
@@ -18,6 +20,10 @@ interface Props {
 }
 
 export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }: Props) {
+  // El menú por recetas se activa por plan: un negocio que no es restaurante
+  // sigue viendo su catálogo completo.
+  const { planFeatures } = useAuth();
+  const menuOn = !!(planFeatures as any).restaurant_menu_recipes;
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,15 +39,25 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
     (async () => {
       setLoading(true);
       try {
-        const [prods, cats] = await Promise.all([
-          getAllProducts(tenantId),
+        // El menú son las RECETAS, no el catálogo entero: el mesero no tiene por
+        // qué ver el tomate ni el aceite, que también son productos. Cada plato
+        // sigue viniendo con forma de producto porque la venta se hace sobre el
+        // producto (factura, CABYS, IVA, consumo de ingredientes).
+        //
+        // Si el negocio no tiene recetas cargadas todavía, se cae al catálogo
+        // completo: dejar el menú vacío haría que no se pudiera vender nada.
+        const [menu, cats] = await Promise.all([
+          menuOn
+            ? apiFetch<Product[]>('/recipes/menu').catch(() => [] as Product[])
+            : Promise.resolve([] as Product[]),
           categoriesService.getAllCategories(tenantId).catch(() => []),
         ]);
+        const prods = menu.length > 0 ? menu : await getAllProducts(tenantId);
         setProducts(prods ?? []);
         setCategories(cats ?? []);
       } finally { setLoading(false); }
     })();
-  }, [tenantId]);
+  }, [tenantId, menuOn]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -86,24 +102,15 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
         : 'bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[88vh] flex flex-col overflow-hidden'}>
         {/* Header */}
         <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2 shrink-0">
-          {configProduct ? (
-            <button onClick={() => { setConfigProduct(null); setConfigGroups([]); }}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600">
-              <ChevronLeft size={18} />
-            </button>
-          ) : (
-            <UtensilsCrossed size={20} className="text-emerald-600" />
-          )}
-          <h2 className="text-lg font-black text-gray-900 flex-1">
-            {configProduct ? configProduct.name : 'Agregar al pedido'}
-          </h2>
+          <UtensilsCrossed size={20} className="text-emerald-600" />
+          <h2 className="text-lg font-black text-gray-900 flex-1">Agregar al pedido</h2>
           {!embedded && (
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
           )}
         </div>
 
-        {/* Vista: catálogo o adicionales */}
-        {!configProduct ? (
+        {/* El catálogo se queda SIEMPRE: los adicionales van en un modal encima. */}
+        {(
           <>
             {/* Buscador */}
             <div className="px-5 py-3 border-b border-gray-100 shrink-0">
@@ -134,6 +141,16 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
                     <button key={p.id} onClick={() => pickProduct(p)}
                       disabled={loadingMods}
                       className="text-left p-3 rounded-xl border-2 border-gray-100 hover:border-emerald-300 hover:bg-emerald-50/40 transition active:scale-95 disabled:opacity-50">
+                      {/* Foto del plato: en el salón el mesero reconoce antes por
+                          imagen que leyendo veinte nombres parecidos. Sale de la
+                          receta cuando la tiene. */}
+                      {(p as any).image_url ? (
+                        <div className="w-full h-20 mb-2 rounded-lg overflow-hidden bg-gray-50">
+                          <img src={(p as any).image_url} alt="" loading="lazy"
+                            className="w-full h-full object-cover"
+                            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        </div>
+                      ) : null}
                       <p className="font-bold text-sm text-gray-900 line-clamp-2 leading-tight">{p.name}</p>
                       <p className="text-emerald-600 font-black text-base mt-1.5 tabular-nums">{fmt(p.unit_price)}</p>
                     </button>
@@ -142,11 +159,13 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
               )}
             </div>
           </>
-        ) : (
-          /* Adicionales DENTRO del mismo modal: apilar un segundo modal encima
-             tapaba el catálogo y hacía perder el hilo de lo que se estaba pidiendo. */
+        )}
+
+        {/* Adicionales en MODAL, encima del catálogo. Antes reemplazaban la
+            pantalla entera y el mesero perdía de vista lo que estaba pidiendo;
+            además, al volver había que buscar otra vez dónde estaba. */}
+        {configProduct && (
           <ModifierPickerModal
-            variant="embedded"
             product={configProduct as any}
             groups={configGroups as any}
             basePrice={Number(configProduct.unit_price ?? 0)}

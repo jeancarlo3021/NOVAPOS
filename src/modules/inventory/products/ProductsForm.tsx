@@ -27,6 +27,8 @@ interface FormData {
   category_id: string;
   unit_type_id: string;
   supplier_id: string;
+  /** Unidad en que está expresado el costo (para costear recetas). */
+  recipe_unit_code: string;
   unit_price: string;
   delivery_price: string;
   cost_price: string;
@@ -50,6 +52,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const deliveryEnabled   = !!(planFeatures as any)?.pos_delivery;
   // Facturación electrónica: CABYS, IVA y precio-final-con-IVA solo si está activa.
   const feEnabled         = !!(planFeatures as any)?.electronic_invoice;
+  // Unidad de costeo para recetas: solo con Recetas + conversión de unidades.
+  const recipeUnitsEnabled = !!(planFeatures as any)?.recipes && !!(planFeatures as any)?.recipe_units;
   // Resolved tenantId: works for both owners (user.tenant_id) and staff (via useTenantId lookup)
   const tid = tenantId ?? user?.tenant_id ?? '';
 
@@ -71,6 +75,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     category_id: '',
     unit_type_id: '',
     supplier_id: '',
+    recipe_unit_code: '',
     unit_price: '',
     delivery_price: '',
     cost_price: '',
@@ -187,6 +192,18 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   );
   const suppliers = suppliersData ?? [];
 
+  // Catálogo de unidades de medida (solo si se van a usar). Si la migración 84
+  // no corrió, la lista viene vacía y el campo simplemente no ofrece opciones.
+  const [measureUnits, setMeasureUnits] = useState<Array<{ code: string; name: string }>>([]);
+  useEffect(() => {
+    if (!recipeUnitsEnabled) return;
+    let alive = true;
+    import('@/lib/api').then(({ apiFetch }) => apiFetch<any[]>('/recipes/units'))
+      .then(us => { if (alive) setMeasureUnits(us ?? []); })
+      .catch(() => { /* sin catálogo */ });
+    return () => { alive = false; };
+  }, [recipeUnitsEnabled]);
+
   // Cargar producto si es edición
   useEffect(() => {
     if (!productId || !user?.tenant_id) {
@@ -208,6 +225,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           category_id: product.category_id || '',
           unit_type_id: product.unit_type_id || '',
           supplier_id: (product as any).supplier_id || '',
+          recipe_unit_code: (product as any).recipe_unit_code || '',
           unit_price: product.unit_price?.toString() || '',
           delivery_price: (product as any).delivery_price != null ? String((product as any).delivery_price) : '',
           cost_price: product.cost_price?.toString() || '',
@@ -360,6 +378,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         unit_price: formData.unit_price ? parseFloat(formData.unit_price) : 0,
         delivery_price: deliveryEnabled && formData.delivery_price ? parseFloat(formData.delivery_price) : null,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
+        recipe_unit_code: formData.recipe_unit_code || null,
         image_url: imageUrl ? imageUrl.split('?')[0] : null,
         tracks_stock: finalTracksStock,
         // Facturación Electrónica — CABYS opcional. IVA por producto: el que se
@@ -674,6 +693,33 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       <p className="text-[10px] text-gray-400 mt-0.5">No hay proveedores. Podés crearlos en el módulo de Proveedores.</p>
                     )}
                   </div>
+                  )}
+
+                  {/* Unidad del COSTO — solo con recetas y conversión activas.
+                      Es el destino de la conversión: sin esto, una receta que
+                      pide "200 g" de un producto costeado por kilo no tiene
+                      contra qué convertir y el costo sale mil veces mayor. */}
+                  {recipeUnitsEnabled && (
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                        Unidad del costo <span className="text-gray-400 font-normal text-xs">(recetas)</span>
+                      </label>
+                      <select
+                        name="recipe_unit_code"
+                        value={formData.recipe_unit_code}
+                        onChange={handleChange}
+                        disabled={submitting}
+                        className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                      >
+                        <option value="">— Sin definir —</option>
+                        {measureUnits.map(u => (
+                          <option key={u.code} value={u.code}>{u.name} ({u.code})</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        ¿A qué unidad corresponde el precio de costo? Si lo comprás por kilo, elegí Kilogramo.
+                      </p>
+                    </div>
                   )}
 
                   {/* Categoría — visible junto al código para clasificar de una vez

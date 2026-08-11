@@ -7,6 +7,7 @@ import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useInventoryProducts } from '@/hooks/useInventoryProducts';
+import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { ProductForm } from './ProductsForm';
 import { ProductCard } from './ProductCard';
 import { BulkProductImportModal } from './BulkProductImportModal';
@@ -62,25 +63,51 @@ export const ProductsList: React.FC = () => {
     }
   };
 
-  // Proveedores para el desplegable: se sacan de los propios productos en vez de
-  // pedir la lista completa. Así el filtro solo ofrece proveedores que de verdad
-  // tienen productos —elegir uno nunca deja la pantalla vacía— y no hace falta
-  // una consulta más para dibujar el catálogo.
+  // Proveedores del desplegable.
+  //
+  // QUÉ proveedores se ofrecen sale de los productos —así elegir uno nunca deja
+  // la pantalla vacía—, pero el NOMBRE sale del catálogo de proveedores. Depender
+  // del nombre que adjunta el backend al producto era frágil: sin esa versión
+  // desplegada, o con productos servidos desde el caché offline, no venía y todas
+  // las opciones quedaban con el mismo texto de relleno.
   const suppliersEnabled = (planFeatures as any)?.inventory_suppliers !== false;
+  const [supplierNames, setSupplierNames] = useState<Map<string, string>>(new Map());
+  React.useEffect(() => {
+    if (!suppliersEnabled || !tenantId) return;
+    let alive = true;
+    inventorySuppliersService.getAllSuppliers(tenantId)
+      .then(list => {
+        if (!alive) return;
+        setSupplierNames(new Map((list ?? []).map((s: any) => [String(s.id), String(s.name ?? '')])));
+      })
+      .catch(() => { /* sin catálogo se usa lo que traiga el producto */ });
+    return () => { alive = false; };
+  }, [suppliersEnabled, tenantId]);
   const supplierOptions = React.useMemo(() => {
     const byId = new Map<string, string>();
     let sinProveedor = 0;
     for (const p of products) {
-      const id = (p as any).supplier_id;
+      const id = String((p as any).supplier_id ?? '');
       if (!id) { sinProveedor++; continue; }
-      byId.set(id, (p as any).supplier?.name ?? (p as any).supplier_name ?? 'Proveedor sin nombre');
+      // El nombre sale del catálogo de proveedores, no del producto.
+      //
+      // Antes se leía `p.supplier?.name`, que el backend adjunta con una consulta
+      // extra: si esa versión no está desplegada —o el producto viene del caché
+      // offline, que no la trae— el nombre no existía y todas las opciones
+      // quedaban con el mismo texto de relleno, una encima de otra.
+      byId.set(id, supplierNames.get(id)
+        ?? (p as any).supplier?.name
+        ?? (p as any).supplier_name
+        ?? '');
     }
     return {
-      list: [...byId].map(([id, name]) => ({ id, name }))
+      // Sin nombre resuelto todavía (catálogo cargando) la opción no se ofrece:
+      // un desplegable con tres «Proveedor» iguales no sirve para filtrar nada.
+      list: [...byId].filter(([, name]) => !!name).map(([id, name]) => ({ id, name }))
         .sort((a, b) => a.name.localeCompare(b.name, 'es')),
       sinProveedor,
     };
-  }, [products]);
+  }, [products, supplierNames]);
 
   const filteredProducts = products.filter(p => {
     if (!fuzzyMatch(searchTerm, p.name, p.sku, (p as any).sku2, (p as any).description)) return false;
@@ -106,7 +133,7 @@ export const ProductsList: React.FC = () => {
         p.sku ?? '',
         a.sku2 ?? '',
         a.description ?? '',
-        a.supplier?.name ?? a.supplier_name ?? '',
+        supplierNames.get(String(a.supplier_id ?? '')) ?? a.supplier?.name ?? a.supplier_name ?? '',
         Number(p.unit_price ?? 0),
         Number(a.cost_price ?? 0),
         infinito ? 'Sí' : 'No',

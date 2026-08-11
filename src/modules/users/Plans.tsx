@@ -8,6 +8,7 @@ import {
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Shield, CalendarDays, History,
   FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing, UserCheck, Undo2,
+  Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { apiFetch } from '@/lib/api';
@@ -909,6 +910,55 @@ export default function Plans() {
                     checked={(features as any).modifiers ?? false} onChange={v => set({ modifiers: v } as any)} />
                   <FeatureRow icon={BookOpen} color="bg-lime-500" title="Recetas"
                     description="Recetas e ingredientes" checked={features.recipes ?? false} onChange={v => set({ recipes: v })} />
+                  <FeatureRow icon={Store} color="bg-red-500" title="Ventanita"
+                    description="Mostrador: pedido rápido, número de orden, bipper y fila de despacho"
+                    checked={(features as any).window_service ?? false}
+                    onChange={v => set({ window_service: v } as any)} />
+                  <FeatureRow icon={QrCode} color="bg-teal-600" title="Menú digital con QR"
+                    description="Carta pública que el cliente abre escaneando el código de la mesa"
+                    checked={(features as any).digital_menu ?? false}
+                    onChange={v => set({ digital_menu: v } as any)} />
+                  <FeatureRow icon={UtensilsCrossed} color="bg-emerald-500" title="Menú por recetas"
+                    description="En el salón se ofrecen las recetas, no el catálogo completo de inventario"
+                    checked={(features as any).restaurant_menu_recipes ?? false}
+                    onChange={v => set({ restaurant_menu_recipes: v } as any)} />
+
+                  {/* Recetas avanzadas. Se muestran solo con Recetas activo: sin
+                      la base no hacen nada, y listarlas siempre solo confunde.
+                      Cada una va aparte porque tocan inventario y costos:
+                      encenderlas de golpe le cambia los números a un negocio
+                      que ya está operando. */}
+                  {features.recipes && (
+                    <div className="ml-4 pl-4 border-l-2 border-lime-200 space-y-2">
+                      <p className="text-[11px] font-black text-lime-700 uppercase tracking-wider pt-1">
+                        Recetas avanzadas
+                      </p>
+                      <FeatureRow icon={Boxes} color="bg-lime-700" title="Recetas con inventario"
+                        description="Apagado, los platos se crean infinitos: hay carta y cobro, pero no existencias"
+                        checked={(features as any).recipe_inventory ?? false} onChange={v => set({ recipe_inventory: v } as any)} />
+                      <FeatureRow icon={Scale} color="bg-lime-600" title="Unidades y conversión"
+                        description="Costea bien mezclando unidades (200 g de un producto comprado por kilo)"
+                        checked={(features as any).recipe_units ?? false} onChange={v => set({ recipe_units: v } as any)} />
+                      <FeatureRow icon={PackageMinus} color="bg-emerald-600" title="Descontar ingredientes al vender"
+                        description="Vender un plato baja el stock de sus ingredientes, no el del plato"
+                        checked={(features as any).recipe_consumption ?? false} onChange={v => set({ recipe_consumption: v } as any)} />
+                      <FeatureRow icon={History} color="bg-teal-600" title="Costo histórico de la venta"
+                        description="Congela el costo al vender: el food cost de un mes viejo deja de recalcularse con precios de hoy"
+                        checked={(features as any).recipe_cost_history ?? false} onChange={v => set({ recipe_cost_history: v } as any)} />
+                      <FeatureRow icon={Layers} color="bg-violet-500" title="Costo de los extras"
+                        description="Cada extra consume su ingrediente: deja de sumar precio sin costo"
+                        checked={(features as any).recipe_modifier_cost ?? false} onChange={v => set({ recipe_modifier_cost: v } as any)} />
+                      <FeatureRow icon={Printer} color="bg-orange-500" title="Comanda por estación"
+                        description="La comanda se rutea por la estación de la receta (Cocina, Barra, Parrilla)"
+                        checked={(features as any).recipe_stations ?? false} onChange={v => set({ recipe_stations: v } as any)} />
+                      <FeatureRow icon={ChefHat} color="bg-amber-600" title="Producción de subrecetas"
+                        description="Producir un lote (5 L de salsa): consume ingredientes y deja el resultado en inventario"
+                        checked={(features as any).recipe_production ?? false} onChange={v => set({ recipe_production: v } as any)} />
+                      <FeatureRow icon={TrendingUp} color="bg-fuchsia-600" title="Análisis de menú"
+                        description="Clasifica cada plato: estrella, vaca, enigma o perro, cruzando ventas con costo"
+                        checked={(features as any).recipe_menu_engineering ?? false} onChange={v => set({ recipe_menu_engineering: v } as any)} />
+                    </div>
+                  )}
                 </section>
 
                 {/* ── Agentes y devoluciones ── */}

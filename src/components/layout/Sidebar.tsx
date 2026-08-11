@@ -28,7 +28,7 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeInfo,
-  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone } from 'lucide-react';
+  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
@@ -84,6 +84,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Clientes',          to: '/customers',  icon: User2,         feature: 'always',     module: 'customers'  },
       { name: 'Recetas',           to: '/recipes',    icon: BookOpen,      feature: 'recipes',    module: 'recipes'    },
+      { name: 'Ventanita',         to: '/ventanita',  icon: Store,       feature: 'window_service', module: 'window_service' },
+      { name: 'Menú digital',      to: '/menu-digital', icon: QrCode,      feature: 'digital_menu', module: 'digital_menu' },
       { name: 'Promociones',       to: '/promotions', icon: Tag,           feature: 'promotions', module: 'promotions' },
       { name: 'Mapa de Mesas',     to: '/tables',     icon: LayoutGrid,    feature: 'tables',     module: 'restaurant' },
       { name: 'Extras y modificadores', to: '/modifiers', icon: Layers,   feature: 'modifiers',  module: 'restaurant' },

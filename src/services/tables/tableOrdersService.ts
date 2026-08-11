@@ -76,6 +76,25 @@ export const tableOrdersService = {
   /** Anula la cuenta sin cobrar. */
   cancel: (id: string) =>
     apiFetch<TableOrder>(`/table-orders/${id}/cancel`, { method: 'POST' }),
+
+  /**
+   * Pasa la cuenta a otra mesa.
+   *
+   * Va por su propio endpoint y no por `update` porque el traslado tiene reglas
+   * propias: la mesa destino no puede tener otra cuenta abierta, y el movimiento
+   * deja rastro de dónde venía. Con el PATCH genérico se podían apilar dos
+   * cuentas en la misma mesa sin que nada avisara.
+   */
+  move: (id: string, tableId: string, tableLabel: string) =>
+    apiFetch<TableOrder>(`/table-orders/${id}/move`, {
+      method: 'POST', body: JSON.stringify({ table_id: tableId, table_label: tableLabel }),
+    }),
+
+  /** Cambia el mesero responsable (cambio de turno). No toca quién la abrió. */
+  assign: (id: string, waiterId: string) =>
+    apiFetch<TableOrder & { waiter_name?: string | null }>(`/table-orders/${id}/assign`, {
+      method: 'POST', body: JSON.stringify({ waiter_id: waiterId }),
+    }),
 };
 
 export default tableOrdersService;

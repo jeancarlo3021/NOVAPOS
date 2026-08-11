@@ -34,6 +34,18 @@ export interface PrinterEntry {
   /** Comanda: categorías (ids) que se imprimen en esta estación. Vacío = todo lo
    *  que no esté asignado a otra estación (catch-all). */
   categories?: string[];
+  /**
+   * Comanda: estaciones de cocina (de la receta) que atiende esta impresora.
+   *
+   * Va aparte de las categorías porque son dos cosas distintas: la categoría es
+   * de VENTA (Bebidas, Platos fuertes) y la estación es de PRODUCCIÓN (Barra,
+   * Parrilla). Un postre y un café son categorías distintas que salen del mismo
+   * lugar, y eso con categorías solas no se puede expresar.
+   *
+   * Antes la estación se adivinaba comparando con el NOMBRE de la impresora, que
+   * se rompe apenas alguien la llama «Barra 1» o le corrige una tilde.
+   */
+  stations?: string[];
   printer_name?: string;   // USB: nombre en el SO
   ip?: string;             // Network: dirección IP
   port?: number;           // Network: puerto (default 9100)

@@ -29,6 +29,8 @@ const Plans                    = lazy(() => import('./modules/users/Plans'));
 const ReportsDashboard         = lazy(() => import('./modules/reports/ReportsDashboard'));
 const BranchReportsDashboard   = lazy(() => import('./modules/reports/BranchReportsDashboard').then(m => ({ default: m.BranchReportsDashboard })));
 const Recipes                  = lazy(() => import('./modules/recipes/Recipes').then(m => ({ default: m.Recipes })));
+const MenuBuilder              = lazy(() => import('./modules/menu/MenuBuilder').then(m => ({ default: m.MenuBuilder })));
+const PublicMenu               = lazy(() => import('./modules/menu/PublicMenu').then(m => ({ default: m.PublicMenu })));
 const DistributionDashboard    = lazy(() => import('./modules/distribution/DistributionDashboard').then(m => ({ default: m.DistributionDashboard })));
 const RouteRun                 = lazy(() => import('./modules/distribution/RouteRun').then(m => ({ default: m.RouteRun })));
 const TruckTrackingMap         = lazy(() => import('./modules/distribution/TruckTrackingMap').then(m => ({ default: m.TruckTrackingMap })));
@@ -84,6 +86,10 @@ function AppContent() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/auth/reset-password" element={<ResetPassword />} />
+          {/* Menú digital PÚBLICO: lo abre el cliente escaneando el QR de la
+              mesa. Va fuera de ProtectedRoute porque su razón de ser es que no
+              haga falta iniciar sesión. */}
+          <Route path="/m/:slug" element={<PublicMenu />} />
 
           <Route
               path="/"
@@ -120,6 +126,16 @@ function AppContent() {
               } />
               <Route path="/users" element={
                 <PlanGuard feature="users"><Users /></PlanGuard>
+              } />
+              {/* Ventanita: ES el POS. Reusa caja, pagos, factura electrónica,
+                  impresión y descuentos en vez de reimplementarlos a medias; lo
+                  que cambia es «Comer acá / Para llevar», el bipper y la fila de
+                  despacho, que POSMain activa al ver esta ruta. */}
+              <Route path="/ventanita" element={
+                <PlanGuard feature="window_service"><POSMain /></PlanGuard>
+              } />
+              <Route path="/menu-digital" element={
+                <PlanGuard feature="digital_menu"><MenuBuilder /></PlanGuard>
               } />
               <Route path="/recipes" element={
                 <PlanGuard feature="recipes"><Recipes /></PlanGuard>

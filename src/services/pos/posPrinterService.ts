@@ -1639,6 +1639,14 @@ export class POSPrinterService {
     items: ComandaItem[],
     tenantId: string,
     customerName?: string,
+    /** Datos que cambian el trabajo en cocina: mesa, orden, bipper y si es para
+     *  llevar. Opcional para no romper a quien ya llama sin ellos. */
+    context?: {
+      tableInfo?: string;
+      orderNumber?: number | string;
+      bipper?: string;
+      serviceMode?: 'aca' | 'llevar' | 'mesa';
+    },
   ): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
     const comandaPrinters = (cfg.printers ?? []).filter(
@@ -1646,23 +1654,60 @@ export class POSPrinterService {
     );
     if (comandaPrinters.length === 0) return;
 
-    // Ruteo por estación: cada impresora imprime SOLO los ítems de sus categorías.
-    // Impresora sin categorías = catch-all (lo que no esté asignado a otra).
-    const assigned = new Set<string>();
-    for (const p of comandaPrinters) for (const c of ((p as any).categories ?? [])) assigned.add(String(c));
+    // Ruteo: cada impresora imprime SOLO lo suyo.
+    //
+    // Dos criterios independientes, y el de la ESTACIÓN manda cuando el plato
+    // tiene una: la categoría es de VENTA (Bebidas, Platos fuertes) y la
+    // estación es de PRODUCCIÓN (Barra, Parrilla). Un postre y un café son
+    // categorías distintas que salen del mismo lugar.
+    //
+    // La estación se compara contra las que la impresora DECLARA, no contra su
+    // nombre: antes se adivinaba por el label y se rompía apenas alguien la
+    // llamaba «Barra 1» o le corregía una tilde.
+    //
+    // Impresora sin nada asignado = catch-all: recibe lo que ninguna otra
+    // reclamó. Sin eso, un plato mal clasificado no se imprimiría en ninguna
+    // parte y la cocina nunca se enteraría del pedido.
+    const norm = (s: any) => String(s ?? '').trim().toLowerCase();
+    const assignedCats = new Set<string>();
+    const assignedStations = new Set<string>();
+    for (const p of comandaPrinters) {
+      for (const c of ((p as any).categories ?? [])) assignedCats.add(String(c));
+      for (const s of ((p as any).stations ?? [])) assignedStations.add(norm(s));
+      // Compatibilidad: instalaciones que ya rutean por el nombre de la estación
+      // y todavía no declararon estaciones explícitas.
+      if (!((p as any).stations ?? []).length) assignedStations.add(norm((p as any).label));
+    }
+
     const itemsFor = (p: any): ComandaItem[] => {
       const cats: string[] = (p.categories ?? []).map(String);
-      if (cats.length === 0) {
-        // catch-all: ítems sin categoría o cuya categoría no la cubre otra estación.
-        return items.filter(it => !it.category_id || !assigned.has(String(it.category_id)));
-      }
-      return items.filter(it => it.category_id && cats.includes(String(it.category_id)));
+      const stations: string[] = ((p.stations ?? []) as any[]).map(norm);
+      // Sin estaciones declaradas se usa el nombre, para no romper lo ya configurado.
+      const ownStations = stations.length ? stations : [norm(p.label)];
+      const isCatchAll = cats.length === 0 && stations.length === 0;
+
+      return items.filter(it => {
+        if (it.station) {
+          if (ownStations.includes(norm(it.station))) return true;
+          // La reclama otra impresora: no es de esta.
+          if (assignedStations.has(norm(it.station))) return false;
+          // Nadie la reclama: cae al catch-all para no perder el plato.
+          return isCatchAll;
+        }
+        if (isCatchAll) {
+          return !it.category_id || !assignedCats.has(String(it.category_id));
+        }
+        return !!it.category_id && cats.includes(String(it.category_id));
+      });
     };
 
     const now = new Date();
     const time = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' });
     const buildData = (printer: any, its: ComandaItem[]) =>
-      formatComanda({ invoiceNumber, time, label: printer.label, items: its, customerName }, 42);
+      formatComanda({
+        invoiceNumber, time, label: printer.label, items: its, customerName,
+        ...context,
+      }, 42);
 
     // Solo las estaciones que TIENEN ítems para imprimir.
     const jobs = comandaPrinters

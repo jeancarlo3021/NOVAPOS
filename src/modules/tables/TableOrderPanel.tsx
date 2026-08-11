@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  X, Plus, Trash2, Users, CreditCard, Loader2, ArrowRightLeft, Ban, Search,
+  X, Plus, Trash2, Users, CreditCard, Loader2, ArrowRightLeft, Ban, Search, UserCog,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
@@ -47,6 +47,9 @@ export const TableOrderPanel: React.FC<Props> = ({ tableId, tableLabel, otherTab
   const [q, setQ] = useState('');
   const [draft, setDraft] = useState<TableOrderItem[]>([]);
   const [moving, setMoving] = useState(false);
+  // Cambio de mesero responsable (cambio de turno).
+  const [assigning, setAssigning] = useState(false);
+  const [staff, setStaff] = useState<Array<{ id: string; full_name?: string | null; email?: string }>>([]);
   // Extras del plato: es donde de verdad hacen falta (el mesero toma el pedido).
   const { planFeatures } = useAuth();
   const modifiersOn = (planFeatures as any)?.modifiers === true;
@@ -64,9 +67,23 @@ export const TableOrderPanel: React.FC<Props> = ({ tableId, tableLabel, otherTab
   }, [tableId]);
 
   useEffect(() => { void load(); }, [load]);
+  // Menú del restaurante: las RECETAS vendibles, no el catálogo entero. El
+  // mesero no tiene por qué encontrarse el tomate ni el aceite. Cada plato
+  // llega con forma de producto porque la venta sigue siendo sobre el producto.
+  // Sin recetas cargadas se cae al catálogo completo: dejar el menú vacío haría
+  // que no se pudiera tomar ningún pedido.
+  const menuOn = (planFeatures as any)?.restaurant_menu_recipes === true;
   useEffect(() => {
-    apiFetch<PickProduct[]>('/products').then(p => setProducts(p ?? [])).catch(() => {});
-  }, []);
+    const load = async () => {
+      if (menuOn) {
+        const menu = await apiFetch<PickProduct[]>('/recipes/menu').catch(() => [] as PickProduct[]);
+        if (menu.length > 0) { setProducts(menu); return; }
+      }
+      const all = await apiFetch<PickProduct[]>('/products').catch(() => [] as PickProduct[]);
+      setProducts(all ?? []);
+    };
+    void load();
+  }, [menuOn]);
 
   useEffect(() => {
     if (!modifiersOn) return;
@@ -154,12 +171,33 @@ export const TableOrderPanel: React.FC<Props> = ({ tableId, tableLabel, otherTab
     if (!order) return;
     setBusy(true); setErr('');
     try {
-      await tableOrdersService.update(order.id, { table_id: destId, table_label: destLabel });
+      // Por `move` y no por el PATCH genérico: valida que la mesa destino esté
+      // libre y deja rastro de dónde venía la cuenta.
+      await tableOrdersService.move(order.id, destId, destLabel);
       setMoving(false);
       onChanged();
       onClose();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudo mover la cuenta');
+    } finally { setBusy(false); }
+  };
+
+  // Personal del negocio, solo cuando se va a reasignar: no tiene sentido pedir
+  // la lista de usuarios cada vez que se abre una mesa.
+  useEffect(() => {
+    if (!assigning || staff.length > 0) return;
+    apiFetch<any[]>('/users').then(us => setStaff(us ?? [])).catch(() => {});
+  }, [assigning, staff.length]);
+
+  const assignTo = async (waiterId: string) => {
+    if (!order) return;
+    setBusy(true); setErr('');
+    try {
+      await tableOrdersService.assign(order.id, waiterId);
+      setAssigning(false);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo cambiar el mesero');
     } finally { setBusy(false); }
   };
 
@@ -260,8 +298,15 @@ export const TableOrderPanel: React.FC<Props> = ({ tableId, tableLabel, otherTab
                     <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
                       {results.map(p => (
                         <button key={p.id} onClick={() => addDraft(p)}
-                          className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-emerald-50">
-                          <span className="text-sm font-bold text-gray-800 truncate">{p.name}</span>
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-emerald-50">
+                          {/* Miniatura del plato: en una lista de coincidencias
+                              parecidas, la foto desambigua más rápido que el texto. */}
+                          {(p as any).image_url ? (
+                            <img src={(p as any).image_url} alt="" loading="lazy"
+                              className="w-9 h-9 rounded-lg object-cover shrink-0 bg-gray-50"
+                              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          ) : null}
+                          <span className="flex-1 min-w-0 text-sm font-bold text-gray-800 truncate">{p.name}</span>
                           <span className="text-sm font-black text-emerald-600 shrink-0">{money(p.unit_price)}</span>
                         </button>
                       ))}
@@ -309,6 +354,31 @@ export const TableOrderPanel: React.FC<Props> = ({ tableId, tableLabel, otherTab
                   </div>
                 </div>
               )}
+
+              {assigning && order && (
+                <div className="border border-teal-200 bg-teal-50/40 rounded-xl p-3">
+                  <p className="text-xs font-black text-teal-800 mb-2">Pasar la cuenta a…</p>
+                  {staff.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-2 text-center">Cargando usuarios…</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto">
+                      {staff.map(u => (
+                        <button key={u.id} onClick={() => assignTo(u.id)} disabled={busy}
+                          className={`px-2 py-1.5 rounded-lg border text-xs font-bold truncate disabled:opacity-40 ${
+                            (order as any).waiter_id === u.id
+                              ? 'border-teal-400 bg-teal-100 text-teal-900'
+                              : 'border-teal-200 bg-white text-teal-700 hover:bg-teal-100'
+                          }`}>
+                          {u.full_name || u.email}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-gray-500 mt-2">
+                    Cambia quién responde por la mesa. Queda registrado quién la abrió.
+                  </p>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -326,6 +396,12 @@ export const TableOrderPanel: React.FC<Props> = ({ tableId, tableLabel, otherTab
                   className="px-3 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-black hover:bg-indigo-100 disabled:opacity-40"
                   title="Mover esta cuenta a otra mesa">
                   <ArrowRightLeft size={14} />
+                </button>
+                {/* Cambio de turno: la cuenta pasa a otro mesero sin cerrarse. */}
+                <button onClick={() => setAssigning(a => !a)} disabled={busy}
+                  className="px-3 py-2.5 rounded-xl border border-teal-200 bg-teal-50 text-teal-700 text-xs font-black hover:bg-teal-100 disabled:opacity-40"
+                  title="Cambiar el mesero responsable">
+                  <UserCog size={14} />
                 </button>
                 <button onClick={cancelOrder} disabled={busy}
                   className="px-3 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs font-black hover:bg-red-100 disabled:opacity-40"

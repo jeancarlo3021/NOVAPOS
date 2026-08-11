@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer, StickyNote } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer, StickyNote, ChefHat } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 import type { AppliedCombo } from '@/services/promotions/promotionsService';
 import { displayPrice, productIvaPct } from '@/utils/priceUtils';
+import { DiscountAuthModal } from './DiscountAuthModal';
 
 // Formato de moneda con 2 decimales (el carrito muestra los céntimos).
 const money = (n: number) => Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -76,6 +77,23 @@ interface POSCartPanelProps {
   /** Imprime un pre-ticket (proforma, sin cobrar). */
   onPreTicket?: () => void;
   onSaveProforma?: () => void;
+  /**
+   * Manda lo del carrito a la cocina SIN cobrar.
+   *
+   * En la ventanita sirve para adelantar la preparación mientras el cliente
+   * paga; en las tablets del salón es la única acción posible, porque esos
+   * equipos no cobran.
+   */
+  onSendKitchen?: () => void;
+  /**
+   * ESTE equipo cobra.
+   *
+   * Es una propiedad del aparato, no del usuario: en un restaurante varias
+   * tablets entran con la misma cuenta y solo una computadora es la caja. Con
+   * `false`, el botón de cobrar no se muestra —no basta con deshabilitarlo: un
+   * botón gris igual invita a tocarlo y a preguntar por qué no responde.
+   */
+  canCharge?: boolean;
   /** Cuando true, el carrito se expande para ocupar el área principal (modo lista). */
   expanded?: boolean;
   /** El plan permite delivery: muestra el selector Mesa/Delivery. */
@@ -84,6 +102,14 @@ interface POSCartPanelProps {
   saleMode?: 'mesa' | 'delivery';
   /** Cambia el modo de venta (mesa ↔ delivery). */
   onSaleModeChange?: (mode: 'mesa' | 'delivery') => void;
+  /**
+   * Ventanita: el mismo interruptor, con los nombres del mostrador.
+   *
+   * «Comer acá» es el modo normal —sin 10 % de servicio, porque no hay mesero
+   * que atienda— y «Para llevar» es el que abre el selector de plataformas al
+   * cobrar. Es el mismo estado interno; solo cambia cómo se llama.
+   */
+  windowMode?: boolean;
 }
 
 export const POSCartPanel: React.FC<POSCartPanelProps> = ({
@@ -108,12 +134,17 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   onSetItemNotes,
   onPayment,
   onPreTicket,
+  onSendKitchen,
+  canCharge = true,
   expanded = false,
   deliveryEnabled = false,
   saleMode = 'mesa',
   onSaleModeChange,
+  windowMode = false,
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
+  /** Descuento que se pasó del tope y espera el PIN del supervisor. */
+  const [pendingDiscount, setPendingDiscount] = useState<{ productId: string; pct: number } | null>(null);
   const canPay = cartItems.length > 0 && currentSession?.status === 'open' && !loading;
 
   // ── Precios de línea con IVA ─────────────────────────────────────────────
@@ -215,10 +246,24 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   };
 
   const handleDiscountChange = (productId: string, value: string) => {
-    // Topar al máximo configurado por el negocio.
     const cap = Math.max(0, Math.min(100, maxDiscountPercent));
-    let pct = Math.max(0, parseFloat(value) || 0);
-    if (pct > cap) pct = cap;
+    const pct = Math.max(0, parseFloat(value) || 0);
+
+    // Pasarse del tope ya no se recorta en silencio: se pide autorización.
+    // Recortar sin decir nada dejaba al cajero peleando con el campo sin
+    // entender por qué el 30 % se convertía en 15, y al supervisor sin forma de
+    // aprobar una excepción legítima que igual va a terminar pasando.
+    if (pct > cap) {
+      setPendingDiscount({ productId, pct });
+      return;
+    }
+    setDiscountInputs(prev => ({ ...prev, [productId]: pct ? String(pct) : '' }));
+    onApplyDiscount?.(productId, pct);
+  };
+
+  /** Aplica el descuento ya autorizado por el supervisor. */
+  const applyAuthorized = (productId: string, pct: number) => {
+    setPendingDiscount(null);
     setDiscountInputs(prev => ({ ...prev, [productId]: pct ? String(pct) : '' }));
     onApplyDiscount?.(productId, pct);
   };
@@ -247,13 +292,13 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               onClick={() => onSaleModeChange?.('mesa')}
               className={`flex-1 py-2 rounded-lg text-sm font-black transition ${saleMode === 'mesa' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
             >
-              🍽️ Mesa
+              {windowMode ? '🍽️ Comer acá' : '🍽️ Mesa'}
             </button>
             <button
               onClick={() => onSaleModeChange?.('delivery')}
               className={`flex-1 py-2 rounded-lg text-sm font-black transition ${saleMode === 'delivery' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500'}`}
             >
-              🛵 Delivery
+              {windowMode ? '🥡 Para llevar' : '🛵 Delivery'}
             </button>
           </div>
         </div>
@@ -393,7 +438,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                           <span className="text-[10px] text-gray-300">—</span>
                         ) : (
                           <input
-                            type="number" inputMode="decimal" min={0} max={Math.min(100, maxDiscountPercent)}
+                            type="number" inputMode="decimal" min={0} max={100}
                             value={discountInputs[item.product_id] ?? (item.discount_percent ? String(item.discount_percent) : '')}
                             onChange={(e) => handleDiscountChange(item.product_id, e.target.value)}
                             placeholder="0"
@@ -463,6 +508,23 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                   </button>
                 </div>
 
+                {/* Extras elegidos y nota de cocina.
+                    Faltaban en esta vista —solo se veían en el formato lista—, así
+                    que quien pedía «sin cebolla» o «+ queso» no tenía forma de
+                    confirmar que se hubiera registrado antes de cobrar. No se
+                    trunca a una línea: un plato puede llevar varios extras y
+                    cortarlos escondería justo lo que hay que revisar. */}
+                {item.modifiers && item.modifiers.length > 0 && (
+                  <p className="text-[11px] text-violet-700 font-semibold leading-snug mt-0.5">
+                    + {item.modifiers.map(m => m.name).join(', ')}
+                  </p>
+                )}
+                {item.notes && !item.modifiers?.length && (
+                  <p className="text-[11px] text-amber-700 font-semibold leading-snug mt-0.5">
+                    ↳ {item.notes}
+                  </p>
+                )}
+
                 {/* Fila 2: cantidad + precio unitario + (descuento) */}
                 <div className="flex items-center gap-1.5 mt-1">
                   <button
@@ -486,9 +548,9 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
 
                   {canDiscount && !hasPromo && (
                     <span className="ml-auto flex items-center gap-1 shrink-0">
-                      <span className="text-[10px] text-gray-400 font-medium" title={`Máximo ${Math.min(100, maxDiscountPercent)}%`}>Desc%</span>
+                      <span className="text-[10px] text-gray-400 font-medium" title={`Sobre ${Math.min(100, maxDiscountPercent)}% pide autorización`}>Desc%</span>
                       <input
-                        type="number" min="0" max={Math.min(100, maxDiscountPercent)} step="1"
+                        type="number" min="0" max="100" step="1"
                         value={discountInputs[item.product_id] ?? (item.discount_percent ? String(item.discount_percent) : '')}
                         onChange={e => handleDiscountChange(item.product_id, e.target.value)}
                         placeholder="0"
@@ -596,23 +658,59 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               <Printer size={18} />
             </button>
           )}
-          <button
-            onClick={handlePaymentClick}
-            disabled={!canPay}
-            className={`flex-1 h-14 flex items-center justify-between px-4 rounded-xl transition ${
-              canPay
-                ? 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 active:scale-[0.98] text-white shadow-sm'
-                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            <span className="flex items-center gap-2 font-black">
-              <CreditCard size={22} />
-              {loading ? 'Procesando…' : 'Cobrar'}
-            </span>
-            <span className="font-black text-2xl tabular-nums">₡{money(total)}</span>
-          </button>
+          {/* Mandar a cocina sin cobrar. Cuando el equipo no cobra es la acción
+              principal y ocupa todo el ancho; cuando sí cobra, es un botón
+              secundario al lado. */}
+          {onSendKitchen && (
+            <button
+              onClick={onSendKitchen}
+              disabled={cartItems.length === 0}
+              title="Mandar el pedido a cocina sin cobrar"
+              className={`h-14 flex items-center justify-center gap-2 rounded-xl font-black transition shrink-0 ${
+                canCharge ? 'w-14' : 'flex-1'
+              } ${cartItems.length > 0
+                ? 'bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white shadow-sm'
+                : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}
+            >
+              <ChefHat size={22} />
+              {!canCharge && <span>Mandar a cocina</span>}
+            </button>
+          )}
+          {canCharge && (
+            <button
+              onClick={handlePaymentClick}
+              disabled={!canPay}
+              className={`flex-1 h-14 flex items-center justify-between px-4 rounded-xl transition ${
+                canPay
+                  ? 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 active:scale-[0.98] text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <span className="flex items-center gap-2 font-black">
+                <CreditCard size={22} />
+                {loading ? 'Procesando…' : 'Cobrar'}
+              </span>
+              <span className="font-black text-2xl tabular-nums">₡{money(total)}</span>
+            </button>
+          )}
         </div>
+        {/* Sin cobro, el total igual tiene que verse: el mesero lo canta en la
+            mesa aunque no sea él quien lo reciba. */}
+        {!canCharge && cartItems.length > 0 && (
+          <p className="mt-2 text-center text-sm font-black text-gray-700">
+            Total ₡{money(total)} · se cobra en la caja
+          </p>
+        )}
       </div>
+
+      {pendingDiscount && (
+        <DiscountAuthModal
+          pct={pendingDiscount.pct}
+          cap={Math.max(0, Math.min(100, maxDiscountPercent))}
+          onCancel={() => setPendingDiscount(null)}
+          onAuthorize={() => applyAuthorized(pendingDiscount.productId, pendingDiscount.pct)}
+        />
+      )}
     </div>
   );
 };

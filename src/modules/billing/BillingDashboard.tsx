@@ -226,12 +226,22 @@ export function BillingDashboard() {
       await posPrinterService.printComandas(
         `Mesa ${activeBill.id.slice(-4)}${mesero ? ` · ${mesero}` : ''}`,
         activeBill.items.map(it => ({
-          name: it.notes ? `${it.name} (${it.notes})` : it.name,
+          name: it.name,
           quantity: it.quantity,
+          // La nota va en su propio campo, no pegada al nombre: así sale en la
+          // línea de abajo y no se pierde al recortar un nombre largo.
+          notes: [it.notes, (it.modifiers ?? []).map((m: any) => m.name).join(', ')]
+            .filter(Boolean).join(' · ') || undefined,
           category_id: it.category_id,   // para rutear a la impresora de su estación
         })),
         tenantId,
         activeBill.customer_name ?? undefined,
+        {
+          // En el salón lo que cocina busca es la MESA, no el consecutivo.
+          tableInfo: activeSpotLabel || activeBill.id.slice(-4),
+          // Una cuenta marcada para llevar se empaca, aunque venga del salón.
+          serviceMode: activeBill.is_delivery ? 'llevar' : 'mesa',
+        },
       );
     } catch (e) {
       console.warn('[billing] error comandas:', e);

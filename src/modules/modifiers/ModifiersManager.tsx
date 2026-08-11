@@ -3,6 +3,7 @@ import {
   Layers, Plus, Trash2, Save, Search, Loader2, ChevronRight, AlertCircle, CheckCircle2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
 import {
   modifiersService, indexByProduct, type ModifierGroup, type Modifier,
@@ -22,6 +23,34 @@ const money = (n: number) => `₡${Math.round(Number(n || 0)).toLocaleString('es
  */
 export const ModifiersManager: React.FC = () => {
   const [products, setProducts] = useState<ProductLite[]>([]);
+  // Costo del extra: solo con la función activa. Sin ella, un extra sigue siendo
+  // solo precio, como siempre.
+  const { planFeatures } = useAuth();
+  const costOn = !!(planFeatures as any).recipe_modifier_cost;
+  /** El menú lo arman las recetas: los extras se configuran sobre esos platos. */
+  const menuOn = !!(planFeatures as any).restaurant_menu_recipes;
+  const [measureUnits, setMeasureUnits] = useState<Array<{ code: string; name: string }>>([]);
+  /**
+   * Insumos para el ingrediente del extra.
+   *
+   * Va SEPARADO de la lista de platos: el extra se configura sobre un plato del
+   * menú, pero lo que consume es un producto de INVENTARIO. Con una sola lista,
+   * «+ queso» habría terminado descontando el plato «Queso a la plancha».
+   */
+  const [ingredientProducts, setIngredientProducts] = useState<ProductLite[]>([]);
+  useEffect(() => {
+    if (!costOn) return;
+    let alive = true;
+    void Promise.all([
+      apiFetch<any[]>('/recipes/units').catch(() => []),
+      apiFetch<ProductLite[]>('/products').catch(() => [] as ProductLite[]),
+    ]).then(([us, ps]) => {
+      if (!alive) return;
+      setMeasureUnits(us ?? []);
+      setIngredientProducts(ps ?? []);
+    });
+    return () => { alive = false; };
+  }, [costOn]);
   const [byProduct, setByProduct] = useState<Map<string, ModifierGroup[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
@@ -34,8 +63,17 @@ export const ModifiersManager: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // Los extras se configuran sobre los PLATOS del menú, no sobre el catálogo
+      // de inventario: nadie le pone «término medio» al aceite. En un restaurante
+      // los platos son las recetas, así que la lista sale del menú.
+      //
+      // Sin recetas cargadas se cae al catálogo completo: dejar esta pantalla
+      // vacía haría imposible configurar el primer extra.
+      const menuFirst = menuOn
+        ? await apiFetch<ProductLite[]>('/recipes/menu').catch(() => [] as ProductLite[])
+        : [];
       const [prods, mods] = await Promise.all([
-        apiFetch<ProductLite[]>('/products'),
+        menuFirst.length > 0 ? Promise.resolve(menuFirst) : apiFetch<ProductLite[]>('/products'),
         modifiersService.list(),
       ]);
       setProducts(prods ?? []);
@@ -43,7 +81,7 @@ export const ModifiersManager: React.FC = () => {
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'No se pudo cargar' });
     } finally { setLoading(false); }
-  }, []);
+  }, [menuOn]);
   useEffect(() => { void load(); }, [load]);
 
   const filtered = useMemo(() => {
@@ -264,6 +302,46 @@ export const ModifiersManager: React.FC = () => {
                               className="w-28 pl-5 pr-2 py-1.5 text-sm text-right border border-gray-200 rounded-lg outline-none focus:border-violet-400" />
                           </div>
                           <button onClick={() => removeOption(gi, oi)} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
+                        </div>
+                      ))}
+                      {/* Ingrediente de cada opción: lo que el extra consume de
+                          verdad. Va en su propia fila para no apretar la de
+                          arriba, y solo con la función activa. */}
+                      {costOn && g.modifiers.map((m, oi) => (
+                        <div key={`ing-${oi}`} className="flex items-center gap-2 pl-3 border-l-2 border-violet-100">
+                          <span className="text-[11px] font-bold text-gray-400 w-24 truncate shrink-0">{m.name || 'Opción'}</span>
+                          <select
+                            value={m.ingredient?.product_id ?? ''}
+                            onChange={e => patchOption(gi, oi, {
+                              ingredient: e.target.value
+                                ? { type: 'product', product_id: e.target.value,
+                                    quantity: m.ingredient?.quantity || 1,
+                                    unit_code: m.ingredient?.unit_code ?? null,
+                                    waste_pct: m.ingredient?.waste_pct ?? 0 }
+                                : null,
+                            })}
+                            className="flex-1 min-w-0 px-2 py-1 text-xs border border-gray-200 rounded-lg bg-white">
+                            <option value="">— No consume nada —</option>
+                            {ingredientProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                          {m.ingredient?.product_id && (
+                            <>
+                              <input type="number" step="any" value={m.ingredient.quantity}
+                                onChange={e => patchOption(gi, oi, {
+                                  ingredient: { ...m.ingredient!, quantity: Number(e.target.value) || 0 },
+                                })}
+                                title="Cantidad que consume"
+                                className="w-16 px-2 py-1 text-xs text-right border border-gray-200 rounded-lg" />
+                              <select value={m.ingredient.unit_code ?? ''}
+                                onChange={e => patchOption(gi, oi, {
+                                  ingredient: { ...m.ingredient!, unit_code: e.target.value || null },
+                                })}
+                                className="w-16 px-1 py-1 text-xs border border-gray-200 rounded-lg bg-white">
+                                <option value="">unid</option>
+                                {measureUnits.map(u => <option key={u.code} value={u.code}>{u.code}</option>)}
+                              </select>
+                            </>
+                          )}
                         </div>
                       ))}
                       <button onClick={() => addOption(gi)}

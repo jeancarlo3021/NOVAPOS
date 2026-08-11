@@ -8,6 +8,7 @@ import { usePOSLayout, type POSLayout } from '@/hooks/usePOSLayout';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
 import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
 import { useTerminal } from '@/hooks/useTerminal';
+import { useDeviceRole } from '@/hooks/useDeviceRole';
 import { useAuth } from '@/context/AuthContext';
 
 interface Option {
@@ -43,6 +44,7 @@ export function POSViewSettings() {
   const { assisted, setAssisted } = useAssistedMode();
   const { simpleCash, setSimpleCash } = useSimpleCashCount();
   const { terminal, setTerminal } = useTerminal();
+  const { role: deviceRole, setRole: setDeviceRole } = useDeviceRole();
   const { planFeatures } = useAuth();
   const planAllowsKiosk = !!planFeatures?.pos_kiosk;
   const [kioskEnabled, setKioskEnabled] = useState<boolean>(() => {
@@ -174,6 +176,54 @@ export function POSViewSettings() {
           onChange={e => setTerminal(Number(e.target.value) || 1)}
           className="w-24 shrink-0 text-center text-2xl font-black border-2 border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:border-indigo-400 tabular-nums"
         />
+      </div>
+
+      {/* ── Rol de este equipo ─────────────────────────────────────────
+          En un restaurante hay varias tablets tomando pedidos y UNA computadora
+          que cobra. Todas entran con el mismo negocio y muchas veces con el
+          mismo usuario, así que el rol no puede venir del plan ni del permiso:
+          dos aparatos con la misma cuenta tienen que comportarse distinto. */}
+      <div className="rounded-2xl border-2 border-gray-200 bg-white p-5">
+        <div className="flex items-center gap-4 mb-3">
+          <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+            <MonitorSmartphone size={22} className="text-emerald-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-black text-gray-900 text-base">¿Qué hace este equipo?</h3>
+            <p className="text-xs text-gray-600">
+              Se configura una vez al instalar y no se vuelve a tocar. Queda guardado en ESTE
+              aparato, no en la cuenta.
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button type="button" onClick={() => setDeviceRole('caja')}
+            className={`text-left rounded-xl border-2 px-4 py-3 transition ${
+              deviceRole === 'caja' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
+            }`}>
+            <p className="font-black text-gray-900 text-sm">Caja</p>
+            <p className="text-xs text-gray-500 leading-snug mt-0.5">
+              Cobra: apertura y cierre de caja, medios de pago, factura e impresión del tiquete.
+              Debería ser <b>una sola</b> en el local.
+            </p>
+          </button>
+          <button type="button" onClick={() => setDeviceRole('comanda')}
+            className={`text-left rounded-xl border-2 px-4 py-3 transition ${
+              deviceRole === 'comanda' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
+            }`}>
+            <p className="font-black text-gray-900 text-sm">Solo comandas</p>
+            <p className="text-xs text-gray-500 leading-snug mt-0.5">
+              Toma pedidos y los manda a cocina, pero <b>no cobra</b>. Es lo que va en las tablets
+              del salón, para que nadie abra caja por error.
+            </p>
+          </button>
+        </div>
+        {deviceRole === 'comanda' && (
+          <p className="mt-3 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            En este equipo el botón de cobrar queda oculto. El pedido se manda a cocina y se cobra
+            desde la computadora marcada como caja.
+          </p>
+        )}
       </div>
 
       {/* ── Conteo de caja simple (un solo campo) ──────────────────────── */}

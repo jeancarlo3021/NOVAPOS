@@ -1,35 +1,25 @@
-import { apiFetch } from '@/lib/api';
+/**
+ * Compatibilidad: este módulo era una SEGUNDA copia del servicio de
+ * modificadores.
+ *
+ * Existían dos implementaciones del mismo API —esta y `@/services/modifiers/
+ * modifiersService`— con tipos parecidos pero no iguales. Eso ya había empezado
+ * a costar: al agregarle el ingrediente a las opciones hubo que tocar las dos, y
+ * la que se olvidara habría dejado media aplicación guardando extras sin costo.
+ *
+ * La implementación real vive ahora en `@/services/modifiers/modifiersService`.
+ * Este archivo solo reexporta, para no tener que reescribir los imports de golpe.
+ * En código nuevo, importá directamente del otro.
+ */
+export {
+  modifiersService,
+  indexByProduct,
+  modifiersLabel,
+  type ModifierGroup,
+  type ModifierIngredient,
+  type SelectedModifier,
+} from '@/services/modifiers/modifiersService';
 
-export interface ProductModifier {
-  id?: string;
-  group_id?: string;
-  name: string;
-  price_delta: number;
-  sort_order?: number;
-}
-
-export interface ModifierGroup {
-  id?: string;
-  tenant_id?: string;
-  product_id?: string;
-  name: string;
-  min_select: number;   // 0 = opcional
-  max_select: number;   // 1 = elegir uno; >1 = varios
-  sort_order?: number;
-  modifiers: ProductModifier[];
-}
-
-export const modifiersService = {
-  /** Grupos + opciones de un producto. */
-  forProduct(productId: string): Promise<ModifierGroup[]> {
-    return apiFetch<ModifierGroup[]>(`/modifiers?product_id=${productId}`);
-  },
-
-  /** Reemplaza todos los grupos+opciones de un producto. */
-  saveForProduct(productId: string, groups: ModifierGroup[]): Promise<{ ok: boolean }> {
-    return apiFetch(`/modifiers/product/${productId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ groups }),
-    });
-  },
-};
+// El nombre viejo de la opción en esta copia. Se mantiene para los archivos que
+// todavía lo importan así.
+export type { Modifier as ProductModifier } from '@/services/modifiers/modifiersService';

@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { RotateCw, Sliders, Search, X, ClipboardCheck } from 'lucide-react';
+import { RotateCw, Sliders, Search, X, ClipboardCheck, Trash2 } from 'lucide-react';
 import { useInventoryProducts } from '@/hooks/useInventoryProducts';
 import { useTenantId } from '@/hooks/useTenant';
 import { StockAdjustModal } from '../products/StockAdjustModal';
 import { PhysicalCountModal } from './PhysicalCountModal';
+import { QuickWasteModal } from './QuickWasteModal';
 import {
   Card,
   CardContent,
@@ -17,6 +18,7 @@ export const StockMovements: React.FC = () => {
   const { tenantId } = useTenantId();
   const [adjustProductId, setAdjustProductId] = useState<string | null>(null);
   const [showPhysicalCount, setShowPhysicalCount] = useState(false);
+  const [showWaste, setShowWaste] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'low' | 'critical' | 'ok'>('all');
 
@@ -80,11 +82,20 @@ export const StockMovements: React.FC = () => {
           <h2 className="text-3xl font-bold text-gray-900">Stock de Productos</h2>
           <p className="text-gray-500 mt-1">Revisa el stock actual y realiza ajustes con motivo</p>
         </div>
-        <button
-          onClick={() => setShowPhysicalCount(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm">
-          <ClipboardCheck size={17} /> Toma física
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Merma rápida: varios productos de una vez. Entrar de a uno hacía
+              que en la práctica nadie registrara lo que se bota al cierre. */}
+          <button
+            onClick={() => setShowWaste(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-sm">
+            <Trash2 size={17} /> Merma rápida
+          </button>
+          <button
+            onClick={() => setShowPhysicalCount(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm">
+            <ClipboardCheck size={17} /> Toma física
+          </button>
+        </div>
       </div>
 
       {error && !loading && (
@@ -298,6 +309,13 @@ export const StockMovements: React.FC = () => {
         <PhysicalCountModal
           onClose={() => setShowPhysicalCount(false)}
           onApplied={() => { void retry(); }}
+        />
+      )}
+
+      {showWaste && (
+        <QuickWasteModal
+          onClose={() => setShowWaste(false)}
+          onDone={() => { void retry(); }}
         />
       )}
     </div>

@@ -5,7 +5,14 @@ import { useTenant } from '../useTenant';
 import { posOfflineService } from '@/services/pos/posOfflineService';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
 
-export function usePOSProducts() {
+/**
+ * Catálogo del POS.
+ *
+ * `recipesOnly` lo usa SOLO la ventanita: ahí lo que se vende son platos, no
+ * insumos. La caja normal («Vender») sigue con el catálogo de productos, que es
+ * como está funcionando en producción.
+ */
+export function usePOSProducts(recipesOnly = false) {
   const { tenantId } = useTenant();
   const [products, setProducts]     = useState<Product[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -19,11 +26,26 @@ export function usePOSProducts() {
     // Trae productos + unit-types + categorías en paralelo y hace JOIN en frontend.
     // Si el backend ya manda el JOIN embebido, esto solo refuerza/normaliza
     // los datos para que el caché siempre tenga las relaciones disponibles.
-    const [products, unitTypes, categories] = await Promise.all([
-      apiFetch<any[]>('/products'),
+    //
+    // El catálogo del POS son los PRODUCTOS, siempre.
+    //
+    // Solo la VENTANITA vende recetas, y lo pide explícitamente con
+    // `recipesOnly`. Vender y ventanita son dos cosas distintas: la primera es
+    // la caja de siempre —que ya está en producción vendiendo el catálogo
+    // completo— y la segunda es un mostrador de comidas. Cambiarle el catálogo
+    // a la caja normal porque el negocio activó recetas sería moverle el piso a
+    // algo que funciona.
+    const [base, menu, unitTypes, categories] = await Promise.all([
+      recipesOnly ? Promise.resolve([] as any[]) : apiFetch<any[]>('/products'),
+      recipesOnly ? apiFetch<any[]>('/recipes/menu').catch(() => [] as any[]) : Promise.resolve([] as any[]),
       apiFetch<any[]>('/unit-types').catch(() => []),
       apiFetch<any[]>('/categories').catch(() => []),
     ]);
+    // La ventanita muestra RECETAS y nada más. Antes caía al catálogo cuando el
+    // menú venía vacío, y eso hacía imposible entender qué estaba pasando: se
+    // veían productos en una pantalla que dice vender platos. Vacío es vacío, y
+    // la pantalla explica qué falta hacer.
+    const products = recipesOnly ? menu : base;
 
     const unitTypeMap = Object.fromEntries(
       (unitTypes ?? []).map(ut => [ut.id, ut]),
@@ -119,14 +141,30 @@ export function usePOSProducts() {
         setProducts(fetched);
         setFromCache(false);
         setCachedAt(new Date());
-        // Persist to both cache stores
-        saveToCache(tid, fetched).catch(() => {});
-        posOfflineService.cacheProducts(tid, fetched).catch(() => {});
+        // El caché es UNO por empresa y lo comparten la caja y la ventanita, así
+        // que solo escribe la caja: si la ventanita guardara su menú de recetas
+        // ahí, al abrir «Vender» sin conexión aparecerían platos en vez del
+        // catálogo. Sin conexión la ventanita cae a ese mismo caché, que es de
+        // productos — de más, pero nunca vacío.
+        if (!recipesOnly) {
+          saveToCache(tid, fetched).catch(() => {});
+          posOfflineService.cacheProducts(tid, fetched).catch(() => {});
+        }
         setLoading(false);
         return;
       } catch (err) {
         // Network failed even though online — fall through to cache
       }
+    }
+
+    // Sin conexión, la ventanita NO cae al caché: ese caché es de productos y
+    // llenaría de insumos una pantalla que vende platos. Prefiere quedarse
+    // vacía y decirlo.
+    if (recipesOnly) {
+      setProducts([]);
+      setError('Sin conexión: el menú de recetas necesita internet para cargarse.');
+      setLoading(false);
+      return;
     }
 
     // Offline or network error — try cache
