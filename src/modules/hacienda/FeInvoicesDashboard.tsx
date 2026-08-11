@@ -279,9 +279,13 @@ export const FeInvoicesDashboard: React.FC = () => {
   const [emailSending, setEmailSending] = useState(false);
   const [emailErr, setEmailErr] = useState('');
   const [emailOk, setEmailOk] = useState(false);
+  /** Qué documento se reenvía: la factura o una de sus notas. */
+  const [emailKind, setEmailKind] = useState<'invoice' | 'nc' | 'nd'>('invoice');
 
   const openEmailModal = (row: FeRow) => {
     setEmailRow(row); setEmailValue(''); setEmailErr(''); setEmailOk(false);
+    // Se abre en «factura», que es lo que se reenvía casi siempre.
+    setEmailKind('invoice');
   };
 
   const sendEmail = async () => {
@@ -290,10 +294,13 @@ export const FeInvoicesDashboard: React.FC = () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailErr('Ingresá un correo válido.'); return; }
     setEmailSending(true); setEmailErr('');
     try {
-      await haciendaService.resendEmail(emailRow.id, email);
+      await haciendaService.resendEmail(emailRow.id, email, emailKind);
       setEmailOk(true);
-      // Marca el comprobante como enviado para mostrar el check en la bitácora.
-      setRows(prev => prev.map(x => x.id === emailRow.id ? { ...x, fe_emailed: true } : x));
+      // El check de la bitácora significa «la FACTURA ya se envió»: una nota no
+      // lo reemplaza, así que solo se marca cuando se mandó la factura.
+      if (emailKind === 'invoice') {
+        setRows(prev => prev.map(x => x.id === emailRow.id ? { ...x, fe_emailed: true } : x));
+      }
       setTimeout(() => setEmailRow(null), 1600);
     } catch (e) { setEmailErr(e instanceof Error ? e.message : 'No se pudo reenviar el correo'); }
     finally { setEmailSending(false); }
@@ -544,6 +551,30 @@ export const FeInvoicesDashboard: React.FC = () => {
               </div>
             ) : (
               <>
+                {/* Qué documento se manda. Solo aparece si la factura tiene
+                    notas: en la mayoría de los casos hay una sola opción y un
+                    selector de un elemento sobra. */}
+                {(emailRow.fe_nc_clave || (emailRow as any).fe_nd_clave) && (
+                  <>
+                    <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1 mt-3">Qué se envía</label>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {([
+                        ['invoice', 'Factura', !!emailRow.fe_clave],
+                        ['nc', 'Nota de crédito', !!emailRow.fe_nc_clave],
+                        ['nd', 'Nota de débito', !!(emailRow as any).fe_nd_clave],
+                      ] as const).filter(([, , has]) => has).map(([k, label]) => (
+                        <button key={k} type="button" onClick={() => setEmailKind(k)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition ${
+                            emailKind === k
+                              ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                              : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                          }`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1 mt-3">Correo de destino</label>
                 <input
                   type="email" autoFocus value={emailValue}

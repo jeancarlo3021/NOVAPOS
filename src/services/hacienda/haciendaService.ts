@@ -158,8 +158,16 @@ export const haciendaService = {
   },
 
   /** Reenvía la info del comprobante a otro correo. */
-  resendEmail: (invoiceId: string, email: string) => apiFetch<{ ok: boolean }>(
-    '/hacienda/resend-email', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, email }) }),
+  /**
+   * Reenvía un comprobante por correo.
+   *
+   * `kind` decide cuál: la factura, su nota de crédito o su nota de débito. Sin
+   * él siempre iba la factura, así que una NC no se podía reenviar nunca.
+   */
+  resendEmail: (invoiceId: string, email: string, kind: 'invoice' | 'nc' | 'nd' = 'invoice') =>
+    apiFetch<{ ok: boolean; kind: string }>(
+      '/hacienda/resend-email',
+      { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, email, kind }) }),
 
   // ── Recepción de comprobantes (Mensaje Receptor) — Alanube ──
   /** Bandeja de comprobantes recibidos de proveedores. */
