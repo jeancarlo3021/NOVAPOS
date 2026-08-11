@@ -18,9 +18,40 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Forzamos re-login después de N horas desde el último login.
 // Si querés 18h, cambiá la constante.
 const SESSION_LOGIN_TS_KEY = 'novapos_session_login_ts';
-const SESSION_MAX_AGE_MS = 18 * 60 * 60 * 1000; // 18h
+/**
+ * Hora a la que vence la sesión: una vez al día, de madrugada.
+ *
+ * Antes la sesión duraba 18 horas CONTADAS DESDE EL LOGIN, y ese era el
+ * problema: quien entraba a las 4 p. m. quedaba expulsado a las 10 de la mañana
+ * siguiente, en plena atención. Como la hora del corte dependía de cuándo se
+ * había entrado, se sentía aleatorio.
+ *
+ * Con un corte fijo, la sesión SIEMPRE muere de madrugada y nunca en horario de
+ * trabajo: se entra una vez al abrir y se queda todo el día. Las 4 a. m. dejan
+ * pasar a los negocios que cierran tarde.
+ */
+const SESSION_CUTOFF_HOUR = 4;
+/**
+ * Piso de duración.
+ *
+ * Sin esto, entrar a las 3:50 a. m. daría una sesión de diez minutos. Si el
+ * próximo corte está más cerca que esto, se pasa al del día siguiente.
+ */
+const SESSION_MIN_MS = 6 * 60 * 60 * 1000; // 6h
 // Cada cuánto chequeamos si la sesión expiró.
 const SESSION_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5min
+
+/** Momento en que vence una sesión iniciada en `loginTs`. */
+function sessionExpiresAt(loginTs: number): number {
+  const d = new Date(loginTs);
+  const cut = new Date(d);
+  cut.setHours(SESSION_CUTOFF_HOUR, 0, 0, 0);
+  // El corte de HOY ya pasó (o está muy cerca): se toma el de mañana.
+  while (cut.getTime() - loginTs < SESSION_MIN_MS) {
+    cut.setDate(cut.getDate() + 1);
+  }
+  return cut.getTime();
+}
 
 interface AuthCache {
   userId: string;
@@ -1257,10 +1288,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch { /* SSR / privacidad — ignorar */ }
   }, [isReadOnly]);
 
-  // ── Timeout de sesión por edad ──────────────────────────────────────────
-  // Cada N minutos chequea si pasaron 24h desde el último login. Si sí,
-  // logout automático. Si el user nunca tuvo timestamp (ej. caché viejo de
-  // antes del feature), lo seteamos ahora para no echarlo de inmediato.
+  // ── Vencimiento de sesión: UNA VEZ AL DÍA ───────────────────────────────
+  // Cada N minutos revisa si ya pasó el corte de madrugada correspondiente a
+  // este login. Si el usuario no tenía marca de tiempo (caché viejo), se pone
+  // ahora para no echarlo de inmediato.
   useEffect(() => {
     if (!user) return;
     try {
@@ -1274,8 +1305,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const raw = localStorage.getItem(SESSION_LOGIN_TS_KEY);
         if (!raw) return;
         const loginTs = Number(raw);
-        if (Number.isFinite(loginTs) && Date.now() - loginTs > SESSION_MAX_AGE_MS) {
-          console.log('[auth] sesión expirada por edad — cerrando y limpiando cache');
+        if (Number.isFinite(loginTs) && Date.now() >= sessionExpiresAt(loginTs)) {
+          console.log('[auth] sesión vencida (corte diario) — cerrando y limpiando cache');
           clearAllAppCache();
           logout().catch(() => {});
         }

@@ -39,6 +39,8 @@ export const ReceptionDashboard: React.FC = () => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [gastoFor, setGastoFor] = useState<ReceivedDoc | null>(null);
+  /** Nota de crédito esperando confirmación (devuelve producto o es descuento). */
+  const [ncFor, setNcFor] = useState<ReceivedDoc | null>(null);
   const [compraFor, setCompraFor] = useState<ReceivedDoc | null>(null);
   const [ackFor, setAckFor] = useState<ReceivedDoc | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -128,11 +130,13 @@ export const ReceptionDashboard: React.FC = () => {
    *
    * Armarle una orden de compra sumaría inventario que nunca llegó.
    */
-  const aceptarNotaCredito = async (row: ReceivedDoc) => {
+  const aceptarNotaCredito = async (row: ReceivedDoc, restock: boolean) => {
+    setNcFor(null);
     setBusyId(row.id);
     try {
-      await haciendaService.classifyReceived(row.id, 'compra');
+      const r = await haciendaService.acceptCreditNote(row.id, restock);
       setRows(prev => prev.map(x => x.id === row.id ? { ...x, kind: 'compra' } : x));
+      alert((r.messages ?? ['Nota de crédito aceptada']).join('\n'));
     } catch (e) {
       alert(e instanceof Error ? e.message : 'No se pudo aceptar la nota de crédito');
     } finally { setBusyId(null); }
@@ -336,7 +340,7 @@ export const ReceptionDashboard: React.FC = () => {
                             ↩ NC aceptada · resta crédito
                           </span>
                         ) : (
-                          <button onClick={() => aceptarNotaCredito(r)} disabled={busyId === r.id}
+                          <button onClick={() => setNcFor(r)} disabled={busyId === r.id}
                             title="Aceptar la nota de crédito: resta el crédito fiscal del período"
                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-black text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50">
                             ↩ Aceptar nota de crédito
@@ -430,6 +434,48 @@ export const ReceptionDashboard: React.FC = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Nota de crédito: hay que preguntar, no asumir.
+          Devolvió mercadería → sale del inventario.
+          Fue un descuento posterior → el producto se quedó y restar existencias
+          inventaría un faltante que no existe. */}
+      {ncFor && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setNcFor(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="font-black text-gray-900">Aceptar nota de crédito</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {ncFor.issuer_name} · {fmt(ncFor.total)}
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-gray-700">
+                En los dos casos <b>resta {fmt(ncFor.total)} del crédito fiscal</b> del período.
+                Lo que cambia es el inventario:
+              </p>
+              <button onClick={() => void aceptarNotaCredito(ncFor, true)} disabled={busyId === ncFor.id}
+                className="w-full text-left rounded-xl border-2 border-rose-300 bg-rose-50 hover:bg-rose-100 px-4 py-3 disabled:opacity-50">
+                <p className="font-black text-rose-900 text-sm">Devolví mercadería</p>
+                <p className="text-[11px] text-rose-700 leading-snug">
+                  Sale del inventario lo que trae la nota. Queda registrado con motivo en los
+                  movimientos de stock.
+                </p>
+              </button>
+              <button onClick={() => void aceptarNotaCredito(ncFor, false)} disabled={busyId === ncFor.id}
+                className="w-full text-left rounded-xl border-2 border-gray-200 hover:border-gray-300 px-4 py-3 disabled:opacity-50">
+                <p className="font-black text-gray-900 text-sm">Fue solo un descuento</p>
+                <p className="text-[11px] text-gray-500 leading-snug">
+                  La mercadería se quedó. No se toca el inventario.
+                </p>
+              </button>
+              <button onClick={() => setNcFor(null)}
+                className="w-full py-2 rounded-lg text-sm font-bold text-gray-500 hover:bg-gray-50">
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

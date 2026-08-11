@@ -36,7 +36,9 @@ export const SupplierCard: React.FC<SupplierCardProps> = ({ supplier, onEdit, on
               )}
             </div>
           </div>
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {/* Visibles siempre, igual que en la tarjeta de producto: escondidos
+              tras el hover no se encuentran en pantalla táctil. */}
+          <div className="flex gap-1">
             <button
               onClick={onEdit}
               className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"

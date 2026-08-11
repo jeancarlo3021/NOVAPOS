@@ -160,8 +160,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             <Star size={18} fill={isFavorite ? 'currentColor' : 'none'} />
           </button>
 
+          {/* Los botones SIEMPRE visibles.
+              Antes estaban en `opacity-0` y solo aparecían al pasar el mouse,
+              con `pointer-coarse` como excepción para pantallas táctiles. Esa
+              excepción no alcanza: un portátil con pantalla táctil, un monitor
+              táctil de caja o un aparato conectado a un mouse reportan puntero
+              fino, así que el lápiz quedaba escondido sin que nada lo insinuara.
+              Un botón que hay que adivinar es un botón que no existe. */}
           {(onEdit || onDelete) && (
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity ml-1">
+            <div className="flex gap-1 ml-1">
               {planFeatures?.labels && (
                 <button onClick={() => setShowPrint(true)} className="p-2 text-fuchsia-600 hover:bg-fuchsia-100 rounded-lg transition" title="Imprimir etiqueta">
                   <Printer size={16} />

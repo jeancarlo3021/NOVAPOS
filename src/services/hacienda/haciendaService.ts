@@ -198,6 +198,18 @@ export const haciendaService = {
     apiFetch<{ updated: number; kind: string }>('/hacienda/received/classify-all',
       { method: 'POST', body: JSON.stringify({ kind }) }),
 
+  /**
+   * Acepta una NOTA DE CRÉDITO del proveedor.
+   *
+   * `restock` decide si además sale mercadería del inventario: true cuando se
+   * devolvió producto, false cuando la nota es solo un descuento posterior.
+   * En los dos casos resta crédito fiscal del período.
+   */
+  acceptCreditNote: (id: string, restock: boolean) =>
+    apiFetch<{ ok: boolean; restocked: number; items: any[]; messages: string[] }>(
+      '/hacienda/received/credit-note',
+      { method: 'POST', body: JSON.stringify({ id, restock }) }),
+
   /** Convierte un recibido en una compra a proveedor (crea proveedor + compra). */
   receivedToPurchase: (id: string) =>
     apiFetch<{ ok: boolean; purchase_id: string; supplier_id: string }>('/hacienda/received/to-purchase',
