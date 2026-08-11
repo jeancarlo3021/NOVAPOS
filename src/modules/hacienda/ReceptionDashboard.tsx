@@ -107,6 +107,37 @@ export const ReceptionDashboard: React.FC = () => {
    * orden por cada una era trabajo sin beneficio. Quien sí las lleva tiene el
    * botón «Orden» al lado.
    */
+  /**
+   * ¿Es una NOTA DE CRÉDITO del proveedor?
+   *
+   * El tipo va embebido en la clave de Hacienda (posiciones 30-31) y se guarda
+   * al recibir el XML: 01 factura · 02 nota de débito · 03 nota de crédito.
+   * No hace falta leer el XML otra vez ni que nadie la clasifique a mano.
+   */
+  const esNotaCredito = (r: ReceivedDoc) =>
+    String(r.document_type ?? '') === '03'
+    || String(r.clave ?? '').slice(29, 31) === '03';
+
+  /**
+   * Acepta una nota de crédito.
+   *
+   * NO abre el flujo de compra: una nota de crédito no trae mercadería que
+   * ingresar ni productos que crear — es plata que el proveedor devuelve o un
+   * descuento posterior. Lo único que hace es RESTAR crédito fiscal, y eso lo
+   * calcula el reporte de impuestos a partir del tipo de documento.
+   *
+   * Armarle una orden de compra sumaría inventario que nunca llegó.
+   */
+  const aceptarNotaCredito = async (row: ReceivedDoc) => {
+    setBusyId(row.id);
+    try {
+      await haciendaService.classifyReceived(row.id, 'compra');
+      setRows(prev => prev.map(x => x.id === row.id ? { ...x, kind: 'compra' } : x));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudo aceptar la nota de crédito');
+    } finally { setBusyId(null); }
+  };
+
   const marcarCompra = async (row: ReceivedDoc) => {
     setBusyId(row.id);
     try {
@@ -272,6 +303,13 @@ export const ReceptionDashboard: React.FC = () => {
                         <div>
                           <div className="font-bold text-gray-800 max-w-sm truncate flex items-center gap-1.5">
                             {r.issuer_name ?? '—'}
+                            {/* Una NC entre facturas se pasa por alto y se
+                                termina aceptando como compra, sumando crédito
+                                fiscal en vez de restarlo. Va marcada. */}
+                            {esNotaCredito(r) && (
+                              <span className="inline-flex items-center text-[9px] font-black text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full uppercase"
+                                title="Nota de crédito: resta crédito fiscal, no ingresa mercadería">↩ nota de crédito</span>
+                            )}
                             {r.source === 'email' && (
                               <span className="inline-flex items-center text-[9px] font-black text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full uppercase" title={r.email_from ?? 'Recibido por correo'}>📧 correo</span>
                             )}
@@ -289,6 +327,21 @@ export const ReceptionDashboard: React.FC = () => {
                       {/* Sin compras ni gastos en el plan: la bandeja es solo para aceptar/rechazar. */}
                       {!canClassify ? (
                         <span className="text-[11px] text-gray-300">—</span>
+                      ) : esNotaCredito(r) ? (
+                        // Nota de crédito: un solo botón. No hay orden de compra
+                        // que armar ni productos que crear — solo resta crédito
+                        // fiscal, y eso sale del tipo de documento.
+                        r.kind ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-black text-rose-700 bg-rose-50 border border-rose-200">
+                            ↩ NC aceptada · resta crédito
+                          </span>
+                        ) : (
+                          <button onClick={() => aceptarNotaCredito(r)} disabled={busyId === r.id}
+                            title="Aceptar la nota de crédito: resta el crédito fiscal del período"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-black text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50">
+                            ↩ Aceptar nota de crédito
+                          </button>
+                        )
                       ) : r.kind === 'compra' ? (
                         // Ya confirmado como compra → ver la orden y RECARGAR sus items
                         // (útil si la factura ya se aceptó y la orden quedó incompleta).
