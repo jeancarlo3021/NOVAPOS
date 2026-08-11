@@ -4,6 +4,7 @@ import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
   TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
   Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone,
+  UtensilsCrossed, Store, BookOpen, QrCode,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -65,8 +66,15 @@ const ALL_TILES: Tile[] = [
   { feature: 'sales_agents',     label: 'Agentes',         icon: UserCheck,     path: '/sales-agents',     bg: 'from-sky-600 to-indigo-600',    hideForRoles: ['cajero', 'agente'] },
   { feature: 'returns',          label: 'Devoluciones',    icon: Undo2,         path: '/returns',          bg: 'from-rose-600 to-pink-700'        },
   { feature: 'supplier_returns', label: 'Devol. proveedor', icon: Truck,        path: '/supplier-returns', bg: 'from-amber-600 to-orange-700'     },
+  // ── Restaurante ──────────────────────────────────────────────────────────
+  // Cada uno con su propia bandera: un negocio puede tener ventanita sin salón,
+  // o recetas sin ninguna de las dos.
+  { feature: 'restaurant',       label: 'Restaurante',     icon: UtensilsCrossed, path: '/billing',        bg: 'from-orange-600 to-red-600'       },
+  { feature: 'window_service',   label: 'Ventanita',       icon: Store,         path: '/ventanita',        bg: 'from-orange-500 to-amber-600'     },
   { feature: 'tables',           label: 'Mapa de Mesas',   icon: LayoutGrid,    path: '/tables',           bg: 'from-orange-500 to-red-500'       },
   { feature: 'modifiers',        label: 'Extras',          icon: Layers,        path: '/modifiers',        bg: 'from-violet-600 to-fuchsia-600'   },
+  { feature: 'recipes',          label: 'Recetas',         icon: BookOpen,      path: '/recipes',          bg: 'from-lime-500 to-green-600'       },
+  { feature: 'digital_menu',     label: 'Menú digital',    icon: QrCode,        path: '/menu-digital',     bg: 'from-teal-500 to-emerald-600'     },
   // Vista de cartera del contador: datos del negocio, plan y comprobantes.
   { feature: 'reports',           label: 'Negocios',        icon: Building2,     path: '/businesses',       bg: 'from-indigo-600 to-violet-700'    },
   { feature: 'android_app',      label: 'App Android',     icon: Smartphone,    path: '/android-app',      bg: 'from-emerald-600 to-green-700'    },

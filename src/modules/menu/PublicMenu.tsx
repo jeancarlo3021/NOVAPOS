@@ -50,7 +50,11 @@ export const PublicMenu: React.FC = () => {
   useEffect(() => {
     if (!slug) { setState('missing'); return; }
     let alive = true;
-    const url = `${apiBase()}/public-menu/${encodeURIComponent(slug)}`;
+    // El prefijo `/api` lo agrega `lib/api`, no la variable de entorno: acá hay
+    // que repetirlo. Sin él la petición cae en la raíz del backend, que en
+    // Vercel devuelve un 404 de texto plano SIN cabeceras CORS — y el navegador
+    // lo reporta como «no se pudo contactar», no como 404.
+    const url = `${apiBase()}/api/public-menu/${encodeURIComponent(slug)}`;
     fetch(url)
       .then(async r => {
         if (r.status === 404) { if (alive) setState('missing'); return null; }
