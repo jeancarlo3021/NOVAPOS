@@ -11,6 +11,8 @@ export interface Receivable {
   paid_amount: number;
   due_date?: string | null;
   status: 'pending' | 'partial' | 'paid' | 'overdue';
+  /** Momento en que la cuenta quedó CANCELADA (saldo en cero). */
+  paid_at?: string | null;
   source: 'pos' | 'manual' | 'distribution';
   notes?: string | null;
   created_at: string;
@@ -24,6 +26,8 @@ export interface ReceivablePayment {
   amount: number;
   method: string;
   note?: string | null;
+  /** Agrupa los abonos que entraron con un mismo pago masivo. */
+  batch_id?: string | null;
   created_at: string;
   voided_at?: string | null;
   voided_by?: string | null;
@@ -65,10 +69,15 @@ export const accountsReceivableService = {
   // createdAt = momento real del abono (para abonos offline; si no se pasa, el
   // servidor usa "ahora"). Evita que un abono sincronizado tarde quede fuera de
   // la ventana del cierre del repartidor.
-  pay: (id: string, amount: number, method = 'cash', note?: string, createdAt?: string) =>
+  /** `batchId` agrupa los abonos de un mismo pago masivo. */
+  pay: (id: string, amount: number, method = 'cash', note?: string, createdAt?: string, batchId?: string) =>
     apiFetch<Receivable>(`/accounts-receivable/${id}/pay`, {
       method: 'POST',
-      body: JSON.stringify({ amount, method, note, created_at: createdAt ?? new Date().toISOString() }),
+      body: JSON.stringify({
+        amount, method, note,
+        created_at: createdAt ?? new Date().toISOString(),
+        batch_id: batchId,
+      }),
     }),
   remove: (id: string) =>
     apiFetch(`/accounts-receivable/${id}`, { method: 'DELETE' }),

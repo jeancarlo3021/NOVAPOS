@@ -1581,6 +1581,10 @@ export const POSMain = () => {
             deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
             windowMode={windowMode}
+            documentType={documentType}
+            onDocumentTypeChange={(planFeatures as any)?.electronic_invoice ? setDocumentType : undefined}
+            feReady={feApiKeyReady}
+            customerHasId={!!selectedCustomer?.identification}
             onSaleModeChange={setSaleMode}
           />
         </div>
@@ -1625,6 +1629,10 @@ export const POSMain = () => {
             deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
             windowMode={windowMode}
+            documentType={documentType}
+            onDocumentTypeChange={(planFeatures as any)?.electronic_invoice ? setDocumentType : undefined}
+            feReady={feApiKeyReady}
+            customerHasId={!!selectedCustomer?.identification}
             onSaleModeChange={setSaleMode}
           />
         </div>

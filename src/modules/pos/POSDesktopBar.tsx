@@ -64,8 +64,12 @@ export function POSDesktopBar({
     return () => window.removeEventListener('storage', onStorage);
   }, [invoiceNumberRefreshKey]);
 
+  // `flex-wrap`: la barra era una sola fila sin ajuste, así que en tablet lo
+  // último —el selector de tipo de documento— quedaba cortado fuera del borde
+  // derecho. No estaba oculto: estaba fuera de la pantalla, que es peor, porque
+  // nada lo insinúa.
   return (
-    <div className="bg-white border-b border-gray-100 px-4 py-2 shrink-0 flex items-center gap-4">
+    <div className="bg-white border-b border-gray-100 px-4 py-2 shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2">
       {/* Nº próxima factura */}
       {showInvoicePreview && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg">
@@ -81,7 +85,7 @@ export function POSDesktopBar({
 
       {/* Cliente */}
       {showCustomerField && (
-      <div className="relative flex-1 flex items-center gap-2">
+      <div className="relative flex-1 min-w-52 flex items-center gap-2">
         <User size={15} className="text-gray-400 shrink-0" />
         {selectedCustomer ? (
           <div className="flex-1 max-w-md flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg">

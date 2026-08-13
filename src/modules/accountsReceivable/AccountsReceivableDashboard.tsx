@@ -239,8 +239,16 @@ export const AccountsReceivableDashboard: React.FC = () => {
                     </div>
                     <p className="text-[11px] text-gray-400">
                       {r.invoice_number ? `Factura ${r.invoice_number} · ` : ''}{SOURCE[r.source] ?? r.source}
-                      {r.due_date ? ` · vence ${r.due_date}` : ''}
+                      {r.due_date && r.status !== 'paid' ? ` · vence ${r.due_date}` : ''}
                     </p>
+                    {/* Cuándo quedó cancelada. Es la pregunta que aparece cuando
+                        el cliente reclama, y hasta ahora el dato no existía:
+                        `updated_at` cambia con cualquier edición posterior. */}
+                    {r.status === 'paid' && r.paid_at && (
+                      <p className="text-[11px] font-bold text-emerald-600">
+                        Cancelada el {dateOnly(r.paid_at)}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-[11px] text-gray-400">Saldo</p>
@@ -612,13 +620,18 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
     if (reparto.length === 0) { setErr('Ese cliente no tiene saldo pendiente'); return; }
     setBusy(true); setErr('');
     const hechos: Array<{ ref: string; amount: number; saldada: boolean }> = [];
+    // Un id compartido por todos los abonos de ESTE pago. Sin él, en la base
+    // quedan cinco abonos sueltos y nadie puede reconstruir después que fueron
+    // un solo pago del cliente.
+    const batchId = (crypto as any)?.randomUUID?.()
+      ?? `b-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     try {
       // En serie y no en paralelo: cada abono recalcula el saldo de su cuenta en
       // el servidor, y mandarlos todos a la vez invita a que dos se pisen.
       let i = 0;
       for (const x of reparto) {
         setProgress(`${++i} / ${reparto.length}`);
-        await accountsReceivableService.pay(x.r.id, x.aplica, method, note.trim() || undefined);
+        await accountsReceivableService.pay(x.r.id, x.aplica, method, note.trim() || undefined, undefined, batchId);
         hechos.push({
           ref: x.r.invoice_number ? `Fact. ${x.r.invoice_number}` : `Cuenta ${dateOnly(x.r.created_at)}`,
           amount: x.aplica,
@@ -864,7 +877,7 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
       // Por cada CUENTA: sus abonos en el rango + estado (pagada / saldo).
       const accounts: Array<{
         inv: string; pays: Array<{ d: string; method: string; amount: number }>;
-        paidInRange: number; balance: number; settled: boolean;
+        paidInRange: number; balance: number; settled: boolean; paidAt: string | null;
       }> = [];
       let total = 0, cuentasPagadas = 0;
       for (const r of custRows) {
@@ -881,7 +894,10 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
         total += paidInRange;
         const invNum = full?.invoice_number ?? r.invoice_number;
         const label = invNum ? `Fact. ${invNum}` : `Cuenta ${dateOnly(r.created_at)}`;
-        accounts.push({ inv: label, pays, paidInRange, balance, settled });
+        accounts.push({
+          inv: label, pays, paidInRange, balance, settled,
+          paidAt: settled && (full?.paid_at ?? r.paid_at) ? dateOnly((full?.paid_at ?? r.paid_at) as string) : null,
+        });
       }
 
       const lines: DocLine[] = [
@@ -895,6 +911,7 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
       } else {
         for (const a of accounts) {
           lines.push({ t: 'row', a: a.inv, b: a.settled ? 'PAGADA' : `saldo ${fmt(a.balance)}` });
+          if (a.settled && a.paidAt) lines.push({ t: 'text', a: `  Cancelada el ${a.paidAt}` });
           for (const p of a.pays) lines.push({ t: 'row', a: `  ${p.d} ${METHOD_LABEL[p.method] ?? p.method}`, b: fmt(p.amount) });
         }
         lines.push({ t: 'sep' });
