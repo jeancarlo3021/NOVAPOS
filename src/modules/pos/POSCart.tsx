@@ -103,19 +103,6 @@ interface POSCartPanelProps {
   /** Cambia el modo de venta (mesa ↔ delivery). */
   onSaleModeChange?: (mode: 'mesa' | 'delivery') => void;
   /**
-   * Tipo de comprobante y su selector.
-   *
-   * También está en la barra superior, pero ahí es lo último de una fila larga y
-   * en teléfono queda apretado contra el borde. Acá está donde se decide —junto
-   * al botón de cobrar— y no compite con nada por el espacio.
-   */
-  documentType?: 'ticket' | 'tiquete_electronico' | 'factura_electronica';
-  onDocumentTypeChange?: (t: 'ticket' | 'tiquete_electronico' | 'factura_electronica') => void;
-  /** La FE está configurada (sin esto solo se puede tiquete corriente). */
-  feReady?: boolean;
-  /** Hay cliente con cédula: requisito de Hacienda para Factura Electrónica. */
-  customerHasId?: boolean;
-  /**
    * Ventanita: el mismo interruptor, con los nombres del mostrador.
    *
    * «Comer acá» es el modo normal —sin 10 % de servicio, porque no hay mesero
@@ -154,10 +141,6 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   saleMode = 'mesa',
   onSaleModeChange,
   windowMode = false,
-  documentType = 'ticket',
-  onDocumentTypeChange,
-  feReady = false,
-  customerHasId = false,
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
   /** Descuento que se pasó del tope y espera el PIN del supervisor. */
@@ -661,43 +644,6 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
             </div>
           );
         })()}
-
-        {/* Tipo de comprobante, pegado al cobro. */}
-        {onDocumentTypeChange && canCharge && (
-          <div className="flex items-center gap-1.5 mb-2">
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider shrink-0">Emitir</span>
-            <select
-              value={documentType}
-              onChange={e => {
-                const t = e.target.value as typeof documentType;
-                // Los motivos se dicen acá y no se descubren al cobrar: enterarse
-                // de que falta la cédula con el cliente enfrente es lo peor.
-                if (t !== 'ticket' && !feReady) {
-                  alert('La facturación electrónica no está configurada.');
-                  return;
-                }
-                if (t === 'factura_electronica' && !customerHasId) {
-                  alert('Para Factura Electrónica elegí primero un cliente con cédula.');
-                  return;
-                }
-                onDocumentTypeChange(t);
-              }}
-              className={`flex-1 min-w-0 px-2 py-2 border-2 rounded-xl text-sm font-bold ${
-                documentType === 'factura_electronica' ? 'border-blue-300 bg-blue-50 text-blue-700'
-                : documentType === 'tiquete_electronico' ? 'border-cyan-300 bg-cyan-50 text-cyan-700'
-                : 'border-gray-200 bg-white text-gray-700'
-              }`}
-            >
-              <option value="ticket">Tiquete corriente</option>
-              <option value="tiquete_electronico" disabled={!feReady}>
-                Tiquete electrónico{!feReady ? ' (FE sin configurar)' : ''}
-              </option>
-              <option value="factura_electronica" disabled={!feReady || !customerHasId}>
-                Factura electrónica{!feReady ? ' (FE sin configurar)' : !customerHasId ? ' (falta cliente)' : ''}
-              </option>
-            </select>
-          </div>
-        )}
 
         {/* Botón cobrar con el TOTAL A COBRAR */}
         <div className="flex gap-2">

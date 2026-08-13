@@ -782,7 +782,15 @@ export const POSMain = () => {
     setCartItems(prev => {
       const existing = prev.find(item => item.product_id === product.id);
       if (existing) {
-        const newQty = existing.quantity + quantity;
+        // Mismo tope que al editar la cantidad: sumar tocando el producto una y
+        // otra vez no puede pasarse de las existencias.
+        const max = stockLimitOf(existing);
+        let newQty = existing.quantity + quantity;
+        if (newQty > max) {
+          setError(`Solo hay ${max} de ${product.name} en existencia.`);
+          setTimeout(() => setError(''), 3500);
+          newQty = max;
+        }
         const subtotal = round2(promo
           ? calcPromoSubtotal(existing.unit_price, newQty, promo)
           : newQty * existing.unit_price);
@@ -833,6 +841,24 @@ export const POSMain = () => {
   const handleRemoveFromCart = (productId: string) =>
     setCartItems(prev => prev.filter(item => item.product_id !== productId));
 
+  /**
+   * Tope de existencias del carrito.
+   *
+   * Solo aplica a productos que LLEVAN inventario: los de stock infinito
+   * (`tracks_stock === false`) y los negocios sin control de inventario en el
+   * plan no tienen un máximo que respetar, y ponerles uno rompería la venta.
+   *
+   * Devuelve `Infinity` cuando no hay tope, para que quien lo use no tenga que
+   * distinguir los casos.
+   */
+  const stockLimitOf = (item: { product?: any }): number => {
+    const p = item?.product as any;
+    if (!p) return Infinity;
+    if (!planFeatures.inventory || (planFeatures as any).inventory_products_only) return Infinity;
+    if (p.tracks_stock !== true) return Infinity;   // infinito o sin definir
+    return Math.max(0, Number(p.stock_quantity ?? 0));
+  };
+
   const handleChangeQuantity = (productId: string, quantity: number) => {
     if (quantity <= 0) {
       handleRemoveFromCart(productId);
@@ -840,6 +866,14 @@ export const POSMain = () => {
       setCartItems(prev =>
         prev.map(item => {
           if (item.product_id !== productId) return item;
+          // Se recorta al stock disponible y se AVISA: recortar en silencio deja
+          // al cajero peleando con el campo sin entender por qué no sube.
+          const max = stockLimitOf(item);
+          if (quantity > max) {
+            setError(`Solo hay ${max} de ${item.product?.name ?? 'este producto'} en existencia.`);
+            setTimeout(() => setError(''), 3500);
+            quantity = max;
+          }
           let subtotal: number;
           if (item.promo) {
             subtotal = round2(calcPromoSubtotal(item.unit_price, quantity, item.promo as any));
@@ -1581,10 +1615,7 @@ export const POSMain = () => {
             deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
             windowMode={windowMode}
-            documentType={documentType}
-            onDocumentTypeChange={(planFeatures as any)?.electronic_invoice ? setDocumentType : undefined}
-            feReady={feApiKeyReady}
-            customerHasId={!!selectedCustomer?.identification}
+
             onSaleModeChange={setSaleMode}
           />
         </div>
@@ -1629,10 +1660,7 @@ export const POSMain = () => {
             deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
             windowMode={windowMode}
-            documentType={documentType}
-            onDocumentTypeChange={(planFeatures as any)?.electronic_invoice ? setDocumentType : undefined}
-            feReady={feApiKeyReady}
-            customerHasId={!!selectedCustomer?.identification}
+
             onSaleModeChange={setSaleMode}
           />
         </div>

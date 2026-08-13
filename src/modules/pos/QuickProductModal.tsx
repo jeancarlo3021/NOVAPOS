@@ -2,6 +2,9 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { X, PlusCircle, Package } from 'lucide-react';
+import { closedPriceBase } from '@/utils/priceUtils';
+import { cacheGet, cacheKey } from '@/utils/offlineCache';
+import { useTenantId } from '@/hooks/useTenant';
 
 interface Props {
   onAdd: (name: string, price: number, quantity: number, ivaRate: number) => void;
@@ -17,13 +20,52 @@ const IVA_RATES = [13, 4, 2, 1, 0];
  */
 export const QuickProductModal: React.FC<Props> = ({ onAdd, onClose }) => {
   const [name, setName] = useState('');
+  const { tenantId } = useTenantId();
   const [price, setPrice] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [ivaRate, setIvaRate] = useState(13);
+  /**
+   * El precio escrito ya trae el IVA adentro.
+   *
+   * Arranca igual que el POS: si la caja muestra precios con IVA, quien digita
+   * un producto rápido está pensando en el precio FINAL. Antes ese número se
+   * tomaba como base y se le sumaba el impuesto encima, así que escribir ₡1 000
+   * terminaba cobrando ₡1 130 — y el cajero lo descubría al dar el vuelto.
+   */
+  const [priceHasIva, setPriceHasIva] = useState(() => {
+    try {
+      const c = cacheGet<any>(cacheKey(tenantId ?? '', 'settings_general'))
+        ?? cacheGet<any>(cacheKey(tenantId ?? '', 'general_settings'));
+      const cfg = c?.config ?? c;
+      return cfg?.taxEnabled !== false && cfg?.showPricesWithTax !== false;
+    } catch { return true; }
+  });
   const [error, setError] = useState('');
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { nameRef.current?.focus(); }, []);
+
+  /**
+   * Qué se cobra con lo escrito.
+   *
+   * Se calcula con la MISMA función que usa el guardado, así que el número que
+   * se ve acá es exactamente el que va a salir en el ticket. Duplicar la fórmula
+   * garantizaría que en algún redondeo dejaran de coincidir.
+   */
+  const preview = (() => {
+    const p = parseFloat(price);
+    if (isNaN(p) || p <= 0) return null;
+    const qty = Math.max(1, parseFloat(quantity) || 1);
+    if (ivaRate <= 0) return { base: p, iva: 0, total: p, qty };
+    if (priceHasIva) {
+      const r = closedPriceBase(p, ivaRate);
+      return { base: r.base, iva: r.iva, total: r.total, qty };
+    }
+    const iva = Math.round(p * ivaRate) / 100;
+    return { base: p, iva, total: p + iva, qty };
+  })();
+
+  const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { maximumFractionDigits: 2 })}`;
 
   const submit = () => {
     const p = parseFloat(price);
@@ -31,7 +73,11 @@ export const QuickProductModal: React.FC<Props> = ({ onAdd, onClose }) => {
     if (!name.trim()) { setError('Escribí el nombre del producto'); return; }
     if (isNaN(p) || p < 0) { setError('Escribí un precio válido'); return; }
     if (q <= 0) { setError('La cantidad debe ser mayor a 0'); return; }
-    onAdd(name.trim(), p, q, ivaRate);
+    // El carrito trabaja siempre con la BASE: el IVA lo suma él. Si el precio
+    // venía con IVA incluido, se despeja acá y no en el carrito, para que el
+    // total cobrado sea EXACTAMENTE el número que se escribió.
+    const base = priceHasIva && ivaRate > 0 ? closedPriceBase(p, ivaRate).base : p;
+    onAdd(name.trim(), base, q, ivaRate);
     onClose();
   };
 
@@ -110,6 +156,37 @@ export const QuickProductModal: React.FC<Props> = ({ onAdd, onClose }) => {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Cómo se lee el precio escrito, y cuánto se cobra de verdad.
+              Sin esto, la diferencia entre lo digitado y lo cobrado aparecía
+              recién al dar el vuelto. */}
+          <div className="rounded-xl border-2 border-gray-100 bg-gray-50 px-3 py-2.5 space-y-2">
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={priceHasIva}
+                onChange={e => setPriceHasIva(e.target.checked)}
+                className="w-4 h-4 accent-emerald-600" />
+              El precio ya incluye el IVA
+            </label>
+            {preview && (
+              <div className="text-xs text-gray-600 space-y-0.5">
+                <p className="flex justify-between">
+                  <span>Base</span><b className="tabular-nums">{money(preview.base)}</b>
+                </p>
+                <p className="flex justify-between">
+                  <span>IVA {ivaRate}%</span><b className="tabular-nums">{money(preview.iva)}</b>
+                </p>
+                <p className="flex justify-between text-sm font-black text-emerald-700 pt-1 border-t border-gray-200">
+                  <span>Se cobra</span><span className="tabular-nums">{money(preview.total)}</span>
+                </p>
+                {preview.qty > 1 && (
+                  <p className="flex justify-between text-[11px] text-gray-500">
+                    <span>× {preview.qty}</span>
+                    <b className="tabular-nums">{money(preview.total * preview.qty)}</b>
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

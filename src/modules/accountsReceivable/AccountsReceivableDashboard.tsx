@@ -14,6 +14,13 @@ import { PrintTicketModal } from '@/modules/distribution/PrintTicketModal';
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
 type DocLine = { t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string };
+/** Nombre legible del comprobante elegido en el abono masivo. */
+const DOC_LABEL: Record<string, string> = {
+  ticket: 'Tiquete corriente',
+  tiquete_electronico: 'Tiquete electrónico',
+  factura_electronica: 'Factura electrónica',
+};
+
 const METHOD_LABEL: Record<string, string> = { cash: 'Efectivo', card: 'Tarjeta', sinpe: 'SINPE', transfer: 'Transf.', check: 'Cheque' };
 const dateOnly = (iso?: string) => (iso ? String(iso).slice(0, 10) : '');
 
@@ -589,6 +596,8 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const [err, setErr] = useState('');
+  /** Comprobante a emitir por el abono (solo para cuentas sin factura previa). */
+  const [docType, setDocType] = useState<'ninguno' | 'ticket' | 'tiquete_electronico' | 'factura_electronica'>('ninguno');
 
   /** Cuentas pendientes del cliente, de la más vieja a la más nueva. */
   const cuentas = React.useMemo(() => rows
@@ -612,6 +621,9 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
   }, [cuentas, monto]);
 
   const aplicado = reparto.reduce((s, x) => s + x.aplica, 0);
+  /** Cuentas del reparto que YA tienen comprobante (nacieron de una venta). */
+  const yaFacturadas = reparto.filter(x => !!x.r.invoice_id).length;
+  const sinFacturar = reparto.length - yaFacturadas;
   const sobrante = Math.round((monto - aplicado) * 100) / 100;
 
   const run = async () => {
@@ -631,7 +643,11 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
       let i = 0;
       for (const x of reparto) {
         setProgress(`${++i} / ${reparto.length}`);
-        await accountsReceivableService.pay(x.r.id, x.aplica, method, note.trim() || undefined, undefined, batchId);
+        // El tipo elegido queda en la nota del abono: aunque todavía no se emita
+        // el comprobante, el rastro de qué se acordó emitir no se pierde.
+        const nota = [note.trim(), docType !== 'ninguno' && !x.r.invoice_id ? `Comprobante: ${docType}` : '']
+          .filter(Boolean).join(' · ');
+        await accountsReceivableService.pay(x.r.id, x.aplica, method, nota || undefined, undefined, batchId);
         hechos.push({
           ref: x.r.invoice_number ? `Fact. ${x.r.invoice_number}` : `Cuenta ${dateOnly(x.r.created_at)}`,
           amount: x.aplica,
@@ -652,6 +668,33 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
     }
 
     const nombre = clientes.find(c => (c.id || c.name) === cliente)?.name ?? 'Cliente';
+
+    // Comprobante del abono, SOLO por las cuentas que no tenían uno. Va después
+    // de aplicar los abonos y con el error contenido: la plata ya se recibió y
+    // se registró, así que un fallo al emitir no puede deshacer el cobro.
+    let comprobante = '';
+    if (docType !== 'ninguno' && sinFacturar > 0) {
+      const montoSinFactura = reparto
+        .filter(x => !x.r.invoice_id)
+        .reduce((s, x) => s + x.aplica, 0);
+      if (montoSinFactura > 0) {
+        try {
+          const r = await accountsReceivableService.emitReceipt({
+            amount: montoSinFactura,
+            document_type: docType,
+            customer_id: reparto.find(x => !x.r.invoice_id)?.r.customer_id ?? null,
+            customer_name: nombre,
+            batch_id: batchId,
+            payment_method: method,
+          });
+          comprobante = r?.invoice_number ? `Comprobante ${r.invoice_number}` : '';
+          if (r?.error) setErr(`Abonos aplicados. El comprobante no se emitió: ${r.error}`);
+        } catch (e) {
+          setErr(`Abonos aplicados. El comprobante no se emitió: ${
+            e instanceof Error ? e.message : 'error'}`);
+        }
+      }
+    }
     onPrint(`Abono · ${nombre}`, [
       { t: 'title', a: 'RECIBO DE ABONO' },
       { t: 'center', a: nombre.slice(0, 24) },
@@ -668,6 +711,11 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
         : []),
       { t: 'row', a: 'Saldo anterior:', b: fmt(deuda) },
       { t: 'row', a: 'Nuevo saldo:', b: fmt(deuda - aplicado) },
+      ...(comprobante
+        ? [{ t: 'text' as const, a: `${DOC_LABEL[docType]} · ${comprobante}` }]
+        : docType !== 'ninguno' && sinFacturar > 0
+          ? [{ t: 'text' as const, a: `${DOC_LABEL[docType]}: no se pudo emitir` }]
+          : []),
       ...(sobrante > 0 ? [{ t: 'text' as const, a: `Sobrante no aplicado: ${fmt(sobrante)}` }] : []),
       { t: 'sep' },
       { t: 'center', a: 'Gracias por su pago' },
@@ -733,6 +781,38 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
             <input value={note} onChange={e => setNote(e.target.value)} placeholder="Recibo 123, depósito…"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           </div>
+
+          {/* ── Comprobante del abono ─────────────────────────────────────
+              La distinción es fiscal, no cosmética: una cuenta que nació de una
+              venta YA tiene su comprobante emitido con condición de venta
+              «crédito». Emitir otro al cobrar declararía el mismo ingreso dos
+              veces ante Hacienda.
+              Las cuentas MANUALES nunca tuvieron comprobante, y ahí sí
+              corresponde emitirlo al recibir la plata. */}
+          {reparto.length > 0 && (
+            <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+              <label className="block text-xs font-bold text-gray-600">Comprobante por este abono</label>
+              <select value={docType} onChange={e => setDocType(e.target.value as typeof docType)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="ninguno">Ninguno · solo recibo interno</option>
+                <option value="ticket">Tiquete corriente</option>
+                <option value="tiquete_electronico">Tiquete electrónico</option>
+                <option value="factura_electronica">Factura electrónica</option>
+              </select>
+              {yaFacturadas > 0 && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                  {yaFacturadas} de estas {reparto.length} cuenta(s) <b>ya tienen comprobante</b> de
+                  cuando se vendió a crédito. Emitir otro declararía el mismo ingreso dos veces:
+                  el comprobante saldría solo por {sinFacturar} cuenta(s) sin facturar.
+                </p>
+              )}
+              {docType !== 'ninguno' && sinFacturar === 0 && (
+                <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">
+                  Ninguna de estas cuentas necesita comprobante: todas se facturaron al venderse.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* El reparto se MUESTRA antes de aplicarlo: es dinero del cliente y
               tiene que poder verse a qué factura va cada colón. */}

@@ -79,6 +79,23 @@ export const accountsReceivableService = {
         batch_id: batchId,
       }),
     }),
+  /**
+   * Emite el comprobante de un abono.
+   *
+   * Solo por el monto de las cuentas SIN factura previa: una venta a crédito ya
+   * emitió su comprobante al venderse, y otro al cobrar declararía el mismo
+   * ingreso dos veces.
+   */
+  emitReceipt: (body: {
+    amount: number;
+    document_type: 'ticket' | 'tiquete_electronico' | 'factura_electronica';
+    customer_id?: string | null;
+    customer_name?: string | null;
+    batch_id?: string;
+    payment_method?: string;
+  }) => apiFetch<{ invoice_number?: string; clave?: string; emitted?: boolean; error?: string }>(
+    '/accounts-receivable/emit-receipt', { method: 'POST', body: JSON.stringify(body) }),
+
   remove: (id: string) =>
     apiFetch(`/accounts-receivable/${id}`, { method: 'DELETE' }),
   /** Anular un abono (solo admin/gerente/contador/propietario). */

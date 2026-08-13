@@ -602,6 +602,16 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             {/* ── Efectivo ── */}
             {!isMixed && method === 'cash' && (
               <div className="space-y-3">
+                {/* El cobro en dólares necesita DOS cosas: la función en el plan
+                    y el tipo de cambio del día. Faltando el tipo de cambio la
+                    opción desaparecía sin decir nada, y desde la caja parecía que
+                    la función no existía. */}
+                {allowUsd && !usdEnabled && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    El cobro en dólares está activo pero no hay <b>tipo de cambio del día</b>.
+                    Se carga del BCCR y necesita conexión: revisá internet y volvé a abrir el cobro.
+                  </p>
+                )}
                 {/* Switch de moneda ₡ / $ */}
                 {usdEnabled && (
                   <div>
