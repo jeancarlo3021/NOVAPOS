@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   HandCoins, Plus, X, Search, RefreshCw, Loader2,
-  CheckCircle2, Trash2, Wallet, Printer, FileText, Clock,
+  CheckCircle2, Trash2, Wallet, Printer, FileText, Clock, Package,
 } from 'lucide-react';
 import { accountsReceivableService, type Receivable, type ReceivableSummary, type ReceivablePayment } from '@/services/accountsReceivable/accountsReceivableService';
 import { useAuth } from '@/context/AuthContext';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
+import { apiFetch } from '@/lib/api';
 import { useTenantId } from '@/hooks/useTenant';
 import { PrintTicketModal } from '@/modules/distribution/PrintTicketModal';
 
@@ -34,8 +35,17 @@ function docAbono(ar: Receivable, amount: number, method: string, newBalance: nu
   ];
 }
 
-/** Lista de facturas/cuentas pendientes, DESGLOSADAS por cliente y factura. */
-function docPendientes(rows: Receivable[]): DocLine[] {
+/** Productos de una cuenta, ya resueltos para el detalle impreso. */
+type ItemsByReceivable = Map<string, Array<{ name: string; qty: number; total: number }>>;
+
+/**
+ * Lista de facturas/cuentas pendientes, DESGLOSADAS por cliente y factura.
+ *
+ * Con `items` se imprime además QUÉ se llevó en cada factura. Es la diferencia
+ * entre un estado de cuenta que el cliente acepta y uno que discute: ante un
+ * saldo sin detalle, la respuesta siempre es «¿y esto de qué es?».
+ */
+function docPendientes(rows: Receivable[], items?: ItemsByReceivable): DocLine[] {
   const pend = rows.filter(r => Number(r.total_amount) - Number(r.paid_amount) > 0);
   const total = pend.reduce((s, r) => s + (Number(r.total_amount) - Number(r.paid_amount)), 0);
 
@@ -62,6 +72,11 @@ function docPendientes(rows: Receivable[]): DocLine[] {
         const ref = r.invoice_number ? `Fact. ${r.invoice_number}` : `Cuenta ${dateOnly(r.created_at)}`;
         lines.push({ t: 'row', a: `  ${ref}`, b: fmt(saldo) });
         lines.push({ t: 'text', a: `    Total ${fmt(r.total_amount)} · Abon. ${fmt(r.paid_amount)}` });
+        for (const it of items?.get(r.id) ?? []) {
+          // El nombre se recorta al ancho del papel para que la cantidad y el
+          // monto no se caigan a la línea siguiente.
+          lines.push({ t: 'row', a: `    ${it.qty}x ${it.name}`.slice(0, 30), b: fmt(it.total) });
+        }
       }
     }
     lines.push({ t: 'sep' });
@@ -89,7 +104,8 @@ export const AccountsReceivableDashboard: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false);
   const { tenantId } = useTenantId();
   const [printJob, setPrintJob] = useState<{ title: string; lines: DocLine[] } | null>(null);
-  const [pickMode, setPickMode] = useState<'pendientes' | 'historico' | null>(null);
+  const [pickMode, setPickMode] = useState<'pendientes' | 'historico' | 'consolidado' | null>(null);
+  const [showBulk, setShowBulk] = useState(false);
 
   // Bluetooth → modal de reintentar/reconexión; corriente (térmica/navegador/QZ) → directo.
   const printDoc = async (title: string, lines: DocLine[]) => {
@@ -142,9 +158,20 @@ export const AccountsReceivableDashboard: React.FC = () => {
               className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-lg text-sm">
               <FileText size={16} /> Pendientes
             </button>
+            <button onClick={() => setPickMode('consolidado')}
+              className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-lg text-sm">
+              <Package size={16} /> Consolidado
+            </button>
             <button onClick={() => setPickMode('historico')}
               className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-lg text-sm">
               <Clock size={16} /> Histórico
+            </button>
+            {/* Abono masivo: el cliente entrega UN monto y se reparte entre sus
+                facturas. Es como se cobra de verdad en la calle — nadie paga
+                factura por factura— y hasta ahora había que ir una por una. */}
+            <button onClick={() => setShowBulk(true)}
+              className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white font-bold px-3 py-2 rounded-lg text-sm">
+              <Wallet size={16} /> Abono masivo
             </button>
             <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 bg-white text-emerald-700 font-bold px-3 py-2 rounded-lg text-sm">
               <Plus size={16} /> Nueva cuenta
@@ -236,6 +263,14 @@ export const AccountsReceivableDashboard: React.FC = () => {
         )}
       </div>
 
+      {showBulk && (
+        <BulkPayModal
+          rows={rows}
+          onClose={() => setShowBulk(false)}
+          onDone={async () => { setShowBulk(false); await load(); }}
+          onPrint={printDoc}
+        />
+      )}
       {payTarget && <PayModal ar={payTarget} onClose={() => setPayTarget(null)} onDone={async () => { setPayTarget(null); await load(); }} onPrint={printDoc} />}
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onDone={async () => { setShowCreate(false); await load(); }} />}
 
@@ -465,9 +500,277 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   );
 }
 
+/**
+ * CONSOLIDADO: todos los productos de las facturas pendientes, sumados.
+ *
+ * Responde una pregunta que el detalle por factura no contesta: qué mercadería
+ * está en la calle sin cobrar. Para un distribuidor eso decide qué reponer y con
+ * quién insistir; verlo repartido en veinte facturas no sirve.
+ *
+ * Se agrupa por NOMBRE y no por id: las facturas viejas guardan el nombre del
+ * producto tal como estaba al venderse, y un producto renombrado o borrado no
+ * debe partirse en dos renglones.
+ */
+function docConsolidado(rows: Receivable[], items: ItemsByReceivable, cliente?: string): DocLine[] {
+  const pend = rows.filter(r => Number(r.total_amount) - Number(r.paid_amount) > 0);
+  const agg = new Map<string, { qty: number; total: number }>();
+  for (const r of pend) {
+    for (const it of items.get(r.id) ?? []) {
+      const key = it.name.trim();
+      const prev = agg.get(key) ?? { qty: 0, total: 0 };
+      agg.set(key, { qty: prev.qty + it.qty, total: prev.total + it.total });
+    }
+  }
+  const list = [...agg.entries()].sort((a, b) => b[1].total - a[1].total);
+  const saldo = pend.reduce((s, r) => s + (Number(r.total_amount) - Number(r.paid_amount)), 0);
+  const totalProd = list.reduce((s, [, v]) => s + v.total, 0);
+
+  const lines: DocLine[] = [
+    { t: 'title', a: 'CONSOLIDADO PENDIENTE' },
+    ...(cliente ? [{ t: 'center' as const, a: cliente.slice(0, 24) }] : []),
+    { t: 'center', a: new Date().toLocaleDateString('es-CR') },
+    { t: 'sep' },
+  ];
+  if (list.length === 0) {
+    lines.push({ t: 'center', a: '(sin productos por cobrar)' });
+  } else {
+    for (const [name, v] of list) {
+      lines.push({ t: 'row', a: `${v.qty} ${name}`.slice(0, 30), b: fmt(v.total) });
+    }
+    lines.push({ t: 'sep' });
+    lines.push({ t: 'row', a: `Productos: ${list.length}`, b: fmt(totalProd) });
+    lines.push({ t: 'row', a: `Facturas: ${pend.length}`, b: `Saldo ${fmt(saldo)}` });
+    // El total de productos es el FACTURADO; el saldo es lo que falta cobrar.
+    // Si hubo abonos parciales no coinciden, y sin decirlo parece un error.
+    if (Math.round(totalProd) !== Math.round(saldo)) {
+      lines.push({ t: 'text', a: 'La diferencia son abonos ya recibidos.' });
+    }
+  }
+  return lines;
+}
+
+// ── Modal: ABONO MASIVO ──────────────────────────────────────────────────────
+/**
+ * Un solo monto repartido entre las cuentas de un cliente.
+ *
+ * Es como se cobra de verdad: el cliente entrega ₡50 000 y hay que aplicarlos a
+ * lo que debe. Antes había que abrir cuenta por cuenta y calcular a mano cuánto
+ * le tocaba a cada una, y ahí es donde aparecen los descuadres.
+ *
+ * Se aplica de la MÁS VIEJA a la más nueva. Es lo que espera cualquiera —y lo
+ * que conviene al negocio, porque saca primero lo que lleva más tiempo sin
+ * cobrarse.
+ */
+function BulkPayModal({ rows, onClose, onDone, onPrint }: {
+  rows: Receivable[];
+  onClose: () => void;
+  onDone: () => Promise<void> | void;
+  onPrint: (title: string, lines: DocLine[]) => void;
+}) {
+  const clientes = Array.from(
+    new Map(rows
+      .filter(r => Number(r.total_amount) - Number(r.paid_amount) > 0)
+      .map(r => [r.customer_id ?? r.customer_name ?? '—', { id: r.customer_id ?? '', name: r.customer_name ?? 'Sin cliente' }])
+    ).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+  const [cliente, setCliente] = useState('');
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState('cash');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [err, setErr] = useState('');
+
+  /** Cuentas pendientes del cliente, de la más vieja a la más nueva. */
+  const cuentas = React.useMemo(() => rows
+    .filter(r => (r.customer_id ?? r.customer_name ?? '') === cliente)
+    .filter(r => Number(r.total_amount) - Number(r.paid_amount) > 0)
+    .sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')),
+    [rows, cliente]);
+
+  const deuda = cuentas.reduce((s, r) => s + (Number(r.total_amount) - Number(r.paid_amount)), 0);
+  const monto = Math.max(0, Number(amount) || 0);
+
+  /** Cómo se reparte el monto. Se calcula ANTES de cobrar, y se muestra. */
+  const reparto = React.useMemo(() => {
+    let queda = monto;
+    return cuentas.map(r => {
+      const saldo = Number(r.total_amount) - Number(r.paid_amount);
+      const aplica = Math.min(queda, saldo);
+      queda = Math.round((queda - aplica) * 100) / 100;
+      return { r, saldo, aplica, quedaEnCuenta: saldo - aplica };
+    }).filter(x => x.aplica > 0);
+  }, [cuentas, monto]);
+
+  const aplicado = reparto.reduce((s, x) => s + x.aplica, 0);
+  const sobrante = Math.round((monto - aplicado) * 100) / 100;
+
+  const run = async () => {
+    if (!cliente) { setErr('Elegí un cliente'); return; }
+    if (monto <= 0) { setErr('Ingresá el monto recibido'); return; }
+    if (reparto.length === 0) { setErr('Ese cliente no tiene saldo pendiente'); return; }
+    setBusy(true); setErr('');
+    const hechos: Array<{ ref: string; amount: number; saldada: boolean }> = [];
+    try {
+      // En serie y no en paralelo: cada abono recalcula el saldo de su cuenta en
+      // el servidor, y mandarlos todos a la vez invita a que dos se pisen.
+      let i = 0;
+      for (const x of reparto) {
+        setProgress(`${++i} / ${reparto.length}`);
+        await accountsReceivableService.pay(x.r.id, x.aplica, method, note.trim() || undefined);
+        hechos.push({
+          ref: x.r.invoice_number ? `Fact. ${x.r.invoice_number}` : `Cuenta ${dateOnly(x.r.created_at)}`,
+          amount: x.aplica,
+          // Saber CUÁLES quedaron saldadas es lo que el cliente revisa del
+          // recibo: un monto total no le dice si ya puede olvidarse de la
+          // factura de marzo.
+          saldada: x.quedaEnCuenta <= 0,
+        });
+      }
+    } catch (e) {
+      // Se informa QUÉ alcanzó a aplicarse: si falla el cuarto de seis abonos,
+      // los tres primeros ya están hechos y volver a mandar todo cobraría doble.
+      setErr(`${e instanceof Error ? e.message : 'Error al aplicar'}${
+        hechos.length ? ` · Se aplicaron ${hechos.length} de ${reparto.length}. Revisá antes de reintentar.` : ''}`);
+      setBusy(false); setProgress('');
+      if (hechos.length) await onDone();
+      return;
+    }
+
+    const nombre = clientes.find(c => (c.id || c.name) === cliente)?.name ?? 'Cliente';
+    onPrint(`Abono · ${nombre}`, [
+      { t: 'title', a: 'RECIBO DE ABONO' },
+      { t: 'center', a: nombre.slice(0, 24) },
+      { t: 'center', a: new Date().toLocaleString('es-CR') },
+      { t: 'sep' },
+      ...hechos.flatMap(h => [
+        { t: 'row' as const, a: h.ref, b: fmt(h.amount) },
+        ...(h.saldada ? [{ t: 'text' as const, a: '    >> PAGADA <<' }] : []),
+      ]),
+      { t: 'sep' },
+      { t: 'row', a: 'Total abonado:', b: fmt(aplicado) },
+      ...(hechos.some(h => h.saldada)
+        ? [{ t: 'row' as const, a: 'Facturas saldadas:', b: String(hechos.filter(h => h.saldada).length) }]
+        : []),
+      { t: 'row', a: 'Saldo anterior:', b: fmt(deuda) },
+      { t: 'row', a: 'Nuevo saldo:', b: fmt(deuda - aplicado) },
+      ...(sobrante > 0 ? [{ t: 'text' as const, a: `Sobrante no aplicado: ${fmt(sobrante)}` }] : []),
+      { t: 'sep' },
+      { t: 'center', a: 'Gracias por su pago' },
+    ]);
+    setBusy(false); setProgress('');
+    await onDone();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+          <h2 className="font-black text-gray-900">Abono masivo</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        </div>
+
+        <div className="p-5 space-y-3 overflow-y-auto">
+          {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Cliente</label>
+            <select value={cliente} onChange={e => { setCliente(e.target.value); setErr(''); }}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="">— Elegí un cliente —</option>
+              {clientes.map(c => <option key={c.id || c.name} value={c.id || c.name}>{c.name}</option>)}
+            </select>
+          </div>
+
+          {cliente && (
+            <div className="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm">
+              Debe <b>{fmt(deuda)}</b> en {cuentas.length} cuenta(s).
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-gray-600 mb-1">Monto recibido</label>
+              <input type="number" inputMode="decimal" min="0" value={amount}
+                onChange={e => { setAmount(e.target.value); setErr(''); }}
+                placeholder={cliente ? String(Math.round(deuda)) : '0'}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div className="w-36">
+              <label className="block text-xs font-bold text-gray-600 mb-1">Forma</label>
+              <select value={method} onChange={e => setMethod(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="cash">Efectivo</option>
+                <option value="card">Tarjeta</option>
+                <option value="sinpe">SINPE</option>
+                <option value="transfer">Transferencia</option>
+              </select>
+            </div>
+          </div>
+          {cliente && deuda > 0 && (
+            <button type="button" onClick={() => setAmount(String(Math.round(deuda)))}
+              className="text-xs font-bold text-emerald-700 hover:text-emerald-900">
+              Cancelar todo ({fmt(deuda)})
+            </button>
+          )}
+
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Nota <span className="font-normal text-gray-400">(opcional)</span></label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="Recibo 123, depósito…"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          {/* El reparto se MUESTRA antes de aplicarlo: es dinero del cliente y
+              tiene que poder verse a qué factura va cada colón. */}
+          {reparto.length > 0 && (
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              <p className="px-3 py-2 bg-gray-50 text-xs font-black text-gray-700">
+                Se aplica de la más vieja a la más nueva
+              </p>
+              <div className="divide-y divide-gray-50 max-h-48 overflow-y-auto">
+                {reparto.map(x => (
+                  <div key={x.r.id} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                    <span className="text-gray-700 truncate">
+                      {x.r.invoice_number ? `Fact. ${x.r.invoice_number}` : `Cuenta ${dateOnly(x.r.created_at)}`}
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <b className="text-emerald-700">{fmt(x.aplica)}</b>
+                      {x.quedaEnCuenta > 0 && (
+                        <span className="block text-[10px] text-amber-600">queda {fmt(x.quedaEnCuenta)}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {sobrante > 0 && (
+                <p className="px-3 py-2 text-[11px] text-amber-800 bg-amber-50 border-t border-amber-100">
+                  Sobran {fmt(sobrante)}: el cliente entregó más de lo que debe. Solo se aplica lo
+                  adeudado; el resto no se registra como saldo a favor.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2 px-5 py-4 border-t border-gray-100 shrink-0">
+          <button onClick={onClose} disabled={busy}
+            className="flex-1 py-2.5 rounded-xl border border-gray-300 font-bold text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+            Cancelar
+          </button>
+          <button onClick={run} disabled={busy || reparto.length === 0}
+            className="flex-[1.4] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-sm">
+            {busy ? `Aplicando… ${progress}` : `Aplicar ${fmt(aplicado)}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Modal: seleccionar cliente (y fechas) para imprimir ──────────────────────
 function PrintPickerModal({ mode, rows, onClose, onPrint }: {
-  mode: 'pendientes' | 'historico';
+  mode: 'pendientes' | 'historico' | 'consolidado';
   rows: Receivable[];
   onClose: () => void;
   onPrint: (title: string, lines: DocLine[]) => void;
@@ -482,17 +785,75 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
   const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  /** Nivel de detalle del estado de cuenta impreso. */
+  const [detalle, setDetalle] = useState<'simple' | 'detallado'>('simple');
+  const [progress, setProgress] = useState('');
 
   const rowsOf = () => cliente
     ? rows.filter(r => (r.customer_id ?? r.customer_name ?? '') === cliente)
     : rows;
   const clienteName = clientes.find(c => (c.id || c.name) === cliente)?.name;
 
+  /**
+   * Trae los productos de las facturas pendientes del alcance elegido.
+   *
+   * Va en serie y con avance porque son N llamadas: un cliente con veinte
+   * facturas tarda, y sin avance parece que el botón no hizo nada. Una factura
+   * que falle no frena al resto — un renglón de menos es mejor que un documento
+   * que no sale.
+   */
+  const cargarItems = async (): Promise<ItemsByReceivable> => {
+    const target = rowsOf().filter(r => Number(r.total_amount) - Number(r.paid_amount) > 0);
+    const items: ItemsByReceivable = new Map();
+    let done = 0;
+    for (const r of target) {
+      setProgress(`${++done} / ${target.length}`);
+      if (!r.invoice_id) continue;
+      try {
+        const inv = await apiFetch<any>(`/invoices/${r.invoice_id}`);
+        const list = (inv?.invoice_items ?? []).map((it: any) => ({
+          name: String(it.product_name ?? it.product?.name ?? 'Producto'),
+          qty: Number(it.quantity) || 0,
+          total: Number(it.subtotal ?? 0),
+        }));
+        if (list.length) items.set(r.id, list);
+      } catch { /* una factura sin detalle no debe frenar el resto */ }
+    }
+    return items;
+  };
+
   const doPrint = async () => {
     setErr('');
+    if (mode === 'consolidado') {
+      setBusy(true);
+      try {
+        const items = await cargarItems();
+        onPrint(`Consolidado${clienteName ? ' · ' + clienteName : ''}`,
+          docConsolidado(rowsOf(), items, clienteName));
+        onClose();
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'No se pudo armar el consolidado');
+      } finally { setBusy(false); setProgress(''); }
+      return;
+    }
     if (mode === 'pendientes') {
-      onPrint(`Pendientes${clienteName ? ' · ' + clienteName : ''}`, docPendientes(rowsOf()));
-      onClose();
+      if (detalle === 'simple') {
+        onPrint(`Pendientes${clienteName ? ' · ' + clienteName : ''}`, docPendientes(rowsOf()));
+        onClose();
+        return;
+      }
+      // DETALLADO: hay que traer los productos de cada factura. Va en serie y con
+      // aviso de avance porque son N llamadas: un cliente con veinte facturas
+      // tarda, y sin avance parece que el botón no hizo nada.
+      setBusy(true);
+      try {
+        const items = await cargarItems();
+        onPrint(`Pendientes detallado${clienteName ? ' · ' + clienteName : ''}`,
+          docPendientes(rowsOf(), items));
+        onClose();
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'No se pudo armar el detalle');
+      } finally { setBusy(false); setProgress(''); }
       return;
     }
     // Histórico: requiere cliente. Junta los abonos de sus cuentas en el rango.
@@ -551,7 +912,11 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50" onClick={onClose}>
       <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-black text-gray-900">{mode === 'pendientes' ? 'Imprimir pendientes' : 'Imprimir histórico'}</h2>
+          <h2 className="font-black text-gray-900">
+            {mode === 'pendientes' ? 'Imprimir pendientes'
+              : mode === 'consolidado' ? 'Consolidado de productos'
+              : 'Imprimir histórico'}
+          </h2>
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-3">
@@ -560,10 +925,44 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
             <label className="block text-xs font-bold text-gray-600 mb-1">Cliente</label>
             <select value={cliente} onChange={e => setCliente(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
-              <option value="">{mode === 'pendientes' ? 'Todos los clientes' : '— Elegí un cliente —'}</option>
+              <option value="">{mode === 'historico' ? '— Elegí un cliente —' : 'Todos los clientes'}</option>
               {clientes.map(c => <option key={c.id || c.name} value={c.id || c.name}>{c.name}</option>)}
             </select>
           </div>
+          {mode === 'consolidado' && (
+            <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+              Suma los productos de <b>todas las facturas pendientes</b>: cuánta mercadería está
+              en la calle sin cobrar.
+              {progress && <b className="text-gray-800"> {progress}</b>}
+            </p>
+          )}
+          {mode === 'pendientes' && (
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1.5">Nivel de detalle</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setDetalle('simple')}
+                  className={`text-left rounded-xl border-2 px-3 py-2 transition ${
+                    detalle === 'simple' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
+                  }`}>
+                  <p className="text-sm font-black text-gray-900">Simplificado</p>
+                  <p className="text-[10px] text-gray-500 leading-tight">Solo facturas y saldos</p>
+                </button>
+                <button type="button" onClick={() => setDetalle('detallado')}
+                  className={`text-left rounded-xl border-2 px-3 py-2 transition ${
+                    detalle === 'detallado' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
+                  }`}>
+                  <p className="text-sm font-black text-gray-900">Detallado</p>
+                  <p className="text-[10px] text-gray-500 leading-tight">Con los productos de cada factura</p>
+                </button>
+              </div>
+              {detalle === 'detallado' && (
+                <p className="text-[11px] text-gray-400 mt-1.5">
+                  Tarda un poco más: hay que traer el detalle de cada factura.
+                  {progress && <b className="text-gray-600"> {progress}</b>}
+                </p>
+              )}
+            </div>
+          )}
           {mode === 'historico' && (
             <div className="flex gap-2">
               <div className="flex-1">
