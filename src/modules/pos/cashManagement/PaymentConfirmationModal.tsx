@@ -27,6 +27,10 @@ interface PaymentConfirmationModalProps {
   creditBalance?: number;
   /** Métodos de pago habilitados en configuración (cash/card/sinpe/credit/mixed). */
   enabledMethods?: string[];
+  /** El tipo de cambio es de otro día (no se pudo consultar el de hoy). */
+  rateStale?: boolean;
+  /** Fecha del tipo de cambio en uso, para poder mostrarla cuando es vieja. */
+  rateDate?: string;
   /** Tipo de cambio ₡ por $1 (BCCR). Si >0 y allowUsd, habilita cobro en dólares. */
   exchangeRate?: number;
   /** Habilita el switch de moneda (₡/$) en efectivo. */
@@ -143,6 +147,8 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   enabledMethods,
   exchangeRate,
   allowUsd = false,
+  rateStale = false,
+  rateDate,
   defaultDeliveryPct = 0,
   deliveryCommissions = {},
   deliveryMode = false,
@@ -608,8 +614,18 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                     la función no existía. */}
                 {allowUsd && !usdEnabled && (
                   <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    El cobro en dólares está activo pero no hay <b>tipo de cambio del día</b>.
-                    Se carga del BCCR y necesita conexión: revisá internet y volvé a abrir el cobro.
+                    El cobro en dólares está activo pero no hay <b>tipo de cambio</b>. Se toma de
+                    Hacienda o del BCCR y necesita conexión al menos una vez: con internet, volvé a
+                    abrir el cobro.
+                  </p>
+                )}
+                {/* Tipo de cambio de otro día: se cobra igual y se avisa. Bloquear
+                    la venta porque la fuente no contestó hoy es peor que usar el
+                    valor de ayer, que rara vez se mueve más de unos céntimos. */}
+                {usdEnabled && rateStale && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
+                    Tipo de cambio de una fecha anterior ({rateDate || 'sin fecha'}). No se pudo
+                    consultar el de hoy; verificá antes de cobrar un monto grande.
                   </p>
                 )}
                 {/* Switch de moneda ₡ / $ */}

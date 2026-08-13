@@ -1854,6 +1854,8 @@ export const POSMain = () => {
           creditBalance={creditBalance}
           exchangeRate={exchangeRate?.venta}
           allowUsd={!!(planFeatures as any).pos_usd}
+          rateStale={!!(exchangeRate as any)?.stale}
+          rateDate={exchangeRate?.date}
           deliveryCommissions={deliveryCommissions}
           deliveryMode={isDeliveryMode}
         />
