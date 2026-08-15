@@ -113,6 +113,8 @@ export const AccountsReceivableDashboard: React.FC = () => {
   const [printJob, setPrintJob] = useState<{ title: string; lines: DocLine[] } | null>(null);
   const [pickMode, setPickMode] = useState<'pendientes' | 'historico' | 'consolidado' | null>(null);
   const [showBulk, setShowBulk] = useState(false);
+  /** Todas las cuentas, sin el filtro de estado: es lo que usan los modales. */
+  const [allRows, setAllRows] = useState<Receivable[]>([]);
 
   // Bluetooth → modal de reintentar/reconexión; corriente (térmica/navegador/QZ) → directo.
   const printDoc = async (title: string, lines: DocLine[]) => {
@@ -129,11 +131,22 @@ export const AccountsReceivableDashboard: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s] = await Promise.all([
+      // Dos listas a propósito:
+      //  · `rows`    — lo que se ve en pantalla, con el filtro de estado activo.
+      //  · `allRows` — TODO, para los modales de abono e impresión.
+      // Los modales trabajan sobre el total: si usaran la lista filtrada, tener
+      // «Pagadas» seleccionado dejaba el selector de clientes vacío y parecía
+      // que el cliente no existía.
+      const [r, all, s] = await Promise.all([
         accountsReceivableService.list(filter ? { status: filter } : undefined).catch(() => []),
+        filter
+          ? accountsReceivableService.list().catch(() => [])
+          : Promise.resolve(null),
         accountsReceivableService.summary().catch(() => null),
       ]);
-      setRows(r ?? []); setSummary(s);
+      setRows(r ?? []);
+      setAllRows((all ?? r ?? []) as typeof rows);
+      setSummary(s);
     } finally { setLoading(false); }
   }, [filter]);
   useEffect(() => { load(); }, [load]);
@@ -280,7 +293,7 @@ export const AccountsReceivableDashboard: React.FC = () => {
 
       {showBulk && (
         <BulkPayModal
-          rows={rows}
+          rows={allRows}
           onClose={() => setShowBulk(false)}
           onDone={async () => { setShowBulk(false); await load(); }}
           onPrint={printDoc}
@@ -290,7 +303,7 @@ export const AccountsReceivableDashboard: React.FC = () => {
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onDone={async () => { setShowCreate(false); await load(); }} />}
 
       {pickMode && (
-        <PrintPickerModal mode={pickMode} rows={rows} onClose={() => setPickMode(null)} onPrint={printDoc} />
+        <PrintPickerModal mode={pickMode} rows={allRows} onClose={() => setPickMode(null)} onPrint={printDoc} />
       )}
 
       {printJob && (
