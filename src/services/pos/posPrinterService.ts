@@ -605,6 +605,8 @@ export class POSPrinterService {
     expected_amount: number;     // efectivo esperado = fondo + ventas efvo + entradas - salidas
     /** Ventas a CRÉDITO y otros métodos: no dejan dinero contable en la caja. */
     non_countable_sales?: number;
+    /** Vendido en dólares, en equivalente ₡. Se arquea en $, no en ₡. */
+    system_usd_crc?: number;
     /** Detalle de las ventas del turno (para cotejar el arqueo una por una). */
     sales?: Array<{ number: string; time: string; method: string; total: number; kind?: string }>;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
@@ -1070,6 +1072,9 @@ export class POSPrinterService {
       row('No arquea:', `-${fmt(nonCountable)}`);
       if (sCredit > 0) row('  Credito:', fmt(sCredit));
       if (sTransfer > 0) row('  Transferencia:', fmt(sTransfer));
+      // Lo cobrado en dólares se cuenta en su propia moneda, más abajo. Sin este
+      // renglón, el esperado en colones parecía menor sin explicación.
+      if (Number(report.system_usd_crc ?? 0) > 0) row('  En dolares:', fmt(Number(report.system_usd_crc)));
       if (sOther > 0) row('  Otros:', fmt(sOther));
     }
     if (report.cash_movements?.some((m: any) => m.type === 'in')) row('+ Entradas:', fmt(movs.filter(m => m.type === 'in').reduce((s, m) => s + m.amount, 0)));

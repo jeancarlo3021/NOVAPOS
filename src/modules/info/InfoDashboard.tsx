@@ -138,6 +138,15 @@ export const InfoDashboard: React.FC = () => {
               Tenés un paquete de <b>{quota.included}</b> comprobantes que se van gastando hasta agotarse (puede durar meses). Se <b>renueva al pagar</b>. Te avisamos cuando queden 50, 20 y 10. Superado el paquete, cada comprobante extra cuesta {fmtColones(quota.extra_fee)}.
             </p>
           )}
+          {/* Arrastre: lo que sobró de la bolsa anterior. Se muestra porque
+              explica por qué el paquete es más grande que el del plan. */}
+          {(quota.carryover ?? 0) > 0 && (
+            <p className="text-xs text-emerald-600 mt-1">
+              Incluye <b>{quota.carryover}</b> comprobante(s) que te sobraron del paquete anterior
+              {quota.included_plan ? <> (plan: {quota.included_plan})</> : null}. Lo que no usés
+              tampoco se pierde en la próxima renovación.
+            </p>
+          )}
         </div>
       )}
 

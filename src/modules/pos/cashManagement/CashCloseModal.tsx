@@ -87,6 +87,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     sales: Array<{ number: string; time: string; method: string; total: number; kind: string }>;
     usdReceived: number;   // dólares recibidos en ventas en efectivo $
     usdChangeOut: number;  // dólares entregados como vuelto
+    /** Vendido en dólares, expresado en colones. NO entra al arqueo en ₡. */
+    usdCrc: number;
     loaded: boolean;
   }
   const [sys, setSys] = useState<SysTotals>({
@@ -94,7 +96,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     invoicesCount: 0, invoicesTotal: 0,
     voidsCount: 0, voidsTotal: 0, deliveryCount: 0, deliveryTotal: 0, deliveryNet: 0,
     excludedCount: 0, excludedTotal: 0,
-    cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, loaded: false,
+    cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, usdCrc: 0, loaded: false,
   });
 
   useEffect(() => {
@@ -125,6 +127,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         const voidsTotal = voidedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
         let sCash = 0, sCard = 0, sSinpe = 0, sCredit = 0, sTransfer = 0, sOther = 0;
         let usdReceived = 0, usdChangeOut = 0, usdCrcChangeOut = 0;
+        // Monto VENDIDO en dólares, en su equivalente en colones.
+        //
+        // La venta en $ se saltaba el bucle por completo —correcto para el arqueo
+        // en colones, porque no entró un solo colón—, pero también quedaba fuera
+        // de los totales de venta. El negocio veía menos ingreso del que hizo, y
+        // la diferencia no aparecía por ningún lado.
+        let sUsdCrc = 0;
         for (const inv of invoices) {
           // Venta pagada en DÓLARES efectivo: no entran colones por la venta.
           // Entran dólares (recibido) y, si el vuelto fue en ₡, salen colones.
@@ -135,6 +144,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
               if (inv.change_currency === 'USD') usdChangeOut += Number(inv.change_amount || 0) / rate;
             }
             if (inv.change_currency !== 'USD') usdCrcChangeOut += Number(inv.change_amount || 0); // ₡ que salieron de vuelto
+            // La VENTA sí cuenta como ingreso, aparte del arqueo en colones.
+            sUsdCrc += Number(inv.total || 0);
             continue;
           }
           const pays = Array.isArray(inv.payments) ? inv.payments : null;
@@ -186,7 +197,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           .sort((x: any, y: any) => String(x.time).localeCompare(String(y.time)));
 
         setSys({
-          cash: sCash, card: sCard, sinpe: sSinpe,
+          cash: sCash, card: sCard, sinpe: sSinpe, usdCrc: sUsdCrc,
           credit: sCredit, transfer: sTransfer, other: sOther,
           invoicesCount: invoices.length,
           invoicesTotal: invoices.reduce((s: number, i: any) => s + Number(i.total || 0), 0),
@@ -216,7 +227,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
   // Total de ventas del día registradas por el sistema (todos los métodos).
   // Es informativo: el arqueo NO se hace contra este número (ver `arqueableSales`).
-  const systemSalesTotal = sys.cash + sys.card + sys.sinpe + sys.credit + sys.transfer + sys.other;
+  const systemSalesTotal = sys.cash + sys.card + sys.sinpe + sys.credit + sys.transfer + sys.other + sys.usdCrc;
   void systemSalesTotal;
 
   /**
@@ -229,8 +240,14 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
    * ninguna forma de encontrar el error, porque no había ningún error.
    */
   const arqueableSales = sys.cash + sys.card + sys.sinpe;
-  /** Lo que se vendió pero NO entra a la caja: crédito, transferencia y demás. */
-  const noArqueable = sys.credit + sys.transfer + sys.other;
+  /**
+   * Lo que se vendió pero NO entra al arqueo en colones.
+   *
+   * El crédito queda como cuenta por cobrar, la transferencia entra al banco, y
+   * lo cobrado en DÓLARES se arquea en su propia moneda —contarlo también en
+   * colones lo cobraría dos veces.
+   */
+  const noArqueable = sys.credit + sys.transfer + sys.other + sys.usdCrc;
   // Esperado = fondo de caja + ventas arqueables + movimientos manuales de efectivo.
   const expectedTotal = openingAmount + arqueableSales + sys.cashIn - sys.cashOut;
   // Faltante/sobrante sobre el TOTAL (lo contado en todos los métodos vs lo esperado).
@@ -336,6 +353,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             system_credit: sys.credit,
             system_transfer: sys.transfer,
             system_other: sys.other,
+            // Vendido en dólares, en su equivalente en colones. Va aparte para
+            // que el tiquete explique por qué el esperado en ₡ es menor que el
+            // total vendido: esa plata se arquea en dólares, no en colones.
+            system_usd_crc: sys.usdCrc,
             // Lo que el cajero contó por método
             cash_total: cashTotal,
             card_total: cardTotal,
@@ -370,6 +391,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         const sections: any[] = [
           { heading: 'Ventas del sistema', rows: [
             ['Efectivo', m(sys.cash)], ['Tarjeta', m(sys.card)], ['SINPE', m(sys.sinpe)],
+            ...(sys.usdCrc > 0 ? [['Cobrado en dólares', m(sys.usdCrc)]] : []),
             ['Facturas', `${sys.invoicesCount} · ${m(sys.invoicesTotal)}`],
             ...(sys.voidsCount > 0 ? [['Anulaciones', `${sys.voidsCount} · ${m(sys.voidsTotal)}`]] : []),
           ] },

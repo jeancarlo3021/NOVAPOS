@@ -13,6 +13,15 @@ export interface Receivable {
   status: 'pending' | 'partial' | 'paid' | 'overdue';
   /** Momento en que la cuenta quedó CANCELADA (saldo en cero). */
   paid_at?: string | null;
+  /**
+   * La factura de origen llegó a HACIENDA (tiene clave).
+   *
+   * No es lo mismo que tener `invoice_id`: una venta con tiquete CORRIENTE crea
+   * su factura interna pero nunca se declaró, así que al cobrarla sí corresponde
+   * emitir el comprobante.
+   */
+  invoice_electronic?: boolean;
+  invoice_document_type?: string | null;
   source: 'pos' | 'manual' | 'distribution';
   notes?: string | null;
   created_at: string;
@@ -93,6 +102,8 @@ export const accountsReceivableService = {
     customer_name?: string | null;
     batch_id?: string;
     payment_method?: string;
+    /** Cuentas cubiertas, para que el servidor revalide cuáles no se declararon. */
+    account_ids?: string[];
   }) => apiFetch<{ invoice_number?: string; clave?: string; emitted?: boolean; error?: string }>(
     '/accounts-receivable/emit-receipt', { method: 'POST', body: JSON.stringify(body) }),
 

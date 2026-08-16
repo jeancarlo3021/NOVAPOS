@@ -317,7 +317,13 @@ export const haciendaService = {
 
   /** Cuota de comprobantes del plan (un solo contador: facturas+tiquetes+NC). */
   quota: () => apiFetch<{
-    included: number; extra_fee: number; months_elapsed: number; quota_start?: string;
+    /** Bolsa TOTAL disponible: la del plan más lo que sobró de la anterior. */
+    included: number;
+    /** Lo que trae el plan por sí solo. */
+    included_plan?: number;
+    /** Comprobantes arrastrados de la bolsa anterior al renovar. */
+    carryover?: number;
+    extra_fee: number; months_elapsed: number; quota_start?: string;
     used: number; used_docs: number; used_nc: number;
     available: number | null; overage: number; extra_charge: number;
   }>('/hacienda/quota'),

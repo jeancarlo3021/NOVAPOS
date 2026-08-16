@@ -634,8 +634,14 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
   }, [cuentas, monto]);
 
   const aplicado = reparto.reduce((s, x) => s + x.aplica, 0);
-  /** Cuentas del reparto que YA tienen comprobante (nacieron de una venta). */
-  const yaFacturadas = reparto.filter(x => !!x.r.invoice_id).length;
+  /**
+   * Cuentas cuyo ingreso YA se declaró: las que tienen comprobante ELECTRÓNICO.
+   *
+   * Tener factura interna no cuenta. Una venta documentada con tiquete corriente
+   * nunca llegó a Hacienda, así que al cobrarla corresponde emitir — es la
+   * primera vez que ese ingreso se declara.
+   */
+  const yaFacturadas = reparto.filter(x => x.r.invoice_electronic === true).length;
   const sinFacturar = reparto.length - yaFacturadas;
   const sobrante = Math.round((monto - aplicado) * 100) / 100;
 
@@ -658,7 +664,7 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
         setProgress(`${++i} / ${reparto.length}`);
         // El tipo elegido queda en la nota del abono: aunque todavía no se emita
         // el comprobante, el rastro de qué se acordó emitir no se pierde.
-        const nota = [note.trim(), docType !== 'ninguno' && !x.r.invoice_id ? `Comprobante: ${docType}` : '']
+        const nota = [note.trim(), docType !== 'ninguno' && x.r.invoice_electronic !== true ? `Comprobante: ${docType}` : '']
           .filter(Boolean).join(' · ');
         await accountsReceivableService.pay(x.r.id, x.aplica, method, nota || undefined, undefined, batchId);
         hechos.push({
@@ -688,17 +694,20 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
     let comprobante = '';
     if (docType !== 'ninguno' && sinFacturar > 0) {
       const montoSinFactura = reparto
-        .filter(x => !x.r.invoice_id)
+        .filter(x => x.r.invoice_electronic !== true)
         .reduce((s, x) => s + x.aplica, 0);
       if (montoSinFactura > 0) {
         try {
           const r = await accountsReceivableService.emitReceipt({
             amount: montoSinFactura,
             document_type: docType,
-            customer_id: reparto.find(x => !x.r.invoice_id)?.r.customer_id ?? null,
+            customer_id: reparto.find(x => x.r.invoice_electronic !== true)?.r.customer_id ?? null,
             customer_name: nombre,
             batch_id: batchId,
             payment_method: method,
+            // Para que el servidor pueda verificar por su cuenta cuáles no se
+            // han declarado, en vez de confiar en lo que mandó la pantalla.
+            account_ids: reparto.filter(x => x.r.invoice_electronic !== true).map(x => x.r.id),
           });
           comprobante = r?.invoice_number ? `Comprobante ${r.invoice_number}` : '';
           if (r?.error) setErr(`Abonos aplicados. El comprobante no se emitió: ${r.error}`);
@@ -814,14 +823,15 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
               </select>
               {yaFacturadas > 0 && (
                 <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                  {yaFacturadas} de estas {reparto.length} cuenta(s) <b>ya tienen comprobante</b> de
+                  {yaFacturadas} de estas {reparto.length} cuenta(s) <b>ya se declararon a Hacienda</b>
                   cuando se vendió a crédito. Emitir otro declararía el mismo ingreso dos veces:
-                  el comprobante saldría solo por {sinFacturar} cuenta(s) sin facturar.
+                  el comprobante saldría solo por las {sinFacturar} restante(s).
                 </p>
               )}
               {docType !== 'ninguno' && sinFacturar === 0 && (
                 <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">
-                  Ninguna de estas cuentas necesita comprobante: todas se facturaron al venderse.
+                  Ninguna de estas cuentas necesita comprobante: todas se declararon a Hacienda al
+                  venderse.
                 </p>
               )}
             </div>
