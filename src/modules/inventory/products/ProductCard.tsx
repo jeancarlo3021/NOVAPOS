@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer, Star, Scale, MoreVertical } from 'lucide-react';
+import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer, Star, Scale, MoreHorizontal } from 'lucide-react';
 import { PrintLabelModal } from '@/modules/labels/PrintLabelModal';
 import { Card, Badge } from '@/components/ui/uiComponents';
 import { Product } from '@/types/Types_POS';
@@ -45,38 +45,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
   const [editingPrice, setEditingPrice] = useState(false);
   const [showPrint, setShowPrint]       = useState(false);
   // ── Menú de acciones ──────────────────────────────────────────────────────
+  // Se despliega EN LÍNEA al pie de la tarjeta, no flotando encima. Por eso no
+  // hace falta nada de lo que pide un menú flotante: ni medir si cabe para
+  // voltearlo, ni cerrarlo al tocar afuera, ni soltar el recorte de la tarjeta.
   const [menuOpen, setMenuOpen]         = useState(false);
-  /** Abrir hacia arriba: en la última fila, hacia abajo queda fuera de pantalla. */
-  const [openUp, setOpenUp]             = useState(false);
-  const menuRef = React.useRef<HTMLDivElement | null>(null);
 
-  // Cerrar al tocar afuera o con Escape. Sin esto, en una cuadrícula de
-  // productos quedan varios menús abiertos a la vez y tapan las tarjetas.
-  React.useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent | TouchEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('touchstart', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('touchstart', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [menuOpen]);
-
-  /** Decide el lado ANTES de pintar, midiendo lo que queda de ventana. */
-  const toggleMenu = () => {
-    if (!menuOpen && menuRef.current) {
-      const r = menuRef.current.getBoundingClientRect();
-      // ~190 px es lo que mide el menú con sus tres opciones.
-      setOpenUp(window.innerHeight - r.bottom < 190);
-    }
-    setMenuOpen(o => !o);
-  };
   const [favBusy, setFavBusy]           = useState(false);
   const [priceInput, setPriceInput]     = useState('');
 
@@ -160,10 +133,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
   return (
     <Card
       onClick={selectable ? onToggleSelect : undefined}
-      /* `overflow-hidden` se suelta mientras el menú está abierto: si no, la
-         tarjeta lo RECORTA y solo se ve la primera opción. Se mantiene el resto
-         del tiempo porque es lo que redondea la cinta superior. */
-      className={`hover:shadow-xl transition-all duration-300 ${menuOpen ? '' : 'overflow-hidden'} group border-0 relative ${
+      className={`hover:shadow-xl transition-all duration-300 overflow-hidden group border-0 relative ${
       selectable ? 'cursor-pointer' : ''
     } ${selected ? 'ring-2 ring-fuchsia-500' : ''} ${
       isLowStock && !isProductsOnly
@@ -192,64 +162,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
           {/* Favorito — siempre visible; aparece de primero en el POS */}
           <button onClick={toggleFavorite} disabled={favBusy || isReadOnly}
             title={isFavorite ? 'Quitar de favoritos' : 'Marcar como favorito (aparece primero en el POS)'}
-            className={`p-2 rounded-lg transition ml-1 ${isFavorite ? 'text-amber-400 hover:bg-amber-50' : 'text-gray-300 hover:text-amber-400 hover:bg-amber-50'} disabled:opacity-40`}>
+            className={`p-2 pointer-coarse:p-3 pointer-coarse:min-w-11 pointer-coarse:min-h-11 rounded-lg transition ml-1 ${isFavorite ? 'text-amber-400 hover:bg-amber-50' : 'text-gray-300 hover:text-amber-400 hover:bg-amber-50'} disabled:opacity-40`}>
             <Star size={18} fill={isFavorite ? 'currentColor' : 'none'} />
           </button>
 
-          {/* Acciones en un MENÚ, no en una fila de iconos.
-              Tres iconos al lado del nombre le robaban ancho al título —que es
-              lo que uno lee para encontrar el producto— y en tarjetas angostas
-              lo partían en dos líneas. Un solo botón ocupa el lugar de uno y
-              abre el resto cuando hace falta. */}
-          {(onEdit || onDelete) && (
-            <div className="relative ml-1" ref={menuRef} onClick={e => e.stopPropagation()}>
-              <button
-                onClick={toggleMenu}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                title="Acciones"
-                className={`p-2 rounded-lg transition ${
-                  menuOpen ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-700'
-                }`}
-              >
-                <MoreVertical size={18} />
-              </button>
-
-              {menuOpen && (
-                <div
-                  role="menu"
-                  /* Se abre hacia ABAJO salvo que no quepa: en la última fila de
-                     la cuadrícula, un menú hacia abajo queda fuera de la pantalla
-                     y hay que hacer scroll a ciegas para verlo. */
-                  className={`absolute right-0 z-30 w-48 rounded-xl border border-gray-200 bg-white shadow-xl py-1 ${
-                    openUp ? 'bottom-full mb-1' : 'top-full mt-1'
-                  }`}
-                >
-                  {planFeatures?.labels && (
-                    <button role="menuitem"
-                      onClick={() => { setMenuOpen(false); setShowPrint(true); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-bold text-gray-700 hover:bg-fuchsia-50 hover:text-fuchsia-700">
-                      <Printer size={16} className="text-fuchsia-600" /> Imprimir etiqueta
-                    </button>
-                  )}
-                  {onEdit && (
-                    <button role="menuitem"
-                      onClick={() => { setMenuOpen(false); onEdit(); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-bold text-gray-700 hover:bg-blue-50 hover:text-blue-700">
-                      <Edit2 size={16} className="text-blue-600" /> Modificar producto
-                    </button>
-                  )}
-                  {onDelete && (
-                    <button role="menuitem"
-                      onClick={() => { setMenuOpen(false); onDelete(); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 border-t border-gray-100 mt-1 pt-2.5">
-                      <Trash2 size={16} /> Eliminar
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Categoría y unidad de medida */}
@@ -417,6 +333,56 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
               {stockStatus === 'optimal' ? '✓ Stock Óptimo' :
                stockStatus === 'warning'  ? '⚠ Stock Bajo' : '✕ Stock Crítico'}
             </Badge>
+          </div>
+        )}
+
+        {/* Acciones, al PIE y desplegándose hacia abajo.
+            Al lado del nombre le robaban ancho al título —que es lo que uno lee
+            para encontrar el producto— y en tarjetas angostas lo partían en dos
+            líneas. Acá abajo no compite con nada.
+            Se despliega EN LÍNEA, empujando la tarjeta, en vez de flotar encima:
+            así no hay nada que se recorte, que se salga de la pantalla ni que
+            haya que voltear cuando la tarjeta está en la última fila. */}
+        {(onEdit || onDelete) && (
+          <div className="mt-4 pt-3 border-t border-gray-200">
+            <button
+              onClick={e => { e.stopPropagation(); setMenuOpen(o => !o); }}
+              aria-expanded={menuOpen}
+              className={`w-full flex items-center justify-center gap-1.5 rounded-xl border-2 py-2 pointer-coarse:py-3 text-sm font-black transition ${
+                menuOpen
+                  ? 'border-gray-300 bg-gray-100 text-gray-700'
+                  : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50 active:bg-gray-100'
+              }`}
+            >
+              <MoreHorizontal size={16} />
+              {menuOpen ? 'Cerrar' : 'Acciones'}
+            </button>
+
+            {menuOpen && (
+              <div className="mt-2 flex flex-col gap-1.5" onClick={e => e.stopPropagation()}>
+                {onEdit && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onEdit(); }}
+                    className="w-full flex items-center gap-2.5 rounded-xl border-2 border-blue-200 bg-blue-50 px-3 py-2.5 pointer-coarse:py-3.5 text-sm font-black text-blue-700 hover:bg-blue-100 active:bg-blue-200">
+                    <Edit2 size={16} /> Modificar producto
+                  </button>
+                )}
+                {planFeatures?.labels && (
+                  <button
+                    onClick={() => { setMenuOpen(false); setShowPrint(true); }}
+                    className="w-full flex items-center gap-2.5 rounded-xl border-2 border-fuchsia-200 bg-fuchsia-50 px-3 py-2.5 pointer-coarse:py-3.5 text-sm font-black text-fuchsia-700 hover:bg-fuchsia-100 active:bg-fuchsia-200">
+                    <Printer size={16} /> Imprimir etiqueta
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onDelete(); }}
+                    className="w-full flex items-center gap-2.5 rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2.5 pointer-coarse:py-3.5 text-sm font-black text-red-600 hover:bg-red-100 active:bg-red-200">
+                    <Trash2 size={16} /> Eliminar
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
