@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer, Star, Scale } from 'lucide-react';
+import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer, Star, Scale, MoreVertical } from 'lucide-react';
 import { PrintLabelModal } from '@/modules/labels/PrintLabelModal';
 import { Card, Badge } from '@/components/ui/uiComponents';
 import { Product } from '@/types/Types_POS';
@@ -44,6 +44,39 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
   // ── Inline price editor ─────────────────────────────────────────────────────
   const [editingPrice, setEditingPrice] = useState(false);
   const [showPrint, setShowPrint]       = useState(false);
+  // ── Menú de acciones ──────────────────────────────────────────────────────
+  const [menuOpen, setMenuOpen]         = useState(false);
+  /** Abrir hacia arriba: en la última fila, hacia abajo queda fuera de pantalla. */
+  const [openUp, setOpenUp]             = useState(false);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Cerrar al tocar afuera o con Escape. Sin esto, en una cuadrícula de
+  // productos quedan varios menús abiertos a la vez y tapan las tarjetas.
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
+  /** Decide el lado ANTES de pintar, midiendo lo que queda de ventana. */
+  const toggleMenu = () => {
+    if (!menuOpen && menuRef.current) {
+      const r = menuRef.current.getBoundingClientRect();
+      // ~190 px es lo que mide el menú con sus tres opciones.
+      setOpenUp(window.innerHeight - r.bottom < 190);
+    }
+    setMenuOpen(o => !o);
+  };
   const [favBusy, setFavBusy]           = useState(false);
   const [priceInput, setPriceInput]     = useState('');
 
@@ -127,7 +160,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
   return (
     <Card
       onClick={selectable ? onToggleSelect : undefined}
-      className={`hover:shadow-xl transition-all duration-300 overflow-hidden group border-0 relative ${
+      /* `overflow-hidden` se suelta mientras el menú está abierto: si no, la
+         tarjeta lo RECORTA y solo se ve la primera opción. Se mantiene el resto
+         del tiempo porque es lo que redondea la cinta superior. */
+      className={`hover:shadow-xl transition-all duration-300 ${menuOpen ? '' : 'overflow-hidden'} group border-0 relative ${
       selectable ? 'cursor-pointer' : ''
     } ${selected ? 'ring-2 ring-fuchsia-500' : ''} ${
       isLowStock && !isProductsOnly
@@ -160,29 +196,57 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
             <Star size={18} fill={isFavorite ? 'currentColor' : 'none'} />
           </button>
 
-          {/* Los botones SIEMPRE visibles.
-              Antes estaban en `opacity-0` y solo aparecían al pasar el mouse,
-              con `pointer-coarse` como excepción para pantallas táctiles. Esa
-              excepción no alcanza: un portátil con pantalla táctil, un monitor
-              táctil de caja o un aparato conectado a un mouse reportan puntero
-              fino, así que el lápiz quedaba escondido sin que nada lo insinuara.
-              Un botón que hay que adivinar es un botón que no existe. */}
+          {/* Acciones en un MENÚ, no en una fila de iconos.
+              Tres iconos al lado del nombre le robaban ancho al título —que es
+              lo que uno lee para encontrar el producto— y en tarjetas angostas
+              lo partían en dos líneas. Un solo botón ocupa el lugar de uno y
+              abre el resto cuando hace falta. */}
           {(onEdit || onDelete) && (
-            <div className="flex gap-1 ml-1">
-              {planFeatures?.labels && (
-                <button onClick={() => setShowPrint(true)} className="p-2 text-fuchsia-600 hover:bg-fuchsia-100 rounded-lg transition" title="Imprimir etiqueta">
-                  <Printer size={16} />
-                </button>
-              )}
-              {onEdit && (
-                <button onClick={onEdit} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition" title="Editar">
-                  <Edit2 size={16} />
-                </button>
-              )}
-              {onDelete && (
-                <button onClick={onDelete} className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition" title="Eliminar">
-                  <Trash2 size={16} />
-                </button>
+            <div className="relative ml-1" ref={menuRef} onClick={e => e.stopPropagation()}>
+              <button
+                onClick={toggleMenu}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                title="Acciones"
+                className={`p-2 rounded-lg transition ${
+                  menuOpen ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-700'
+                }`}
+              >
+                <MoreVertical size={18} />
+              </button>
+
+              {menuOpen && (
+                <div
+                  role="menu"
+                  /* Se abre hacia ABAJO salvo que no quepa: en la última fila de
+                     la cuadrícula, un menú hacia abajo queda fuera de la pantalla
+                     y hay que hacer scroll a ciegas para verlo. */
+                  className={`absolute right-0 z-30 w-48 rounded-xl border border-gray-200 bg-white shadow-xl py-1 ${
+                    openUp ? 'bottom-full mb-1' : 'top-full mt-1'
+                  }`}
+                >
+                  {planFeatures?.labels && (
+                    <button role="menuitem"
+                      onClick={() => { setMenuOpen(false); setShowPrint(true); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-bold text-gray-700 hover:bg-fuchsia-50 hover:text-fuchsia-700">
+                      <Printer size={16} className="text-fuchsia-600" /> Imprimir etiqueta
+                    </button>
+                  )}
+                  {onEdit && (
+                    <button role="menuitem"
+                      onClick={() => { setMenuOpen(false); onEdit(); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-bold text-gray-700 hover:bg-blue-50 hover:text-blue-700">
+                      <Edit2 size={16} className="text-blue-600" /> Modificar producto
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button role="menuitem"
+                      onClick={() => { setMenuOpen(false); onDelete(); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 border-t border-gray-100 mt-1 pt-2.5">
+                      <Trash2 size={16} /> Eliminar
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
