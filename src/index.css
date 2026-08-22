@@ -47,6 +47,15 @@ html.is-native .sticky.top-0 {
 }
 
 
+/* ── Scroll sin barra visible ───────────────────────────────────────────────
+   Para paneles donde la barra parte el diseño (agenda). El contenido SIGUE
+   desplazándose con rueda, touch y teclado; solo se oculta el riel. */
+.no-scrollbar {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* IE / Edge viejo */
+}
+.no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
+
 /* ── POS scrollbar grande para uso táctil ───────────────────────────────── */
 .pos-scroll {
   scrollbar-width: auto;

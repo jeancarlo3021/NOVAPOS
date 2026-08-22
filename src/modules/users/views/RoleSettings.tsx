@@ -4,7 +4,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Shield, AlertCircle, Loader2, X, Check, Lock, Settings2,
   ShoppingCart, Package, BarChart2, TrendingDown, ClipboardList,
-  Wallet, Tag, Users, UserCog, Truck, Inbox, Send,
+  Wallet, Tag, Users, UserCog, Truck, Inbox, Send, CalendarDays, HandCoins,
+  FileText, Undo2, ShieldCheck, QrCode, Store, Receipt, Building2, MapPin, Settings,
 } from 'lucide-react';
 import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import { ROLE_META, USER_ROLES } from '@/types/Types_Users';
@@ -38,6 +39,19 @@ const MODULES: ModuleMeta[] = [
   // no arma ventas, y el agente arma pedidos pero no ve la caja.
   { key: 'caja',             label: 'Caja',              description: 'Recibe pedidos de agentes y cobra', icon: Inbox,      color: 'bg-emerald-600' },
   { key: 'agent_orders',     label: 'Pedidos de agente', description: 'Arma pedidos y los envía a caja',   icon: Send,       color: 'bg-sky-500' },
+  { key: 'agent_agenda',     label: 'Agenda y entregas', description: 'Agenda del día, tareas y ruta de entregas', icon: CalendarDays, color: 'bg-amber-500' },
+  { key: 'accounts_receivable', label: 'Cuentas por Cobrar', description: 'Crédito, abonos y cobros',      icon: HandCoins,  color: 'bg-emerald-500' },
+  { key: 'proformas',        label: 'Proformas',         description: 'Cotizaciones y paso a venta',       icon: FileText,   color: 'bg-blue-400' },
+  { key: 'returns',          label: 'Devoluciones',      description: 'Devolución parcial y anulación',    icon: Undo2,      color: 'bg-rose-500' },
+  { key: 'supplier_returns', label: 'Devoluciones a proveedor', description: 'Baja de stock y saldo a favor', icon: Truck,   color: 'bg-amber-600' },
+  { key: 'warranties',       label: 'Garantías',         description: 'Casos de producto con falla',       icon: ShieldCheck, color: 'bg-cyan-600' },
+  { key: 'digital_menu',     label: 'Menú digital',      description: 'Carta pública con QR',              icon: QrCode,     color: 'bg-violet-600' },
+  { key: 'window_service',   label: 'Ventanita',         description: 'Mostrador con fila de despacho',    icon: Store,      color: 'bg-orange-600' },
+  { key: 'electronic_invoice', label: 'Facturación Electrónica', description: 'Emisión y recepción de Hacienda', icon: Receipt, color: 'bg-blue-600' },
+  { key: 'labels',           label: 'Etiquetas',         description: 'Etiquetas y códigos de barras',     icon: Tag,        color: 'bg-fuchsia-500' },
+  { key: 'multi_branch',     label: 'Sucursales',        description: 'Sucursales y traslados',            icon: Building2,  color: 'bg-slate-500' },
+  { key: 'tracking',         label: 'Rastreo',           description: 'Ubicación de camiones en vivo',     icon: MapPin,     color: 'bg-red-500' },
+  { key: 'settings',         label: 'Configuración',     description: 'Ajustes del negocio e impresoras',  icon: Settings,   color: 'bg-gray-500' },
 ];
 
 // Roles configurables (owner siempre tiene acceso total → no editable)
@@ -81,6 +95,14 @@ export const RoleSettings: React.FC = () => {
   const visibleModules = MODULES.filter(m => {
     // 'caja' y 'agent_orders' no son features del plan: dependen del POS.
     if (m.key === 'caja' || m.key === 'agent_orders') return (planFeatures as any)?.pos === true;
+    // Configuración no se vende por plan: todo negocio la tiene, lo que se
+    // decide por rol es QUIÉN puede entrar.
+    if (m.key === 'settings') return true;
+    // Inventario puede venir en su versión reducida (solo productos).
+    if (m.key === 'inventory') {
+      return (planFeatures as any)?.inventory === true
+        || (planFeatures as any)?.inventory_products_only === true;
+    }
     return (planFeatures as any)?.[m.key] === true;
   });
 

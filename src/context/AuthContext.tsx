@@ -271,8 +271,20 @@ export interface PlanFeatures {
   recipe_production?: boolean;
   /** Análisis de menú: estrella / vaca / enigma / perro. */
   recipe_menu_engineering?: boolean;
-  /** Agentes de venta: arman pedidos que el cajero recibe y cobra. */
+  /** Garantías: casos de producto defectuoso, con seguimiento y fotos. */
+  warranties?: boolean;
+  /** Descarga de la factura en PDF tamaño A4 desde el cobro. */
+  invoice_pdf_a4?: boolean;
+  /** Kits de productos: combos que descuentan el stock de sus componentes. */
+  inventory_kits?: boolean;
+  /** Agentes de venta: alta de agentes, comisiones y su reporte. */
   sales_agents?: boolean;
+  /** Nuevo pedido: el agente arma el pedido y lo envía a caja. */
+  agent_orders?: boolean;
+  /** Caja: bandeja de pedidos + apertura/cierre y cobro. */
+  cashier_desk?: boolean;
+  /** Agenda: asignar día al pedido y trabajar la bandeja por día. */
+  agent_agenda?: boolean;
   /** Devoluciones de venta (parciales) y anulación de facturas. */
   returns?: boolean;
   /** Devoluciones al proveedor (baja de stock + saldo a favor). */
@@ -380,7 +392,13 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   recipe_stations: false,
   recipe_production: false,
   recipe_menu_engineering: false,
+  warranties: false,
+  invoice_pdf_a4: false,
+  inventory_kits: false,
   sales_agents: false,
+  agent_orders: false,
+  cashier_desk: false,
+  agent_agenda: false,
   returns: false,
   supplier_returns: false,
   android_app: false,
@@ -461,7 +479,13 @@ export const FULL_FEATURES: PlanFeatures = {
   recipe_production: true,
   recipe_menu_engineering: true,
   modifiers: true,
+  warranties: true,
+  invoice_pdf_a4: true,
+  inventory_kits: true,
   sales_agents: true,
+  agent_orders: true,
+  cashier_desk: true,
+  agent_agenda: true,
   returns: true,
   supplier_returns: true,
   android_app: true,
@@ -1321,10 +1345,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user?.id]);
 
   // Features efectivas = plan base + overrides por empresa (los overrides mandan).
-  const mergedPlanFeatures = useMemo(
-    () => ({ ...planFeatures, ...featureOverrides }) as PlanFeatures,
-    [planFeatures, featureOverrides],
-  );
+  const mergedPlanFeatures = useMemo(() => {
+    const f = { ...planFeatures, ...featureOverrides } as PlanFeatures;
+    // Compatibilidad: los planes viejos solo traen `sales_agents` y ahí adentro
+    // venían caja, nuevo pedido y agenda. Si el flag nuevo no está definido,
+    // hereda; si está definido (aunque sea en false), manda el flag nuevo.
+    if (f.sales_agents) {
+      f.agent_orders ??= true;
+      f.cashier_desk ??= true;
+      f.agent_agenda ??= true;
+    }
+    return f;
+  }, [planFeatures, featureOverrides]);
 
   return (
     <AuthContext.Provider

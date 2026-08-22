@@ -4,7 +4,7 @@ import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
   TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
   Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone,
-  UtensilsCrossed, Store, BookOpen, QrCode,
+  UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -61,8 +61,11 @@ const ALL_TILES: Tile[] = [
   { feature: 'distribution',     label: 'Distribución',    icon: Truck,         path: '/distribution',     bg: 'from-cyan-500 to-blue-600'        },
   { feature: 'distribution',     label: 'Repartidor',      icon: PackageCheck,  path: '/driver',           bg: 'from-blue-500 to-indigo-600'      },
   // Flujo agente → caja. Cada rol ve solo el suyo (ver `hideForRoles` abajo).
-  { feature: 'sales_agents',     label: 'Caja',            icon: Inbox,         path: '/caja',             bg: 'from-emerald-600 to-teal-700',  hideForRoles: ['agente'] },
-  { feature: 'sales_agents',     label: 'Nuevo pedido',    icon: Send,          path: '/agent-orders',     bg: 'from-sky-500 to-blue-600',      hideForRoles: ['cajero'] },
+  { feature: 'cashier_desk',     label: 'Caja',            icon: Inbox,         path: '/caja',             bg: 'from-emerald-600 to-teal-700',  hideForRoles: ['agente'] },
+  { feature: 'agent_orders',     label: 'Nuevo pedido',    icon: Send,          path: '/agent-orders',     bg: 'from-sky-500 to-blue-600',      hideForRoles: ['cajero'] },
+  { feature: 'warranties',       label: 'Garantías',       icon: ShieldCheck,   path: '/garantias',        bg: 'from-cyan-500 to-teal-600' },
+  { feature: 'agent_agenda',     label: 'Entregas del día', icon: Truck,        path: '/entregas',         bg: 'from-indigo-500 to-violet-600' },
+  { feature: 'agent_agenda',     label: 'Agenda entregas', icon: CalendarDays,  path: '/agenda-entregas',  bg: 'from-amber-500 to-orange-600' },
   { feature: 'sales_agents',     label: 'Agentes',         icon: UserCheck,     path: '/sales-agents',     bg: 'from-sky-600 to-indigo-600',    hideForRoles: ['cajero', 'agente'] },
   { feature: 'returns',          label: 'Devoluciones',    icon: Undo2,         path: '/returns',          bg: 'from-rose-600 to-pink-700'        },
   { feature: 'supplier_returns', label: 'Devol. proveedor', icon: Truck,        path: '/supplier-returns', bg: 'from-amber-600 to-orange-700'     },

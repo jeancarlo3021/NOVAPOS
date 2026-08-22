@@ -43,6 +43,9 @@ export const MainLayout = () => {
   // mismo trato: quien despacha en un mostrador trabaja de corrido y el menú
   // lateral solo le come pantalla.
   const isPOS = ['/pos', '/ventanita', '/billing', '/caja', '/agent-orders'].includes(location.pathname);
+  // La agenda es un tablero: la barra de scroll del navegador le parte el
+  // calendario. Sigue desplazándose con rueda, touch y teclado.
+  const hideScrollbar = ['/agenda-entregas', '/entregas'].includes(location.pathname);
   const isReports = location.pathname.startsWith('/reports');
 
   // Auto-colapsar sidebar principal cuando estamos en /reports
@@ -107,7 +110,7 @@ export const MainLayout = () => {
         />
         <div className="flex-1 flex flex-col overflow-hidden">
           <Header setSidebarOpen={setSidebarOpen} />
-          <main className={`flex-1 overflow-y-auto ${isReports ? '' : 'p-4 sm:p-6 lg:p-8'}`}>
+          <main className={`flex-1 overflow-y-auto ${hideScrollbar ? 'no-scrollbar' : ''} ${isReports ? '' : 'p-4 sm:p-6 lg:p-8'}`}>
             <Outlet />
           </main>
           {/* Barra inferior (solo móvil): menú + actualizar/limpiar caché. */}

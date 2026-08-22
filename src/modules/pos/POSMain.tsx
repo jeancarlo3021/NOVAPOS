@@ -1273,6 +1273,21 @@ export const POSMain = () => {
         total: totSnapshot, payment_method: data.paymentMethod,
       });
       refreshPendingCount();
+      if (data.downloadPdf) {
+        void import('@/modules/invoice/downloadInvoicePdf')
+          .then(({ downloadInvoicePdf }) => downloadInvoicePdf({
+            invoiceNumber, date: new Date(),
+            customerName: offlineCustomer ?? customerName ?? null,
+            items: cartSnapshot.map((i: any) => ({
+              name: i.product_name ?? i.product?.name ?? '',
+              quantity: i.quantity, unit_price: i.unit_price, subtotal: i.subtotal,
+            })),
+            subtotal: subSnapshot, tax: taxSnapshot, total: totSnapshot,
+            paymentMethod: data.paymentMethod,
+            notes: 'Documento generado sin conexión: pendiente de sincronizar.',
+          }, tenantId))
+          .catch(e => setError(`No se pudo generar el PDF: ${e?.message ?? e}`));
+      }
       if (!data.skipPrint) printReceipt(invoiceNumber, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, offlineCustomer, data.payments ?? undefined, undefined, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
       setInvoiceCounterKey(k => k + 1);
     };
@@ -1320,6 +1335,37 @@ export const POSMain = () => {
         setLastInvoice(invoice);
         setPaymentData(data);
         setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
+
+        // "Cobrar y descargar": la factura en A4 para el cliente que necesita
+        // respaldo en hoja. No bloquea la venta si el PDF falla.
+        if (data.downloadPdf) {
+          void import('@/modules/invoice/downloadInvoicePdf')
+            .then(({ downloadInvoicePdf }) => downloadInvoicePdf({
+              invoiceNumber: invoice.invoice_number ?? '',
+              date: new Date(),
+              customerName: invoice.customer_name ?? customerName ?? null,
+              customerIdentification: selectedCustomer?.identification ?? null,
+              customerPhone: selectedCustomer?.phone ?? null,
+              customerEmail: customerEmailSnapshot ?? null,
+              items: cartSnapshot.map((i: any) => ({
+                name: i.product_name ?? i.product?.name ?? '',
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+                subtotal: i.subtotal,
+              })),
+              subtotal: subSnapshot, tax: taxSnapshot, total: totSnapshot,
+              paymentMethod: data.paymentMethod,
+              notes,
+              feClave: (invoice as any).fe_clave ?? null,
+              feConsecutivo: (invoice as any).fe_consecutivo ?? null,
+              documentLabel: documentType === 'factura_electronica' ? 'Factura electrónica'
+                : documentType === 'tiquete_electronico' ? 'Tiquete electrónico' : 'Factura',
+            }, tenantId))
+            .catch(e => {
+              console.warn('[pdf] no se pudo generar la factura A4:', e);
+              setError(`La venta se cobró, pero no se pudo generar el PDF: ${e?.message ?? e}`);
+            });
+        }
         if (tableOrderToClose.current) {
           void closeTableOrder(tableOrderToClose.current.id, invoice.id);
           tableOrderToClose.current = null;
@@ -1858,6 +1904,7 @@ export const POSMain = () => {
           rateDate={exchangeRate?.date}
           deliveryCommissions={deliveryCommissions}
           deliveryMode={isDeliveryMode}
+          allowPdf={!!(planFeatures as any).invoice_pdf_a4}
         />
       )}
 

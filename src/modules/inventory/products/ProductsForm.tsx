@@ -34,6 +34,8 @@ interface FormData {
   cost_price: string;
   stock_quantity: string;
   min_stock_level: string;
+  /** Meses de garantía del producto (0 = sin garantía). */
+  warranty_months: string;
   max_stock_level: string;
   cabys_code: string;
   iva_rate: string;
@@ -81,6 +83,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     cost_price: '',
     stock_quantity: '0',
     min_stock_level: '10',
+    warranty_months: '0',
     max_stock_level: '100',
     cabys_code: '',
     iva_rate: ivaGuide,
@@ -231,6 +234,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           cost_price: product.cost_price?.toString() || '',
           stock_quantity: product.stock_quantity?.toString() || '0',
           min_stock_level: product.min_stock_level?.toString() || '10',
+          warranty_months: ((product as any).warranty_months ?? 0).toString(),
           max_stock_level: product.max_stock_level?.toString() || '100',
           cabys_code: (product as any).cabys_code ?? '',
           iva_rate: (product as any).iva_rate?.toString() ?? ivaGuide,
@@ -381,6 +385,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         recipe_unit_code: formData.recipe_unit_code || null,
         image_url: imageUrl ? imageUrl.split('?')[0] : null,
         tracks_stock: finalTracksStock,
+        warranty_months: parseInt(formData.warranty_months, 10) || 0,
         // Facturación Electrónica — CABYS opcional. IVA por producto: el que se
         // elija; si se deja vacío, se usa la guía de configuración (o 0).
         cabys_code: formData.cabys_code.trim() || null,
@@ -1127,6 +1132,25 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                 })()}
 
                 {/* Toggle "Stock infinito" se movió arriba al bloque esencial. */}
+
+                {/* Garantía del producto: con esto el módulo de Garantías calcula
+                    la vigencia desde la fecha de la factura. */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Meses de garantía <span className="text-gray-400 font-normal">(0 = sin garantía)</span>
+                  </label>
+                  <input
+                    type="number"
+                    name="warranty_months"
+                    value={formData.warranty_months}
+                    onChange={handleChange}
+                    placeholder="0"
+                    min="0"
+                    step="1"
+                    disabled={submitting}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  />
+                </div>
 
                 {/* Min / Max stock */}
                 {!isProductsOnly && tracksStock && (

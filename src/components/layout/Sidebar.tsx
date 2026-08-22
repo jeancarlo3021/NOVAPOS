@@ -28,7 +28,7 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeInfo,
-  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store } from 'lucide-react';
+  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store, CalendarDays, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
@@ -91,8 +91,11 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Extras y modificadores', to: '/modifiers', icon: Layers,   feature: 'modifiers',  module: 'restaurant' },
       // Vistas separadas: el CAJERO ve «Caja» (cobra), el AGENTE ve «Nuevo pedido»
       // (arma y envía). Cada una con su propio módulo de permisos.
-      { name: 'Caja',               to: '/caja',          icon: Inbox,     feature: 'sales_agents', module: 'caja',         hideForRoles: ['agente'] },
-      { name: 'Nuevo pedido',       to: '/agent-orders',  icon: Send,      feature: 'sales_agents', module: 'agent_orders', hideForRoles: ['cajero'] },
+      { name: 'Caja',               to: '/caja',          icon: Inbox,     feature: 'cashier_desk', module: 'caja',         hideForRoles: ['agente'] },
+      { name: 'Nuevo pedido',       to: '/agent-orders',  icon: Send,      feature: 'agent_orders', module: 'agent_orders', hideForRoles: ['cajero'] },
+      { name: 'Garantías',          to: '/garantias',     icon: ShieldCheck, feature: 'warranties', module: 'inventory' },
+      { name: 'Entregas del día',   to: '/entregas',      icon: Truck,     feature: 'agent_agenda', module: 'agent_orders' },
+      { name: 'Agenda de entregas', to: '/agenda-entregas', icon: CalendarDays, feature: 'agent_agenda', module: 'agent_orders' },
       { name: 'Agentes de venta',   to: '/sales-agents',  icon: UserCheck, feature: 'sales_agents', module: 'users'        },
       { name: 'Portal del contador', to: '/accountant',       icon: Calculator, feature: 'always',       module: 'reports'   },
       { name: 'Negocios',           to: '/businesses',        icon: Building2,  feature: 'always',       module: 'reports'   },

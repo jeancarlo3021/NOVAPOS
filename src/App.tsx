@@ -47,6 +47,9 @@ const CreateOwner              = lazy(() => import('./modules/auth/CreateOwner')
 const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashboard').then(m => ({ default: m.TablesDashboard })));
 const ModifiersManager         = lazy(() => import('./modules/modifiers/ModifiersManager').then(m => ({ default: m.ModifiersManager })));
 const SalesAgentsManager       = lazy(() => import('./modules/agents/SalesAgentsManager').then(m => ({ default: m.SalesAgentsManager })));
+const WarrantiesDashboard      = lazy(() => import('./modules/warranties/WarrantiesDashboard').then(m => ({ default: m.WarrantiesDashboard })));
+const DeliveryRun              = lazy(() => import('./modules/agents/DeliveryRun').then(m => ({ default: m.DeliveryRun })));
+const DeliveryAgenda           = lazy(() => import('./modules/agents/DeliveryAgenda').then(m => ({ default: m.DeliveryAgenda })));
 const AgentOrderPOS            = lazy(() => import('./modules/agents/AgentOrderPOS').then(m => ({ default: m.AgentOrderPOS })));
 const CashierDesk              = lazy(() => import('./modules/agents/CashierDesk').then(m => ({ default: m.CashierDesk })));
 const SalesReturns             = lazy(() => import('./modules/returns/SalesReturns').then(m => ({ default: m.SalesReturns })));
@@ -209,10 +212,22 @@ function AppContent() {
               {/* CAJA: bandeja de pedidos + apertura/cierre/movimientos + cobro.
                   NUEVO PEDIDO: el mismo POS de venta, pero envía a caja. */}
               <Route path="/caja" element={
-                <PlanGuard feature="sales_agents"><CashierDesk /></PlanGuard>
+                <PlanGuard feature="cashier_desk"><CashierDesk /></PlanGuard>
               } />
               <Route path="/agent-orders" element={
-                <PlanGuard feature="sales_agents"><AgentOrderPOS /></PlanGuard>
+                <PlanGuard feature="agent_orders"><AgentOrderPOS /></PlanGuard>
+              } />
+              {/* AGENDA: planificación de entregas por día, con responsable y hora. */}
+              <Route path="/agenda-entregas" element={
+                <PlanGuard feature="agent_agenda"><DeliveryAgenda /></PlanGuard>
+              } />
+              {/* RUTA DEL DÍA: lo que le toca entregar a cada responsable. */}
+              {/* GARANTÍAS: casos de producto malo, del recibo al cierre. */}
+              <Route path="/garantias" element={
+                <PlanGuard feature="warranties"><WarrantiesDashboard /></PlanGuard>
+              } />
+              <Route path="/entregas" element={
+                <PlanGuard feature="agent_agenda"><DeliveryRun /></PlanGuard>
               } />
               <Route path="/billing" element={
                 <PlanGuard feature="restaurant"><BillingDashboard /></PlanGuard>

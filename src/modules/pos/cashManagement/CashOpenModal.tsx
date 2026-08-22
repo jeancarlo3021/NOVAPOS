@@ -56,8 +56,8 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
   const monedas  = DENOMINATIONS.filter(d => d.type === 'moneda');
 
   const handleConfirm = async () => {
-    if (totalAmount <= 0) {
-      setError(simpleCash ? 'Ingresá el monto de efectivo' : 'Ingresa al menos una denominación');
+    if (totalAmount < 0) {
+      setError('El fondo de caja no puede ser negativo');
       return;
     }
 
@@ -301,10 +301,10 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={loading || totalAmount <= 0}
+              disabled={loading}
               className="h-16 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-lg transition shadow-sm"
             >
-              {loading ? 'Abriendo...' : 'Abrir Caja ✓'}
+              {loading ? 'Abriendo...' : totalAmount > 0 ? 'Abrir Caja ✓' : 'Abrir sin fondo ✓'}
             </button>
           </div>
         </div>

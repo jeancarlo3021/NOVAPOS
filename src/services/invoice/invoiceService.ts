@@ -184,9 +184,14 @@ export const invoicesService = {
     return invoice;
   },
 
-  // Cancelar factura
+  // Cancelar factura. La respuesta trae cuántas líneas volvieron al inventario
+  // (o al camión, en ventas de ruta) y cuántas no se pudieron devolver.
   async cancelInvoice(invoiceId: string) {
-    return apiFetch<Invoice>('/invoices/' + invoiceId + '/void', { method: 'POST' });
+    return apiFetch<Invoice & {
+      restocked?: number;
+      restock_target?: 'truck' | 'inventory';
+      restock_skipped?: number;
+    }>('/invoices/' + invoiceId + '/void', { method: 'POST' });
   },
 
   // Anular el PAGO de una factura y dejarla a crédito (con saldo pendiente).

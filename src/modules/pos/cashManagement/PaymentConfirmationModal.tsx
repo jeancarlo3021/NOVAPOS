@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { CreditCard, Banknote, Smartphone, X, ChevronDown, Layers, HandCoins, FileCheck, Repeat, Users, Globe, MoreHorizontal, Printer, Ban, ChevronRight } from 'lucide-react';
+import { CreditCard, Banknote, Smartphone, X, ChevronDown, Layers, HandCoins, FileCheck, Repeat, Users, Globe, MoreHorizontal, Printer, Ban, ChevronRight, Download } from 'lucide-react';
 import { CartItem } from '@/types/Types_POS';
 
 interface PaymentConfirmationModalProps {
@@ -42,6 +42,8 @@ interface PaymentConfirmationModalProps {
   /** La venta ya viene en modo DELIVERY (el POS está en modo delivery): fuerza
    *  delivery y muestra las plataformas de una, sin el check. */
   deliveryMode?: boolean;
+  /** Plan con descarga de factura en PDF A4: agrega el botón "Cobrar y descargar". */
+  allowPdf?: boolean;
 }
 
 export interface PaymentSplit {
@@ -71,6 +73,8 @@ export interface PaymentData {
   deliveryPlatform?: string;
   /** true = cobrar SIN imprimir el tiquete (botón "Sin imprimir" / F2). */
   skipPrint?: boolean;
+  /** true = además de cobrar, descargar la factura en PDF tamaño A4 (F3). */
+  downloadPdf?: boolean;
 }
 
 const QUICK_AMOUNTS = [1000, 2000, 5000, 10000, 20000];
@@ -152,6 +156,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   defaultDeliveryPct = 0,
   deliveryCommissions = {},
   deliveryMode = false,
+  allowPdf = false,
 }) => {
   const crc = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
   const creditExceeds = total > creditAvailable;
@@ -251,10 +256,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         if (!loading) onCancel();
         return;
       }
-      if (e.key !== 'F1' && e.key !== 'F2') return;
+      if (e.key !== 'F1' && e.key !== 'F2' && !(e.key === 'F3' && allowPdf)) return;
       e.preventDefault();
       if (confirmDisabled) return;
-      handleConfirm(e.key === 'F2');
+      handleConfirm(e.key !== 'F1', e.key === 'F3');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -267,7 +272,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     return () => { delete document.body.dataset.posModal; };
   }, []);
 
-  const handleConfirm = (skipPrint = false) => {
+  const handleConfirm = (skipPrint = false, downloadPdf = false) => {
     if (isMixed) {
       if (!mixedValid) {
         setError(`Falta cubrir ₡${mixedDiff.toLocaleString('es-CR')}`);
@@ -288,6 +293,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         change: mixedDiff < 0 ? Math.abs(mixedDiff) : 0,
         payments: splits,
         skipPrint,
+        downloadPdf,
         ...deliveryData,
       });
       return;
@@ -319,6 +325,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         ? { currency: 'USD' as const, exchangeRate: rate, changeCurrency }
         : { currency: 'CRC' as const }),
       skipPrint,
+      downloadPdf,
       ...deliveryData,
     });
   };
@@ -779,7 +786,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
         {/* ── Footer ── */}
         <div className="bg-white border-t border-gray-200 px-6 py-4 shrink-0">
-          <div className="grid grid-cols-3 gap-3">
+          <div className={`grid gap-3 ${allowPdf ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
             <button
               type="button"
               onClick={onCancel}
@@ -818,6 +825,21 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                 </>
               )}
             </button>
+            {allowPdf && (
+              <button
+                type="button"
+                onPointerDown={() => handleConfirm(true, true)}
+                disabled={confirmDisabled}
+                className="h-16 rounded-2xl bg-violet-500 hover:bg-violet-600 active:bg-violet-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-lg transition flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                {loading ? 'Procesando...' : (
+                  <>
+                    <Download size={20} /> Cobrar y descargar
+                    <span className="px-1.5 py-0.5 rounded bg-white/25 font-mono text-[11px] leading-none">F3</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
 

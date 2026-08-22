@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Loader2, Trash2, Plus, Minus, AlertCircle, CheckCircle2, User, Home, Search, X, Receipt } from 'lucide-react';
+import { Send, Loader2, Trash2, Plus, Minus, AlertCircle, CheckCircle2, User, Home, Search, X, Receipt, CalendarDays, FileText, MapPin, Boxes } from 'lucide-react';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
 import { usePOSLayout } from '@/hooks/usePOSLayout';
 import { useFeReady, type DocumentType } from '@/hooks/POS/useFeReady';
@@ -9,6 +9,9 @@ import { PosShortcutsHint } from '@/modules/pos/PosShortcutsHint';
 import type { Customer } from '@/services/customers/customersService';
 import { POSProductsPanel } from '@/modules/pos/POSProducts';
 import type { Product, CashSession } from '@/types/Types_POS';
+import { proformasService, type Proforma } from '@/services/proformas/proformasService';
+import { customersService } from '@/services/customers/customersService';
+import { productKitsService, type ProductKit } from '@/services/Inventory/productKitsService';
 import {
   salesAgentsService, agentOrdersService,
   type SalesAgent, type AgentOrderItem,
@@ -16,6 +19,8 @@ import {
 
 const money = (n: number) => `₡${Math.round(Number(n || 0)).toLocaleString('es-CR')}`;
 const round2 = (n: number) => Math.round(Number(n || 0) * 100) / 100;
+/** Hoy en Costa Rica. El día del negocio no es el UTC del navegador. */
+const crToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
 
 /**
  * Nuevo pedido del AGENTE, con el mismo POS de venta.
@@ -49,6 +54,33 @@ export const AgentOrderPOS: React.FC = () => {
   // Si la FE deja de estar disponible, no se puede quedar en electrónico.
   useEffect(() => { if (!feReady && docType !== 'ticket') setDocType('ticket'); }, [feReady, docType]);
   const [notes, setNotes] = useState('');
+  // Agenda: el día en que el cliente espera el pedido. Por defecto hoy, para que
+  // el flujo de mostrador no cambie; el agente de ruta lo mueve a su día.
+  const [schedDate, setSchedDate] = useState<string>(crToday());
+  const [schedNote, setSchedNote] = useState('');
+  // Lugar de entrega. Se autocompleta de la ficha del cliente, pero se puede
+  // corregir: "la casa de la esquina" no está en ninguna ficha.
+  const [place, setPlace] = useState('');
+  const [zone, setZone] = useState('');
+  // Proforma de origen. Si el pedido nace de una cotización, se cierra al cobrar.
+  const [proforma, setProforma] = useState<Proforma | null>(null);
+  const [showProformas, setShowProformas] = useState(false);
+  const [proformas, setProformas] = useState<Proforma[]>([]);
+  const [loadingProformas, setLoadingProformas] = useState(false);
+  // Kits: se ofrecen como una fila de "categorías" arriba del buscador. Tocar
+  // uno mete de golpe todo lo que lleva dentro, que es como el agente los canta
+  // ("mandame el combo"), y después puede quitar lo que el cliente no quiera.
+  const [kits, setKits] = useState<ProductKit[]>([]);
+  useEffect(() => {
+    productKitsService.list().then(setKits).catch(() => setKits([]));
+  }, []);
+
+  const [zones, setZones] = useState<string[]>([]);
+  useEffect(() => {
+    customersService.listZones()
+      .then(zs => setZones(zs.map((z: any) => z.name).filter(Boolean)))
+      .catch(() => setZones([]));
+  }, []);
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
@@ -105,6 +137,37 @@ export const AgentOrderPOS: React.FC = () => {
     });
   };
 
+  /** Mete al pedido todos los productos que lleva el kit. */
+  const addKit = (kit: ProductKit) => {
+    let faltantes = 0;
+    for (const it of kit.items) {
+      const p = products.find(x => String(x.id) === String(it.component_id));
+      if (p) { addToCart(p as Product, it.quantity); continue; }
+      // El componente puede no estar en el catálogo cargado (filtro, borrado):
+      // se agrega igual con el precio que trae el kit, así el pedido no queda
+      // incompleto sin que nadie se entere.
+      faltantes++;
+      setCart(prev => {
+        const unit = round2(Number(it.price ?? 0));
+        const i = prev.findIndex(x => x.product_id === it.component_id);
+        if (i >= 0) {
+          const next = [...prev];
+          const qty = next[i].quantity + it.quantity;
+          next[i] = { ...next[i], quantity: qty, subtotal: round2(qty * next[i].unit_price) };
+          return next;
+        }
+        return [...prev, {
+          product_id: it.component_id, product_name: it.name ?? 'Producto',
+          quantity: it.quantity, unit_price: unit, subtotal: round2(unit * it.quantity),
+        }];
+      });
+    }
+    setMsg({
+      kind: 'ok',
+      text: `${kit.name}: ${kit.items.length} producto(s) agregados${faltantes ? ` (${faltantes} sin ficha en el catálogo)` : ''}`,
+    });
+  };
+
   const setQty = (i: number, qty: number) => {
     if (qty <= 0) { setCart(prev => prev.filter((_, j) => j !== i)); return; }
     setCart(prev => prev.map((x, j) => j === i
@@ -153,12 +216,57 @@ export const AgentOrderPOS: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  const openProformas = () => {
+    setShowProformas(true);
+    setLoadingProformas(true);
+    proformasService.list('open')
+      .then(setProformas)
+      .catch(() => setProformas([]))
+      .finally(() => setLoadingProformas(false));
+  };
+
+  /** Pasa una cotización al pedido: líneas, cliente y nota de origen. */
+  const loadProforma = (p: Proforma) => {
+    setCart(p.items.map(it => ({
+      product_id: it.product_id ?? null,
+      product_name: it.name,
+      quantity: Number(it.quantity || 0),
+      unit_price: round2(Number(it.unit_price || 0)),
+      subtotal: round2(Number(it.quantity || 0) * Number(it.unit_price || 0)),
+    })));
+    setProforma(p);
+    if (p.customer_id) {
+      setCustomer({
+        id: p.customer_id, name: p.customer_name ?? 'Cliente',
+        identification: p.customer_identification ?? null,
+      } as Customer);
+      // La ficha tiene la zona y la dirección; la proforma no las guarda.
+      void customersService.get?.(p.customer_id)
+        ?.then((c: any) => { setZone(z => z || (c?.zone ?? '')); setPlace(pl => pl || (c?.address ?? '')); })
+        ?.catch(() => {});
+    }
+    // La validez de la cotización es la fecha que el cliente tiene en la cabeza.
+    if (p.valid_until) setSchedDate(String(p.valid_until).slice(0, 10));
+    setShowProformas(false);
+    setMsg({ kind: 'ok', text: `Proforma ${p.number ?? ''} cargada al pedido` });
+  };
+
   const send = async () => {
     if (cart.length === 0) { setMsg({ kind: 'err', text: 'El pedido no tiene productos.' }); return; }
     // Una factura electrónica necesita receptor identificado: si el agente no lo
     // elige, el cajero se traba al cobrar y hay que llamar al cliente de nuevo.
     if (docType === 'factura_electronica' && !customer?.identification) {
       setMsg({ kind: 'err', text: 'La factura electrónica necesita un cliente con cédula. Buscalo o creálo.' });
+      return;
+    }
+    // Un pedido agendado para otro día hay que ir a entregarlo: sin cliente no
+    // se sabe a quién ni a dónde, y el día de la entrega ya nadie se acuerda.
+    if (schedDate && schedDate !== crToday() && !customer) {
+      setMsg({ kind: 'err', text: 'Para agendar el pedido para otro día hay que elegir el cliente.' });
+      return;
+    }
+    if (schedDate && schedDate !== crToday() && !place.trim() && !zone.trim()) {
+      setMsg({ kind: 'err', text: 'Poné la zona o el lugar de entrega: la agenda se usa para armar la ruta.' });
       return;
     }
     setSending(true); setMsg(null);
@@ -172,9 +280,16 @@ export const AgentOrderPOS: React.FC = () => {
         customer_phone: customer?.phone ?? null,
         document_type: docType,
         notes: notes.trim() || null,
+        scheduled_date: schedDate || null,
+        customer_zone: zone.trim() || null,
+        delivery_place: place.trim() || null,
+        scheduled_note: schedNote.trim() || null,
+        proforma_id: proforma?.id ?? null,
         items: cart,
       });
       setCart([]); setCustomer(null); setNotes(''); setDocType('ticket');
+      setProforma(null); setSchedNote(''); setSchedDate(crToday());
+      setPlace(''); setZone('');
       setMsg({ kind: 'ok', text: `Pedido ${created.number ?? ''} enviado a caja ✓` });
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'No se pudo enviar' });
@@ -184,7 +299,7 @@ export const AgentOrderPOS: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-gray-100">
       {/* Cabecera compacta: agente y cliente */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2 flex-wrap shrink-0">
+      <div className="bg-white border-b border-gray-200 px-3 sm:px-4 py-2.5 flex items-center gap-2 flex-wrap shrink-0">
         <button onClick={() => navigate('/')} title="Volver al menú"
           className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 shrink-0">
           <Home size={16} className="text-gray-500" />
@@ -225,7 +340,14 @@ export const AgentOrderPOS: React.FC = () => {
             <POSCustomerSearch
               variant="inline"
               selected={customer}
-              onPick={(cst) => { setCustomer(cst); setShowCustomerSearch(false); }}
+              onPick={(cst) => {
+                setCustomer(cst);
+                setShowCustomerSearch(false);
+                // El lugar sale de la ficha, pero solo si el usuario no escribió
+                // uno a mano: lo que él puso manda.
+                setZone(z => z || (cst?.zone ?? ''));
+                setPlace(p => p || (cst?.address ?? ''));
+              }}
               onClose={() => setShowCustomerSearch(false)}
             />
           )}
@@ -233,8 +355,61 @@ export const AgentOrderPOS: React.FC = () => {
 
         {/* Tipo de comprobante — el MISMO selector del POS: mismos colores por tipo,
             mismas validaciones y los mismos avisos cuando no se puede elegir. */}
-        <div className="flex items-center gap-2 shrink-0">
-          <Receipt size={15} className="text-gray-400" />
+        {/* Agenda: para qué día es el pedido. El cajero trabaja por día. */}
+        <div className="flex items-center gap-1.5 w-full sm:w-auto sm:shrink-0">
+          <CalendarDays size={15} className={schedDate === crToday() ? 'text-gray-400' : 'text-amber-500'} />
+          <input
+            type="date" value={schedDate} min={crToday()}
+            onChange={e => setSchedDate(e.target.value)}
+            title="Día en que el cliente espera el pedido"
+            className={`flex-1 sm:flex-none min-w-0 px-2 py-2 sm:py-1.5 border rounded-lg text-xs font-bold focus:outline-none focus:ring-2 ${
+              schedDate && schedDate !== crToday()
+                ? 'border-amber-300 bg-amber-50 text-amber-800 focus:ring-amber-200'
+                : 'border-gray-200 bg-white text-gray-700 focus:ring-gray-200'}`}
+          />
+          <input
+            type="text" value={schedNote} onChange={e => setSchedNote(e.target.value)}
+            placeholder="Hora / referencia"
+            className="flex-1 sm:flex-none sm:w-32 min-w-0 px-2 py-2 sm:py-1.5 border border-gray-200 rounded-lg text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200"
+          />
+        </div>
+
+        {/* Lugar de entrega: sin esto la agenda no sirve para armar ruta. */}
+        <div className="flex items-center gap-1.5 w-full sm:w-auto sm:shrink-0">
+          <MapPin size={15} className={zone || place ? 'text-emerald-600' : 'text-gray-400'} />
+          <input
+            type="text" value={zone} onChange={e => setZone(e.target.value)}
+            placeholder="Zona" list="agenda-zonas"
+            className="w-24 sm:w-28 shrink-0 px-2 py-2 sm:py-1.5 border border-gray-200 rounded-lg text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200"
+          />
+          <datalist id="agenda-zonas">
+            {zones.map(z => <option key={z} value={z} />)}
+          </datalist>
+          <input
+            type="text" value={place} onChange={e => setPlace(e.target.value)}
+            placeholder="Lugar de entrega"
+            className="flex-1 sm:flex-none sm:w-44 min-w-0 px-2 py-2 sm:py-1.5 border border-gray-200 rounded-lg text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200"
+          />
+        </div>
+
+        {/* Proforma de origen */}
+        <div className="flex items-center gap-1.5 shrink-0 order-last sm:order-none">
+          {proforma ? (
+            <span className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 border border-violet-200 text-xs font-black text-violet-800">
+              <FileText size={13} /> {proforma.number ?? 'Proforma'}
+              <button onClick={() => setProforma(null)} title="Desligar la proforma"
+                className="ml-0.5 text-violet-400 hover:text-violet-700"><X size={13} /></button>
+            </span>
+          ) : (
+            <button onClick={openProformas}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-xs font-black text-violet-700 hover:bg-violet-50">
+              <FileText size={13} /> Desde proforma
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-1 sm:flex-none sm:shrink-0 min-w-0">
+          <Receipt size={15} className="text-gray-400 shrink-0" />
           <select
             value={docType}
             onChange={(e) => {
@@ -249,7 +424,7 @@ export const AgentOrderPOS: React.FC = () => {
               }
               setDocType(t);
             }}
-            className={`px-2 py-1.5 border rounded-lg text-xs font-bold focus:outline-none focus:ring-2 ${
+            className={`flex-1 sm:flex-none min-w-0 px-2 py-2 sm:py-1.5 border rounded-lg text-xs font-bold focus:outline-none focus:ring-2 ${
               docType === 'factura_electronica' ? 'border-blue-300 bg-blue-50 text-blue-700 focus:ring-blue-200' :
               docType === 'tiquete_electronico' ? 'border-cyan-300 bg-cyan-50 text-cyan-700 focus:ring-cyan-200' :
               'border-gray-200 bg-white text-gray-700 focus:ring-gray-200'
@@ -266,6 +441,48 @@ export const AgentOrderPOS: React.FC = () => {
         </div>
       </div>
 
+      {showProformas && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-start justify-center p-0 sm:p-4 sm:pt-16"
+          onClick={() => setShowProformas(false)}>
+          <div className="w-full max-w-2xl bg-white rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden max-h-[85vh]"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span className="flex items-center gap-2 text-sm font-black text-violet-700">
+                <FileText size={16} /> Proformas abiertas
+              </span>
+              <button onClick={() => setShowProformas(false)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X size={16} className="text-gray-400" />
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto no-scrollbar">
+              {loadingProformas ? (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm font-bold text-gray-400">
+                  <Loader2 size={16} className="animate-spin" /> Cargando…
+                </div>
+              ) : proformas.length === 0 ? (
+                <div className="py-10 text-center text-sm font-bold text-gray-400">
+                  No hay proformas abiertas.
+                </div>
+              ) : proformas.map(p => (
+                <button key={p.id} onClick={() => loadProforma(p)}
+                  className="w-full flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-50 text-left hover:bg-violet-50">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-black text-gray-800 truncate">
+                      {p.number ?? 'Proforma'} · {p.customer_name ?? 'Sin cliente'}
+                    </span>
+                    <span className="block text-xs font-bold text-gray-400">
+                      {p.items?.length ?? 0} línea(s)
+                      {p.valid_until ? ` · vence ${String(p.valid_until).slice(0, 10)}` : ''}
+                    </span>
+                  </span>
+                  <span className="text-sm font-black text-violet-700 shrink-0">{money(p.total)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {msg && (
         <div className={`shrink-0 flex items-center gap-2 px-4 py-2 text-sm font-bold ${
           msg.kind === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
@@ -276,6 +493,24 @@ export const AgentOrderPOS: React.FC = () => {
       <div className="flex flex-1 overflow-hidden flex-col">
         {/* Buscador ARRIBA, a todo lo ancho: en formato lista el panel de productos
             es justo eso — el campo de captura por código o nombre. */}
+        {kits.length > 0 && (
+          <div className="shrink-0 bg-white border-b border-gray-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span className="flex items-center gap-1 text-[11px] font-black text-teal-700 shrink-0 pr-1">
+              <Boxes size={14} /> Kits
+            </span>
+            {kits.map(k => (
+              <button key={k.id} onClick={() => addKit(k)}
+                title={k.items.map(i => `${i.quantity} × ${i.name}`).join('\n')}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-teal-200 bg-teal-50 text-xs font-black text-teal-800 hover:bg-teal-100 active:scale-95 transition">
+                {k.name}
+                <span className="text-[10px] font-bold text-teal-600">
+                  {k.items.length} art.
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="shrink-0">
           <POSProductsPanel
             filteredProducts={filteredProducts}

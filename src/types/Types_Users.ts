@@ -173,7 +173,14 @@ export type UserModule =
   /** Bandeja del CAJERO: recibe pedidos de agentes y los cobra. No arma ventas. */
   | 'caja'
   /** Vista del AGENTE: arma pedidos y los envía a caja. No cobra. */
-  | 'agent_orders';
+  | 'agent_orders'
+  /** Agenda del día, tareas y ruta de entregas. */
+  | 'agent_agenda'
+  | 'accounts_receivable' | 'proformas' | 'returns' | 'supplier_returns'
+  | 'warranties' | 'digital_menu' | 'window_service'
+  | 'electronic_invoice' | 'labels' | 'multi_branch' | 'tracking'
+  /** Configuración del negocio: no se vende por plan, se permite por rol. */
+  | 'settings';
 
 export interface UserPermission {
   id: string;

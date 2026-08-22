@@ -131,9 +131,16 @@ export const SalesReturns: React.FC = () => {
     )) return;
     setSaving(true);
     try {
-      await invoicesService.cancelInvoice(invoice.id);
+      const res = await invoicesService.cancelInvoice(invoice.id);
+      const n = (res as any)?.restocked ?? 0;
+      const donde = (res as any)?.restock_target === 'truck' ? 'al camión' : 'al inventario';
+      const falta = (res as any)?.restock_skipped
+        ? ` ${(res as any).restock_skipped} línea(s) no se pudieron devolver.` : '';
       setInvoice(null); setLines([]);
-      setMsg({ kind: 'ok', text: `Factura ${invoice.invoice_number} anulada. El stock volvió al inventario.` });
+      setMsg({
+        kind: (res as any)?.restock_skipped ? 'err' : 'ok',
+        text: `Factura ${invoice.invoice_number} anulada. Volvieron ${n} línea(s) ${donde}.${falta}`,
+      });
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'No se pudo anular' });
     } finally { setSaving(false); }

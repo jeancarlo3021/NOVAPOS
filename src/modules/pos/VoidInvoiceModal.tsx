@@ -138,7 +138,12 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
     let ncWarning = '';
     try {
       if (isOnline) {
-        await invoicesService.cancelInvoice(selected.id);
+        const res = await invoicesService.cancelInvoice(selected.id);
+        // Si alguna línea no volvió al inventario hay que decirlo ahora: en el
+        // conteo del mes ya no se sabe cuál factura fue.
+        if ((res as any)?.restock_skipped) {
+          ncWarning = `Factura anulada, pero ${(res as any).restock_skipped} línea(s) no se pudieron devolver al inventario (producto borrado o sin stock rastreado).`;
+        }
         // Factura electrónica: emitir Nota de Crédito a Hacienda (anulación fiscal).
         if (selected.fe_clave && !selected.fe_nc_clave) {
           try {

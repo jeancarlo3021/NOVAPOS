@@ -8,7 +8,7 @@ import {
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Shield, CalendarDays, History,
   FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing, UserCheck, Undo2,
-  Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes,
+  Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes, Send, Inbox,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { apiFetch } from '@/lib/api';
@@ -359,6 +359,7 @@ export default function Plans() {
       a.push('POS');
       if (pf.pos_card) a.push('Datáfono');
       if (pf.pos_sinpe) a.push('SINPE');
+      if (pf.invoice_pdf_a4) a.push('Factura PDF A4');
       if (pf.pos_discount) a.push('Descuentos');
     }
     if (pf.inventory) {
@@ -378,7 +379,11 @@ export default function Plans() {
     if (pf.tables)     a.push('Mapa de Mesas');
     if ((pf as any).table_orders)     a.push('Cuentas por mesa');
     if ((pf as any).modifiers)        a.push('Extras y modificadores');
+    if ((pf as any).warranties)       a.push('Garantías');
     if ((pf as any).sales_agents)     a.push('Agentes de venta');
+    if ((pf as any).agent_orders ?? (pf as any).sales_agents) a.push('Nuevo pedido');
+    if ((pf as any).cashier_desk ?? (pf as any).sales_agents) a.push('Caja');
+    if ((pf as any).agent_agenda ?? (pf as any).sales_agents) a.push('Agenda de pedidos');
     if ((pf as any).returns)          a.push('Devoluciones');
     if ((pf as any).supplier_returns) a.push('Devol. proveedor');
     if ((pf as any).android_app)      a.push('App de Android');
@@ -849,6 +854,9 @@ export default function Plans() {
                       description="Cobro con tarjeta" checked={features.pos_card} onChange={v => set({ pos_card: v })} />
                     <SubFeatureRow icon={Smartphone} color="bg-violet-500" title="SINPE Móvil"
                       description="Cobro por SINPE" checked={features.pos_sinpe} onChange={v => set({ pos_sinpe: v })} />
+                    <SubFeatureRow icon={FileText} color="bg-violet-400" title="Factura en PDF (A4)"
+                      description='Botón "Cobrar y descargar": genera la factura en hoja tamaño carta/A4'
+                      checked={!!features.invoice_pdf_a4} onChange={v => set({ invoice_pdf_a4: v })} />
                     <SubFeatureRow icon={Percent} color="bg-orange-400" title="Descuentos"
                       description="Aplicar descuentos por producto" checked={features.pos_discount} onChange={v => set({ pos_discount: v })} />
                     <SubFeatureRow icon={Banknote} color="bg-emerald-400" title="Gestión de Caja"
@@ -965,8 +973,23 @@ export default function Plans() {
                 <section className="space-y-2">
                   <h4 className="text-sm font-black text-gray-500 uppercase tracking-wider">Agentes y devoluciones</h4>
                   <FeatureRow icon={UserCheck} color="bg-sky-600" title="Agentes de venta"
-                    description="El agente arma pedidos y el cajero los recibe y cobra. Incluye comisiones"
+                    description="Alta de agentes, % de comisión y reporte de comisiones"
                     checked={(features as any).sales_agents ?? false} onChange={v => set({ sales_agents: v } as any)} />
+                  <FeatureRow icon={Send} color="bg-blue-600" title="Nuevo pedido (agente)"
+                    description="El agente arma el pedido con el catálogo y lo envía a caja"
+                    checked={(features as any).agent_orders ?? (features as any).sales_agents ?? false}
+                    onChange={v => set({ agent_orders: v } as any)} />
+                  <FeatureRow icon={Inbox} color="bg-emerald-600" title="Caja (bandeja de pedidos)"
+                    description="Recibe los pedidos, abre y cierra caja y los cobra"
+                    checked={(features as any).cashier_desk ?? (features as any).sales_agents ?? false}
+                    onChange={v => set({ cashier_desk: v } as any)} />
+                  <FeatureRow icon={CalendarDays} color="bg-amber-600" title="Agenda de pedidos"
+                    description="Asignar día al pedido, sincronizar con proformas y trabajar la bandeja por día"
+                    checked={(features as any).agent_agenda ?? (features as any).sales_agents ?? false}
+                    onChange={v => set({ agent_agenda: v } as any)} />
+                  <FeatureRow icon={Shield} color="bg-cyan-600" title="Garantías"
+                    description="Recibir productos con falla, seguirlos donde el proveedor y cerrarlos con su solución"
+                    checked={(features as any).warranties ?? false} onChange={v => set({ warranties: v } as any)} />
                   <FeatureRow icon={Undo2} color="bg-rose-600" title="Devoluciones y anulaciones"
                     description="Devolución parcial de una venta y anulación de facturas, con reposición de stock"
                     checked={(features as any).returns ?? false} onChange={v => set({ returns: v } as any)} />
@@ -1001,6 +1024,8 @@ export default function Plans() {
                       description="Tab de categorías" checked={features.inventory_categories ?? true} onChange={v => set({ inventory_categories: v })} />
                     <SubFeatureRow icon={Box} color="bg-emerald-400" title="Tipos de Unidad"
                       description="Tab de tipos de unidad" checked={features.inventory_unit_types ?? true} onChange={v => set({ inventory_unit_types: v })} />
+                    <SubFeatureRow icon={Boxes} color="bg-teal-500" title="Kits de productos"
+                      description="Combos que descuentan el stock de sus componentes" checked={features.inventory_kits ?? true} onChange={v => set({ inventory_kits: v })} />
                     <SubFeatureRow icon={Truck} color="bg-amber-500" title="Proveedores"
                       description="Tab de proveedores" checked={features.inventory_suppliers ?? true} onChange={v => set({ inventory_suppliers: v })} />
                     <SubFeatureRow icon={Box} color="bg-blue-500" title="Vista de Stock"

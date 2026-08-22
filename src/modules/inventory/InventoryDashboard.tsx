@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Lock, ChevronLeft, Package, Boxes, AlertTriangle, FolderTree,
-  Ruler, Truck, BarChart3, BookOpen,
+  Ruler, Truck, BarChart3, BookOpen, Layers,
 } from 'lucide-react';
 import { ProductsList } from './products/ProductsList';
 import { SuppliersList } from './suppliers/SuppliersList';
@@ -11,9 +11,10 @@ import { LowStockAlerts } from './stock/LowStockAlerts';
 import { InventoryStats } from './stock/InventoryStats';
 import { CategoriesManagement } from './categories/CategoriesManagement';
 import { UnitTypesManagement } from './categories/UnitTypesManagement';
+import { KitsManagement } from './kits/KitsManagement';
 import { useAuth } from '@/context/AuthContext';
 
-type TabType = 'dashboard' | 'products' | 'suppliers' | 'stock' | 'kardex' | 'alerts' | 'categories' | 'unitTypes';
+type TabType = 'dashboard' | 'products' | 'kits' | 'suppliers' | 'stock' | 'kardex' | 'alerts' | 'categories' | 'unitTypes';
 
 interface TabConfig {
   id: TabType;
@@ -29,6 +30,7 @@ export const InventoryDashboard: React.FC = () => {
   const tabs: TabConfig[] = [
     { id: 'dashboard', label: 'Panel', requiredFeature: 'inventory' },
     { id: 'products', label: 'Productos', requiredFeature: 'inventory' },
+    { id: 'kits', label: 'Kits', requiredFeature: 'inventory' },
     { id: 'suppliers', label: 'Proveedores', requiredFeature: 'inventory' },
     { id: 'stock', label: 'Stock', requiredFeature: 'inventory' },
     { id: 'kardex', label: 'Kardex', requiredFeature: 'inventory' },
@@ -49,6 +51,7 @@ export const InventoryDashboard: React.FC = () => {
       if (!hasInventoryAccess) return false;
 
       // Tabs con su propio flag granular.
+      if (tab.id === 'kits'       && !flagOn(pf.inventory_kits))              return false;
       if (tab.id === 'suppliers'  && !flagOn(pf.inventory_suppliers))         return false;
       if (tab.id === 'categories' && !flagOn(pf.inventory_categories))        return false;
       if (tab.id === 'unitTypes'  && !flagOn(pf.inventory_unit_types))        return false;
@@ -125,6 +128,16 @@ export const InventoryDashboard: React.FC = () => {
       iconBg: 'bg-white/20',
       iconColor: 'text-white',
       show: hasInventoryAccess,
+    },
+    {
+      id: 'kits',
+      label: 'Kits de productos',
+      description: 'Combos y paquetes que descuentan el stock de lo que llevan dentro.',
+      icon: Layers,
+      bg: 'from-teal-500 to-teal-600',
+      iconBg: 'bg-white/20',
+      iconColor: 'text-white',
+      show: hasInventoryAccess && flagOn(pf.inventory_kits),
     },
     {
       id: 'stock',
@@ -266,6 +279,9 @@ export const InventoryDashboard: React.FC = () => {
           <>
             {activeTab === 'products' && (
               hasInventoryAccess ? <ProductsList /> : <LockedTab tabLabel="Productos" />
+            )}
+            {activeTab === 'kits' && (
+              hasInventoryAccess ? <KitsManagement /> : <LockedTab tabLabel="Kits" />
             )}
             {activeTab === 'suppliers' && (
               hasInventoryAccess ? <SuppliersList /> : <LockedTab tabLabel="Proveedores" />
