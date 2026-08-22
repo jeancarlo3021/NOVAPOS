@@ -1432,6 +1432,9 @@ export const POSMain = () => {
                 // QR oculto por ahora (no requerido aún).
               };
               setSuccess(`${esFactura ? 'Factura' : 'Tiquete'} electrónico ${invoice.invoice_number} emitido a Hacienda ✓`);
+              // Líneas que no se pudieron declarar (sin precio). El comprobante
+              // salió, pero el negocio tiene que enterarse de qué quedó fuera.
+              if (res?.warning) setError(res.warning);
             } else {
               setSuccess(`Factura ${invoice.invoice_number} — comprobante en proceso`);
             }

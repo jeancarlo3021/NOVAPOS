@@ -195,8 +195,18 @@ export const ReceptionDashboard: React.FC = () => {
     finally { setBusyId(null); }
   };
 
-  const ackBadge = (s?: string | null) => {
+  const ackBadge = (s?: string | null, ackId?: string | null) => {
     const t = String(s ?? '').toLowerCase();
+    // Aceptado en el sistema pero SIN mensaje receptor enviado: el crédito fiscal
+    // no está declarado ante Hacienda y nadie se enteraba.
+    if ((t.includes('accept') || t === '1') && !ackId) {
+      return (
+        <span title="Se aceptó en el sistema, pero el Mensaje Receptor no se envió a Hacienda"
+          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+          <CheckCircle2 size={11} /> Aceptado · sin enviar
+        </span>
+      );
+    }
     if (t.includes('accept') || t === '1') return <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full"><CheckCircle2 size={11} /> Aceptado</span>;
     if (t.includes('reject') || t === '3') return <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full"><XCircle size={11} /> Rechazado</span>;
     return <span className="inline-flex items-center text-[11px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Pendiente</span>;
@@ -382,7 +392,7 @@ export const ReceptionDashboard: React.FC = () => {
                         </div>
                       )}
                     </td>
-                    <td className="px-5 py-4">{ackBadge(r.ack_status)}</td>
+                    <td className="px-5 py-4">{ackBadge(r.ack_status, r.ack_id)}</td>
                     <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1.5">
                         {isPending(r.ack_status) ? (

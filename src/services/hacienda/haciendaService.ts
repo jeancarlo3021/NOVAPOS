@@ -15,6 +15,9 @@ export interface ReceivedDoc {
   total: number;
   tax?: number;
   ack_status: string | null;
+  /** Id del Mensaje Receptor en Alanube. Null = se aceptó en el sistema pero
+   *  NUNCA se declaró a Hacienda (falló el envío o el tenant no usa Alanube). */
+  ack_id?: string | null;
   kind?: 'gasto' | 'compra' | null;
   items?: ReceivedItem[] | null;
   /** Origen del comprobante: 'email' (cron por correo), 'manual', 'alanube'. */
@@ -123,7 +126,8 @@ export const haciendaService = {
     '/hacienda/test-connection', { method: 'POST' }),
 
   /** Emite un documento electrónico a Hacienda (vía Facturemos) por su factura. */
-  emit: (invoiceId: string) => apiFetch<{ clave?: string; consecutivo?: string; response?: any }>(
+  /** `warning` avisa de líneas que quedaron fuera del comprobante (sin precio). */
+  emit: (invoiceId: string) => apiFetch<{ clave?: string; consecutivo?: string; response?: any; warning?: string | null }>(
     '/hacienda/emit', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId }) }),
 
   /** Devuelve el payload EXACTO que se enviaría a Facturemos, SIN enviarlo (diagnóstico). */
