@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { prefetchCommonRoutes } from '@/utils/prefetchRoutes';
 import { Lock, LogOut, Menu as MenuIcon, RefreshCw, Settings } from 'lucide-react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -72,6 +73,11 @@ export const MainLayout = () => {
   const navigate = useNavigate();
   const { canAccess } = useRolePermissions();
   const showSettings = canAccess('settings');
+
+  // Con el menú ya en pantalla y el navegador desocupado, se bajan las pantallas
+  // de todos los días (POS, inventario) para que abrir no cueste una espera.
+  const { planFeatures } = useAuth();
+  useEffect(() => { prefetchCommonRoutes(planFeatures as any); }, [planFeatures]);
 
   // Limpiar caché: quita el service worker + cachés y recarga con la última versión.
   // Útil en la app del repartidor cuando quedó una versión vieja cacheada.

@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "useDefineForClassFields": true,
+    // false = los campos de clase se emiten como asignaciones simples.
+    // Con `true` y el target de navegadores viejos, el compilador mete un helper
+    // (`__publicField`) por cada campo; ese helper se compartía con el chunk de
+    // gráficos y hacía que el arranque precargara 390 kB sin necesidad.
+    "useDefineForClassFields": false,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,

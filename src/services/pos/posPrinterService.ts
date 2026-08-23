@@ -204,10 +204,17 @@ const PAPER_WIDTH_MM: Record<number, string> = {
 };
 
 export class POSPrinterService {
-  constructor(_config: PrinterConfig = {}) {}
+  // Los campos se inicializan en el constructor, no como campos de clase: con el
+  // target de navegadores viejos el compilador emite un helper para cada campo,
+  // y ese helper terminaba compartido con el chunk de gráficos (390 kB), que así
+  // se precargaba en el arranque aunque nadie abriera un reporte.
+  private cachedConfig: ReceiptConfig | null;
+  private cachedConfigTenantId: string | null;
 
-  private cachedConfig: ReceiptConfig | null = null;
-  private cachedConfigTenantId: string | null = null;
+  constructor(_config: PrinterConfig = {}) {
+    this.cachedConfig = null;
+    this.cachedConfigTenantId = null;
+  }
 
   // Campos de IMPRESORA que son LOCALES por dispositivo (no del tenant): cada
   // equipo elige su impresora, conexión, ancho de papel, autoimpresión, etc.

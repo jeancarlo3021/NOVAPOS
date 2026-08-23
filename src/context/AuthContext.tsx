@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { apiFetch } from '@/lib/api';
 import { setRememberMe } from '@/lib/authStorage';
 import { globalCacheService } from '@/services/cache/globalCacheService';
-import { identifySentryUser, clearSentryUser } from '@/lib/sentry';
+import { identifySentryUser, clearSentryUser } from '@/lib/sentryUser';
 
 // ============================================
 // AUTH CACHE (localStorage) — offline support

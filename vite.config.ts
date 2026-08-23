@@ -31,6 +31,17 @@ export default defineConfig({
         // Precache del app shell: bundle JS/CSS + index.html + assets estáticos.
         globPatterns: ['**/*.{js,css,html,svg,woff,woff2,png,jpg,jpeg,webp,ico,json,txt}'],
 
+        // Fuera del precache las librerías PESADAS que casi nadie usa el primer
+        // día: Excel, gráficos, captura de pantalla, el asistente de alta y los
+        // reportes. Son ~1,5 MB que, en un celular con datos, retrasan que la
+        // app quede lista. Se descargan la primera vez que se abre esa pantalla
+        // y de ahí en adelante quedan en cache por la regla de scripts de abajo.
+        globIgnores: [
+          '**/xlsx-*.js', '**/recharts-*.js', '**/html2canvas-*.js',
+          '**/konva-*.js', '**/CreateOwner-*.js', '**/ReportsDashboard-*.js',
+          '**/index.es-*.js',
+        ],
+
         // Tamaño máximo por archivo en precache (5 MB).
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
 
@@ -63,6 +74,22 @@ export default defineConfig({
               cacheName: 'html',
               networkTimeoutSeconds: 4,   // si la red tarda >4s (offline), sirve el cache
               expiration: { maxEntries: 10 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+
+          // ── JS/CSS propio no precacheado ──────────────────────────────────
+          // Los chunks que se sacaron del precache (Excel, gráficos, reportes):
+          // se sirven de cache y se revalidan de fondo, así funcionan offline
+          // después de usarlos una vez.
+          {
+            urlPattern: ({ request, url }) =>
+              (request.destination === 'script' || request.destination === 'style')
+              && url.origin === self.location.origin,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'app-chunks',
+              expiration: { maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
@@ -148,7 +175,10 @@ export default defineConfig({
     target: ['es2019', 'chrome80', 'safari14', 'firefox78', 'edge88'],
 
     // Source maps para que Sentry pueda mapear stack traces minificados.
-    sourcemap: true,
+    // 'hidden': se generan los .map (Sentry los necesita para desminificar) pero
+    // el bundle NO lleva el comentario sourceMappingURL, así que ningún navegador
+    // los descarga en producción.
+    sourcemap: 'hidden',
 
     rollupOptions: {
       output: {
@@ -158,7 +188,23 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined;
           if (id.includes('@sentry'))                                                   return 'sentry';
           if (id.includes('@supabase'))                                                 return 'supabase';
-          if (id.includes('/recharts/') || id.includes('/d3-'))                         return 'recharts';
+          // Solo recharts y sus d3 REALES. Antes el patrón '/d3-' se llevaba
+          // utilidades chiquitas compartidas con el resto de la app, y por una
+          // función de 200 bytes el arranque terminaba precargando los 390 kB
+          // del chunk de gráficos.
+          // Utilidades DIMINUTAS que comparte media app (clsx, eventemitter3…).
+          // Van primero y a su propio chunk: si caen dentro del de gráficos,
+          // cualquier pantalla que use una de ellas arrastra 390 kB al arranque.
+          if (id.match(/\/node_modules\/(clsx|tiny-invariant|eventemitter3|react-is|use-sync-external-store)\//))
+            return 'utils';
+          if (id.includes('/node_modules/recharts/'))                                   return 'recharts';
+          if (id.match(/\/node_modules\/d3-[a-z]+\//))                                 return 'recharts';
+          // recharts 3 arrastra Redux Toolkit para su estado interno. Si queda
+          // en el mismo chunk que los gráficos, cualquier módulo que lo toque
+          // obliga a precargar 390 kB; separado, se paga solo lo que se usa.
+          if (id.includes('/node_modules/@reduxjs/') || id.includes('/node_modules/redux')
+              || id.includes('/node_modules/reselect') || id.includes('/node_modules/immer'))
+            return 'redux';
           if (id.includes('/konva') || id.includes('/react-konva'))                     return 'konva';
           if (id.includes('/react-router'))                                             return 'react';
           if (id.includes('/react-dom/') || id.match(/\/node_modules\/react\//))        return 'react';

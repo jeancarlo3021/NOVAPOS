@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Bluetooth, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
-import { posPrinterService } from '@/services/pos/posPrinterService';
 import { useTenantId } from '@/hooks/useTenant';
 
 /**
@@ -18,9 +17,15 @@ export function BluetoothReconnectButton() {
   // Solo avisamos si hubo una caída real (estuvo conectada y se perdió), no al iniciar.
   const everConnected = useRef(false);
 
+  // El servicio de impresión (~70 kB) se carga solo cuando toca revisar la
+  // impresora, no en el arranque: este aviso vive en el layout y arrastraba todo
+  // el motor de tickets al primer pintado de cualquier pantalla.
+  const printer = useCallback(
+    () => import('@/services/pos/posPrinterService').then(m => m.posPrinterService), []);
+
   const check = useCallback(async () => {
     if (!tenantId) return;
-    const s = await posPrinterService.bluetoothStatus(tenantId);
+    const s = await (await printer()).bluetoothStatus(tenantId);
     if (!s.configured) { setDisconnected(false); return; }
     if (s.connected) {
       // Volvió a conectar → reseteamos el "cerrado" para avisar la próxima vez.
@@ -31,7 +36,7 @@ export function BluetoothReconnectButton() {
       // Caída real a mitad de sesión.
       setDisconnected(true);
     }
-  }, [tenantId]);
+  }, [tenantId, printer]);
 
   useEffect(() => {
     check();
@@ -43,8 +48,9 @@ export function BluetoothReconnectButton() {
     if (!tenantId) return;
     setState('connecting');
     try {
-      await posPrinterService.reconnectBluetooth(tenantId);
-      const s = await posPrinterService.bluetoothStatus(tenantId);
+      const svc = await printer();
+      await svc.reconnectBluetooth(tenantId);
+      const s = await svc.bluetoothStatus(tenantId);
       if (s.connected) {
         setState('ok');
         setTimeout(() => { setDisconnected(false); setState('idle'); }, 1800);
