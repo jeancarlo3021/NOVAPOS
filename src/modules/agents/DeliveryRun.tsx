@@ -4,6 +4,7 @@ import {
   Truck, Home, Loader2, RefreshCw, ChevronLeft, ChevronRight, MapPin, Clock,
   User, Phone, CheckCircle2, AlertCircle, Pencil, CreditCard, PackageCheck,
   MessageCircle, Mail, IdCard, StickyNote, Navigation, ClipboardList, Circle,
+  ChevronDown, ChevronUp, CalendarDays, Trash2,
   Ban, Receipt, History, FileText,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -68,6 +69,9 @@ export const DeliveryRun: React.FC = () => {
   const [editing, setEditing] = useState<AgentOrder | null>(null);
   /** Lo que no se pudo entregar/hacer, esperando el motivo. */
   const [rejecting, setRejecting] = useState<{ kind: 'order' | 'task'; id: string; label: string } | null>(null);
+  /** Tarea abierta: la lista va compacta para leer la ruta de un vistazo, y el
+   *  detalle completo se muestra al tocarla. */
+  const [openTask, setOpenTask] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
@@ -163,6 +167,22 @@ export const DeliveryRun: React.FC = () => {
     } finally { setBusyId(null); }
   };
 
+  const removeTask = async (t: AgendaTask) => {
+    if (!window.confirm(
+      `¿Borrar la tarea "${t.title}"?\n\n`
+      + 'Se borra del todo, con sus fotos y su historial. Si solo no se pudo hoy, '
+      + 'usá "No se pudo" y queda para reprogramar.'
+    )) return;
+    setBusyId(t.id);
+    try {
+      await agendaTasksService.remove(t.id);
+      setTasks(prev => prev.filter(x => x.id !== t.id));
+      setMsg({ kind: 'ok', text: `Tarea "${t.title}" borrada.` });
+    } catch (e) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'No se pudo borrar' });
+    } finally { setBusyId(null); }
+  };
+
   const sorted = useMemo(
     () => [...orders].sort((a, b) => (a.scheduled_time ?? '99').localeCompare(b.scheduled_time ?? '99')),
     [orders]);
@@ -242,7 +262,7 @@ export const DeliveryRun: React.FC = () => {
               {tasks.filter(t => t.status === 'done').length}/{tasks.length} hechas
             </span>
           </p>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 max-h-[40vh] overflow-y-auto no-scrollbar">
+          <div className={`grid grid-cols-1 lg:grid-cols-2 gap-2 overflow-y-auto no-scrollbar ${openTask ? 'max-h-[70vh]' : 'max-h-[40vh]'}`}>
             {[...tasks]
               .sort((a, b) => (a.scheduled_time ?? '99').localeCompare(b.scheduled_time ?? '99'))
               .map(t => (
@@ -257,30 +277,122 @@ export const DeliveryRun: React.FC = () => {
                       : <Circle size={20} className="text-gray-300" />}
                 </button>
                 <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-black truncate ${
-                    t.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                    <span className={`mr-1.5 text-[10px] font-black px-1.5 py-0.5 rounded ${
-                      t.scheduled_time ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-400'}`}>
-                      {hhmm(t.scheduled_time) ?? 'Sin hora'}
-                    </span>
-                    {t.title}
-                  </p>
-                  {t.places?.length > 0 && (
-                    <p className="text-[11px] font-bold text-emerald-700 flex items-start gap-1">
-                      <MapPin size={10} className="shrink-0 mt-0.5" />
-                      <span className="min-w-0">{t.places.map(pl => pl.name).filter(Boolean).join(' → ')}</span>
+                  {/* Toda la fila abre el detalle: en la calle se toca con el
+                      pulgar y con guantes, no se busca una flechita. */}
+                  <button onClick={() => setOpenTask(v => (v === t.id ? null : t.id))}
+                    className="w-full text-left">
+                    <p className={`text-sm font-black flex items-start gap-1 ${
+                      t.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                      <span className={`mt-0.5 text-[10px] font-black px-1.5 py-0.5 rounded shrink-0 ${
+                        t.scheduled_time ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-400'}`}>
+                        {hhmm(t.scheduled_time) ?? 'Sin hora'}
+                      </span>
+                      <span className={`min-w-0 ${openTask === t.id ? '' : 'truncate'}`}>{t.title}</span>
+                      {openTask === t.id
+                        ? <ChevronUp size={14} className="shrink-0 text-gray-400 mt-0.5" />
+                        : <ChevronDown size={14} className="shrink-0 text-gray-400 mt-0.5" />}
                     </p>
+                  </button>
+
+                  {openTask === t.id ? (
+                    <div className="mt-1.5 space-y-1.5">
+                      {/* Lugares, uno por línea y con su dirección: encadenados
+                          con flechas no se distingue a cuál falta ir. */}
+                      {t.places?.length > 0 && (
+                        <ul className="space-y-1">
+                          {t.places.map((pl, i) => (
+                            <li key={i} className="text-[11px] font-bold text-emerald-700 flex items-start gap-1">
+                              <MapPin size={11} className="shrink-0 mt-0.5" />
+                              <span className="min-w-0">
+                                {pl.name}
+                                {pl.address && (
+                                  <span className="block font-semibold text-gray-500">{pl.address}</span>
+                                )}
+                              </span>
+                              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pl.name, pl.address].filter(Boolean).join(' '))}`}
+                                target="_blank" rel="noopener noreferrer" title="Abrir en el mapa"
+                                onClick={e => e.stopPropagation()}
+                                className="shrink-0 text-emerald-600 hover:text-emerald-800">
+                                <Navigation size={11} />
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {t.notes && (
+                        <p className="text-[11px] font-semibold text-gray-600 flex items-start gap-1">
+                          <StickyNote size={11} className="shrink-0 mt-0.5" />
+                          <span className="min-w-0 whitespace-pre-wrap">{t.notes}</span>
+                        </p>
+                      )}
+
+                      {t.assigned_name && (
+                        <p className="text-[11px] font-bold text-indigo-700 flex items-center gap-1">
+                          <User size={11} /> {t.assigned_name}
+                        </p>
+                      )}
+
+                      {t.needs_reschedule && t.reject_reason && (
+                        <p className="text-[11px] font-black text-red-700 flex items-start gap-1">
+                          <Ban size={11} className="shrink-0 mt-0.5" />
+                          <span className="min-w-0">No se pudo antes: {t.reject_reason}</span>
+                        </p>
+                      )}
+
+                      {t.status === 'done' && t.done_at && (
+                        <p className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                          <CheckCircle2 size={11} /> Hecha {new Date(t.done_at).toLocaleString('es-CR')}
+                        </p>
+                      )}
+
+                      {/* Historial de traslados: contesta "¿por qué sigue pendiente?" */}
+                      {!!t.reschedule_log?.length && (
+                        <div className="text-[11px] font-semibold text-gray-400">
+                          <p className="flex items-center gap-1 font-black text-gray-500">
+                            <CalendarDays size={11} /> Reprogramada {t.reschedule_log.length} vez(ces)
+                          </p>
+                          {[...t.reschedule_log].reverse().slice(0, 3).map((r, i) => (
+                            <p key={i} className="pl-4">
+                              {r.from ?? '—'} → {r.to ?? '—'}
+                              {r.reason ? ` · ${r.reason}` : ''}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      <TaskPhotos photos={t.photos ?? []} />
+
+                      <button onClick={() => void removeTask(t)} disabled={busyId === t.id}
+                        className="mt-1 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 text-[11px] font-black hover:bg-red-50 disabled:opacity-40">
+                        <Trash2 size={12} /> Borrar tarea
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {t.places?.length > 0 && (
+                        <p className="text-[11px] font-bold text-emerald-700 flex items-start gap-1">
+                          <MapPin size={10} className="shrink-0 mt-0.5" />
+                          <span className="min-w-0 truncate">
+                            {t.places.map(pl => pl.name).filter(Boolean).join(' → ')}
+                          </span>
+                        </p>
+                      )}
+                      {t.notes && (
+                        <p className="text-[11px] font-semibold text-gray-500 truncate">↳ {t.notes}</p>
+                      )}
+                      {t.needs_reschedule && (
+                        <p className="text-[11px] font-black text-red-700 truncate flex items-center gap-1">
+                          <Ban size={11} className="shrink-0" /> Sin reprogramar
+                        </p>
+                      )}
+                      {(t.photos?.length ?? 0) > 0 && (
+                        <p className="text-[11px] font-bold text-gray-400">
+                          {t.photos.length} foto(s) — tocá para verlas
+                        </p>
+                      )}
+                    </>
                   )}
-                  {t.notes && (
-                    <p className="text-[11px] font-semibold text-gray-500 truncate">↳ {t.notes}</p>
-                  )}
-                  {t.needs_reschedule && t.reject_reason && (
-                    <p className="text-[11px] font-black text-red-700 flex items-start gap-1">
-                      <Ban size={11} className="shrink-0 mt-0.5" />
-                      <span className="min-w-0">No se pudo antes: {t.reject_reason}</span>
-                    </p>
-                  )}
-                  <TaskPhotos photos={t.photos ?? []} />
                 </div>
                 {t.status !== 'done' && (
                   <button onClick={() => setRejecting({ kind: 'task', id: t.id, label: t.title })}
