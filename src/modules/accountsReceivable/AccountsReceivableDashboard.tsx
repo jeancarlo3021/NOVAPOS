@@ -641,12 +641,33 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
   onDone: () => Promise<void> | void;
   onPrint: (title: string, lines: DocLine[]) => void;
 }) {
-  const clientes = Array.from(
-    new Map(rows
-      .filter(r => Number(r.total_amount) - Number(r.paid_amount) > 0)
-      .map(r => [r.customer_id ?? r.customer_name ?? '—', { id: r.customer_id ?? '', name: r.customer_name ?? 'Sin cliente' }])
-    ).values(),
-  ).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  // Todos los clientes CON CUENTAS, tengan saldo o no.
+  //
+  // Antes la lista se armaba solo con los que tenían saldo pendiente, así que
+  // comparada con la de "pendientes" —que los muestra todos— parecía que en
+  // abonos faltaban clientes. Ahora aparecen todos: los que deben, arriba y
+  // con su saldo; los que están al día, marcados y sin poder elegirse (no hay
+  // nada que abonar).
+  const clientes = React.useMemo(() => {
+    const map = new Map<string, { id: string; name: string; saldo: number }>();
+    for (const r of rows) {
+      const key = r.customer_id ?? r.customer_name ?? '—';
+      const saldo = Number(r.total_amount) - Number(r.paid_amount);
+      const prev = map.get(key);
+      if (prev) prev.saldo += Math.max(0, saldo);
+      else {
+        map.set(key, {
+          id: r.customer_id ?? '',
+          name: r.customer_name ?? 'Sin cliente',
+          saldo: Math.max(0, saldo),
+        });
+      }
+    }
+    return [...map.values()].sort((a, b) => {
+      if ((a.saldo > 0) !== (b.saldo > 0)) return a.saldo > 0 ? -1 : 1;
+      return a.name.localeCompare(b.name, 'es');
+    });
+  }, [rows]);
 
   const [cliente, setCliente] = useState('');
   const [amount, setAmount] = useState('');
@@ -807,8 +828,14 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
             <label className="block text-xs font-bold text-gray-600 mb-1">Cliente</label>
             <select value={cliente} onChange={e => { setCliente(e.target.value); setErr(''); }}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
-              <option value="">— Elegí un cliente —</option>
-              {clientes.map(c => <option key={c.id || c.name} value={c.id || c.name}>{c.name}</option>)}
+              <option value="">
+                — Elegí un cliente ({clientes.filter(c => c.saldo > 0).length} con saldo) —
+              </option>
+              {clientes.map(c => (
+                <option key={c.id || c.name} value={c.id || c.name} disabled={c.saldo <= 0}>
+                  {c.name}{c.saldo > 0 ? ` · ${fmt(c.saldo)}` : ' · al día'}
+                </option>
+              ))}
             </select>
           </div>
 
