@@ -76,16 +76,39 @@ export function useOfflineSync() {
       // Sync cash sessions first (invoices depend on this)
       const cashSessionResult = await cashSessionOfflineService.syncAll(cashSessionSyncFn);
 
+      // Las FACTURAS van después de las cajas y ANTES del resto: necesitan que el
+      // id de la sesión offline ya esté remapeado, si no entran apuntando a una
+      // caja que no existe y el cierre sale en 0.
+      const invoicesResult = await posOfflineService.syncPendingInvoices(async (inv: any) => {
+        await invoicesService.createInvoice(
+          inv.tenantId,
+          posOfflineService.mapOfflineSessionId(inv.sessionId),
+          inv.cartItems, inv.subtotal, inv.discountAmount ?? 0, inv.discountPercent ?? 0,
+          inv.taxAmount, inv.total, inv.paymentMethod, inv.customerName, inv.notes,
+          undefined,
+          inv.paymentMethod === 'cash' ? (inv.amountReceived ?? inv.total) : undefined,
+          inv.changeAmount ?? 0,
+          inv.paymentMethod === 'card' || inv.paymentMethod === 'sinpe'
+            ? (inv.voucherNumber ?? 'OFFLINE') : undefined,
+          inv.invoiceNumber, inv.cashierId ?? null, inv.cashierName ?? null,
+          inv.payments ?? null, inv.documentType ?? 'ticket', inv.customerId ?? null,
+          inv.currencyInfo,
+        );
+      });
+
       // Then sync everything else in parallel
       const [genericResult, purchasesResult, queueResult, voidsResult] = await Promise.all([
         offlineSyncService.syncOperations(),
         tenantId ? purchasesOfflineService.syncAll(tenantId) : Promise.resolve({ synced: 0, errors: [] }),
         offlineQueue.syncAll(apiFetch),
-        posOfflineService.syncPendingVoids((invoiceId) => invoicesService.cancelInvoice(invoiceId)),
+        posOfflineService.syncPendingVoids(async (invoiceId) => { await invoicesService.cancelInvoice(invoiceId); }),
       ]);
 
-      const totalErrors = [...(genericResult.errors || []), ...(purchasesResult.errors || []), ...(voidsResult.details || [])];
-      const totalSynced = (genericResult.synced || 0) + (purchasesResult.synced || 0) + (cashSessionResult.synced || 0) + (queueResult.synced || 0) + (voidsResult.synced || 0);
+      const totalErrors = [...(genericResult.errors || []), ...(purchasesResult.errors || []),
+        ...(voidsResult.details || []), ...(invoicesResult.details || [])];
+      const totalSynced = (genericResult.synced || 0) + (purchasesResult.synced || 0)
+        + (cashSessionResult.synced || 0) + (queueResult.synced || 0) + (voidsResult.synced || 0)
+        + (invoicesResult.synced || 0);
 
       // Update sync status
       setSyncStatus((prev) => ({

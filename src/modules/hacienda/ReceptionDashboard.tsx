@@ -99,6 +99,24 @@ export const ReceptionDashboard: React.FC = () => {
   // Detalle de compra: abre el modal para relacionar/crear la ORDEN DE COMPRA,
   // comparar los items y actualizar CABYS/precio. Es opcional: la mayoría de los
   // negocios no lleva órdenes de compra y solo necesita la etiqueta.
+  // El Mensaje Receptor solo existe con Alanube. Si el negocio no lo tiene
+  // configurado, no hay nada que enviar: marcar "sin enviar" en cada comprobante
+  // aceptado sería alarmar por algo que no aplica.
+  const [mrDisponible, setMrDisponible] = useState<boolean | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { apiFetch } = await import('@/lib/api');
+        const raw = await apiFetch<any>('/settings/electronic-invoice');
+        const cfg = raw?.config ?? raw ?? {};
+        const sandbox = cfg.environment === 'sandbox';
+        const company = (sandbox ? cfg.alanube_company_id_sandbox : cfg.alanube_company_id_production)
+          ?? cfg.alanube_company_id;
+        setMrDisponible(cfg.fe_provider === 'alanube' && !!company);
+      } catch { setMrDisponible(false); }
+    })();
+  }, []);
+
   const asCompra = (row: ReceivedDoc) => setCompraFor(row);
 
   /**
@@ -175,6 +193,42 @@ export const ReceptionDashboard: React.FC = () => {
   // Gasto: abre el modal de gasto (con categorías) prellenado con el comprobante.
   const asGasto = (row: ReceivedDoc) => setGastoFor(row);
 
+  /**
+   * Corrige la clasificación cuando se eligió mal.
+   *
+   * Solo cambia la ETIQUETA: si ya se armó una orden de compra o se registró el
+   * gasto, eso no se borra solo — hay que anularlo desde su módulo. Se avisa
+   * antes para que nadie crea que reclasificar deshace lo otro.
+   */
+  const reclasificar = async (row: ReceivedDoc, kind: 'compra' | 'gasto') => {
+    const tenia = row.kind === 'compra' ? (row as any).purchase_number : null;
+    const aviso = kind === 'gasto'
+      ? `¿Pasar ${row.issuer_name ?? 'este comprobante'} de COMPRA a GASTO?`
+        + (tenia ? `\n\nOjo: la orden ${tenia} ya creada NO se borra; si no va, anulala en Compras.` : '')
+      : `¿Pasar ${row.issuer_name ?? 'este comprobante'} de GASTO a COMPRA?`
+        + '\n\nOjo: el gasto ya registrado NO se borra; si no va, anulalo en Gastos.';
+    if (!window.confirm(aviso)) return;
+
+    setBusyId(row.id);
+    try {
+      await haciendaService.classifyReceived(row.id, kind);
+      setRows(prev => prev.map(x => (x.id === row.id ? { ...x, kind } : x)));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudo cambiar la clasificación');
+    } finally { setBusyId(null); }
+  };
+
+  /** Reenvía a Hacienda la aceptación que quedó sin salir. */
+  const reenviarAck = async (row: ReceivedDoc) => {
+    setBusyId(row.id);
+    try {
+      const r = await haciendaService.resendReceivedAck(row.id);
+      setRows(prev => prev.map(x => (x.id === row.id ? { ...x, ack_id: r.ack_id } : x)));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudo reenviar el mensaje a Hacienda');
+    } finally { setBusyId(null); }
+  };
+
   const onGastoSaved = async () => {
     const row = gastoFor;
     setGastoFor(null);
@@ -195,15 +249,26 @@ export const ReceptionDashboard: React.FC = () => {
     finally { setBusyId(null); }
   };
 
-  const ackBadge = (s?: string | null, ackId?: string | null) => {
+  const ackBadge = (s?: string | null, ackId?: string | null, row?: ReceivedDoc) => {
     const t = String(s ?? '').toLowerCase();
     // Aceptado en el sistema pero SIN mensaje receptor enviado: el crédito fiscal
     // no está declarado ante Hacienda y nadie se enteraba.
-    if ((t.includes('accept') || t === '1') && !ackId) {
+    // Solo se avisa cuando el envío ERA posible y no ocurrió.
+    if ((t.includes('accept') || t === '1') && !ackId && mrDisponible) {
       return (
-        <span title="Se aceptó en el sistema, pero el Mensaje Receptor no se envió a Hacienda"
-          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
-          <CheckCircle2 size={11} /> Aceptado · sin enviar
+        <span className="inline-flex items-center gap-1">
+          <span title="Se aceptó en el sistema, pero el Mensaje Receptor no se envió a Hacienda"
+            className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+            <CheckCircle2 size={11} /> Aceptado · sin enviar
+          </span>
+          {row && (
+            <button onClick={e => { e.stopPropagation(); void reenviarAck(row); }}
+              disabled={busyId === row.id}
+              title="Reenviar el mensaje receptor a Hacienda"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50">
+              <RefreshCw size={10} /> Reenviar
+            </button>
+          )}
         </span>
       );
     }
@@ -370,9 +435,23 @@ export const ReceptionDashboard: React.FC = () => {
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50">
                             <RefreshCw size={11} /> {(r as any).purchase_number ? 'Recargar' : 'Orden'}
                           </button>
+                          <button onClick={() => reclasificar(r, 'gasto')} disabled={busyId === r.id}
+                            title="Se marcó compra por error: pasarlo a gasto"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-amber-700 bg-white border border-amber-200 hover:bg-amber-50 disabled:opacity-50">
+                            ↔ A gasto
+                          </button>
                         </div>
                       ) : r.kind === 'gasto' ? (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-black text-amber-700 bg-amber-50 border border-amber-200">Gasto</span>
+                        <div className="inline-flex items-center gap-1">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-black text-amber-700 bg-amber-50 border border-amber-200">Gasto</span>
+                          {canCompra && (
+                            <button onClick={() => reclasificar(r, 'compra')} disabled={busyId === r.id}
+                              title="Se marcó gasto por error: pasarlo a compra"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 disabled:opacity-50">
+                              ↔ A compra
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
                           {canCompra && (
@@ -392,7 +471,7 @@ export const ReceptionDashboard: React.FC = () => {
                         </div>
                       )}
                     </td>
-                    <td className="px-5 py-4">{ackBadge(r.ack_status, r.ack_id)}</td>
+                    <td className="px-5 py-4">{ackBadge(r.ack_status, r.ack_id, r)}</td>
                     <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1.5">
                         {isPending(r.ack_status) ? (

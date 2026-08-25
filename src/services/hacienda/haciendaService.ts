@@ -187,6 +187,10 @@ export const haciendaService = {
     apiFetch<{ ok: boolean; state: string }>('/hacienda/received/confirm',
       { method: 'POST', body: JSON.stringify({ id, state, reason }) }),
   /** Clasifica un recibido como 'gasto' o 'compra' a proveedor. */
+  /** Reenvía a Hacienda el mensaje receptor que quedó sin enviar. */
+  resendReceivedAck: (id: string) =>
+    apiFetch<{ ok: boolean; ack_id: string }>(`/hacienda/received/${id}/resend-ack`, { method: 'POST' }),
+
   classifyReceived: (id: string, kind: 'gasto' | 'compra') =>
     apiFetch<{ ok: boolean; kind: string }>('/hacienda/received/classify',
       { method: 'POST', body: JSON.stringify({ id, kind }) }),

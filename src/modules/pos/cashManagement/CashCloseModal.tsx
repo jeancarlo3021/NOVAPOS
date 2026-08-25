@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { LockKeyhole, X, Plus, Trash2, CreditCard, Smartphone, Banknote } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { LockKeyhole, X, Plus, Trash2, CreditCard, Smartphone, Banknote, CloudUpload, AlertTriangle, Loader2 } from 'lucide-react';
 import { cashSessionService } from '@/services/cashManagement/cashSessionsService';
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -98,6 +98,19 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     excludedCount: 0, excludedTotal: 0,
     cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, usdCrc: 0, loaded: false,
   });
+
+  // Ventas hechas sin conexión que TODAVÍA no subieron. El cierre se calcula con
+  // lo que hay en el servidor, así que si estas quedan en el dispositivo el
+  // arqueo sale en 0 (o corto) y nadie entiende por qué.
+  const [pendingOffline, setPendingOffline] = useState(0);
+  const [syncingOffline, setSyncingOffline] = useState(false);
+  const checkPending = useCallback(async () => {
+    try {
+      const { posOfflineService } = await import('@/services/pos/posOfflineService');
+      setPendingOffline(await posOfflineService.getPendingCount());
+    } catch { setPendingOffline(0); }
+  }, []);
+  useEffect(() => { void checkPending(); }, [checkPending]);
 
   useEffect(() => {
     let cancel = false;
@@ -504,6 +517,55 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             <X size={22} />
           </button>
         </div>
+
+        {/* Ventas sin subir: el cierre las ignora porque se calcula con lo que
+            hay en el servidor. Cerrar así deja el arqueo corto y sin explicación. */}
+        {pendingOffline > 0 && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-3 flex items-center gap-3 flex-wrap shrink-0">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0" />
+            <p className="text-sm font-bold text-amber-800 flex-1 min-w-0">
+              Hay {pendingOffline} venta(s) hechas sin conexión que todavía no se subieron.
+              <span className="block text-xs font-semibold text-amber-700">
+                Si cerrás ahora, esas ventas NO entran en el arqueo.
+              </span>
+            </p>
+            <button
+              onClick={async () => {
+                setSyncingOffline(true);
+                try {
+                  const { posOfflineService } = await import('@/services/pos/posOfflineService');
+                  const { invoicesService } = await import('@/services/invoice/invoiceService');
+                  await posOfflineService.syncPendingInvoices(async (inv: any) => {
+                    await invoicesService.createInvoice(
+                      inv.tenantId,
+                      posOfflineService.mapOfflineSessionId(inv.sessionId),
+                      inv.cartItems, inv.subtotal, inv.discountAmount ?? 0, inv.discountPercent ?? 0,
+                      inv.taxAmount, inv.total, inv.paymentMethod, inv.customerName, inv.notes,
+                      undefined,
+                      inv.paymentMethod === 'cash' ? (inv.amountReceived ?? inv.total) : undefined,
+                      inv.changeAmount ?? 0,
+                      inv.paymentMethod === 'card' || inv.paymentMethod === 'sinpe'
+                        ? (inv.voucherNumber ?? 'OFFLINE') : undefined,
+                      inv.invoiceNumber, inv.cashierId ?? null, inv.cashierName ?? null,
+                      inv.payments ?? null, inv.documentType ?? 'ticket', inv.customerId ?? null,
+                      inv.currencyInfo,
+                    );
+                  });
+                  await checkPending();
+                  // Los totales del cierre se recalculan con lo recién subido.
+                  window.location.reload();
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : 'No se pudieron subir las ventas');
+                } finally { setSyncingOffline(false); }
+              }}
+              disabled={syncingOffline}
+              className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-black disabled:opacity-50"
+            >
+              {syncingOffline ? <Loader2 size={15} className="animate-spin" /> : <CloudUpload size={15} />}
+              Subir ahora
+            </button>
+          </div>
+        )}
 
         {/* ── Session summary ── */}
         <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-2 sm:py-3 flex items-center gap-3 sm:gap-4 shrink-0 flex-wrap">
