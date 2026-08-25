@@ -62,6 +62,10 @@ export type ReceivableInput = {
 };
 
 export const accountsReceivableService = {
+  /** Qué está viendo este usuario: si tiene zona asignada, no ve toda la cartera. */
+  scope: () => apiFetch<{ zone: string | null; customers_total: number; customers_visible: number }>(
+    '/accounts-receivable/scope'),
+
   list: (params?: { status?: string; customer_id?: string }) => {
     const q = new URLSearchParams();
     if (params?.status) q.set('status', params.status);

@@ -50,6 +50,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   const [askDaily, setAskDaily] = useState<CashSession | null>(null);
 
   const [error, setError] = useState('');
+  // La carga de ventas FALLÓ: el arqueo que se ve son ceros que no significan
+  // "no hubo ventas". Cerrar así congela un cierre falso, así que se bloquea.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // ── Efectivo ──
   // Conteo simple: un solo campo con el efectivo (Configuración → POS).
@@ -114,14 +118,72 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
   useEffect(() => {
     let cancel = false;
+    setLoadFailed(false);
     (async () => {
       try {
+        // Si la consulta FALLA, el cierre mostraba ceros sin decir nada: el
+        // cajero veía "no hubo ventas" cuando en realidad no se pudo preguntar.
+        // Ahora el error se ve y el arqueo no se cierra a ciegas.
+        // Caja abierta SIN conexión: su id es local. Las ventas se subieron con el
+        // id REAL que devolvió el servidor, así que preguntar por el local trae
+        // cero ventas y el arqueo sale en blanco. Se traduce antes de consultar.
+        let sessionId = session.id;
+        try {
+          const { posOfflineService } = await import('@/services/pos/posOfflineService');
+          sessionId = posOfflineService.mapOfflineSessionId(session.id);
+        } catch { /* sin mapeo: se usa el id tal cual */ }
+
         const [invRes, movRes] = await Promise.all([
-          apiFetch<{ invoices: any[] }>(`/invoices?cash_session_id=${session.id}`).catch(() => ({ invoices: [] })),
-          apiFetch<any[]>(`/cash-sessions/${session.id}/movements`).catch(() => []),
+          apiFetch<{ invoices: any[] }>(`/invoices?cash_session_id=${sessionId}`)
+            .catch((e) => {
+              if (!cancel) {
+                setLoadFailed(true);
+                setError(`No se pudieron cargar las ventas de esta caja: ${
+                  e instanceof Error ? e.message : 'error de conexión'}. Los totales de abajo NO son confiables.`);
+              }
+              return { invoices: [] as any[] };
+            }),
+          apiFetch<any[]>(`/cash-sessions/${sessionId}/movements`).catch(() => []),
         ]);
         if (cancel) return;
-        const allInv = (invRes?.invoices ?? []);
+        let allInv = (invRes?.invoices ?? []);
+
+        // ── Red de seguridad: la caja sin ventas ────────────────────────────
+        // Si la sesión no trae NINGUNA factura, casi siempre es que las ventas
+        // quedaron ligadas a otro id de caja (se abrió sin conexión, se
+        // sincronizó después, se cambió de dispositivo). Antes eso se veía como
+        // "no se vendió nada" y el arqueo se cerraba en 0 con la plata en la caja.
+        //
+        // Se buscan las ventas del PERÍODO de esta sesión y, si aparecen, se
+        // incluyen avisando: es mejor un arqueo con aviso que uno en blanco.
+        if (allInv.length === 0) {
+          try {
+            const desde = session.opening_date ?? new Date().toISOString();
+            const r = await apiFetch<{ invoices: any[] }>(
+              `/invoices?from=${encodeURIComponent(desde)}&limit=1000`);
+            const delPeriodo = (r?.invoices ?? []).filter((i: any) => {
+              if (i.status === 'cancelled') return false;
+              // Solo lo que NO está ligado a otra caja: si ya pertenece a otro
+              // arqueo, contarlo acá lo duplicaría.
+              if (i.cash_session_id && i.cash_session_id !== sessionId) return false;
+              // Y solo del cajero de esta sesión, cuando se sabe quién es.
+              const owner = (session as any).user_id;
+              if (owner && i.cashier_id && i.cashier_id !== owner) return false;
+              return true;
+            });
+            if (delPeriodo.length > 0 && !cancel) {
+              allInv = delPeriodo;
+              setError(
+                `Esta caja no tenía ventas ligadas, pero se encontraron ${delPeriodo.length} `
+                + 'venta(s) del período y se incluyeron en el arqueo. '
+                + 'Suele pasar cuando la caja se abrió sin conexión: revisá los totales antes de cerrar.',
+              );
+            }
+          } catch { /* si tampoco se puede, se queda el arqueo vacío */ }
+        }
+        if (!Array.isArray(invRes?.invoices)) {
+          console.warn('[cierre] respuesta inesperada de /invoices:', invRes);
+        }
         // Clientes excluidos del cierre (ej. compras de empleados a crédito): la venta
         // existe pero NO se contabiliza en el arqueo/cierre. Las contamos aparte para
         // mostrarlas como línea informativa.
@@ -225,7 +287,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       }
     })();
     return () => { cancel = true; };
-  }, [session.id]);
+  }, [session.id, reloadKey]);
 
   // ── Totals contados ──
   const openingAmount = session.opening_amount ?? 0;
@@ -518,6 +580,30 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           </button>
         </div>
 
+        {/* Hay ventas en la caja, pero NINGUNA cuenta para el arqueo: todas
+            cayeron en delivery o en clientes excluidos. Sin este aviso el cierre
+            se ve igual que "no se vendió nada" y no hay forma de darse cuenta
+            de que el POS quedó en modo delivery. */}
+        {sys.invoicesCount === 0 && (sys.deliveryCount > 0 || sys.excludedCount > 0) && (
+          <div className="bg-sky-50 border-b border-sky-200 px-4 sm:px-6 py-3 flex items-start gap-3 shrink-0">
+            <AlertTriangle size={18} className="text-sky-600 shrink-0 mt-0.5" />
+            <p className="text-sm font-bold text-sky-900">
+              Esta caja no tiene ventas para arquear, pero sí hubo movimiento:
+              {sys.deliveryCount > 0 && (
+                <span className="block font-black">
+                  {sys.deliveryCount} venta(s) marcadas como DELIVERY (₡{sys.deliveryTotal.toLocaleString('es-CR')}).
+                  {' '}El delivery no entra al arqueo: si no eran delivery, el POS quedó en ese modo.
+                </span>
+              )}
+              {sys.excludedCount > 0 && (
+                <span className="block font-black">
+                  {sys.excludedCount} venta(s) de clientes excluidos del cierre (₡{sys.excludedTotal.toLocaleString('es-CR')}).
+                </span>
+              )}
+            </p>
+          </div>
+        )}
+
         {/* Ventas sin subir: el cierre las ignora porque se calcula con lo que
             hay en el servidor. Cerrar así deja el arqueo corto y sin explicación. */}
         {pendingOffline > 0 && (
@@ -618,7 +704,15 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         {/* ── Body ── */}
         <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-5 space-y-4">
           {error && (
-            <div className="bg-red-50 border-2 border-red-300 text-red-700 font-semibold text-base rounded-2xl px-5 py-4">{error}</div>
+            <div className="bg-red-50 border-2 border-red-300 text-red-700 font-semibold text-base rounded-2xl px-5 py-4 flex items-center gap-3 flex-wrap">
+              <span className="flex-1 min-w-0">{error}</span>
+              {loadFailed && (
+                <button type="button" onClick={() => { setError(''); setReloadKey(k => k + 1); }}
+                  className="shrink-0 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-black">
+                  Reintentar
+                </button>
+              )}
+            </div>
           )}
 
           {/* EFECTIVO */}
@@ -817,9 +911,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
               className="h-16 rounded-2xl border-2 border-gray-200 bg-white text-gray-600 font-bold text-lg hover:bg-gray-50 active:bg-gray-100 transition">
               Cancelar
             </button>
-            <button type="button" onClick={handleConfirm} disabled={loading || grandTotal <= 0}
+            <button type="button" onClick={handleConfirm} disabled={loading || grandTotal <= 0 || loadFailed}
               className="h-16 rounded-2xl bg-rose-500 hover:bg-rose-600 active:bg-rose-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-lg transition shadow-sm">
-              {loading ? 'Cerrando...' : 'Cerrar Caja ✓'}
+              {loading ? 'Cerrando...' : loadFailed ? 'Cargá las ventas primero' : 'Cerrar Caja ✓'}
             </button>
           </div>
         </div>

@@ -105,6 +105,12 @@ export const AccountsReceivableDashboard: React.FC = () => {
   const [summary, setSummary] = useState<ReceivableSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('');
+  /** La carga falló: lo que se ve (o se imprime) no es "no hay cuentas". */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Alcance de la cartera para este usuario. Con zona asignada solo ve la suya,
+  // y desde la pantalla eso se veía igual que "faltan clientes".
+  const [scope, setScope] = useState<{ zone: string | null; customers_total: number; customers_visible: number } | null>(null);
+  useEffect(() => { accountsReceivableService.scope().then(setScope).catch(() => setScope(null)); }, []);
   const [search, setSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
   const [payTarget, setPayTarget] = useState<Receivable | null>(null);
@@ -137,8 +143,13 @@ export const AccountsReceivableDashboard: React.FC = () => {
       // Los modales trabajan sobre el total: si usaran la lista filtrada, tener
       // «Pagadas» seleccionado dejaba el selector de clientes vacío y parecía
       // que el cliente no existía.
+      // El error NO se puede tragar: con `.catch(() => [])` una consulta caída se
+      // veía igual que "no hay cuentas", y de ahí que imprimir pendientes o
+      // abonos saliera sin una sola línea.
+      let fallo: string | null = null;
       const [r, all, s] = await Promise.all([
-        accountsReceivableService.list(filter ? { status: filter } : undefined).catch(() => []),
+        accountsReceivableService.list(filter ? { status: filter } : undefined)
+          .catch((e) => { fallo = e instanceof Error ? e.message : 'error de conexión'; return []; }),
         filter
           ? accountsReceivableService.list().catch(() => [])
           : Promise.resolve(null),
@@ -147,6 +158,7 @@ export const AccountsReceivableDashboard: React.FC = () => {
       setRows(r ?? []);
       setAllRows((all ?? r ?? []) as typeof rows);
       setSummary(s);
+      setLoadError(fallo);
     } finally { setLoading(false); }
   }, [filter]);
   useEffect(() => { load(); }, [load]);
@@ -198,6 +210,27 @@ export const AccountsReceivableDashboard: React.FC = () => {
             </button>
           </div>
         </div>
+        {loadError && (
+          <div className="mt-3 bg-red-500/90 border border-red-300 rounded-xl px-4 py-2.5 text-sm font-black">
+            No se pudieron cargar las cuentas: {loadError}.
+            <span className="block text-xs font-semibold">
+              La lista y las impresiones van a salir vacías hasta que cargue. Probá recargar.
+            </span>
+          </div>
+        )}
+
+        {/* Tu usuario tiene ZONA: no ves toda la cartera. Decirlo evita el
+            "faltan clientes" — el filtro lo pone el rol, no un error. */}
+        {scope?.zone && (
+          <div className="mt-3 bg-white/20 border border-white/30 rounded-xl px-4 py-2.5 text-sm font-bold">
+            Estás viendo solo la zona <span className="font-black">{scope.zone}</span>:
+            {' '}{scope.customers_visible} de {scope.customers_total} cliente(s) del negocio.
+            <span className="block text-xs font-semibold text-emerald-100">
+              Para ver toda la cartera, quitale la zona a tu usuario en Usuarios (o entrá con un usuario de gerencia).
+            </span>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
           <div className="bg-white/15 rounded-xl px-4 py-3">
             <p className="text-emerald-100 text-xs">Saldo por cobrar</p>
@@ -462,7 +495,15 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
-  useEffect(() => { customersService.list().then(cs => setCustomers((cs ?? []).filter(c => c.is_active))).catch(() => {}); }, []);
+  // Se cargan TODOS, activos primero. Antes se filtraban los inactivos y era
+  // otra forma de "no aparecen todos los clientes": el cliente existía, estaba
+  // desactivado, y no había manera de saberlo desde acá.
+  useEffect(() => {
+    customersService.list()
+      .then(cs => setCustomers([...(cs ?? [])].sort((a, b) =>
+        (a.is_active === b.is_active ? 0 : a.is_active ? -1 : 1))))
+      .catch(() => {});
+  }, []);
 
   const save = async () => {
     const n = Number(amount);
@@ -489,12 +530,17 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         </div>
         <div className="p-5 space-y-3">
           {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Cliente</label>
             <select value={customerId} onChange={e => setCustomerId(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
               <option value="">— Cliente sin registrar —</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {customers.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.is_active ? '' : ' (inactivo)'}
+                </option>
+              ))}
             </select>
             {!customerId && (
               <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Nombre del cliente (opcional)"
@@ -908,6 +954,10 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
   const rowsOf = () => cliente
     ? rows.filter(r => (r.customer_id ?? r.customer_name ?? '') === cliente)
     : rows;
+  // Pendientes del alcance elegido: se muestra el número ANTES de imprimir, para
+  // no descubrir en el papel que salió vacío.
+  const pendientesCount = rowsOf()
+    .filter(r => Number(r.total_amount) - Number(r.paid_amount) > 0).length;
   const clienteName = clientes.find(c => (c.id || c.name) === cliente)?.name;
 
   /**
@@ -1041,6 +1091,21 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
         </div>
         <div className="p-5 space-y-3">
           {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+
+          {/* Cuánto hay para imprimir, ANTES de imprimir. Un documento vacío no
+              distingue entre "no hay pendientes" y "no cargaron las cuentas". */}
+          {mode !== 'historico' && (
+            <div className={`text-sm font-bold rounded-lg px-3 py-2 border ${
+              pendientesCount === 0
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : 'bg-gray-50 border-gray-100 text-gray-600'}`}>
+              {pendientesCount === 0
+                ? (rows.length === 0
+                    ? 'No hay cuentas cargadas: cerrá esta ventana, recargá la pantalla y volvé a intentar.'
+                    : 'El cliente elegido no tiene facturas pendientes.')
+                : `${pendientesCount} factura(s) pendiente(s) para imprimir.`}
+            </div>
+          )}
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Cliente</label>
             <select value={cliente} onChange={e => setCliente(e.target.value)}
@@ -1097,7 +1162,7 @@ function PrintPickerModal({ mode, rows, onClose, onPrint }: {
               </div>
             </div>
           )}
-          <button onClick={doPrint} disabled={busy}
+          <button onClick={doPrint} disabled={busy || (mode !== 'historico' && pendientesCount === 0)}
             className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black py-3 rounded-xl text-sm">
             {busy ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />} Imprimir
           </button>

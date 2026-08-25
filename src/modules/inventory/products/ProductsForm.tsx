@@ -54,6 +54,10 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   const deliveryEnabled   = !!(planFeatures as any)?.pos_delivery;
   // Facturación electrónica: CABYS, IVA y precio-final-con-IVA solo si está activa.
   const feEnabled         = !!(planFeatures as any)?.electronic_invoice;
+  // El backend ignora un CABYS vacío para que no se borre por accidente (form a
+  // medio cargar, importaciones). Cuando el usuario lo quita a mano hay que
+  // decirlo explícito.
+  const [cabysCleared, setCabysCleared] = useState(false);
   // Unidad de costeo para recetas: solo con Recetas + conversión de unidades.
   const recipeUnitsEnabled = !!(planFeatures as any)?.recipes && !!(planFeatures as any)?.recipe_units;
   // Resolved tenantId: works for both owners (user.tenant_id) and staff (via useTenantId lookup)
@@ -389,6 +393,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         // Facturación Electrónica — CABYS opcional. IVA por producto: el que se
         // elija; si se deja vacío, se usa la guía de configuración (o 0).
         cabys_code: formData.cabys_code.trim() || null,
+        ...(cabysCleared ? { clear_cabys: true } : {}),
         iva_rate:   formData.iva_rate ? parseFloat(formData.iva_rate) : (ivaGuide ? parseFloat(ivaGuide) : 0),
         exclude_from_fe: excludeFromFe,
       };
@@ -788,12 +793,15 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                         value={formData.cabys_code}
                         suggestName={formData.name}
                         disabled={submitting}
-                        onSelect={(code, iva) => setFormData(prev => ({
-                          ...prev,
-                          cabys_code: code,
-                          // Si el CABYS trae su IVA, lo aplicamos al producto.
-                          iva_rate: code ? String(iva) : prev.iva_rate,
-                        }))}
+                        onSelect={(code, iva) => {
+                          setCabysCleared(!code);
+                          setFormData(prev => ({
+                            ...prev,
+                            cabys_code: code,
+                            // Si el CABYS trae su IVA, lo aplicamos al producto.
+                            iva_rate: code ? String(iva) : prev.iva_rate,
+                          }));
+                        }}
                       />
                     </div>
                     <div>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Inbox, Loader2, CreditCard, Ban, RotateCcw, Clock, User, AlertCircle, CheckCircle2,
@@ -77,8 +77,6 @@ export const CashierDesk: React.FC = () => {
   // pedido del agente viene sin impuesto y muchas veces sin cédula, y ambas
   // cosas son obligatorias para emitir una factura electrónica.
   const [prep, setPrep] = useState<AgentOrder | null>(null);
-  /** Ya se abrió un cobro en esta entrada a la pantalla: no se abre otro solo. */
-  const autoStarted = useRef(false);
   const [paying, setPaying] = useState(false);
 
   const taxEnabled = (settings as any)?.taxEnabled !== false;
@@ -133,7 +131,6 @@ export const CashierDesk: React.FC = () => {
       setMsg({ kind: 'err', text: 'Abrí la caja antes de cobrar.' });
       return;
     }
-    autoStarted.current = true;
     setBusyId(o.id); setMsg(null);
     try {
       // Reservar el pedido: si otro cajero se adelantó, el backend responde 409.
@@ -292,17 +289,15 @@ export const CashierDesk: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incoming, loading, orders, sessionOpen, prep]);
 
-  // Entrar a caja ES ponerse a cobrar: se abre el cobro del primer pedido de la
-  // bandeja sin que el cajero tenga que buscarlo. Una sola vez por entrada — si
-  // lo cierra a propósito, no se le vuelve a abrir en la cara.
-  useEffect(() => {
-    if (autoStarted.current || incoming || loading || charging || prep || !sessionOpen) return;
-    const next = orders.find(o => o.status === 'taken') ?? orders.find(o => o.status === 'pending');
-    if (!next) return;
-    autoStarted.current = true;
-    void startCharge(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, orders, sessionOpen, incoming, charging, prep]);
+  // Entrar a caja NO cobra solo.
+  //
+  // Antes se abría el cobro del primer pedido apenas cargaba la bandeja, y para
+  // el cajero eso se veía como que la caja "se pone a cobrar sola": aparecía un
+  // pedido que él no eligió, ya reservado a su nombre. Ahora solo se resalta cuál
+  // sigue y se cobra con un toque (o F12). La única apertura automática que queda
+  // es la del repartidor que llega con /caja?order=..., donde el pedido SÍ lo
+  // eligió una persona.
+  const nextToCharge = orders.find(o => o.status === 'taken') ?? orders.find(o => o.status === 'pending');
 
   const pendingCount = orders.filter(o => o.status === 'pending').length;
 
@@ -413,6 +408,22 @@ export const CashierDesk: React.FC = () => {
             setMsg({ kind: 'ok', text: `${upd.number ?? 'Pedido'} ajustado · nuevo total ${money(upd.total)}` });
           }}
         />
+      )}
+
+      {nextToCharge && !charging && !prep && sessionOpen && (
+        <button onClick={() => void startCharge(nextToCharge)} disabled={busyId === nextToCharge.id}
+          className="w-full flex items-center justify-between gap-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 text-left disabled:opacity-60">
+          <span className="min-w-0">
+            <span className="block text-sm font-black truncate">
+              Cobrar {nextToCharge.number ?? 'pedido'}
+              {nextToCharge.customer_name ? ` · ${nextToCharge.customer_name}` : ''}
+            </span>
+            <span className="block text-[11px] font-bold text-white/80">
+              {nextToCharge.status === 'taken' ? 'Ya está tomado por vos' : 'Siguiente en la bandeja'} · F12
+            </span>
+          </span>
+          <span className="text-xl font-black tabular-nums shrink-0">{money(nextToCharge.total)}</span>
+        </button>
       )}
 
       {msg && (
