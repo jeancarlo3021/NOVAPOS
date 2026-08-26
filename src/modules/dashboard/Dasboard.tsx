@@ -4,7 +4,7 @@ import {
   ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
   TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
   Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone,
-  UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck,
+  UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -63,6 +63,8 @@ const ALL_TILES: Tile[] = [
   // Flujo agente → caja. Cada rol ve solo el suyo (ver `hideForRoles` abajo).
   { feature: 'cashier_desk',     label: 'Caja',            icon: Inbox,         path: '/caja',             bg: 'from-emerald-600 to-teal-700',  hideForRoles: ['agente'] },
   { feature: 'agent_orders',     label: 'Nuevo pedido',    icon: Send,          path: '/agent-orders',     bg: 'from-sky-500 to-blue-600',      hideForRoles: ['cajero'] },
+  { feature: 'demo_requests',    label: 'Demos',           icon: MonitorPlay,   path: '/demos',            bg: 'from-indigo-500 to-blue-600' },
+  { feature: 'crm_leads',        label: 'Leads',           icon: TrendingUp,    path: '/seguimiento',      bg: 'from-fuchsia-500 to-purple-600' },
   { feature: 'warranties',       label: 'Garantías',       icon: ShieldCheck,   path: '/garantias',        bg: 'from-cyan-500 to-teal-600' },
   { feature: 'agent_agenda',     label: 'Entregas del día', icon: Truck,        path: '/entregas',         bg: 'from-indigo-500 to-violet-600' },
   { feature: 'agent_agenda',     label: 'Agenda entregas', icon: CalendarDays,  path: '/agenda-entregas',  bg: 'from-amber-500 to-orange-600' },

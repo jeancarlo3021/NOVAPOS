@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { fmtCRDateTime } from '@/utils/crDate';
 import { ArrowDownCircle, ArrowUpCircle, Wallet, RefreshCw, Download, FileSpreadsheet, Pencil, X, Save, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { downloadCsv } from '@/utils/csv';
@@ -21,7 +22,7 @@ interface Movement {
 
 const fmt = (n: number) => `₡${Number(n ?? 0).toLocaleString('es-CR', { maximumFractionDigits: 2 })}`;
 const fmtDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  iso ? fmtCRDateTime(iso, '') : '';
 
 // Clasifica un movimiento como entrada (+) o salida (−) del fondo.
 const isEntrada = (m: Movement) =>

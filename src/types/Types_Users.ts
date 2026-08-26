@@ -177,7 +177,7 @@ export type UserModule =
   /** Agenda del día, tareas y ruta de entregas. */
   | 'agent_agenda'
   | 'accounts_receivable' | 'proformas' | 'returns' | 'supplier_returns'
-  | 'warranties' | 'digital_menu' | 'window_service'
+  | 'warranties' | 'crm_leads' | 'demo_requests' | 'digital_menu' | 'window_service'
   | 'electronic_invoice' | 'labels' | 'multi_branch' | 'tracking'
   /** Configuración del negocio: no se vende por plan, se permite por rol. */
   | 'settings';

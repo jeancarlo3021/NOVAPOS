@@ -47,6 +47,8 @@ const CreateOwner              = lazy(() => import('./modules/auth/CreateOwner')
 const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashboard').then(m => ({ default: m.TablesDashboard })));
 const ModifiersManager         = lazy(() => import('./modules/modifiers/ModifiersManager').then(m => ({ default: m.ModifiersManager })));
 const SalesAgentsManager       = lazy(() => import('./modules/agents/SalesAgentsManager').then(m => ({ default: m.SalesAgentsManager })));
+const DemoRequestsDashboard    = lazy(() => import('./modules/demos/DemoRequestsDashboard').then(m => ({ default: m.DemoRequestsDashboard })));
+const LeadsDashboard           = lazy(() => import('./modules/crm/LeadsDashboard').then(m => ({ default: m.LeadsDashboard })));
 const WarrantiesDashboard      = lazy(() => import('./modules/warranties/WarrantiesDashboard').then(m => ({ default: m.WarrantiesDashboard })));
 const DeliveryRun              = lazy(() => import('./modules/agents/DeliveryRun').then(m => ({ default: m.DeliveryRun })));
 const DeliveryAgenda           = lazy(() => import('./modules/agents/DeliveryAgenda').then(m => ({ default: m.DeliveryAgenda })));
@@ -222,6 +224,14 @@ function AppContent() {
                 <PlanGuard feature="agent_agenda"><DeliveryAgenda /></PlanGuard>
               } />
               {/* RUTA DEL DÍA: lo que le toca entregar a cada responsable. */}
+              {/* DEMOS: el vendedor pide la prueba con los módulos que vio hacer falta. */}
+              <Route path="/demos" element={
+                <PlanGuard feature="demo_requests"><DemoRequestsDashboard /></PlanGuard>
+              } />
+              {/* SEGUIMIENTO: del primer "¿cuánto vale?" hasta la venta. */}
+              <Route path="/seguimiento" element={
+                <PlanGuard feature="crm_leads"><LeadsDashboard /></PlanGuard>
+              } />
               {/* GARANTÍAS: casos de producto malo, del recibo al cierre. */}
               <Route path="/garantias" element={
                 <PlanGuard feature="warranties"><WarrantiesDashboard /></PlanGuard>

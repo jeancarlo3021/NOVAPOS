@@ -238,6 +238,59 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
         <BluetoothStations config={config} setConfig={setConfig} tenantId={tenantId} />
       )}
 
+      {/* Descargas: imprimir de verdad depende de instalar algo FUERA del
+          navegador, y hasta ahora había que explicárselo por teléfono. */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+        <p className="text-sm font-black text-slate-800">¿Qué necesito para imprimir?</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <a
+            href="https://qz.io/download/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-start gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40 transition"
+          >
+            <span className="text-2xl shrink-0">🖨️</span>
+            <span className="min-w-0">
+              <span className="block text-sm font-black text-slate-800">
+                QZ Tray (computadora)
+              </span>
+              <span className="block text-xs font-semibold text-slate-500">
+                Es el puente entre el navegador y la impresora de tiquetes. Sin él no
+                aparece ninguna impresora en la lista.
+              </span>
+              <span className="mt-1 inline-block text-xs font-black text-emerald-700">
+                Descargar QZ Tray →
+              </span>
+            </span>
+          </a>
+
+          <button
+            type="button"
+            onClick={() => { window.location.href = '/android-app'; }}
+            className="flex items-start gap-3 p-3 rounded-xl border-2 border-slate-200 hover:border-blue-300 hover:bg-blue-50/40 transition text-left"
+          >
+            <span className="text-2xl shrink-0">📱</span>
+            <span className="min-w-0">
+              <span className="block text-sm font-black text-slate-800">
+                App de Android (celular o tablet)
+              </span>
+              <span className="block text-xs font-semibold text-slate-500">
+                Para imprimir por Bluetooth desde el teléfono. El navegador del celular
+                no puede hablar con la impresora; la app sí.
+              </span>
+              <span className="mt-1 inline-block text-xs font-black text-blue-700">
+                Ir a la descarga →
+              </span>
+            </span>
+          </button>
+        </div>
+
+        <p className="text-[11px] font-semibold text-slate-400">
+          Después de instalar, volvé a esta pantalla: la impresora aparece sola en la lista.
+        </p>
+      </div>
+
       {isQZMode && (
         <>
           {/* ── PrintCenter layout ── */}

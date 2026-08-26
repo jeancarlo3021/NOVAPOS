@@ -5,7 +5,7 @@ import {
   Shield, AlertCircle, Loader2, X, Check, Lock, Settings2,
   ShoppingCart, Package, BarChart2, TrendingDown, ClipboardList,
   Wallet, Tag, Users, UserCog, Truck, Inbox, Send, CalendarDays, HandCoins,
-  FileText, Undo2, ShieldCheck, QrCode, Store, Receipt, Building2, MapPin, Settings,
+  FileText, Undo2, ShieldCheck, QrCode, Store, Receipt, Building2, MapPin, Settings, TrendingUp, Monitor,
 } from 'lucide-react';
 import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import { ROLE_META, USER_ROLES } from '@/types/Types_Users';
@@ -44,6 +44,8 @@ const MODULES: ModuleMeta[] = [
   { key: 'proformas',        label: 'Proformas',         description: 'Cotizaciones y paso a venta',       icon: FileText,   color: 'bg-blue-400' },
   { key: 'returns',          label: 'Devoluciones',      description: 'Devolución parcial y anulación',    icon: Undo2,      color: 'bg-rose-500' },
   { key: 'supplier_returns', label: 'Devoluciones a proveedor', description: 'Baja de stock y saldo a favor', icon: Truck,   color: 'bg-amber-600' },
+  { key: 'demo_requests',    label: 'Demos',             description: 'Solicitudes de demo con módulos elegidos', icon: Monitor, color: 'bg-indigo-600' },
+  { key: 'crm_leads',        label: 'Leads',       description: 'Interesados y su historial hasta la venta', icon: TrendingUp, color: 'bg-fuchsia-600' },
   { key: 'warranties',       label: 'Garantías',         description: 'Casos de producto con falla',       icon: ShieldCheck, color: 'bg-cyan-600' },
   { key: 'digital_menu',     label: 'Menú digital',      description: 'Carta pública con QR',              icon: QrCode,     color: 'bg-violet-600' },
   { key: 'window_service',   label: 'Ventanita',         description: 'Mostrador con fila de despacho',    icon: Store,      color: 'bg-orange-600' },

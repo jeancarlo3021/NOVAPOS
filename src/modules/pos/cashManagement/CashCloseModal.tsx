@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { parseServerDate, fmtCRDateTime } from '@/utils/crDate';
 import { LockKeyhole, X, Plus, Trash2, CreditCard, Smartphone, Banknote, CloudUpload, AlertTriangle, Loader2 } from 'lucide-react';
 import { cashSessionService } from '@/services/cashManagement/cashSessionsService';
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
@@ -124,9 +125,11 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         // Si la consulta FALLA, el cierre mostraba ceros sin decir nada: el
         // cajero veía "no hubo ventas" cuando en realidad no se pudo preguntar.
         // Ahora el error se ve y el arqueo no se cierra a ciegas.
-        // Caja abierta SIN conexión: su id es local. Las ventas se subieron con el
-        // id REAL que devolvió el servidor, así que preguntar por el local trae
-        // cero ventas y el arqueo sale en blanco. Se traduce antes de consultar.
+        // Las ventas de la caja las resuelve el SERVIDOR: si la sesión no
+        // tiene facturas ligadas (se abrió sin conexión, se rompió el enlace),
+        // él mismo busca las del período de esa caja y dice de dónde salieron.
+        // Antes esto dependía de un mapeo guardado en el navegador, y en otro
+        // dispositivo el arqueo salía en 0 con la plata en el cajón.
         let sessionId = session.id;
         try {
           const { posOfflineService } = await import('@/services/pos/posOfflineService');
@@ -134,56 +137,31 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         } catch { /* sin mapeo: se usa el id tal cual */ }
 
         const [invRes, movRes] = await Promise.all([
-          apiFetch<{ invoices: any[] }>(`/invoices?cash_session_id=${sessionId}`)
+          apiFetch<{ invoices: any[]; source?: string }>(`/cash-sessions/${sessionId}/invoices`)
             .catch((e) => {
               if (!cancel) {
                 setLoadFailed(true);
                 setError(`No se pudieron cargar las ventas de esta caja: ${
                   e instanceof Error ? e.message : 'error de conexión'}. Los totales de abajo NO son confiables.`);
               }
-              return { invoices: [] as any[] };
+              return { invoices: [] as any[], source: 'error' };
             }),
           apiFetch<any[]>(`/cash-sessions/${sessionId}/movements`).catch(() => []),
         ]);
+
         if (cancel) return;
         let allInv = (invRes?.invoices ?? []);
 
-        // ── Red de seguridad: la caja sin ventas ────────────────────────────
-        // Si la sesión no trae NINGUNA factura, casi siempre es que las ventas
-        // quedaron ligadas a otro id de caja (se abrió sin conexión, se
-        // sincronizó después, se cambió de dispositivo). Antes eso se veía como
-        // "no se vendió nada" y el arqueo se cerraba en 0 con la plata en la caja.
-        //
-        // Se buscan las ventas del PERÍODO de esta sesión y, si aparecen, se
-        // incluyen avisando: es mejor un arqueo con aviso que uno en blanco.
-        if (allInv.length === 0) {
-          try {
-            const desde = session.opening_date ?? new Date().toISOString();
-            const r = await apiFetch<{ invoices: any[] }>(
-              `/invoices?from=${encodeURIComponent(desde)}&limit=1000`);
-            const delPeriodo = (r?.invoices ?? []).filter((i: any) => {
-              if (i.status === 'cancelled') return false;
-              // Solo lo que NO está ligado a otra caja: si ya pertenece a otro
-              // arqueo, contarlo acá lo duplicaría.
-              if (i.cash_session_id && i.cash_session_id !== sessionId) return false;
-              // Y solo del cajero de esta sesión, cuando se sabe quién es.
-              const owner = (session as any).user_id;
-              if (owner && i.cashier_id && i.cashier_id !== owner) return false;
-              return true;
-            });
-            if (delPeriodo.length > 0 && !cancel) {
-              allInv = delPeriodo;
-              setError(
-                `Esta caja no tenía ventas ligadas, pero se encontraron ${delPeriodo.length} `
-                + 'venta(s) del período y se incluyeron en el arqueo. '
-                + 'Suele pasar cuando la caja se abrió sin conexión: revisá los totales antes de cerrar.',
-              );
-            }
-          } catch { /* si tampoco se puede, se queda el arqueo vacío */ }
+        // El servidor avisa cuando tuvo que buscar por período: el cajero tiene
+        // que saber que esas ventas no estaban ligadas a su caja.
+        if ((invRes as any)?.source === 'window' && allInv.length > 0 && !cancel) {
+          setError(
+            `Esta caja no tenía ventas ligadas, pero se encontraron ${allInv.length} `
+            + 'venta(s) del período y se incluyeron en el arqueo. '
+            + 'Suele pasar cuando la caja se abrió sin conexión: revisá los totales antes de cerrar.',
+          );
         }
-        if (!Array.isArray(invRes?.invoices)) {
-          console.warn('[cierre] respuesta inesperada de /invoices:', invRes);
-        }
+
         // Clientes excluidos del cierre (ej. compras de empleados a crédito): la venta
         // existe pero NO se contabiliza en el arqueo/cierre. Las contamos aparte para
         // mostrarlas como línea informativa.
@@ -351,6 +329,28 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       setError('Debes ingresar el monto total (efectivo + tarjeta + SINPE) antes de cerrar');
       return;
     }
+
+    // Método con ventas registradas pero contado en CERO: casi siempre es que se
+    // contó el efectivo y se olvidó pasar por la pestaña de tarjeta. Cerrar así
+    // deja un faltante enorme en el historial que después nadie puede explicar.
+    const sinContar = ([
+      { label: 'Tarjeta', sistema: sys.card, contado: cardTotal },
+      { label: 'SINPE', sistema: sys.sinpe, contado: sinpeTotal },
+      { label: 'Efectivo', sistema: sys.cash, contado: cashTotal },
+    ]).filter(m => m.sistema > 0 && m.contado <= 0);
+
+    if (sinContar.length > 0) {
+      const detalle = sinContar
+        .map(m => `· ${m.label}: el sistema registra ₡${Math.round(m.sistema).toLocaleString('es-CR')} y vos pusiste ₡0`)
+        .join('\n');
+      const seguir = window.confirm(
+        `Hay métodos de pago sin contar:\n\n${detalle}\n\n`
+        + 'Si cerrás así, el cierre va a mostrar un faltante que no existe. '
+        + '¿Cerrar de todas formas?',
+      );
+      if (!seguir) return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -411,8 +411,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         if (tenantId) {
           posPrinterService.printCashClose({
             session_id: session.id,
-            opened_at: session.opened_at ?? session.created_at ?? new Date().toISOString(),
-            closed_at: updatedSession.closed_at ?? new Date().toISOString(),
+            opened_at: (parseServerDate((session as any).opening_date ?? session.opened_at ?? session.created_at)
+              ?? new Date()).toISOString(),
+            closed_at: (parseServerDate((updatedSession as any).closing_date ?? updatedSession.closed_at)
+              ?? new Date()).toISOString(),
             cashier_name: user?.email,
             opening_amount: openingAmount,
             // Dólares en efectivo: apertura + recibidos − vuelto = esperado, vs contado.
@@ -655,7 +657,20 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
         {/* ── Session summary ── */}
         <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-2 sm:py-3 flex items-center gap-3 sm:gap-4 shrink-0 flex-wrap">
-          <div className="text-sm text-gray-500">Monto de apertura: <span className="font-black text-gray-800">₡{(session.opening_amount ?? 0).toLocaleString()}</span></div>
+          <div className="text-sm text-gray-500">
+            Monto de apertura: <span className="font-black text-gray-800">₡{(session.opening_amount ?? 0).toLocaleString()}</span>
+            {/* Hora TICA de la apertura y cuánto lleva abierta: es lo primero que
+                se mira para saber si esta es la caja del turno correcto. */}
+            <span className="block text-xs text-gray-400">
+              Abrió {fmtCRDateTime((session as any).opening_date ?? (session as any).opened_at)}
+              {(() => {
+                const ini = parseServerDate((session as any).opening_date ?? (session as any).opened_at);
+                if (!ini) return null;
+                const mins = Math.max(0, Math.round((Date.now() - ini.getTime()) / 60000));
+                return ` · lleva ${Math.floor(mins / 60)} h ${mins % 60} m abierta`;
+              })()}
+            </span>
+          </div>
           <div className="flex-1" />
           {TABS.map(t => (
             <div key={t.id} className="text-sm text-gray-500">

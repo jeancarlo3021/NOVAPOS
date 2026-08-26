@@ -379,6 +379,8 @@ export default function Plans() {
     if (pf.tables)     a.push('Mapa de Mesas');
     if ((pf as any).table_orders)     a.push('Cuentas por mesa');
     if ((pf as any).modifiers)        a.push('Extras y modificadores');
+    if ((pf as any).crm_leads)        a.push('Leads');
+    if ((pf as any).demo_requests)    a.push('Solicitudes de demo');
     if ((pf as any).warranties)       a.push('Garantías');
     if ((pf as any).sales_agents)     a.push('Agentes de venta');
     if ((pf as any).agent_orders ?? (pf as any).sales_agents) a.push('Nuevo pedido');
@@ -987,6 +989,12 @@ export default function Plans() {
                     description="Asignar día al pedido, sincronizar con proformas y trabajar la bandeja por día"
                     checked={(features as any).agent_agenda ?? (features as any).sales_agents ?? false}
                     onChange={v => set({ agent_agenda: v } as any)} />
+                  <FeatureRow icon={Monitor} color="bg-indigo-600" title="Solicitudes de demo"
+                    description="Los vendedores piden demos eligiendo qué módulos mostrarle al prospecto"
+                    checked={(features as any).demo_requests ?? false} onChange={v => set({ demo_requests: v } as any)} />
+                  <FeatureRow icon={TrendingUp} color="bg-fuchsia-600" title="Leads (seguimiento de clientes)"
+                    description="Interesados desde el primer contacto hasta la venta: historial, etapas y próxima llamada"
+                    checked={(features as any).crm_leads ?? false} onChange={v => set({ crm_leads: v } as any)} />
                   <FeatureRow icon={Shield} color="bg-cyan-600" title="Garantías"
                     description="Recibir productos con falla, seguirlos donde el proveedor y cerrarlos con su solución"
                     checked={(features as any).warranties ?? false} onChange={v => set({ warranties: v } as any)} />

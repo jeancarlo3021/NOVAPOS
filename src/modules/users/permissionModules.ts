@@ -34,6 +34,8 @@ export const PERMISSION_MODULES: PermissionModuleMeta[] = [
   { key: 'proformas', label: 'Proformas', description: 'Cotizaciones y paso a venta' },
   { key: 'returns', label: 'Devoluciones', description: 'Devolución parcial y anulación de facturas' },
   { key: 'supplier_returns', label: 'Devoluciones a proveedor', description: 'Baja de stock y saldo a favor' },
+  { key: 'demo_requests', label: 'Solicitudes de demo', description: 'Pedir demos con módulos elegidos' },
+  { key: 'crm_leads', label: 'Leads (seguimiento)', description: 'Interesados, contactos y cierre de la venta' },
   { key: 'warranties', label: 'Garantías', description: 'Casos de producto con falla y su seguimiento' },
   { key: 'electronic_invoice', label: 'Facturación Electrónica', description: 'Emisión, recepción y consultas de Hacienda' },
   { key: 'labels', label: 'Etiquetas', description: 'Impresión de etiquetas y códigos de barras' },

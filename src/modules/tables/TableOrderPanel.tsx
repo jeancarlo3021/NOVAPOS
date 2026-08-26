@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { fmtCRTime } from '@/utils/crDate';
 import { useNavigate } from 'react-router-dom';
 import {
   X, Plus, Trash2, Users, CreditCard, Loader2, ArrowRightLeft, Ban, Search, UserCog,
@@ -246,7 +247,7 @@ export const TableOrderPanel: React.FC<Props> = ({ tableId, tableLabel, otherTab
             <p className="text-xs text-gray-500">
               {order
                 ? <>Cuenta abierta {order.guests ? <>· <Users size={11} className="inline" /> {order.guests}</> : null}
-                    {' · '}desde {new Date(order.opened_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}</>
+                    {' · '}desde {fmtCRTime(order.opened_at)}</>
                 : 'Mesa libre — agregá productos para abrir la cuenta'}
             </p>
           </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { fmtCRDateTime, parseServerDate } from '@/utils/crDate';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -38,7 +39,7 @@ const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
 
 const fmtDt = (s: string) =>
-  new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' });
+  fmtCRDateTime(s);
 
 function durationLabel(min: number | null) {
   if (min === null) return '—';
@@ -139,7 +140,8 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
 
   // Chart data: all three payment methods per session (last 20)
   const chartData = [...sessions].reverse().slice(-20).map(s => ({
-    label:    new Date(s.opening_date).toLocaleDateString('es-CR', { month: 'short', day: 'numeric' }),
+    label:    (parseServerDate(s.opening_date) ?? new Date())
+      .toLocaleDateString('es-CR', { timeZone: 'America/Costa_Rica', month: 'short', day: 'numeric' }),
     efectivo: s.cash_sales,
     sinpe:    s.sinpe_sales,
     tarjeta:  s.card_sales,

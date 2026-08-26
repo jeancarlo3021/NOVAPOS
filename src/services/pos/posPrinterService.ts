@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api';
+import { fmtCRDateTime, fmtCRTime } from '@/utils/crDate';
 import {
   qzConnect, qzIsAvailable, qzPrintToPrinter, qzPrintDefault,
   type PrinterEntry,
@@ -650,7 +651,7 @@ export class POSPrinterService {
     // A4 → documento de página entera (tipo PDF).
     if ((cfg.paperWidth as any) === 'a4') {
       const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
-      const dt = (s: string) => { try { return new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; } };
+      const dt = (s: string) => fmtCRDateTime(s, s);
       const diffLabel = report.difference === 0 ? 'CUADRADO' : report.difference > 0 ? 'SOBRANTE' : 'FALTANTE';
       // Diferencia venta vs sistema por método (Contado - Sistema).
       const a4CashIn = (report.cash_movements ?? []).filter((m: any) => m.type === 'in').reduce((s: number, m: any) => s + Number(m.amount || 0), 0);
@@ -751,6 +752,8 @@ export class POSPrinterService {
     sales_count: number; sales_total: number; voids_count: number;
     by_method?: { cash: number; card: number; sinpe: number; credit: number };
     returned?: Array<{ name: string; quantity: number }>;
+    /** 'truck' | 'stored' | 'reconstructed' | 'none': de dónde salió el sobrante. */
+    returned_source?: string;
     ar_payments?: { by_method: { cash: number; card: number; sinpe: number }; total: number; list: Array<{ customer: string; amount: number; method: string }> };
     expenses?: { total: number; list: Array<{ description: string; amount: number; payment_method?: string }> };
   }, tenantId: string): Promise<void> {
@@ -789,8 +792,18 @@ export class POSPrinterService {
       }
       lines.push({ t: 'sep' }, { t: 'title', a: 'INVENTARIO DEVUELTO' });
       const ret = [...(summary.returned ?? [])].sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
-      if (ret.length === 0) lines.push({ t: 'center', a: '(sin sobrante)' });
-      else for (const r of ret) lines.push({ t: 'row', a: r.name, b: `x${r.quantity}` });
+      if (ret.length === 0) {
+        // "Sin sobrante" es una AFIRMACIÓN: solo se imprime cuando el sistema
+        // pudo mirar el camión. Si no pudo, se dice eso, que es lo honesto.
+        lines.push({ t: 'center', a: summary.returned_source === 'none'
+          ? '(sin sobrante: el camión quedó vacío)'
+          : '(no se pudo determinar el sobrante — revisá el camión)' });
+      } else {
+        for (const r of ret) lines.push({ t: 'row', a: r.name, b: `x${r.quantity}` });
+        if (summary.returned_source === 'reconstructed') {
+          lines.push({ t: 'center', a: 'Calculado: cargado - vendido' });
+        }
+      }
       await this.printHTMLContent(this.renderA4FromLines(lines));
       return;
     }
@@ -981,8 +994,14 @@ export class POSPrinterService {
 
     center('INVENTARIO DEVUELTO');
     const ret = [...(summary.returned ?? [])].sort((a: any, b: any) => String(a.name).localeCompare(String(b.name), 'es'));
-    if (ret.length === 0) { center('(sin sobrante)'); }
-    else { for (const r of ret) row(String(r.name).substring(0, charWidth - 6), `x${r.quantity}`); }
+    if (ret.length === 0) {
+      center((summary as any).returned_source === 'none'
+        ? '(sin sobrante)'
+        : '(sobrante no determinado)');
+    } else {
+      for (const r of ret) row(String(r.name).substring(0, charWidth - 6), `x${r.quantity}`);
+      if ((summary as any).returned_source === 'reconstructed') center('Calculado: cargado - vendido');
+    }
     sep(); nl(); nl();
     push(0x1D, 0x56, 0x00);
     return new Uint8Array(cmds);
@@ -1002,7 +1021,7 @@ export class POSPrinterService {
       text(label + ' '.repeat(sp) + val); nl();
     };
     const fmt = (n: number) => `${Number(n || 0).toLocaleString('es-CR')}`;
-    const fmtDateTime = (s: string) => { try { return new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; } };
+    const fmtDateTime = (s: string) => fmtCRDateTime(s, s);
 
     const sCash = Number(report.system_cash ?? 0);
     const sCard = Number(report.system_card ?? 0);
@@ -1144,7 +1163,7 @@ export class POSPrinterService {
     text('Recibido por'); nl();
     text('Nombre:'); nl();
     nl();
-    centerText(`Fecha: ${new Date(report.closed_at).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' })}`);
+    centerText(`Fecha: ${fmtCRDateTime(report.closed_at)}`);
     nl();
 
     // Feed + corte (SIN cajón — el cierre no abre caja)
@@ -1156,7 +1175,7 @@ export class POSPrinterService {
 
   private generateCashCloseHTML(report: any, cfg: ReceiptConfig, general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
-    const fmtDateTime = (s: string) => new Date(s).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' });
+    const fmtDateTime = (s: string) => fmtCRDateTime(s, s);
     const widthMM = PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm';
 
     const storeName = general?.businessName || 'CIERRE DE CAJA';
@@ -2464,7 +2483,9 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     };
     const fmt = (n: number) => `${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
     const hora = (v?: string) => {
-      try { return v ? new Date(v).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }) : '--:--'; }
+      // Hora TICA: las fechas de caja llegan en UTC y sin marca de zona, así que
+      // sin normalizar se imprimían seis horas adelantadas.
+      try { return v ? fmtCRTime(v, '--:--') : '--:--'; }
       catch { return '--:--'; }
     };
 

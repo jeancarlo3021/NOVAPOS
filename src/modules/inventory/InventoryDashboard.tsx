@@ -24,7 +24,14 @@ interface TabConfig {
 }
 
 export const InventoryDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  // La pestaña puede venir por URL (?tab=kits): las guías enlazan directo al
+  // lugar exacto en vez de describir el camino.
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    const valid: TabType[] = ['dashboard', 'products', 'kits', 'suppliers', 'stock',
+      'kardex', 'alerts', 'categories', 'unitTypes'];
+    return (valid as string[]).includes(String(t)) ? (t as TabType) : 'dashboard';
+  });
   const { planFeatures, planName } = useAuth();
 
   const tabs: TabConfig[] = [

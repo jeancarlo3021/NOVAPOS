@@ -271,6 +271,10 @@ export interface PlanFeatures {
   recipe_production?: boolean;
   /** Análisis de menú: estrella / vaca / enigma / perro. */
   recipe_menu_engineering?: boolean;
+  /** Solicitudes de demo: el vendedor pide pruebas con módulos elegidos. */
+  demo_requests?: boolean;
+  /** Seguimiento de clientes interesados: del primer contacto hasta la venta. */
+  crm_leads?: boolean;
   /** Garantías: casos de producto defectuoso, con seguimiento y fotos. */
   warranties?: boolean;
   /** Descarga de la factura en PDF tamaño A4 desde el cobro. */
@@ -392,6 +396,8 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   recipe_stations: false,
   recipe_production: false,
   recipe_menu_engineering: false,
+  crm_leads: false,
+  demo_requests: false,
   warranties: false,
   invoice_pdf_a4: false,
   inventory_kits: false,
@@ -479,6 +485,8 @@ export const FULL_FEATURES: PlanFeatures = {
   recipe_production: true,
   recipe_menu_engineering: true,
   modifiers: true,
+  crm_leads: true,
+  demo_requests: true,
   warranties: true,
   invoice_pdf_a4: true,
   inventory_kits: true,

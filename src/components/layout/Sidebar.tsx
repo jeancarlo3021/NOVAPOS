@@ -28,7 +28,7 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeInfo,
-  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store, CalendarDays, ShieldCheck } from 'lucide-react';
+  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
@@ -93,6 +93,8 @@ const NAV_GROUPS: NavGroup[] = [
       // (arma y envía). Cada una con su propio módulo de permisos.
       { name: 'Caja',               to: '/caja',          icon: Inbox,     feature: 'cashier_desk', module: 'caja',         hideForRoles: ['agente'] },
       { name: 'Nuevo pedido',       to: '/agent-orders',  icon: Send,      feature: 'agent_orders', module: 'agent_orders', hideForRoles: ['cajero'] },
+      { name: 'Demos',              to: '/demos',         icon: MonitorPlay, feature: 'demo_requests', module: 'customers' },
+      { name: 'Leads',              to: '/seguimiento',   icon: TrendingUp, feature: 'crm_leads', module: 'customers' },
       { name: 'Garantías',          to: '/garantias',     icon: ShieldCheck, feature: 'warranties', module: 'inventory' },
       { name: 'Entregas del día',   to: '/entregas',      icon: Truck,     feature: 'agent_agenda', module: 'agent_orders' },
       { name: 'Agenda de entregas', to: '/agenda-entregas', icon: CalendarDays, feature: 'agent_agenda', module: 'agent_orders' },

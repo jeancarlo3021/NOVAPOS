@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { fmtCRTime } from '@/utils/crDate';
 import {
   Receipt, User, Plus, Trash2, X, CreditCard, MapPin,
   Minus, AlertCircle, UtensilsCrossed, SplitSquareHorizontal, ChefHat,
@@ -94,7 +95,7 @@ export function BillPanel({
           </button>
         </div>
         <p className="text-xs text-gray-400 font-mono">
-          {new Date(bill.opened_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })} · ID {bill.id.slice(-6)}
+          {fmtCRTime(bill.opened_at)} · ID {bill.id.slice(-6)}
         </p>
       </div>
 

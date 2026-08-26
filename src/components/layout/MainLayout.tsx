@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { prefetchCommonRoutes } from '@/utils/prefetchRoutes';
+import { ModuleGuideButton } from '@/components/ModuleGuideButton';
+import { GuideHighlight } from '@/components/GuideHighlight';
 import { Lock, LogOut, Menu as MenuIcon, RefreshCw, Settings } from 'lucide-react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -100,6 +102,8 @@ export const MainLayout = () => {
     return (
       <div className="h-screen overflow-hidden">
         <Outlet />
+        <ModuleGuideButton />
+        <GuideHighlight />
       </div>
     );
   }
@@ -119,6 +123,10 @@ export const MainLayout = () => {
           <main className={`flex-1 overflow-y-auto ${hideScrollbar ? 'no-scrollbar' : ''} ${isReports ? '' : 'p-4 sm:p-6 lg:p-8'}`}>
             <Outlet />
           </main>
+          {/* Ayuda del módulo: va en el layout para que TODA pantalla la tenga
+              sin tener que tocarla una por una. */}
+          <ModuleGuideButton />
+          <GuideHighlight />
           {/* Barra inferior (solo móvil): menú + actualizar/limpiar caché. */}
           <div className="md:hidden shrink-0 border-t border-gray-200 bg-white flex items-stretch z-30 pb-[env(safe-area-inset-bottom)]">
             <button onClick={() => setSidebarOpen(true)}

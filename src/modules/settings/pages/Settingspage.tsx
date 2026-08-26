@@ -87,7 +87,15 @@ const SETTINGS_TABS = [
 ];
 
 export const SettingsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<SettingTab>('general');
+  // La pestaña puede venir por URL (?tab=labels): así las guías y cualquier
+  // enlace pueden llevar DIRECTO a lo que hay que configurar, en vez de decir
+  // "andá a Configuración y buscá la pestaña".
+  const [activeTab, setActiveTab] = useState<SettingTab>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    const valid: SettingTab[] = ['general', 'products', 'payments', 'users', 'notifications',
+      'receipt', 'pos_view', 'electronic_invoice', 'labels', 'delivery', 'account'];
+    return (valid as string[]).includes(String(t)) ? (t as SettingTab) : 'general';
+  });
   /**
    * En teléfono, Configuración funciona como una lista: primero se ven TODAS las
    * secciones (igual que el menú lateral) y al tocar una se entra a ella.
