@@ -108,6 +108,27 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al abrir caja';
 
+      // "Ya tenés una caja abierta": el servidor devuelve CUÁL es. En vez de
+      // dejar al cajero trabado con un error que no puede resolver, se adopta
+      // esa caja y se sigue trabajando. Pasa cuando el POS perdió de vista la
+      // sesión (se recargó, cambió de dispositivo, falló una consulta).
+      const abierta = (err as any)?.data?.existing_session
+        ?? (err as any)?.body?.existing_session
+        ?? (err as any)?.existing_session;
+      if (abierta?.id) {
+        onSuccess(abierta as CashSession);
+        return;
+      }
+      if (/ya ten[eé]s una caja abierta/i.test(errorMsg)) {
+        try {
+          const { apiFetch } = await import('@/lib/api');
+          const activa = await apiFetch<CashSession | null>('/cash-sessions/active');
+          if (activa?.id) { onSuccess(activa); return; }
+        } catch { /* si tampoco se puede, se muestra el error de abajo */ }
+        setError('Ya tenías una caja abierta. Recargá la pantalla para trabajar con esa.');
+        return;
+      }
+
       if (errorMsg.includes('Timeout') || errorMsg.includes('timeout')) {
         setError('Timeout: El servidor tardó demasiado. Intenta de nuevo.');
       } else if (errorMsg.includes('Failed to fetch')) {
