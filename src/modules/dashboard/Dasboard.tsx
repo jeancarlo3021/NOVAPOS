@@ -81,7 +81,7 @@ const ALL_TILES: Tile[] = [
   { feature: 'recipes',          label: 'Recetas',         icon: BookOpen,      path: '/recipes',          bg: 'from-lime-500 to-green-600'       },
   { feature: 'digital_menu',     label: 'Menú digital',    icon: QrCode,        path: '/menu-digital',     bg: 'from-teal-500 to-emerald-600'     },
   // Vista de cartera del contador: datos del negocio, plan y comprobantes.
-  { feature: 'reports',           label: 'Negocios',        icon: Building2,     path: '/businesses',       bg: 'from-indigo-600 to-violet-700'    },
+  { feature: 'businesses_panel',  label: 'Negocios',        icon: Building2,     path: '/businesses',       bg: 'from-indigo-600 to-violet-700'    },
   { feature: 'android_app',      label: 'App Android',     icon: Smartphone,    path: '/android-app',      bg: 'from-emerald-600 to-green-700'    },
   { feature: 'users',            label: 'Usuarios',        icon: Users,         path: '/users',            bg: 'from-fuchsia-500 to-pink-500'     },
   { feature: 'settings',         label: 'Configuración',   icon: Settings,      path: '/settings',         bg: 'from-slate-600 to-slate-700'      },

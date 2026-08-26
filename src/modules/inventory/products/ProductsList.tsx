@@ -28,6 +28,17 @@ export const ProductsList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   // '' = todos · '__none__' = productos sin proveedor asignado
   const [supplierFilter, setSupplierFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  /**
+   * Filtro rápido por estado del producto.
+   *
+   * Son las preguntas que uno le hace al catálogo todos los días: qué se acabó,
+   * qué está por acabarse, y —lo que más duele— qué está incompleto y va a dar
+   * problemas al vender (sin precio, sin costo, sin CABYS).
+   */
+  const [quickFilter, setQuickFilter] = useState<
+    '' | 'sin_stock' | 'stock_bajo' | 'sin_precio' | 'sin_costo' | 'sin_cabys'>('');
+  const [sortBy, setSortBy] = useState<'name' | 'stock' | 'price' | 'margin' | 'recent'>('name');
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Impresión masiva de etiquetas
   const [selectMode, setSelectMode] = useState(false);
@@ -83,6 +94,37 @@ export const ProductsList: React.FC = () => {
       .catch(() => { /* sin catálogo se usa lo que traiga el producto */ });
     return () => { alive = false; };
   }, [suppliersEnabled, tenantId]);
+  // Categorías: se cargan del catálogo para poder filtrar por nombre real.
+  const [categoryNames, setCategoryNames] = useState<Map<string, string>>(new Map());
+  React.useEffect(() => {
+    if (!tenantId) return;
+    let alive = true;
+    import('@/services/Inventory/categoriesService')
+      .then(({ categoriesService }) => categoriesService.getAllCategories(tenantId))
+      .then(list => {
+        if (!alive) return;
+        setCategoryNames(new Map((list ?? []).map((c: any) => [String(c.id), String(c.name ?? '')])));
+      })
+      .catch(() => { /* sin catálogo, no se ofrece el filtro */ });
+    return () => { alive = false; };
+  }, [tenantId]);
+
+  const categoryOptions = React.useMemo(() => {
+    const byId = new Map<string, string>();
+    let sinCategoria = 0;
+    for (const p of products) {
+      const id = String((p as any).category_id ?? '');
+      if (!id) { sinCategoria++; continue; }
+      const nombre = categoryNames.get(id) ?? (p as any).category?.name ?? '';
+      if (nombre) byId.set(id, nombre);
+    }
+    return {
+      list: [...byId].map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'es')),
+      sinCategoria,
+    };
+  }, [products, categoryNames]);
+
   const supplierOptions = React.useMemo(() => {
     const byId = new Map<string, string>();
     let sinProveedor = 0;
@@ -109,12 +151,61 @@ export const ProductsList: React.FC = () => {
     };
   }, [products, supplierNames]);
 
-  const filteredProducts = products.filter(p => {
-    if (!fuzzyMatch(searchTerm, p.name, p.sku, (p as any).sku2, (p as any).description)) return false;
-    if (!supplierFilter) return true;
-    const id = (p as any).supplier_id ?? null;
-    return supplierFilter === '__none__' ? !id : id === supplierFilter;
-  });
+  /** Cuenta de cada filtro rápido: se muestra en el botón para saber si vale la pena tocarlo. */
+  const quickCounts = React.useMemo(() => {
+    const rastrea = (p: any) => p.tracks_stock !== false;
+    return {
+      sin_stock:  products.filter(p => rastrea(p) && Number(p.stock_quantity ?? 0) <= 0).length,
+      stock_bajo: products.filter(p => rastrea(p)
+        && Number(p.stock_quantity ?? 0) > 0
+        && Number(p.stock_quantity ?? 0) < Number(p.min_stock_level ?? 0)).length,
+      sin_precio: products.filter(p => Number((p as any).unit_price ?? 0) <= 0).length,
+      sin_costo:  products.filter(p => Number((p as any).cost_price ?? 0) <= 0).length,
+      sin_cabys:  products.filter(p => !String((p as any).cabys_code ?? '').trim()).length,
+    };
+  }, [products]);
+
+  const filteredProducts = React.useMemo(() => {
+    const pasaRapido = (p: any) => {
+      const rastrea = p.tracks_stock !== false;
+      switch (quickFilter) {
+        case 'sin_stock':  return rastrea && Number(p.stock_quantity ?? 0) <= 0;
+        case 'stock_bajo': return rastrea && Number(p.stock_quantity ?? 0) > 0
+          && Number(p.stock_quantity ?? 0) < Number(p.min_stock_level ?? 0);
+        case 'sin_precio': return Number(p.unit_price ?? 0) <= 0;
+        case 'sin_costo':  return Number(p.cost_price ?? 0) <= 0;
+        case 'sin_cabys':  return !String(p.cabys_code ?? '').trim();
+        default: return true;
+      }
+    };
+
+    const lista = products.filter(p => {
+      if (!fuzzyMatch(searchTerm, p.name, p.sku, (p as any).sku2, (p as any).description)) return false;
+      if (!pasaRapido(p as any)) return false;
+      if (categoryFilter) {
+        const cid = (p as any).category_id ?? null;
+        if (categoryFilter === '__none__' ? !!cid : cid !== categoryFilter) return false;
+      }
+      if (!supplierFilter) return true;
+      const id = (p as any).supplier_id ?? null;
+      return supplierFilter === '__none__' ? !id : id === supplierFilter;
+    });
+
+    const margen = (p: any) => {
+      const venta = Number(p.unit_price ?? 0);
+      const costo = Number(p.cost_price ?? 0);
+      return venta > 0 && costo > 0 ? ((venta - costo) / venta) * 100 : -1;
+    };
+    return [...lista].sort((a: any, b: any) => {
+      switch (sortBy) {
+        case 'stock':  return Number(a.stock_quantity ?? 0) - Number(b.stock_quantity ?? 0);
+        case 'price':  return Number(b.unit_price ?? 0) - Number(a.unit_price ?? 0);
+        case 'margin': return margen(b) - margen(a);
+        case 'recent': return String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
+        default:       return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'es');
+      }
+    });
+  }, [products, searchTerm, supplierFilter, categoryFilter, quickFilter, sortBy]);
 
   // Exporta a Excel con las MISMAS columnas que espera "Importar Excel", así el
   // archivo se puede editar y volver a subir. Los números salen como número real
@@ -206,6 +297,7 @@ export const ProductsList: React.FC = () => {
                 <FileSpreadsheet className="w-5 h-5 mr-2" /> Importar Excel
               </Button>
               <Button
+                data-tour="inv-new-product"
                 onClick={() => { setEditingId(null); setShowForm(true); }}
                 size="lg"
                 className="bg-blue-600 hover:bg-blue-700"
@@ -301,6 +393,33 @@ export const ProductsList: React.FC = () => {
         <Alert type="warning" message={`⚠️ ${lowStockProducts.length} producto(s) con stock bajo`} />
       )}
 
+      {/* Resumen: cuánta plata hay en bodega y qué tan completo está el catálogo.
+          Es la respuesta a "¿cuánto tengo invertido?" sin abrir un reporte. */}
+      {!loading && products.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Productos', value: products.length.toLocaleString('es-CR') },
+            { label: 'Valor a costo',
+              value: `₡${Math.round(products.reduce((t, p: any) =>
+                t + (p.tracks_stock === false ? 0 : Number(p.cost_price ?? 0) * Number(p.stock_quantity ?? 0)), 0)
+              ).toLocaleString('es-CR')}` },
+            { label: 'Valor a venta',
+              value: `₡${Math.round(products.reduce((t, p: any) =>
+                t + (p.tracks_stock === false ? 0 : Number(p.unit_price ?? 0) * Number(p.stock_quantity ?? 0)), 0)
+              ).toLocaleString('es-CR')}` },
+            { label: 'Unidades en bodega',
+              value: products.reduce((t, p: any) =>
+                t + (p.tracks_stock === false ? 0 : Number(p.stock_quantity ?? 0)), 0)
+                .toLocaleString('es-CR') },
+          ].map(k => (
+            <div key={k.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+              <p className="text-xs font-bold text-gray-400">{k.label}</p>
+              <p className="text-lg font-black text-gray-900 tabular-nums">{k.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Buscador + filtro por proveedor */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
@@ -333,15 +452,72 @@ export const ProductsList: React.FC = () => {
             </select>
           </div>
         )}
-        {supplierFilter && (
+        {categoryOptions.list.length > 0 && (
+          <div className="relative sm:w-56">
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              disabled={loading}
+              className="w-full px-3 pr-8 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 appearance-none"
+            >
+              <option value="">Todas las categorías</option>
+              {categoryOptions.list.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+              {categoryOptions.sinCategoria > 0 && (
+                <option value="__none__">Sin categoría ({categoryOptions.sinCategoria})</option>
+              )}
+            </select>
+          </div>
+        )}
+
+        <div className="relative sm:w-48">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            disabled={loading}
+            className="w-full px-3 pr-8 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 appearance-none"
+          >
+            <option value="name">Orden: nombre</option>
+            <option value="stock">Menos stock primero</option>
+            <option value="price">Más caro primero</option>
+            <option value="margin">Mejor margen primero</option>
+            <option value="recent">Más reciente primero</option>
+          </select>
+        </div>
+
+        {(supplierFilter || categoryFilter || quickFilter) && (
           <Button
-            onClick={() => setSupplierFilter('')}
+            onClick={() => { setSupplierFilter(''); setCategoryFilter(''); setQuickFilter(''); }}
             variant="secondary"
             className="flex items-center gap-1.5 shrink-0"
           >
-            <X size={16} /> Quitar filtro
+            <X size={16} /> Quitar filtros
           </Button>
         )}
+      </div>
+
+      {/* Filtros rápidos: las preguntas de todos los días. Los que no aplican
+          (cero productos) no se muestran, para no ofrecer botones vacíos. */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {([
+          { id: 'sin_stock' as const,  label: 'Sin stock',      n: quickCounts.sin_stock,  cls: 'border-red-300 text-red-700 bg-red-50' },
+          { id: 'stock_bajo' as const, label: 'Stock bajo',     n: quickCounts.stock_bajo, cls: 'border-amber-300 text-amber-800 bg-amber-50' },
+          { id: 'sin_precio' as const, label: 'Sin precio',     n: quickCounts.sin_precio, cls: 'border-rose-300 text-rose-700 bg-rose-50' },
+          { id: 'sin_costo' as const,  label: 'Sin costo',      n: quickCounts.sin_costo,  cls: 'border-orange-300 text-orange-800 bg-orange-50' },
+          ...(((planFeatures as any)?.electronic_invoice)
+            ? [{ id: 'sin_cabys' as const, label: 'Sin CABYS', n: quickCounts.sin_cabys, cls: 'border-blue-300 text-blue-700 bg-blue-50' }]
+            : []),
+        ]).filter(f => f.n > 0).map(f => (
+          <button
+            key={f.id}
+            onClick={() => setQuickFilter(prev => (prev === f.id ? '' : f.id))}
+            className={`px-3 py-1.5 rounded-xl border-2 text-xs font-black transition ${
+              quickFilter === f.id ? 'border-gray-800 bg-gray-800 text-white' : f.cls}`}
+          >
+            {f.label} · {f.n}
+          </button>
+        ))}
       </div>
 
       {/* Contenido Principal */}

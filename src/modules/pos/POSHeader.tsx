@@ -99,7 +99,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
 
         {/* Cash session — se oculta si el negocio desactivó la gestión de caja */}
         {hideCashSession ? <div className="flex-1" /> : (
-        <div className="flex-1 flex justify-center min-w-full sm:min-w-0 mt-2 sm:mt-0">
+        <div data-tour="pos-cash" className="flex-1 flex justify-center min-w-full sm:min-w-0 mt-2 sm:mt-0">
           {currentSession && currentSession.status === 'open' ? (
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center">
               <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 min-h-9">

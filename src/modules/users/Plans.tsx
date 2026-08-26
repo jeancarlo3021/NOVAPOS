@@ -8,7 +8,7 @@ import {
   Banknote, FileX, TrendingUp, Clock, DollarSign,
   Shield, CalendarDays, History,
   FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing, UserCheck, Undo2,
-  Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes, Send, Inbox,
+  Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes, Send, Inbox, Calculator,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { apiFetch } from '@/lib/api';
@@ -381,6 +381,8 @@ export default function Plans() {
     if ((pf as any).modifiers)        a.push('Extras y modificadores');
     if ((pf as any).crm_leads)        a.push('Leads');
     if ((pf as any).demo_requests)    a.push('Solicitudes de demo');
+    if ((pf as any).accountant_portal) a.push('Portal del contador');
+    if ((pf as any).businesses_panel)  a.push('Panel de negocios');
     if ((pf as any).warranties)       a.push('Garantías');
     if ((pf as any).sales_agents)     a.push('Agentes de venta');
     if ((pf as any).agent_orders ?? (pf as any).sales_agents) a.push('Nuevo pedido');
@@ -989,6 +991,12 @@ export default function Plans() {
                     description="Asignar día al pedido, sincronizar con proformas y trabajar la bandeja por día"
                     checked={(features as any).agent_agenda ?? (features as any).sales_agents ?? false}
                     onChange={v => set({ agent_agenda: v } as any)} />
+                  <FeatureRow icon={Calculator} color="bg-violet-600" title="Portal del contador"
+                    description="Acceso de solo lectura para el contador: reportes, cierres y comprobantes"
+                    checked={(features as any).accountant_portal ?? false} onChange={v => set({ accountant_portal: v } as any)} />
+                  <FeatureRow icon={Building} color="bg-slate-600" title="Panel de negocios"
+                    description="Ver y cambiar entre los negocios del grupo desde una sola cuenta"
+                    checked={(features as any).businesses_panel ?? false} onChange={v => set({ businesses_panel: v } as any)} />
                   <FeatureRow icon={Monitor} color="bg-indigo-600" title="Solicitudes de demo"
                     description="Los vendedores piden demos eligiendo qué módulos mostrarle al prospecto"
                     checked={(features as any).demo_requests ?? false} onChange={v => set({ demo_requests: v } as any)} />

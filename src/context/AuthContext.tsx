@@ -271,6 +271,10 @@ export interface PlanFeatures {
   recipe_production?: boolean;
   /** Análisis de menú: estrella / vaca / enigma / perro. */
   recipe_menu_engineering?: boolean;
+  /** Portal del contador: acceso de solo lectura a la información contable. */
+  accountant_portal?: boolean;
+  /** Panel de negocios: ver y cambiar entre los negocios del grupo. */
+  businesses_panel?: boolean;
   /** Solicitudes de demo: el vendedor pide pruebas con módulos elegidos. */
   demo_requests?: boolean;
   /** Seguimiento de clientes interesados: del primer contacto hasta la venta. */
@@ -398,6 +402,8 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   recipe_menu_engineering: false,
   crm_leads: false,
   demo_requests: false,
+  accountant_portal: false,
+  businesses_panel: false,
   warranties: false,
   invoice_pdf_a4: false,
   inventory_kits: false,
@@ -487,6 +493,8 @@ export const FULL_FEATURES: PlanFeatures = {
   modifiers: true,
   crm_leads: true,
   demo_requests: true,
+  accountant_portal: true,
+  businesses_panel: true,
   warranties: true,
   invoice_pdf_a4: true,
   inventory_kits: true,

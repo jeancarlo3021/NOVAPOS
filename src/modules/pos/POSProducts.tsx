@@ -422,6 +422,7 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
             <Search size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600 pointer-events-none" />
             <input
               ref={quickInputRef}
+              data-tour="pos-search"
               type="text"
               value={quickTerm}
               onChange={e => { setQuickTerm(e.target.value); setQuickIdx(0); }}

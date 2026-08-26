@@ -116,6 +116,7 @@ export function POSDesktopBar({
         )}
         <button
           type="button"
+          data-tour="pos-customer"
           onClick={() => setShowSearch(true)}
           title="Buscar cliente registrado"
           className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-gray-200 hover:bg-emerald-50 text-emerald-600 hover:border-emerald-300 transition"

@@ -678,6 +678,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
           )}
           {canCharge && (
             <button
+              data-tour="pos-charge"
               onClick={handlePaymentClick}
               disabled={!canPay}
               className={`flex-1 h-14 flex items-center justify-between px-4 rounded-xl transition ${

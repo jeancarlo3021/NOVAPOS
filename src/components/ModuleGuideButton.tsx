@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { HelpCircle, X, Check, Lightbulb, AlertTriangle, ArrowRight } from 'lucide-react';
+import { HelpCircle, X, Check, Lightbulb, AlertTriangle, ArrowRight, PlayCircle } from 'lucide-react';
+import { GuideTour } from '@/components/GuideTour';
 import { guideForPath, type ModuleGuide } from '@/modules/help/moduleGuides';
 import { useAuth } from '@/context/AuthContext';
 
@@ -23,6 +24,8 @@ export const ModuleGuideButton: React.FC = () => {
   const esDemo = tenant?.is_demo === true;
   const guide = esDemo ? guideForPath(pathname) : null;
   const [open, setOpen] = useState(false);
+  /** Recorrido paso a paso sobre la pantalla real. */
+  const [tour, setTour] = useState(false);
 
   useEffect(() => {
     if (!guide) return;
@@ -62,12 +65,17 @@ export const ModuleGuideButton: React.FC = () => {
         <HelpCircle size={22} />
       </button>
 
-      {open && <GuidePanel guide={visible} onClose={cerrar} />}
+      {open && <GuidePanel guide={visible} onClose={cerrar} onTour={() => { cerrar(); setTour(true); }} />}
+      {tour && <GuideTour steps={visible.steps} onClose={() => setTour(false)} />}
     </>
   );
 };
 
-const GuidePanel: React.FC<{ guide: ModuleGuide; onClose: () => void }> = ({ guide, onClose }) => {
+const GuidePanel: React.FC<{
+  guide: ModuleGuide;
+  onClose: () => void;
+  onTour: () => void;
+}> = ({ guide, onClose, onTour }) => {
   const navigate = useNavigate();
 
   /**
@@ -172,9 +180,14 @@ const GuidePanel: React.FC<{ guide: ModuleGuide; onClose: () => void }> = ({ gui
         )}
       </div>
 
-      <div className="border-t border-gray-100 p-3 shrink-0">
-        <button onClick={onClose}
+      <div className="border-t border-gray-100 p-3 shrink-0 space-y-2">
+        {/* Guía en vivo: señala los botones en la pantalla, uno por uno. */}
+        <button onClick={onTour}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-sm">
+          <PlayCircle size={16} /> Guiame paso a paso
+        </button>
+        <button onClick={onClose}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-black text-sm hover:bg-gray-50">
           <Check size={16} /> Entendido
         </button>
       </div>

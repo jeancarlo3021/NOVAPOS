@@ -197,8 +197,12 @@ function AppContent() {
               <Route path="/modifiers" element={
                 <PlanGuard feature="modifiers"><ModifiersManager /></PlanGuard>
               } />
-              <Route path="/accountant" element={<AccountantPortal />} />
-              <Route path="/businesses" element={<BusinessesPanel />} />
+              <Route path="/accountant" element={
+                <PlanGuard feature="accountant_portal"><AccountantPortal /></PlanGuard>
+              } />
+              <Route path="/businesses" element={
+                <PlanGuard feature="businesses_panel"><BusinessesPanel /></PlanGuard>
+              } />
               <Route path="/android-app" element={<PlanGuard feature="android_app"><AndroidApp /></PlanGuard>} />
               <Route path="/sales-agents" element={
                 <PlanGuard feature="sales_agents"><SalesAgentsManager /></PlanGuard>

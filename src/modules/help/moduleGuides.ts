@@ -12,6 +12,12 @@ export interface GuideStep {
   feature?: string;
   /** Ruta a la que lleva el paso al tocarlo (con ?tab= si aplica). */
   to?: string;
+  /**
+   * Elemento de la pantalla que este paso explica, por `data-tour`.
+   * Con esto la guía puede señalarlo en vivo: se resalta el botón y la viñeta
+   * queda pegada a él, en vez de describirlo con palabras.
+   */
+  target?: string;
 }
 
 /**
@@ -53,11 +59,11 @@ export const MODULE_GUIDES: ModuleGuide[] = [
       { what: 'Medios de pago activos', to: '/settings?tab=payments', where: 'Configuración → Pagos', why: 'Es lo que aparece en la pantalla de cobro.' },
     ],
     steps: [
-      { title: 'Abrí la caja', detail: 'Poné el fondo con que arrancás. Si el negocio no lleva control de efectivo, activá "No abrir caja" en Configuración → Pagos y se abre sola en ₡0.' },
-      { title: 'Agregá productos', detail: 'Pistola de código, o escribí nombre/código y Enter. F2 salta al buscador.' },
-      { title: 'Elegí el cliente si hace falta', detail: 'Obligatorio solo para factura electrónica y para vender a crédito.', feature: 'customers' },
-      { title: 'Cobrá (F12)', detail: 'Elegí el medio de pago; con pago mixto repartís el monto entre varios. F1 cobra e imprime, F2 cobra sin imprimir.' },
-      { title: 'Cerrá la caja', detail: 'Contá el efectivo por denominación. El sistema compara con lo que registró y muestra la diferencia.' },
+      { title: 'Abrí la caja', target: 'pos-cash', detail: 'Poné el fondo con que arrancás. Si el negocio no lleva control de efectivo, activá "No abrir caja" en Configuración → Pagos y se abre sola en ₡0.' },
+      { title: 'Agregá productos', target: 'pos-search', detail: 'Pistola de código, o escribí nombre/código y Enter. F2 salta al buscador.' },
+      { title: 'Elegí el cliente si hace falta', target: 'pos-customer', detail: 'Obligatorio solo para factura electrónica y para vender a crédito.', feature: 'customers' },
+      { title: 'Cobrá (F12)', target: 'pos-charge', detail: 'Elegí el medio de pago; con pago mixto repartís el monto entre varios. F1 cobra e imprime, F2 cobra sin imprimir.' },
+      { title: 'Cerrá la caja', target: 'pos-cash', detail: 'Contá el efectivo por denominación. El sistema compara con lo que registró y muestra la diferencia.' },
     ],
     tips: [
       'Si aparece el aviso de ventas sin subir, tocá "Subir ahora" ANTES de cerrar: si no, esas ventas no entran en el arqueo.',
@@ -75,7 +81,7 @@ export const MODULE_GUIDES: ModuleGuide[] = [
     ],
     steps: [
       { title: 'Creá las categorías', to: '/inventory?tab=categories', detail: 'Sirven para filtrar en el POS y para los reportes. Con 5 o 6 alcanza para empezar.' },
-      { title: 'Cargá los productos', to: '/inventory?tab=products', detail: 'Uno por uno, o masivo por Excel/XML. Poné costo y precio: sin costo no hay margen ni ganancia real en los reportes.' },
+      { title: 'Cargá los productos', to: '/inventory?tab=products', target: 'inv-new-product', detail: 'Uno por uno, o masivo por Excel/XML. Poné costo y precio: sin costo no hay margen ni ganancia real en los reportes.' },
       { title: 'Definí quién lleva stock', detail: 'Un servicio o algo que nunca se cuenta va con "stock infinito": así el POS no bloquea la venta.' },
       { title: 'Ajustá con motivo', detail: 'Cada diferencia se registra (merma, daño, conteo). Un ajuste sin motivo es un hueco que después nadie explica.' },
       { title: 'Revisá alertas', to: '/inventory?tab=alerts', detail: 'La pestaña de stock bajo muestra qué hay que pedir antes de quedarse sin.' },
