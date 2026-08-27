@@ -1118,11 +1118,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // UN reintento antes de rendirse. El primer login del día suele caer en un
       // servidor "frío" y tardar más de la cuenta; fallar en ese caso deja al
       // usuario convencido de que sus credenciales no sirven.
+      const t0 = Date.now();
       let timed = await intentar();
       if (timed.kind === 'timeout' && navigator.onLine) {
+        console.warn(`[auth] el login no respondió en ${Math.round((Date.now() - t0) / 1000)} s: reintentando`);
         timed = await intentar();
       }
       if (timed.kind === 'timeout') {
+        // La respuesta no llegó, pero el login PUDO haber funcionado: Supabase
+        // suele dejar la sesión creada aunque la respuesta se pierda o llegue
+        // tarde. Antes de dar el error se pregunta si ya hay sesión — así el
+        // usuario entra en vez de ver "tiempo de espera agotado" con las
+        // credenciales correctas.
+        const { data: ya } = await supabase.auth.getSession();
+        if (ya?.session?.user) {
+          console.info('[auth] el login respondió tarde, pero la sesión ya existía');
+          return;   // handleSession se dispara con el evento SIGNED_IN
+        }
+
         setError(navigator.onLine
           ? 'El servidor está tardando en responder. Esperá unos segundos y volvé a intentar.'
           : 'Sin conexión a internet. Conectate y volvé a intentar.');
