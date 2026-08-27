@@ -155,8 +155,10 @@ export const CashierDesk: React.FC = () => {
       const { subtotal, tax } = breakdown(total);
       // Se arman CartItem para reusar el servicio de facturación tal cual.
       const cart: CartItem[] = charging.items.map(it => ({
-        product_id: it.product_id ?? '',
-        product: { id: it.product_id ?? '', name: it.product_name, unit_price: it.unit_price } as any,
+        // Producto suelto: va SIN id. Mandar '' hacía que el backend lo
+        // rechazara por no ser un uuid, y la venta entera fallaba.
+        product_id: it.product_id ?? null,
+        product: { id: it.product_id ?? null, name: it.product_name, unit_price: it.unit_price } as any,
         quantity: it.quantity,
         unit_price: it.unit_price,
         subtotal: it.subtotal,
