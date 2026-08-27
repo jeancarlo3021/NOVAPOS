@@ -63,11 +63,39 @@
           setTimeout(function () { show(); }, 1200);
         }
 
+        // Abierta como ARCHIVO (doble clic sobre index.html): no es un fallo de
+        // la app, es que no hay servidor. Los assets se piden desde la ra&iacute;z del
+        // sitio, que en file:// pasa a ser C:\, y no carga ni el CSS. Sin este
+        // aviso el usuario veía «no se pudo abrir» y recargaba en vano para siempre.
+        function esArchivoLocal() {
+          return location.protocol === 'file:';
+        }
+
+        function mostrarArchivoLocal(root) {
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;'
+            + 'font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;padding:20px">'
+            + '<div style="max-width:420px;width:100%;background:#fff;border-radius:16px;'
+            + 'box-shadow:0 10px 30px rgba(0,0,0,.08);padding:24px;text-align:center">'
+            + '<div style="font-size:38px;line-height:1;margin-bottom:10px">&#127760;</div>'
+            + '<h1 style="font-size:18px;font-weight:800;color:#0f172a;margin:0 0 6px">Abr&iacute; ColónClick desde internet</h1>'
+            + '<p style="font-size:13px;color:#475569;margin:0 0 16px">'
+            + 'Este archivo se abri&oacute; desde tu computadora y as&iacute; el sistema no funciona. '
+            + 'Entr&aacute; a la direcci&oacute;n del sitio.</p>'
+            + '<a href="https://colonclick.com" style="display:block;padding:12px;border-radius:12px;'
+            + 'background:#10b981;color:#fff;font-weight:800;font-size:14px;text-decoration:none">Ir a colonclick.com</a>'
+            + '<p style="font-size:11px;color:#94a3b8;margin:14px 0 0">'
+            + 'Consejo: guard&aacute; esa direcci&oacute;n en favoritos y abrila siempre desde ah&iacute;.</p>'
+            + '</div></div>';
+        }
+
         function show() {
           if (booted || shown) return;
           var root = document.getElementById('root');
           if (!root || root.childElementCount > 0) return;
           shown = true;
+
+          if (esArchivoLocal()) { mostrarArchivoLocal(root); return; }
 
           var detalle = errors.length
             ? errors.slice(0, 3).join('\n')
@@ -154,6 +182,9 @@
           var r = e && e.reason;
           note((r && (r.message || r.toString())) || 'Promesa rechazada sin capturar');
         });
+
+        // Abierta como archivo: se avisa de una, sin esperar a que fallen los assets.
+        if (esArchivoLocal()) setTimeout(show, 0);
 
         // d) Red de seguridad: nada revent&oacute; a la vista, pero tampoco mont&oacute; nada.
         setTimeout(show, 12000);
