@@ -6,6 +6,9 @@ export interface ProformaItem {
   sku?: string | null;
   quantity: number;
   unit_price: number;
+  /** Descuento de ESTA línea (%). El general va en la proforma. */
+  discount_percent?: number;
+  discount_amount?: number;
   iva_rate?: number;
   cabys?: string | null;
   unit?: string | null;
@@ -21,6 +24,9 @@ export interface Proforma {
   subtotal: number;
   tax: number;
   total: number;
+  /** Descuento general del documento (%) y lo que sumó en plata. */
+  discount_percent?: number;
+  discount_amount?: number;
   notes: string | null;
   valid_until: string | null;
   status: 'open' | 'converted' | 'cancelled';
@@ -33,6 +39,7 @@ export interface ProformaInput {
   customer_name?: string | null;
   customer_identification?: string | null;
   items: ProformaItem[];
+  discount_percent?: number;
   notes?: string | null;
   valid_until?: string | null;
 }

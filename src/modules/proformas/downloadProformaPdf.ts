@@ -87,6 +87,14 @@ export async function downloadProformaPdf(p: Proforma, tenantId?: string | null)
   y += 16;
   doc.setDrawColor(209, 213, 219); doc.line(boxX, y - 8, W - M, y - 8);   // línea separadora
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(107, 114, 128);
+  // Descuento: es lo que el cliente quiere ver. Sin esta línea, la cotización
+  // solo muestra un precio más bajo y la rebaja pasa desapercibida.
+  const descuento = Number((p as any).discount_amount ?? 0);
+  if (descuento > 0.004) {
+    doc.text('Descuento', boxX, y + 8);
+    doc.text(`-${money(descuento)}`, xTot - 6, y + 8, { align: 'right' });
+    y += 22;
+  }
   doc.text('Subtotal', boxX, y + 8); doc.text(money(p.subtotal), xTot - 6, y + 8, { align: 'right' }); y += 22;
   doc.text('IVA', boxX, y + 8); doc.text(money(p.tax), xTot - 6, y + 8, { align: 'right' }); y += 28;
   // Recuadro del TOTAL

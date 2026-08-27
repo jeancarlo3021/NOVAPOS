@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power, HandCoins, MapPin } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power, HandCoins, MapPin, Map, Crosshair, Loader2 } from 'lucide-react';
 import { customersService, ID_TYPES, type Customer, type CustomerInput, type CustomerZone } from '@/services/customers/customersService';
 import { LocationPickerModal } from './LocationPickerModal';
+import { CustomersMapModal } from './CustomersMapModal';
 import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { useAuth } from '@/context/AuthContext';
@@ -25,6 +26,10 @@ export const CustomersList: React.FC = () => {
   const [editing, setEditing]     = useState<Customer | null>(null);
   const [pricesFor, setPricesFor] = useState<Customer | null>(null);
   const [showZones, setShowZones] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+  /** Cliente al que se le está capturando el GPS ahora mismo. */
+  const [locatingId, setLocatingId] = useState<string | null>(null);
+
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -33,6 +38,38 @@ export const CustomersList: React.FC = () => {
     finally { setLoading(false); }
   }, [search]);
 
+  /**
+   * Fija la ubicación del cliente con el GPS del dispositivo.
+   *
+   * Se usa PARADO en el local del cliente: es la forma más exacta y rápida de
+   * ubicarlo, mucho mejor que buscarlo después en el mapa desde la oficina.
+   */
+  const capturarUbicacion = useCallback((c: Customer) => {
+    if (!navigator.geolocation) {
+      setError('Este dispositivo no permite usar la ubicación.');
+      return;
+    }
+    setLocatingId(c.id);
+    navigator.geolocation.getCurrentPosition(
+      async (p) => {
+        try {
+          await customersService.update(c.id, {
+            lat: p.coords.latitude, lng: p.coords.longitude,
+          } as any);
+          await load();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'No se pudo guardar la ubicación');
+        } finally { setLocatingId(null); }
+      },
+      (err) => {
+        setLocatingId(null);
+        setError(err.code === err.PERMISSION_DENIED
+          ? 'Permiso de ubicación denegado: activalo para el navegador y volvé a intentar.'
+          : 'No se pudo obtener la ubicación. Probá al aire libre o con el GPS encendido.');
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+    );
+  }, [load]);
   useEffect(() => {
     const t = setTimeout(load, 300);
     return () => clearTimeout(t);
@@ -71,6 +108,11 @@ export const CustomersList: React.FC = () => {
           <button onClick={() => setShowZones(true)}
             className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition">
             <MapPin size={14} /> Zonas
+          </button>
+          <button onClick={() => setShowMap(true)}
+            title="Ver todos los clientes en el mapa"
+            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition">
+            <Map size={14} /> Mapa
           </button>
           {canCreate && (
             <button onClick={() => { setEditing(null); setShowForm(true); }}
@@ -143,6 +185,21 @@ export const CustomersList: React.FC = () => {
                     <button onClick={() => { setEditing(c); setShowForm(true); }}
                       className="flex-1 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
                       <Edit2 size={11} /> Editar
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button onClick={() => capturarUbicacion(c)} disabled={locatingId === c.id}
+                      title={c.lat != null && c.lng != null
+                        ? 'Ya tiene ubicación · tocá para actualizarla con el GPS de acá'
+                        : 'Fijar la ubicación con el GPS (estando en el local del cliente)'}
+                      className={`py-1.5 px-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1 disabled:opacity-50 ${
+                        c.lat != null && c.lng != null
+                          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      {locatingId === c.id
+                        ? <Loader2 size={11} className="animate-spin" />
+                        : <Crosshair size={11} />}
+                      {c.lat != null && c.lng != null ? 'Ubicado' : 'Ubicar'}
                     </button>
                   )}
                   {canEdit && pricesEnabled && (

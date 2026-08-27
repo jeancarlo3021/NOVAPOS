@@ -159,6 +159,8 @@ const ProformaEditor: React.FC<{
   const [showCust, setShowCust] = useState(false);
   const [validUntil, setValidUntil] = useState(initial.valid_until ?? '');
   const [notes, setNotes] = useState(initial.notes ?? '');
+  /** Descuento general del documento, en %. El de cada línea vive en el ítem. */
+  const [descPct, setDescPct] = useState<string>(String((initial as any).discount_percent ?? 0) || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -185,8 +187,21 @@ const ProformaEditor: React.FC<{
   const patch = (idx: number, p: Partial<ProformaItem>) => setItems(prev => prev.map((x, i) => i === idx ? { ...x, ...p } : x));
   const del = (idx: number) => setItems(prev => prev.filter((_, i) => i !== idx));
 
-  const subtotal = items.reduce((s, l) => s + l.quantity * l.unit_price, 0);
-  const tax = items.reduce((s, l) => s + l.quantity * l.unit_price * ((l.iva_rate ?? 0) / 100), 0);
+  // Mismo criterio que el servidor: primero el descuento de cada línea, después
+  // el general, y el IVA SOBRE LA BASE YA DESCONTADA — cobrar impuesto sobre una
+  // plata que el cliente no paga sería cobrarle de más.
+  const bruto = items.reduce((s, l) => s + l.quantity * l.unit_price, 0);
+  const bases = items.map(l => {
+    const linea = l.quantity * l.unit_price;
+    const pct = Math.min(100, Math.max(0, Number((l as any).discount_percent ?? 0)));
+    return { base: linea - linea * (pct / 100), rate: l.iva_rate ?? 0 };
+  });
+  const netoLineas = bases.reduce((s, b) => s + b.base, 0);
+  const gPct = Math.min(100, Math.max(0, parseFloat(descPct) || 0));
+  const factor = 1 - gPct / 100;
+  const subtotal = netoLineas * factor;
+  const tax = bases.reduce((s, b) => s + b.base * factor * ((b.rate ?? 0) / 100), 0);
+  const descuentoTotal = bruto - subtotal;
 
   const save = async () => {
     if (items.length === 0) { setErr('Agregá al menos un producto'); return; }
@@ -196,6 +211,7 @@ const ProformaEditor: React.FC<{
         customer_id: customer?.id ?? null, customer_name: customer?.name ?? null,
         customer_identification: customer?.identification ?? null,
         items, notes: notes || null, valid_until: validUntil || null,
+        discount_percent: parseFloat(descPct) || 0,
       };
       if (initial.id) await proformasService.update(initial.id, body);
       else await proformasService.create(body);
@@ -255,15 +271,44 @@ const ProformaEditor: React.FC<{
                 <span className="text-gray-300">×</span>
                 <input type="number" min={0} value={it.unit_price} onChange={e => patch(i, { unit_price: parseFloat(e.target.value) || 0 })}
                   className="w-24 text-right border rounded-lg px-2 py-1 text-sm" title="Precio" />
-                <span className="w-24 text-right font-bold text-gray-900 text-sm">{fmt(it.quantity * it.unit_price)}</span>
+                {/* Descuento de la línea: es como se negocia producto por producto. */}
+                <span className="flex items-center gap-0.5">
+                  <input type="number" min={0} max={100}
+                    value={(it as any).discount_percent ?? ''} placeholder="0"
+                    onChange={e => patch(i, { discount_percent: parseFloat(e.target.value) || 0 } as any)}
+                    className="w-14 text-right border rounded-lg px-2 py-1 text-sm" title="Descuento de esta línea (%)" />
+                  <span className="text-gray-400 text-xs">%</span>
+                </span>
+                <span className="w-24 text-right font-bold text-gray-900 text-sm">
+                  {fmt(it.quantity * it.unit_price * (1 - (Number((it as any).discount_percent ?? 0) / 100)))}
+                  {Number((it as any).discount_percent ?? 0) > 0 && (
+                    <span className="block text-[10px] font-normal text-gray-400 line-through">
+                      {fmt(it.quantity * it.unit_price)}
+                    </span>
+                  )}
+                </span>
                 <button onClick={() => del(i)} className="p-1 text-red-400 hover:text-red-600"><Trash2 size={14} /></button>
               </div>
             ))}
           </div>
 
-          {/* Totales */}
-          <div className="flex justify-end">
+          {/* Totales + descuento general */}
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <label className="text-xs font-bold text-gray-500 flex flex-col gap-1">
+              <span>Descuento general (%)</span>
+              <input type="number" min={0} max={100} value={descPct}
+                onChange={e => setDescPct(e.target.value)} placeholder="0"
+                className="w-28 border-2 border-gray-200 rounded-xl px-3 py-2 text-sm text-right" />
+              <span className="font-normal text-gray-400">Se aplica sobre lo que quede tras los descuentos por línea.</span>
+            </label>
+
             <div className="text-sm space-y-0.5 text-right">
+              {descuentoTotal > 0.004 && (
+                <>
+                  <div className="text-gray-400">Bruto: {fmt(bruto)}</div>
+                  <div className="text-emerald-700 font-bold">Descuento: −{fmt(descuentoTotal)}</div>
+                </>
+              )}
               <div className="text-gray-500">Subtotal: <b className="text-gray-800">{fmt(subtotal)}</b></div>
               <div className="text-gray-500">IVA: <b className="text-gray-800">{fmt(tax)}</b></div>
               <div className="text-lg font-black text-gray-900">Total: {fmt(subtotal + tax)}</div>
