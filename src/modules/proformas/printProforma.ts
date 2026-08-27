@@ -2,6 +2,22 @@ import type { Proforma } from '@/services/proformas/proformasService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/**
+ * Lo que se rebajó en una línea.
+ *
+ * El descuento por línea puede venir en plata o en porcentaje; se resuelve a
+ * plata para poder mostrarlo. Sin esta columna la cotización solo muestra un
+ * precio más bajo y el cliente no ve la rebaja que se le hizo, que es
+ * justamente el argumento de venta.
+ */
+const lineaDesc = (it: { quantity: number; unit_price: number; discount_amount?: number; discount_percent?: number }) => {
+  const bruto = Number(it.quantity || 0) * Number(it.unit_price || 0);
+  const monto = Number(it.discount_amount ?? 0);
+  if (monto > 0.004) return monto;
+  const pct = Number(it.discount_percent ?? 0);
+  return pct > 0 ? Math.round(bruto * pct) / 100 : 0;
+};
+
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m] as string));
 
 /** Imprime la proforma como documento NO fiscal (ventana del navegador).
@@ -18,13 +34,22 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
     } catch { /* sin logo */ }
   }
 
-  const rows = (p.items ?? []).map(it => `
+  const hayDescLinea = (p.items ?? []).some(it => lineaDesc(it) > 0.004);
+
+  const rows = (p.items ?? []).map(it => {
+    const bruto = Number(it.quantity || 0) * Number(it.unit_price || 0);
+    const desc = lineaDesc(it);
+    return `
     <tr>
       <td>${esc(it.name)}</td>
       <td style="text-align:center">${it.quantity}</td>
       <td style="text-align:right">${fmt(it.unit_price)}</td>
-      <td style="text-align:right">${fmt(it.quantity * it.unit_price)}</td>
-    </tr>`).join('');
+      ${hayDescLinea ? `<td style="text-align:right;color:#b45309">${desc > 0.004 ? `-${fmt(desc)}` : '—'}</td>` : ''}
+      <td style="text-align:right">${fmt(bruto - desc)}</td>
+    </tr>`;
+  }).join('');
+
+  const descGeneral = Number((p as any).discount_amount ?? 0);
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.number ?? 'Proforma')}</title>
   <style>
@@ -52,10 +77,11 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
     <div class="meta">Fecha: ${new Date(p.created_at).toLocaleDateString('es-CR')}${p.valid_until ? ` &nbsp;·&nbsp; Vigencia: ${new Date(p.valid_until + 'T00:00:00').toLocaleDateString('es-CR')}` : ''}</div>
     <div class="meta">Cliente: ${esc(p.customer_name || 'Cliente de contado')}${p.customer_identification ? ` &nbsp;·&nbsp; ${esc(p.customer_identification)}` : ''}</div>
     <table>
-      <thead><tr><th>Producto</th><th style="text-align:center">Cant.</th><th style="text-align:right">Precio</th><th style="text-align:right">Total</th></tr></thead>
+      <thead><tr><th>Producto</th><th style="text-align:center">Cant.</th><th style="text-align:right">Precio</th>${hayDescLinea ? '<th style="text-align:right">Desc.</th>' : ''}<th style="text-align:right">Total</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="tot">
+      ${descGeneral > 0.004 ? `<div class="row" style="color:#b45309;font-weight:700">Descuento${p.discount_percent ? ` (${p.discount_percent}%)` : ''}: -${fmt(descGeneral)}</div>` : ''}
       <div class="row">Subtotal: ${fmt(p.subtotal)}</div>
       <div class="row">IVA: ${fmt(p.tax)}</div>
       <div class="grand">Total: ${fmt(p.total)}</div>
@@ -78,12 +104,18 @@ export async function printProformaTicket(p: Proforma, tenantId: string): Promis
     invoiceNumber: p.number ?? 'PROFORMA',
     date: now.toLocaleDateString('es-CR'),
     time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+    // El subtotal de cada línea va YA rebajado, y el descuento general se
+    // muestra aparte. En el tiquete no había ni rastro del descuento: el
+    // cliente leía precios más bajos sin saber que se le hizo una rebaja.
     items: (p.items ?? []).map(it => ({
-      name: it.name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: it.quantity * it.unit_price,
+      name: it.name, quantity: it.quantity, unitPrice: it.unit_price,
+      subtotal: (it.quantity * it.unit_price) - lineaDesc(it),
     })),
     subtotal: p.subtotal,
     tax: p.tax,
     total: p.total,
+    discount: Number((p as any).discount_amount ?? 0) || undefined,
+    discountLabel: p.discount_percent ? `Descuento (${p.discount_percent}%)` : 'Descuento',
     paymentMethod: 'PROFORMA',
     customerName: p.customer_name ?? undefined,
     copyLabel: 'PROFORMA - NO ES FACTURA',
