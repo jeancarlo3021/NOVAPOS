@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Loader2, Trash2, Plus, Minus, AlertCircle, CheckCircle2, User, Home, Search, X, Receipt, CalendarDays, FileText, MapPin, Boxes } from 'lucide-react';
+import { Send, Loader2, Trash2, Plus, Minus, AlertCircle, CheckCircle2, User, Home, Search, X, Receipt, CalendarDays, FileText, MapPin, Boxes, Pencil } from 'lucide-react';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
 import { usePOSLayout } from '@/hooks/usePOSLayout';
 import { useFeReady, type DocumentType } from '@/hooks/POS/useFeReady';
@@ -8,9 +8,11 @@ import { POSCustomerSearch } from '@/modules/pos/POSCustomerSearch';
 import { PosShortcutsHint } from '@/modules/pos/PosShortcutsHint';
 import type { Customer } from '@/services/customers/customersService';
 import { POSProductsPanel } from '@/modules/pos/POSProducts';
+import { ProductForm } from '@/modules/inventory/products/ProductsForm';
 import type { Product, CashSession } from '@/types/Types_POS';
 import { proformasService, type Proforma } from '@/services/proformas/proformasService';
 import { customersService } from '@/services/customers/customersService';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { productKitsService, type ProductKit } from '@/services/Inventory/productKitsService';
 import {
   salesAgentsService, agentOrdersService,
@@ -37,6 +39,7 @@ export const AgentOrderPOS: React.FC = () => {
   const {
     products, filteredProducts, searchTerm, setSearchTerm,
     loading: productsLoading, error: productsError,
+    refetch: refetchProducts,
   } = usePOSProducts();
 
   const [cart, setCart] = useState<AgentOrderItem[]>([]);
@@ -74,6 +77,18 @@ export const AgentOrderPOS: React.FC = () => {
   useEffect(() => {
     productKitsService.list().then(setKits).catch(() => setKits([]));
   }, []);
+
+  /**
+   * Producto que el agente está corrigiendo.
+   *
+   * En la calle el agente es quien descubre que un precio está mal o que falta
+   * un código: antes tenía que anotarlo y pedirle a alguien en la oficina que lo
+   * arreglara, y mientras tanto seguía vendiendo con el dato viejo.
+   */
+  const [editProductId, setEditProductId] = useState<string | null>(null);
+  // El permiso manda: si el negocio no se lo concedió al rol, el botón no está.
+  const { canDo, isOwnerOrAdmin } = useRolePermissions();
+  const canEditProducts = isOwnerOrAdmin || canDo('inventory', 'edit');
 
   const [zones, setZones] = useState<string[]>([]);
   useEffect(() => {
@@ -441,6 +456,20 @@ export const AgentOrderPOS: React.FC = () => {
         </div>
       </div>
 
+      {editProductId && (
+        <ProductForm
+          productId={editProductId}
+          onSuccess={() => {
+            setEditProductId(null);
+            // Se recarga el catálogo para que el precio corregido entre en el
+            // pedido que está armando, no en el siguiente.
+            refetchProducts();
+            setMsg({ kind: 'ok', text: 'Producto actualizado' });
+          }}
+          onCancel={() => setEditProductId(null)}
+        />
+      )}
+
       {showProformas && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-start justify-center p-0 sm:p-4 sm:pt-16"
           onClick={() => setShowProformas(false)}>
@@ -589,7 +618,14 @@ export const AgentOrderPOS: React.FC = () => {
                             onChange={e => setQty(i, Number(e.target.value) || 0)}
                             onFocus={e => e.currentTarget.select()}
                             className="w-20 text-center text-base font-bold border border-gray-200 rounded-lg px-1 py-1.5" />
-                          <button onClick={() => setQty(i, it.quantity + 1)}
+                          {it.product_id && canEditProducts && (
+                        <button onClick={() => setEditProductId(it.product_id!)}
+                          title="Corregir este producto (precio, código, CABYS)"
+                          className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50">
+                          <Pencil size={13} />
+                        </button>
+                      )}
+                      <button onClick={() => setQty(i, it.quantity + 1)}
                             className="w-9 h-9 rounded-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50">
                             <Plus size={15} />
                           </button>
