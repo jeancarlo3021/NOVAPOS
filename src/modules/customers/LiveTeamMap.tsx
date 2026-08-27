@@ -19,6 +19,8 @@ interface LivePos {
   driver_id: string | null;
   driver_name: string;
   is_person?: boolean;
+  /** 'agente' | 'repartidor' — para rotular el pin con el oficio, no con el nombre a secas. */
+  person_role?: string;
   lat: number; lng: number;
   speed?: number | null; accuracy?: number | null; battery?: number | null;
   recorded_at: string;
@@ -97,17 +99,23 @@ export const LiveTeamMap: React.FC = () => {
     for (const p of people) {
       const min = Math.round((Date.now() - new Date(p.recorded_at).getTime()) / 60000);
       const viejo = min > 10;
+      const esAgente = p.person_role === 'agente';
+      // Verde = agente de venta, azul = repartidor/camión, gris = sin señal
+      // reciente. Sin el color y el oficio, la oficina no distinguía quién era
+      // quién y todos los pines parecían lo mismo.
+      const color = viejo ? '#9ca3af' : esAgente ? '#16a34a' : '#2563eb';
+      const oficio = esAgente ? 'Agente de venta' : p.is_person ? 'Repartidor' : 'Camión';
       const icon = L.divIcon({
         className: '',
         html: `<div style="
-          background:${viejo ? '#9ca3af' : '#2563eb'};color:#fff;border:2px solid #fff;
+          background:${color};color:#fff;border:2px solid #fff;
           border-radius:9999px;padding:3px 8px;font-size:11px;font-weight:800;
           box-shadow:0 1px 4px rgba(0,0,0,.35);white-space:nowrap">
           ${p.driver_name}</div>`,
         iconAnchor: [30, 12],
       });
       L.marker([p.lat, p.lng], { icon }).addTo(capa).bindPopup(
-        `<b>${p.driver_name}</b>`
+        `<b>${p.driver_name}</b><br/>${oficio}`
         + (p.is_person ? '' : `<br/>${p.truck_name}`)
         + `<br/>Hace ${min < 1 ? 'menos de un minuto' : `${min} min`}`
         + (p.speed != null ? `<br/>${Math.round(p.speed)} km/h` : '')
