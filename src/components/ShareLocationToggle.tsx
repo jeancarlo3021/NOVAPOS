@@ -17,8 +17,12 @@ export const ShareLocationToggle: React.FC = () => {
   const [on, setOn] = useState(shareLocation.isOn());
 
   useEffect(() => {
-    // Si quedó encendido de antes, se retoma al abrir la app.
-    if ((planFeatures as any)?.tracking) shareLocation.resumeIfWasOn();
+    // Si quedó encendido de antes, se retoma al abrir la app. Compartir ubicación
+    // no es solo de distribución: los agentes de venta salen en el mismo mapa, y
+    // exigir la bandera de rastreo dejaba la píldora muerta para ellos.
+    const pf = planFeatures as any;
+    const puede = pf?.tracking || pf?.sales_agents || pf?.distribution || pf?.customers !== false;
+    if (puede) void shareLocation.resumeIfWasOn();
     setOn(shareLocation.isOn());
     const off = shareLocation.subscribe(setOn);
     return () => { off(); };

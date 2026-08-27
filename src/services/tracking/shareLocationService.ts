@@ -53,7 +53,28 @@ function pushActual() {
   );
 }
 
+/**
+ * ¿El navegador ya tiene el permiso concedido, sin volver a preguntar?
+ *
+ * 'granted' = concedido para siempre en este sitio.
+ * 'prompt'  = va a mostrar el cartelito en cuanto se pida la posición.
+ * 'denied'  = bloqueado.
+ * null      = el navegador no sabe responder (Safari viejo): no se puede
+ *             averiguar sin preguntar de verdad.
+ */
+async function estadoPermiso(): Promise<'granted' | 'prompt' | 'denied' | null> {
+  try {
+    const p: any = (navigator as any).permissions;
+    if (!p?.query) return null;
+    const r = await p.query({ name: 'geolocation' });
+    return r.state;
+  } catch { return null; }
+}
+
 export const shareLocation = {
+  /** Estado del permiso, para que la pantalla explique en vez de adivinar. */
+  permissionState: estadoPermiso,
+
   /** ¿Este dispositivo puede compartir ubicación? */
   isSupported: () => typeof navigator !== 'undefined' && !!navigator.geolocation,
 
@@ -109,9 +130,25 @@ export const shareLocation = {
     notify(false);
   },
 
-  /** Al abrir la app: si quedó encendido, se retoma sin preguntar de nuevo. */
-  resumeIfWasOn() {
-    if (shareLocation.wasOn() && watchId == null) void shareLocation.start();
+  /**
+   * Al abrir la app: si quedó encendido, se retoma — pero SIN provocar el cartel
+   * del permiso.
+   *
+   * Antes se llamaba a `start()` a ciegas en cada arranque, y en los navegadores
+   * donde el permiso quedó en «preguntar» (o el usuario eligió «permitir solo
+   * esta vez») eso disparaba el aviso de ubicación cada santa vez que se entraba
+   * a la app, aunque en los ajustes estuviera puesto «siempre».
+   *
+   * Con el permiso ya concedido se retoma solo y en silencio, que es lo que se
+   * espera. Si está en «preguntar», se deja apagado hasta que la persona lo
+   * encienda a mano: ahí el cartel tiene sentido porque ella lo pidió.
+   */
+  async resumeIfWasOn() {
+    if (!shareLocation.wasOn() || watchId != null) return;
+    const estado = await estadoPermiso();
+    if (estado === 'denied') { shareLocation.stop(); return; }
+    if (estado === 'prompt') return;   // no molestar: se enciende a mano
+    void shareLocation.start();        // 'granted' o navegador que no informa
   },
 
   /** Avisa cuando se enciende o se apaga (para pintar el indicador). */

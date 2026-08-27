@@ -235,12 +235,20 @@ export const DemoRequestsDashboard: React.FC = () => {
                       {r.demo_password && <span className="text-gray-400"> · {r.demo_password}</span>}
                       {!r.demo_tenant_id && (
                         <span className="block text-[10px] font-bold text-amber-700">
-                          Todavía no sirve para entrar: falta crear la demo.
+                          Todavía no sirve para entrar: tocá «Crear demo» abajo.
                         </span>
                       )}
                     </span>
                     <button
                       onClick={() => {
+                        // Antes de armar la demo, el usuario NO existe todavía en el
+                        // sistema: mandarlo termina en «credenciales erróneas» del
+                        // lado del cliente y en una llamada al vendedor. El aviso en
+                        // pantalla no alcanzaba porque el texto copiado no lo lleva.
+                        if (!r.demo_tenant_id) {
+                          setMsg({ kind: 'err', text: 'Armá la demo primero: ese usuario todavía no existe y no va a poder entrar.' });
+                          return;
+                        }
                         const txt = `Acceso de prueba NovaPOS\nUsuario: ${r.demo_user}`
                           + (r.demo_password ? `\nClave: ${r.demo_password}` : '')
                           + (r.expires_on ? `\nVence: ${day(r.expires_on)}` : ` \nPrueba de ${r.days} días`);
@@ -248,11 +256,16 @@ export const DemoRequestsDashboard: React.FC = () => {
                           .then(() => setMsg({ kind: 'ok', text: 'Credenciales copiadas' }))
                           .catch(() => {});
                       }}
-                      title="Copiar para mandárselas al cliente"
-                      className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-white">
+                      title={r.demo_tenant_id
+                        ? 'Copiar para mandárselas al cliente'
+                        : 'Primero hay que crear la demo'}
+                      className={`p-1.5 rounded-lg border ${r.demo_tenant_id
+                        ? 'border-gray-200 text-gray-500 hover:bg-white'
+                        : 'border-gray-200 text-gray-300 cursor-not-allowed'}`}>
                       <Copy size={12} />
                     </button>
-                    {wa && (
+                    {/* Solo con la demo ya creada: mandar antes es mandar un acceso muerto. */}
+                    {wa && r.demo_tenant_id && (
                       <a
                         href={`https://wa.me/${wa}?text=${encodeURIComponent(
                           `Acceso de prueba NovaPOS\nUsuario: ${r.demo_user}`

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Inbox, Loader2, CreditCard, Ban, RotateCcw, Clock, User, AlertCircle, CheckCircle2,
   LockKeyhole, Unlock, ArrowDownCircle, ArrowUpCircle, RefreshCw, Home, Receipt,
-  CalendarDays, ChevronLeft, ChevronRight, Pencil,
+  CalendarDays, ChevronLeft, ChevronRight, Pencil, Mail, Send, X,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -15,6 +15,7 @@ import { CashMovementModal } from '@/modules/pos/cashManagement/CashMovementModa
 import { PaymentConfirmationModal, type PaymentData } from '@/modules/pos/cashManagement/PaymentConfirmationModal';
 import { invoicesService } from '@/services/invoice/invoiceService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
+import { invoiceEmail } from '@/services/email/invoiceEmailService';
 import { agentOrdersService, type AgentOrder } from '@/services/agents/salesAgentsService';
 import { OrderItemsEditor } from './OrderItemsEditor';
 import { ChargePrepModal } from './ChargePrepModal';
@@ -72,6 +73,10 @@ export const CashierDesk: React.FC = () => {
   const [movement, setMovement] = useState<'in' | 'out' | null>(null);
   /** Pedido que se está cobrando (abre el modal de pago). */
   const [charging, setCharging] = useState<AgentOrder | null>(null);
+  /** Última factura cobrada, para ofrecer mandarla por correo. */
+  const [ultimaFactura, setUltimaFactura] = useState<{ id: string; numero: string; correo: string } | null>(null);
+  const [correoDestino, setCorreoDestino] = useState('');
+  const [enviandoCorreo, setEnviandoCorreo] = useState(false);
   const [editing, setEditing] = useState<AgentOrder | null>(null);
   // Paso previo al cobro: confirmar comprobante, IVA y datos del cliente. El
   // pedido del agente viene sin impuesto y muchas veces sin cédula, y ambas
@@ -232,6 +237,16 @@ export const CashierDesk: React.FC = () => {
           });
       }
 
+      // Se guarda la última factura para poder mandarla por correo después de
+      // cobrada: el cliente casi siempre lo pide justo cuando ya se cerró todo.
+      if ((invoice as any)?.id) {
+        setUltimaFactura({
+          id: String((invoice as any).id),
+          numero: invoice?.invoice_number ?? charging.number ?? '',
+          correo: charging.customer_email ?? '',
+        });
+      }
+
       setCharging(null);
       setMsg({ kind: 'ok', text: `Pedido ${charging.number ?? ''} cobrado — factura ${invoice?.invoice_number ?? ''}` });
       await load();
@@ -239,6 +254,25 @@ export const CashierDesk: React.FC = () => {
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'No se pudo cobrar' });
     } finally { setPaying(false); }
+  };
+
+  /** Manda el comprobante recién cobrado al correo del cliente. */
+  const enviarPorCorreo = async () => {
+    if (!ultimaFactura) return;
+    const to = (correoDestino || ultimaFactura.correo).trim();
+    if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      setMsg({ kind: 'err', text: 'Escribí un correo válido para mandarle la factura.' });
+      return;
+    }
+    setEnviandoCorreo(true);
+    try {
+      await invoiceEmail.send(ultimaFactura.id, to);
+      setMsg({ kind: 'ok', text: `Factura ${ultimaFactura.numero} enviada a ${to}` });
+      setUltimaFactura(null);
+      setCorreoDestino('');
+    } catch (e) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'No se pudo enviar el correo' });
+    } finally { setEnviandoCorreo(false); }
   };
 
   const release = async (o: AgentOrder) => {
@@ -431,6 +465,35 @@ export const CashierDesk: React.FC = () => {
           msg.kind === 'ok' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
                             : 'bg-red-50 border border-red-200 text-red-700'}`}>
           {msg.kind === 'ok' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />} {msg.text}
+        </div>
+      )}
+
+      {/* Mandar la factura por correo, ya cobrada.
+          Aparece SOLO después de cobrar y se puede ignorar: la mayoría de los
+          clientes se va con el tiquete, pero al que lo pide había que decirle
+          que no se podía. El correo viene de la ficha si ya estaba. */}
+      {ultimaFactura && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex flex-wrap items-center gap-2">
+          <Mail size={16} className="text-blue-600 shrink-0" />
+          <span className="text-sm font-bold text-blue-900">
+            Factura {ultimaFactura.numero}: ¿mandarla por correo?
+          </span>
+          <input
+            type="email" inputMode="email" autoComplete="email"
+            value={correoDestino || ultimaFactura.correo}
+            onChange={e => setCorreoDestino(e.target.value)}
+            placeholder="correo@delcliente.com"
+            className="flex-1 min-w-[180px] px-3 py-1.5 rounded-lg border border-blue-200 text-sm font-semibold"
+          />
+          <button onClick={() => void enviarPorCorreo()} disabled={enviandoCorreo}
+            className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60
+                       text-white text-sm font-black flex items-center gap-1.5">
+            {enviandoCorreo ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Enviar
+          </button>
+          <button onClick={() => { setUltimaFactura(null); setCorreoDestino(''); }}
+            title="No hace falta" className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-100">
+            <X size={15} />
+          </button>
         </div>
       )}
 

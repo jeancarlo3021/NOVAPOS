@@ -42,6 +42,8 @@ export interface AgentOrder {
   customer_id?: string | null;
   customer_name?: string | null;
   customer_phone?: string | null;
+  /** Correo del cliente, para mandarle el comprobante desde la caja. */
+  customer_email?: string | null;
   notes?: string | null;
   /** Comprobante que pidió el cliente, elegido por el agente. */
   document_type?: 'ticket' | 'tiquete_electronico' | 'factura_electronica';

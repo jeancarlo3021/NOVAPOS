@@ -60,6 +60,10 @@ export const LiveTeamMap: React.FC = () => {
   /** El encuadre automático se hace UNA vez: después manda lo que mueva el usuario. */
   const encuadrado = useRef(false);
   const [ultimo, setUltimo] = useState<Date | null>(null);
+  /** 'prompt' = el navegador va a preguntar de nuevo en cada arranque. */
+  const [permiso, setPermiso] = useState<'granted' | 'prompt' | 'denied' | null>(null);
+
+  useEffect(() => { void shareLocation.permissionState().then(setPermiso); }, [sharing]);
 
   // ── Mapa ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -225,6 +229,22 @@ export const LiveTeamMap: React.FC = () => {
           </span>
         )}
       </div>
+
+      {/* Permiso «solo esta vez»: la app no puede retomar sola y hay que volver a
+          encenderlo cada vez. Se explica dónde se arregla, en el navegador. */}
+      {!sharing && permiso === 'prompt' && shareLocation.wasOn() && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs font-bold text-amber-800">
+          Tu navegador pide permiso de ubicación cada vez que entrás. Para que no
+          vuelva a preguntar, tocá el candado 🔒 al lado de la dirección → Ubicación →
+          <span className="font-black"> Permitir</span>. Mientras tanto, encendelo acá cada vez.
+        </div>
+      )}
+      {permiso === 'denied' && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-xs font-bold text-red-800">
+          La ubicación está bloqueada para este sitio. Tocá el candado 🔒 al lado de
+          la dirección → Ubicación → Permitir, y recargá.
+        </div>
+      )}
 
       {sharing && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 text-xs font-bold text-blue-800 flex items-center gap-2">

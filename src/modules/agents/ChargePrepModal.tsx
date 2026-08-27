@@ -134,6 +134,9 @@ export const ChargePrepModal: React.FC<{
         customer_id: customerId,
         customer_name: payload.name,
         customer_phone: payload.phone,
+        // Viaja hasta la caja: es lo que permite ofrecer «mandar la factura por
+        // correo» apenas se cobra, sin volver a pedirle el dato al cliente.
+        customer_email: payload.email,
         total: finalTotal,
         items: order.items.map(it => ({
           ...it,
