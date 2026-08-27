@@ -203,7 +203,19 @@ export async function apiFetch<T = unknown>(
       throw err;
     }
 
-    return body.data as T;
+    /**
+     * Respuesta sin envoltorio: se devuelve tal cual.
+     *
+     * Casi todos los endpoints contestan `{ success, data }`, pero unos cuantos
+     * devuelven el objeto directo — los que reenvían la respuesta de un servicio
+     * externo (el worker de WhatsApp, por ejemplo). Devolver `body.data` a ciegas
+     * les entregaba `undefined` a quienes llamaban, y reventaban con «Cannot read
+     * properties of undefined» en vez de mostrar el resultado.
+     *
+     * Se pregunta por la LLAVE, no por el valor: un `data: null` a propósito
+     * («no hay nada») tiene que seguir llegando como null, no como el sobre.
+     */
+    return (body && typeof body === 'object' && 'data' in body ? body.data : body) as T;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw error;
