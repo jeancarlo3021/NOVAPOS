@@ -48,6 +48,8 @@ interface NavItem {
    *  Se usa para separaciones de función que no son "permiso" sino diseño del
    *  flujo: el cajero no arma ventas y el agente no cobra. */
   hideForRoles?: UserRole[];
+  /** Banderas alternativas: con cualquiera de ellas el ítem también aparece. */
+  alsoIf?: string[];
 }
 
 interface NavGroup {
@@ -94,7 +96,10 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Caja',               to: '/caja',          icon: Inbox,     feature: 'cashier_desk', module: 'caja',         hideForRoles: ['agente'] },
       { name: 'Nuevo pedido',       to: '/agent-orders',  icon: Send,      feature: 'agent_orders', module: 'agent_orders', hideForRoles: ['cajero'] },
       { name: 'Demos',              to: '/demos',         icon: MonitorPlay, feature: 'demo_requests', module: 'customers' },
-      { name: 'Equipo en vivo',     to: '/equipo-en-vivo', icon: Users2,    feature: 'tracking',  module: 'tracking' },
+      // El mapa del equipo sirve tanto a camiones como a agentes de venta: si se
+      // exige solo `tracking`, queda escondido para quien comparte ubicación desde
+      // clientes o agentes.
+      { name: 'Equipo en vivo',     to: '/equipo-en-vivo', icon: Users2,    feature: 'tracking',  module: 'tracking', alsoIf: ['customers', 'sales_agents', 'distribution'] },
       { name: 'Activar ubicación',  to: '/activar-ubicacion', icon: Navigation, feature: 'customers', module: 'customers' },
       { name: 'Ubicaciones',        to: '/ubicaciones',   icon: Crosshair, feature: 'customers', module: 'customers' },
       { name: 'Leads',              to: '/seguimiento',   icon: TrendingUp, feature: 'crm_leads', module: 'customers' },
@@ -197,14 +202,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
     // 1. El plan debe incluir la feature (salvo 'always')
     if (feature !== 'always') {
       const planHas = (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
-      if (!planHas) return false;
+      const planAlso = (item.alsoIf ?? []).some(f => planFeatures[f as keyof PlanFeatures] === true);
+      if (!planHas && !planAlso) return false;
     }
     // 2. Separación de funciones por rol. Es un valor por defecto: si el dueño
     //    le concedió el módulo a ese rol en Usuarios → Roles, eso manda.
     if (item.hideForRoles?.includes(user?.role as UserRole)
         && !(item.module && isExplicitlyGranted(item.module))) return false;
     // 3. El rol del usuario debe tener acceso al módulo (si está declarado)
-    if (module) return canAccess(module);
+    if (module) {
+      return canAccess(module)
+        || (item.alsoIf ?? []).some(f => planFeatures[f as keyof PlanFeatures] === true && canAccess(f));
+    }
     return true;
   };
 

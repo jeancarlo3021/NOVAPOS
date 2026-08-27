@@ -5,13 +5,24 @@ import type { PlanFeatures } from '@/context/AuthContext';
 
 interface PlanGuardProps {
   feature: keyof PlanFeatures;
+  /**
+   * Banderas alternativas: basta UNA para abrir el módulo.
+   *
+   * Sirve para pantallas que sirven a dos módulos a la vez — el mapa del equipo
+   * vale igual para distribución (camiones) que para clientes (agentes de
+   * venta), y exigirle solo la bandera de rastreo lo dejaba escondido en
+   * negocios que sí compartían ubicación.
+   */
+  anyOf?: Array<keyof PlanFeatures>;
   children: React.ReactNode;
 }
 
-export const PlanGuard: React.FC<PlanGuardProps> = ({ feature, children }) => {
+export const PlanGuard: React.FC<PlanGuardProps> = ({ feature, anyOf, children }) => {
   const { planFeatures, planName } = useAuth();
 
-  if (planFeatures[feature]) return <>{children}</>;
+  const permitido = planFeatures[feature]
+    || (anyOf ?? []).some(f => planFeatures[f]);
+  if (permitido) return <>{children}</>;
 
   return (
     <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-6 p-8">

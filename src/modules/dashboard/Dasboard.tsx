@@ -41,6 +41,8 @@ interface Tile {
   bg: string; // gradient classes
   /** Roles que NO ven este botón (separación de funciones, no permisos). */
   hideForRoles?: string[];
+  /** Banderas alternativas: con cualquiera de ellas el botón también aparece. */
+  alsoIf?: string[];
 }
 
 const ALL_TILES: Tile[] = [
@@ -63,9 +65,12 @@ const ALL_TILES: Tile[] = [
   // Flujo agente → caja. Cada rol ve solo el suyo (ver `hideForRoles` abajo).
   { feature: 'cashier_desk',     label: 'Caja',            icon: Inbox,         path: '/caja',             bg: 'from-emerald-600 to-teal-700',  hideForRoles: ['agente'] },
   { feature: 'agent_orders',     label: 'Nuevo pedido',    icon: Send,          path: '/agent-orders',     bg: 'from-sky-500 to-blue-600',      hideForRoles: ['cajero'] },
-  { feature: 'tracking',         label: 'Equipo en vivo',  icon: Users,         path: '/equipo-en-vivo',   bg: 'from-blue-500 to-indigo-600' },
+  // Ver al equipo en el mapa no depende solo del rastreo de camiones: el mismo
+  // mapa muestra a los agentes de venta. Atado únicamente a `tracking`, el botón
+  // no salía y solo quedaba el mapa de clientes, que es otra cosa.
+  { feature: 'tracking',         label: 'Equipo en vivo',  icon: Users,         path: '/equipo-en-vivo',   bg: 'from-blue-500 to-indigo-600', alsoIf: ['customers', 'sales_agents', 'distribution'] },
   { feature: 'customers',        label: 'Activar ubicación', icon: Navigation,  path: '/activar-ubicacion', bg: 'from-teal-500 to-emerald-600' },
-  { feature: 'customers',        label: 'Ubicaciones',     icon: Crosshair,     path: '/ubicaciones',      bg: 'from-emerald-500 to-green-600' },
+  { feature: 'customers',        label: 'Mapa de clientes', icon: Crosshair,    path: '/ubicaciones',      bg: 'from-emerald-500 to-green-600' },
   { feature: 'demo_requests',    label: 'Demos',           icon: MonitorPlay,   path: '/demos',            bg: 'from-indigo-500 to-blue-600' },
   { feature: 'crm_leads',        label: 'Leads',           icon: TrendingUp,    path: '/seguimiento',      bg: 'from-fuchsia-500 to-purple-600' },
   { feature: 'warranties',       label: 'Garantías',       icon: ShieldCheck,   path: '/garantias',        bg: 'from-cyan-500 to-teal-600' },
@@ -248,11 +253,16 @@ export const Dashboard = () => {
       // Inventario: mostrar aunque solo esté activado "solo productos".
       : t.feature === 'inventory' ? (!!pf.inventory || !!pf.inventory_products_only)
       : (pf[t.feature as keyof PlanFeatures] ?? false));
-    if (!planHas) return false;
+    const planAlso = (t.alsoIf ?? []).some(f => !!pf[f as keyof PlanFeatures]);
+    if (!planHas && !planAlso) return false;
     // Mapear feature → módulo de role_permissions. Si no hay mapeo, no se gatea.
     const moduleKey = t.feature === 'settings' ? null : t.feature;
     if (!moduleKey) return true;
-    return canAccess(moduleKey as string);
+    // Con banderas alternativas, cualquiera de los módulos permitidos alcanza:
+    // el agente de venta tiene permiso de «clientes», no de «rastreo», y sin
+    // esto el mapa del equipo le seguía quedando escondido.
+    return canAccess(moduleKey as string)
+      || (t.alsoIf ?? []).some(f => !!pf[f as keyof PlanFeatures] && canAccess(f));
   });
 
   // Si el POS está desactivado, Distribución y Repartidor van de primero.

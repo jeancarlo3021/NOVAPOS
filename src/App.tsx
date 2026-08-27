@@ -234,7 +234,7 @@ function AppContent() {
               {/* RUTA DEL DÍA: lo que le toca entregar a cada responsable. */}
               {/* EQUIPO EN VIVO: dónde anda cada quien, como el mapa de camiones. */}
               <Route path="/equipo-en-vivo" element={
-                <PlanGuard feature="tracking"><LiveTeamMap /></PlanGuard>
+                <PlanGuard feature="tracking" anyOf={['customers', 'sales_agents', 'distribution']}><LiveTeamMap /></PlanGuard>
               } />
               {/* ACTIVAR UBICACIÓN: encender el GPS y ubicar al cliente desde su local. */}
               <Route path="/activar-ubicacion" element={
