@@ -77,12 +77,10 @@ const ALL_TILES: Tile[] = [
   // Flujo agente → caja. Cada rol ve solo el suyo (ver `hideForRoles` abajo).
   { feature: 'cashier_desk',     label: 'Caja',            icon: Inbox,         path: '/caja',             bg: 'from-emerald-600 to-teal-700',  hideForRoles: ['agente'] },
   { feature: 'agent_orders',     label: 'Nuevo pedido',    icon: Send,          path: '/agent-orders',     bg: 'from-sky-500 to-blue-600',      hideForRoles: ['cajero'] },
-  // Ver al equipo en el mapa no depende solo del rastreo de camiones: el mismo
-  // mapa muestra a los agentes de venta. Atado únicamente a `tracking`, el botón
-  // no salía y solo quedaba el mapa de clientes, que es otra cosa.
-  { feature: 'tracking',         label: 'Equipo en vivo',  icon: Users,         path: '/equipo-en-vivo',   bg: 'from-blue-500 to-indigo-600', alsoIf: ['customers', 'sales_agents', 'distribution'] },
+  // Bandera propia: hay negocios sin flota que igual quieren ver a sus agentes.
+  // `tracking` sigue valiendo para no romper a quien ya lo tenía activo.
+  { feature: 'live_team',        label: 'Equipo en vivo',  icon: Users,         path: '/equipo-en-vivo',   bg: 'from-blue-500 to-indigo-600', alsoIf: ['tracking'] },
   { feature: 'customers',        label: 'Activar ubicación', icon: Navigation,  path: '/activar-ubicacion', bg: 'from-teal-500 to-emerald-600' },
-  { feature: 'customers',        label: 'Mapa de clientes', icon: Crosshair,    path: '/ubicaciones',      bg: 'from-emerald-500 to-green-600' },
   { feature: 'demo_requests',    label: 'Demos',           icon: MonitorPlay,   path: '/demos',            bg: 'from-indigo-500 to-blue-600' },
   { feature: 'crm_leads',        label: 'Leads',           icon: TrendingUp,    path: '/seguimiento',      bg: 'from-fuchsia-500 to-purple-600' },
   { feature: 'warranties',       label: 'Garantías',       icon: ShieldCheck,   path: '/garantias',        bg: 'from-cyan-500 to-teal-600' },

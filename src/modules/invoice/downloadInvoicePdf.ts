@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { savePdf } from '@/utils/savePdf';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 
@@ -201,37 +202,10 @@ export async function downloadInvoicePdf(d: InvoicePdfData, tenantId?: string | 
 
   const fileName = `${d.invoiceNumber || 'factura'}.pdf`;
 
-  // `doc.save()` dispara una descarga por <a download>. En la app nativa
-  // (Capacitor) y en algunos navegadores embebidos eso se ignora en silencio y
-  // el usuario se queda sin PDF y sin error. Por eso, si la descarga no se
-  // puede confirmar, se abre el PDF en una pestaña: peor experiencia, pero el
-  // documento llega.
-  try {
-    doc.save(fileName);
-  } catch {
-    openInTab(doc, fileName);
-    return;
-  }
-
-  // Navegador embebido (WebView de la app): la descarga no ocurre aunque
-  // `save()` no lance. Se abre igual en pestaña como respaldo.
-  const embedded = /wv|Capacitor|Median|Cordova/i.test(navigator.userAgent)
-    || (window as any).Capacitor?.isNativePlatform?.() === true;
-  if (embedded) openInTab(doc, fileName);
-}
-
-/** Respaldo: abre el PDF en una pestaña nueva para que se pueda guardar o compartir. */
-function openInTab(doc: jsPDF, fileName: string) {
-  try {
-    const url = doc.output('bloburl') as unknown as string;
-    const w = window.open(url, '_blank');
-    if (!w) {
-      // Bloqueador de ventanas emergentes: último recurso, se navega en la misma.
-      window.location.href = url;
-    }
-  } catch (e) {
-    throw new Error(`No se pudo abrir el PDF (${fileName}): ${(e as Error).message}`);
-  }
+  // Dentro de la app de Android la descarga clásica no ocurre (y tampoco lanza
+  // error): `savePdf` sube el archivo y abre el enlace https, que el teléfono sí
+  // sabe descargar. En el navegador de escritorio baja como siempre.
+  await savePdf(doc, fileName);
 }
 
 export default downloadInvoicePdf;

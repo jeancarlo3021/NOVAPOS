@@ -102,10 +102,6 @@ export const LocationCapturePage: React.FC = () => {
           <Crosshair size={20} className="text-emerald-600" /> Activar ubicación
         </span>
         <div className="flex-1" />
-        <button onClick={() => navigate('/ubicaciones')}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 text-gray-700 text-sm font-black hover:bg-gray-50">
-          <MapPin size={15} /> Ver mapa
-        </button>
       </div>
 
       {/* Paso 1: encender el GPS */}

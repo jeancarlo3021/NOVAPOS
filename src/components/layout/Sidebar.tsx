@@ -102,12 +102,8 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Caja',               to: '/caja',          icon: Inbox,     feature: 'cashier_desk', module: 'caja',         hideForRoles: ['agente'] },
       { name: 'Nuevo pedido',       to: '/agent-orders',  icon: Send,      feature: 'agent_orders', module: 'agent_orders', hideForRoles: ['cajero'] },
       { name: 'Demos',              to: '/demos',         icon: MonitorPlay, feature: 'demo_requests', module: 'customers' },
-      // El mapa del equipo sirve tanto a camiones como a agentes de venta: si se
-      // exige solo `tracking`, queda escondido para quien comparte ubicación desde
-      // clientes o agentes.
-      { name: 'Equipo en vivo',     to: '/equipo-en-vivo', icon: Users2,    feature: 'tracking',  module: 'tracking', alsoIf: ['customers', 'sales_agents', 'distribution'] },
+      { name: 'Equipo en vivo',     to: '/equipo-en-vivo', icon: Users2,    feature: 'live_team', module: 'tracking', alsoIf: ['tracking'] },
       { name: 'Activar ubicación',  to: '/activar-ubicacion', icon: Navigation, feature: 'customers', module: 'customers' },
-      { name: 'Ubicaciones',        to: '/ubicaciones',   icon: Crosshair, feature: 'customers', module: 'customers' },
       { name: 'Leads',              to: '/seguimiento',   icon: TrendingUp, feature: 'crm_leads', module: 'customers' },
       { name: 'Garantías',          to: '/garantias',     icon: ShieldCheck, feature: 'warranties', module: 'inventory' },
       { name: 'Entregas del día',   to: '/entregas',      icon: Truck,     feature: 'agent_agenda', module: 'agent_orders' },

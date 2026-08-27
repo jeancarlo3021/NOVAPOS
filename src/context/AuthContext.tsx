@@ -232,6 +232,10 @@ export interface PlanFeatures {
   customer_prices?: boolean;  // Precios personalizados por cliente (activable aparte)
   distribution?: boolean;     // Distribución (rutas de reparto en camión)
   tracking?: boolean;         // Rastreo de camiones en vivo (mapa + ajustes)
+  /** Equipo en vivo: dónde anda cada persona (agentes, repartidores) en el mapa.
+   *  Va aparte del rastreo de camiones: hay negocios sin flota que igual quieren
+   *  ver a sus agentes, y flotas que no comparten la ubicación de la gente. */
+  live_team?: boolean;
   tables?: boolean;
   /** Módulo de restaurante: cobro por mesas, toma de pedido full-screen,
    *  adicionales/modificadores, dividir cuenta y comandas. */
@@ -382,6 +386,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   customers: true,
   distribution: true,
   tracking: false,
+  live_team: false,
   promotions: false,
   labels: false,
   tables: false,
@@ -475,6 +480,7 @@ export const FULL_FEATURES: PlanFeatures = {
   customers: true,
   distribution: true,
   tracking: true,
+  live_team: true,
   promotions: true,
   labels: true,
   tables: true,

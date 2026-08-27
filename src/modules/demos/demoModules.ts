@@ -55,6 +55,7 @@ export const DEMO_GROUPS: Array<{ group: string; modules: DemoModule[] }> = [
     modules: [
       { key: 'distribution', label: 'Distribución / rutas' },
       { key: 'tracking', label: 'Rastreo de camiones' },
+      { key: 'live_team', label: 'Equipo en vivo (agentes en el mapa)' },
       { key: 'sales_agents', label: 'Agentes de venta' },
       { key: 'agent_orders', label: 'Nuevo pedido (agente)' },
       { key: 'cashier_desk', label: 'Caja de pedidos' },

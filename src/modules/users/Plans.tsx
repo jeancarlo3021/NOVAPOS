@@ -9,6 +9,7 @@ import {
   Shield, CalendarDays, History,
   FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing, UserCheck, Undo2,
   Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes, Send, Inbox, Calculator,
+  Users2,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { apiFetch } from '@/lib/api';
@@ -1096,6 +1097,9 @@ export default function Plans() {
                     description="Rutas de reparto en camión + app de repartidor" checked={features.distribution ?? false} onChange={v => set({ distribution: v })} />
                   <FeatureRow icon={Truck} color="bg-emerald-500" title="Rastreo de camiones"
                     description="Mapa en vivo + ajustes del rastreador GPS" checked={features.tracking ?? false} onChange={v => set({ tracking: v })} />
+                  <FeatureRow icon={Users2} color="bg-blue-500" title="Equipo en vivo"
+                    description="Dónde anda cada agente o repartidor, y compartir la propia ubicación"
+                    checked={features.live_team ?? false} onChange={v => set({ live_team: v })} />
                 </section>
 
                 {/* ── Reportes ── */}

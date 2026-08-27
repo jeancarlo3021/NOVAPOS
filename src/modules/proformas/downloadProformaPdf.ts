@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import type { Proforma } from '@/services/proformas/proformasService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
+import { savePdf } from '@/utils/savePdf';
 
 const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -110,5 +111,7 @@ export async function downloadProformaPdf(p: Proforma, tenantId?: string | null)
   doc.setFontSize(9); doc.setTextColor(156, 163, 175);
   doc.text('Documento no fiscal. Precios sujetos a cambio según vigencia.', M, Math.min(y, 820));
 
-  doc.save(`${p.number ?? 'proforma'}.pdf`);
+  // `savePdf` y no `doc.save()`: adentro de la app de Android la descarga
+  // clásica no hace nada y la proforma nunca llegaba al cliente.
+  await savePdf(doc, `${p.number ?? 'proforma'}.pdf`);
 }
