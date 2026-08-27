@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { ensureLeafletIcons } from '@/utils/leafletIcons';
 import { Truck, RefreshCw, MapPin, Loader2, Navigation, Battery, Radio } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
@@ -114,7 +115,8 @@ export const TruckTrackingMap: React.FC = () => {
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return;
     try {
-      const map = L.map(containerRef.current, { zoomControl: true }).setView(CR_CENTER, 8);
+      ensureLeafletIcons();
+    const map = L.map(containerRef.current, { zoomControl: true }).setView(CR_CENTER, 8);
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap', maxZoom: 19,
       }).addTo(map);

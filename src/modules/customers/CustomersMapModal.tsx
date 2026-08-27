@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { ensureLeafletIcons } from '@/utils/leafletIcons';
 import { X, Crosshair, MapPin, Loader2, Navigation } from 'lucide-react';
 import type { Customer } from '@/services/customers/customersService';
 
@@ -38,6 +39,7 @@ export const CustomersMapModal: React.FC<{
 
   useEffect(() => {
     if (mapRef.current || !boxRef.current) return;
+    ensureLeafletIcons();
     const map = L.map(boxRef.current).setView(CR_CENTER, 9);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap', maxZoom: 19,

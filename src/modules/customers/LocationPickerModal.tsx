@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { ensureLeafletIcons } from '@/utils/leafletIcons';
 import { MapPin, X, Crosshair, Check } from 'lucide-react';
 
 interface Props {
@@ -25,6 +26,7 @@ export const LocationPickerModal: React.FC<Props> = ({ lat, lng, title, onSave, 
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return;
     const start: [number, number] = hasInitial ? [lat as number, lng as number] : CR_CENTER;
+    ensureLeafletIcons();
     const map = L.map(containerRef.current).setView(start, hasInitial ? 16 : 12);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap', maxZoom: 19,

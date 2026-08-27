@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { ensureLeafletIcons } from '@/utils/leafletIcons';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, Users, RefreshCw, Loader2, Radio, RadioTower, AlertCircle, Navigation,
@@ -45,10 +46,20 @@ export const LiveTeamMap: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [minutes, setMinutes] = useState(30);
+  /**
+   * Mi posición, pintada al instante.
+   *
+   * La del servidor tarda: se envía cada 20 s y el mapa se refresca cada 15. Sin
+   * esto, quien enciende el GPS no se ve en el mapa por casi medio minuto y cree
+   * que no funcionó.
+   */
+  const [yo, setYo] = useState<{ lat: number; lng: number } | null>(null);
+  const yoRef = useRef<L.CircleMarker | null>(null);
 
   // ── Mapa ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (mapRef.current || !boxRef.current) return;
+    ensureLeafletIcons();
     const map = L.map(boxRef.current).setView(CR_CENTER, 9);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap', maxZoom: 19,
@@ -120,12 +131,34 @@ export const LiveTeamMap: React.FC = () => {
     return () => { off(); };
   }, []);
 
-  const compartir = async () => {
-    if (shareLocation.isOn()) { shareLocation.stop(); return; }
-    const err = await shareLocation.start();
-    if (err) setError(err);
-    else { setError(null); void cargar(); }
-  };
+  // Mientras se comparte, la posición propia se sigue en vivo en el mapa.
+  useEffect(() => {
+    if (!sharing || !navigator.geolocation) { setYo(null); return; }
+    const id = navigator.geolocation.watchPosition(
+      p => setYo({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => { /* el error ya lo maneja el servicio */ },
+      { enableHighAccuracy: true, maximumAge: 5_000 },
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, [sharing]);
+
+  // Pin propio: círculo azul, distinto de los pines del resto del equipo.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!yo) {
+      if (yoRef.current) { yoRef.current.remove(); yoRef.current = null; }
+      return;
+    }
+    if (!yoRef.current) {
+      yoRef.current = L.circleMarker([yo.lat, yo.lng], {
+        radius: 9, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1,
+      }).addTo(map).bindPopup('Estás acá');
+      map.setView([yo.lat, yo.lng], Math.max(map.getZoom(), 14));
+    } else {
+      yoRef.current.setLatLng([yo.lat, yo.lng]);
+    }
+  }, [yo]);
 
   return (
     <div className="min-h-screen bg-gray-100 p-3 sm:p-6 space-y-3 flex flex-col">
