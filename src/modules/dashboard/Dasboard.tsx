@@ -45,6 +45,18 @@ interface Tile {
   alsoIf?: string[];
 }
 
+/**
+ * ¿Está encendida esta bandera del plan?
+ *
+ * `customers` es opt-OUT: viene activa salvo que la apaguen a mano, y en los
+ * planes viejos ni siquiera existe la llave. Leerla como opt-in dejaba el botón
+ * escondido en los negocios que justamente debían verlo.
+ */
+function flagOn(pf: Partial<PlanFeatures>, f: string): boolean {
+  if (f === 'customers') return (pf as any).customers !== false;
+  return !!(pf as any)[f];
+}
+
 const ALL_TILES: Tile[] = [
   { feature: 'pos',              label: 'Vender',          icon: ShoppingCart,  path: '/pos',              bg: 'from-emerald-500 to-emerald-600', hideForRoles: ['cajero', 'agente'] },
   { feature: 'fe_pos',           label: 'POS Electrónico', icon: Receipt,     path: '/fe-pos',           bg: 'from-blue-600 to-indigo-600'      },
@@ -253,7 +265,7 @@ export const Dashboard = () => {
       // Inventario: mostrar aunque solo esté activado "solo productos".
       : t.feature === 'inventory' ? (!!pf.inventory || !!pf.inventory_products_only)
       : (pf[t.feature as keyof PlanFeatures] ?? false));
-    const planAlso = (t.alsoIf ?? []).some(f => !!pf[f as keyof PlanFeatures]);
+    const planAlso = (t.alsoIf ?? []).some(f => flagOn(pf, f));
     if (!planHas && !planAlso) return false;
     // Mapear feature → módulo de role_permissions. Si no hay mapeo, no se gatea.
     const moduleKey = t.feature === 'settings' ? null : t.feature;
@@ -262,7 +274,7 @@ export const Dashboard = () => {
     // el agente de venta tiene permiso de «clientes», no de «rastreo», y sin
     // esto el mapa del equipo le seguía quedando escondido.
     return canAccess(moduleKey as string)
-      || (t.alsoIf ?? []).some(f => !!pf[f as keyof PlanFeatures] && canAccess(f));
+      || (t.alsoIf ?? []).some(f => flagOn(pf, f) && canAccess(f));
   });
 
   // Si el POS está desactivado, Distribución y Repartidor van de primero.

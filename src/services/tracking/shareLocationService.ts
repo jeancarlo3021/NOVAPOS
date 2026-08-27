@@ -14,14 +14,15 @@ const PING_MS = 20_000;
 type Listener = (on: boolean) => void;
 
 let watchId: number | null = null;
+let heartbeat: ReturnType<typeof setInterval> | null = null;
 let lastSent = 0;
 const listeners = new Set<Listener>();
 
 const notify = (on: boolean) => listeners.forEach(l => { try { l(on); } catch { /* ignore */ } });
 
-function push(pos: GeolocationPosition) {
+function push(pos: GeolocationPosition, forzado = false) {
   const now = Date.now();
-  if (now - lastSent < PING_MS) return;      // no saturar el servidor
+  if (!forzado && now - lastSent < PING_MS) return;   // no saturar el servidor
   lastSent = now;
   void apiFetch('/routes/ping-location', {
     method: 'POST',
@@ -33,6 +34,23 @@ function push(pos: GeolocationPosition) {
       accuracy: pos.coords.accuracy ?? null,
     }),
   }).catch(() => { /* sin conexión: el próximo punto reintenta */ });
+}
+
+/**
+ * Latido: manda la posición actual aunque la persona no se haya movido.
+ *
+ * `watchPosition` solo avisa cuando hay movimiento. Sin esto, quien se queda
+ * parado en un cliente deja de reportar y a los pocos minutos se cae de la
+ * ventana de tiempo del mapa: en la oficina desaparece del mapa como si hubiera
+ * apagado el GPS. Es el mismo latido que usa el rastreo de camiones.
+ */
+function pushActual() {
+  if (!shareLocation.isSupported()) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => push(pos, true),
+    () => { /* sin señal en este intento: el próximo latido reintenta */ },
+    { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
+  );
 }
 
 export const shareLocation = {
@@ -71,6 +89,10 @@ export const shareLocation = {
         { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
       );
 
+      lastSent = 0;      // el primer punto sale ya, sin esperar el intervalo
+      if (heartbeat == null) heartbeat = setInterval(pushActual, PING_MS);
+      pushActual();      // y no se espera al primer movimiento para aparecer
+
       try { localStorage.setItem(KEY, '1'); } catch { /* sin storage */ }
       notify(true);
     });
@@ -78,6 +100,7 @@ export const shareLocation = {
 
   /** Apaga el envío. */
   stop() {
+    if (heartbeat != null) { clearInterval(heartbeat); heartbeat = null; }
     if (watchId != null) {
       try { navigator.geolocation.clearWatch(watchId); } catch { /* ignore */ }
       watchId = null;

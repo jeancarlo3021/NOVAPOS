@@ -20,8 +20,10 @@ interface PlanGuardProps {
 export const PlanGuard: React.FC<PlanGuardProps> = ({ feature, anyOf, children }) => {
   const { planFeatures, planName } = useAuth();
 
-  const permitido = planFeatures[feature]
-    || (anyOf ?? []).some(f => planFeatures[f]);
+  // `customers` es opt-out: activa salvo que la apaguen (y ausente en planes
+  // viejos), así que leerla como opt-in cerraba la pantalla sin motivo.
+  const on = (f: string) => (f === 'customers' ? (planFeatures as any).customers !== false : !!(planFeatures as any)[f]);
+  const permitido = on(feature as string) || (anyOf ?? []).some(f => on(f as string));
   if (permitido) return <>{children}</>;
 
   return (

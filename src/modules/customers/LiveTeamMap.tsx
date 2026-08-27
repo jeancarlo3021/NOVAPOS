@@ -57,6 +57,9 @@ export const LiveTeamMap: React.FC = () => {
    */
   const [yo, setYo] = useState<{ lat: number; lng: number } | null>(null);
   const yoRef = useRef<L.CircleMarker | null>(null);
+  /** El encuadre automático se hace UNA vez: después manda lo que mueva el usuario. */
+  const encuadrado = useRef(false);
+  const [ultimo, setUltimo] = useState<Date | null>(null);
 
   // ── Mapa ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -76,6 +79,7 @@ export const LiveTeamMap: React.FC = () => {
     try {
       const r = await apiFetch<{ trucks: LivePos[] }>(`/routes/live?minutes=${minutes}`);
       setPeople(r?.trucks ?? []);
+      setUltimo(new Date());
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar el mapa');
@@ -83,9 +87,26 @@ export const LiveTeamMap: React.FC = () => {
   }, [minutes]);
 
   useEffect(() => { void cargar(); }, [cargar]);
+
+  /**
+   * Refresco automático, igual que el rastreo de camiones.
+   *
+   * Se detiene con la pestaña en segundo plano y se recupera al volver: el
+   * navegador estrangula los temporizadores de las pestañas ocultas, así que
+   * seguir pidiendo solo gasta datos y batería para mostrar, al volver, un mapa
+   * viejo. Al reactivar la pestaña se pide de una para que lo primero que se vea
+   * esté al día.
+   */
   useEffect(() => {
-    const id = setInterval(() => void cargar(), REFRESH_MS);
-    return () => clearInterval(id);
+    let id: ReturnType<typeof setInterval> | null = null;
+    const arrancar = () => { if (id == null) id = setInterval(() => void cargar(), REFRESH_MS); };
+    const parar = () => { if (id != null) { clearInterval(id); id = null; } };
+    const visibilidad = () => {
+      if (document.visibilityState === 'visible') { void cargar(); arrancar(); } else parar();
+    };
+    visibilidad();
+    document.addEventListener('visibilitychange', visibilidad);
+    return () => { parar(); document.removeEventListener('visibilitychange', visibilidad); };
   }, [cargar]);
 
   // Pines: se redibujan en cada refresco. Con pocos puntos es más simple y más
@@ -124,7 +145,10 @@ export const LiveTeamMap: React.FC = () => {
       );
     }
 
-    if (people.length > 0) {
+    // Solo el primer encuadre: re-encuadrar en cada refresco le arrancaba el mapa
+    // de las manos al que estaba mirando una zona cada 15 segundos.
+    if (people.length > 0 && !encuadrado.current) {
+      encuadrado.current = true;
       map.fitBounds(L.latLngBounds(people.map(p => [p.lat, p.lng] as [number, number])),
         { padding: [50, 50], maxZoom: 15 });
     }
@@ -194,6 +218,12 @@ export const LiveTeamMap: React.FC = () => {
           <RefreshCw size={16} className={loading ? 'animate-spin text-gray-400' : 'text-gray-500'} />
         </button>
         <ShareLocationButton onError={setError} />
+        {/* Sin esto no hay forma de saber si el mapa está vivo o congelado. */}
+        {ultimo && (
+          <span className="text-[11px] font-semibold text-gray-400 self-center">
+            Actualizado {fmtCRTime(ultimo.toISOString())}
+          </span>
+        )}
       </div>
 
       {sharing && (

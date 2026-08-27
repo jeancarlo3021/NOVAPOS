@@ -36,6 +36,12 @@ import { useRolePermissions } from '@/hooks/useRolePermissions';
 import brandLogo from '@/assets/brand/logo.svg';
 import brandIcon from '@/assets/brand/logo-negativo.svg';
 
+/** `customers` es opt-out (activa salvo que la apaguen); el resto, opt-in. */
+function flagOn(pf: any, f: string): boolean {
+  if (f === 'customers') return pf?.customers !== false;
+  return pf?.[f] === true;
+}
+
 interface NavItem {
   name: string;
   to: string;
@@ -202,7 +208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
     // 1. El plan debe incluir la feature (salvo 'always')
     if (feature !== 'always') {
       const planHas = (planFeatures[feature as keyof PlanFeatures] ?? false) === true;
-      const planAlso = (item.alsoIf ?? []).some(f => planFeatures[f as keyof PlanFeatures] === true);
+      const planAlso = (item.alsoIf ?? []).some(f => flagOn(planFeatures, f));
       if (!planHas && !planAlso) return false;
     }
     // 2. Separación de funciones por rol. Es un valor por defecto: si el dueño
@@ -212,7 +218,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, isCompact, 
     // 3. El rol del usuario debe tener acceso al módulo (si está declarado)
     if (module) {
       return canAccess(module)
-        || (item.alsoIf ?? []).some(f => planFeatures[f as keyof PlanFeatures] === true && canAccess(f));
+        || (item.alsoIf ?? []).some(f => flagOn(planFeatures, f) && canAccess(f));
     }
     return true;
   };
