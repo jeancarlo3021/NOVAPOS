@@ -37,6 +37,14 @@ const DEFAULTS = {
   // Límite máximo de descuento (%) que los cajeros pueden aplicar en el POS.
   // Owner/admin/gerente pueden superarlo siempre.
   maxDiscountPercent: 100,
+  /**
+   * ¿El agente puede cambiar el precio al armar un pedido?
+   *
+   * Apagado por defecto: el precio lo pone el negocio. Se enciende en los
+   * negocios donde el precio SE NEGOCIA en la puerta (mayoreo, materiales), que
+   * hoy tenían que mandar el pedido con el precio de lista y corregirlo en caja.
+   */
+  agentPriceEdit: false,
 };
 
 export const GeneralSettings: React.FC = () => {
@@ -357,6 +365,28 @@ export const GeneralSettings: React.FC = () => {
               className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 disabled:bg-gray-50"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-semibold">%</span>
+          </div>
+        </div>
+
+        {/* Precios editables por el agente al armar el pedido */}
+        <div className="border-t border-gray-100 pt-5">
+          <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/50">
+            <input
+              type="checkbox"
+              checked={!!formData.agentPriceEdit}
+              onChange={e => setFormData(prev => ({ ...prev, agentPriceEdit: e.target.checked }))}
+              className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-2 focus:ring-blue-400"
+              id="cfg-agent-price"
+              disabled={!isManager}
+            />
+            <label htmlFor="cfg-agent-price" className="flex-1 cursor-pointer">
+              <p className="font-bold text-blue-900 text-sm">El agente puede modificar precios</p>
+              <p className="text-xs text-blue-700 mt-0.5">
+                En «Nuevo pedido», el agente puede cambiarle el precio a cada línea antes de
+                mandarla a caja. Útil donde el precio se negocia en la puerta. Apagado, el
+                precio es el de lista y solo se corrige en caja.
+              </p>
+            </label>
           </div>
         </div>
 

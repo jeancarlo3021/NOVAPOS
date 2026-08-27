@@ -13,6 +13,7 @@ import type { Product, CashSession } from '@/types/Types_POS';
 import { proformasService, type Proforma } from '@/services/proformas/proformasService';
 import { customersService } from '@/services/customers/customersService';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
+import { useSettings } from '@/hooks/useSettings';
 import { productKitsService, type ProductKit } from '@/services/Inventory/productKitsService';
 import {
   salesAgentsService, agentOrdersService,
@@ -186,6 +187,22 @@ export const AgentOrderPOS: React.FC = () => {
       kind: 'ok',
       text: `${kit.name}: ${kit.items.length} producto(s) agregados${faltantes ? ` (${faltantes} sin ficha en el catálogo)` : ''}`,
     });
+  };
+
+  /**
+   * Precio editable por el agente, si el negocio lo permitió en Configuración.
+   *
+   * Donde el precio se negocia en la puerta (mayoreo, materiales), mandar el
+   * pedido con el precio de lista obligaba a corregirlo en caja y el cliente
+   * escuchaba un monto y pagaba otro.
+   */
+  const { settings: generalSettings } = useSettings('general');
+  const puedeEditarPrecio = generalSettings?.agentPriceEdit === true;
+
+  const setPrice = (i: number, price: number) => {
+    const p = Math.max(0, round2(price));
+    setCart(prev => prev.map((x, j) => j === i
+      ? { ...x, unit_price: p, subtotal: round2(x.quantity * p) } : x));
   };
 
   const setQty = (i: number, qty: number) => {
@@ -660,7 +677,18 @@ export const AgentOrderPOS: React.FC = () => {
                           </button>
                         </div>
                       </td>
-                      <td className="px-2 py-2.5 text-right text-gray-500 tabular-nums">{money(it.unit_price)}</td>
+                      <td className="px-2 py-2.5 text-right text-gray-500 tabular-nums">
+                        {puedeEditarPrecio ? (
+                          <label className="inline-flex items-center gap-0.5 rounded-lg border border-gray-200 px-1.5 py-1">
+                            <span className="text-[11px] font-bold text-gray-400">₡</span>
+                            <input type="number" min={0} step="any" value={it.unit_price}
+                              onChange={e => setPrice(i, Number(e.target.value) || 0)}
+                              onFocus={e => e.currentTarget.select()}
+                              onClick={e => e.stopPropagation()}
+                              className="w-20 text-right text-sm font-black text-gray-800 outline-none tabular-nums" />
+                          </label>
+                        ) : money(it.unit_price)}
+                      </td>
                       <td className="px-4 py-2.5 text-right text-base font-black tabular-nums">{money(it.subtotal)}</td>
                       <td className="px-2 py-2.5 text-right">
                         <button onClick={() => setQty(i, 0)} className="text-gray-300 hover:text-red-500">
