@@ -112,10 +112,25 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
       // dejar al cajero trabado con un error que no puede resolver, se adopta
       // esa caja y se sigue trabajando. Pasa cuando el POS perdió de vista la
       // sesión (se recargó, cambió de dispositivo, falló una consulta).
-      const abierta = (err as any)?.data?.existing_session
+      let abierta = (err as any)?.data?.existing_session
         ?? (err as any)?.body?.existing_session
         ?? (err as any)?.existing_session;
+
       if (abierta?.id) {
+        // La caja ya estaba abierta —muchas veces la abrió el sistema en ₡0 para
+        // negocios con "no abrir caja"— pero el cajero SÍ contó su fondo. Si se
+        // adopta tal cual, el día entero arranca con un fondo que no es y el
+        // cierre marca un faltante inventado. Se corrige el fondo con lo contado.
+        const fondoActual = Number(abierta.opening_amount ?? 0);
+        if (totalAmount > 0 && fondoActual !== totalAmount) {
+          try {
+            const { apiFetch } = await import('@/lib/api');
+            abierta = await apiFetch<CashSession>(`/cash-sessions/${abierta.id}/opening`, {
+              method: 'PATCH',
+              body: JSON.stringify({ opening_amount: totalAmount, opening_usd: parseFloat(usd) || 0 }),
+            });
+          } catch { /* si no se pudo corregir, se adopta con el fondo que tenía */ }
+        }
         onSuccess(abierta as CashSession);
         return;
       }

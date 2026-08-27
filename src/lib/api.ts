@@ -194,7 +194,13 @@ export async function apiFetch<T = unknown>(
       }
 
       const errorMsg = body?.error || body?.message || `HTTP ${res.status}`;
-      throw new Error(errorMsg);
+      // El CUERPO del error viaja con la excepción: hay respuestas que traen el
+      // dato que resuelve el problema (la caja que ya estaba abierta, el detalle
+      // de una validación) y perderlo obliga a tratar todo como texto.
+      const err = new Error(errorMsg) as Error & { status?: number; body?: any };
+      err.status = res.status;
+      err.body = body;
+      throw err;
     }
 
     return body.data as T;

@@ -61,6 +61,8 @@ export function useCashSession() {
               body: JSON.stringify({
                 opening_amount: 0,
                 notes: 'Apertura automática (sin control de caja)',
+                // Fondo 0 a propósito: si el negocio SÍ cuenta el efectivo, al
+                // abrir a mano se corrige con lo contado en vez de crear otra caja.
               }),
             });
             session = await autoOpening;
