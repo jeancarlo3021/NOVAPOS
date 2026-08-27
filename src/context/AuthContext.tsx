@@ -1107,13 +1107,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // internamente) y nunca lanzar. Sin este corte el login se quedaba girando y
       // NUNCA llegaba al camino offline. 12 s es de sobra para una red buena.
       const TIMEOUT_MS = 12_000;
-      const signIn = supabase.auth.signInWithPassword({ email, password });
-      const timed = await Promise.race([
-        signIn.then(r => ({ kind: 'done' as const, r })),
-        new Promise<{ kind: 'timeout' }>(res => setTimeout(() => res({ kind: 'timeout' }), TIMEOUT_MS)),
-      ]);
+      const intentar = async () => {
+        const signIn = supabase.auth.signInWithPassword({ email, password });
+        return Promise.race([
+          signIn.then(r => ({ kind: 'done' as const, r })),
+          new Promise<{ kind: 'timeout' }>(res => setTimeout(() => res({ kind: 'timeout' }), TIMEOUT_MS)),
+        ]);
+      };
+
+      // UN reintento antes de rendirse. El primer login del día suele caer en un
+      // servidor "frío" y tardar más de la cuenta; fallar en ese caso deja al
+      // usuario convencido de que sus credenciales no sirven.
+      let timed = await intentar();
+      if (timed.kind === 'timeout' && navigator.onLine) {
+        timed = await intentar();
+      }
       if (timed.kind === 'timeout') {
-        setError('El servidor no responde. Revisá la conexión e intentá de nuevo.');
+        setError(navigator.onLine
+          ? 'El servidor está tardando en responder. Esperá unos segundos y volvé a intentar.'
+          : 'Sin conexión a internet. Conectate y volvé a intentar.');
         setLoading(false);
         throw new Error('Tiempo de espera agotado al iniciar sesión');
       }

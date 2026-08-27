@@ -89,6 +89,11 @@ export const AgentOrderPOS: React.FC = () => {
   // El permiso manda: si el negocio no se lo concedió al rol, el botón no está.
   const { canDo, isOwnerOrAdmin } = useRolePermissions();
   const canEditProducts = isOwnerOrAdmin || canDo('inventory', 'edit');
+  // Crear también: el agente en la calle se topa con productos que el catálogo
+  // no tiene todavía, y anotarlos en papel para cargarlos después es como se
+  // pierden las ventas.
+  const canCreateProducts = isOwnerOrAdmin || canDo('inventory', 'create');
+  const [creatingProduct, setCreatingProduct] = useState(false);
 
   const [zones, setZones] = useState<string[]>([]);
   useEffect(() => {
@@ -456,6 +461,18 @@ export const AgentOrderPOS: React.FC = () => {
         </div>
       </div>
 
+      {creatingProduct && (
+        <ProductForm
+          productId={null}
+          onSuccess={() => {
+            setCreatingProduct(false);
+            refetchProducts();
+            setMsg({ kind: 'ok', text: 'Producto creado · ya podés agregarlo al pedido' });
+          }}
+          onCancel={() => setCreatingProduct(false)}
+        />
+      )}
+
       {editProductId && (
         <ProductForm
           productId={editProductId}
@@ -522,6 +539,18 @@ export const AgentOrderPOS: React.FC = () => {
       <div className="flex flex-1 overflow-hidden flex-col">
         {/* Buscador ARRIBA, a todo lo ancho: en formato lista el panel de productos
             es justo eso — el campo de captura por código o nombre. */}
+        {canCreateProducts && (
+          <div className="shrink-0 bg-white border-b border-gray-100 px-3 py-2 flex items-center gap-2">
+            <button onClick={() => setCreatingProduct(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-blue-200 bg-blue-50 text-blue-800 text-xs font-black hover:bg-blue-100">
+              <Plus size={14} /> Nuevo producto
+            </button>
+            <span className="text-[11px] font-semibold text-gray-400">
+              Si el cliente pide algo que no está en el catálogo, cargalo acá y seguí el pedido.
+            </span>
+          </div>
+        )}
+
         {kits.length > 0 && (
           <div className="shrink-0 bg-white border-b border-gray-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             <span className="flex items-center gap-1 text-[11px] font-black text-teal-700 shrink-0 pr-1">

@@ -47,6 +47,9 @@ const CreateOwner              = lazy(() => import('./modules/auth/CreateOwner')
 const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashboard').then(m => ({ default: m.TablesDashboard })));
 const ModifiersManager         = lazy(() => import('./modules/modifiers/ModifiersManager').then(m => ({ default: m.ModifiersManager })));
 const SalesAgentsManager       = lazy(() => import('./modules/agents/SalesAgentsManager').then(m => ({ default: m.SalesAgentsManager })));
+const LiveTeamMap              = lazy(() => import('./modules/customers/LiveTeamMap').then(m => ({ default: m.LiveTeamMap })));
+const LocationCapturePage      = lazy(() => import('./modules/customers/LocationCapturePage').then(m => ({ default: m.LocationCapturePage })));
+const CustomersMapPage         = lazy(() => import('./modules/customers/CustomersMapPage').then(m => ({ default: m.CustomersMapPage })));
 const DemoRequestsDashboard    = lazy(() => import('./modules/demos/DemoRequestsDashboard').then(m => ({ default: m.DemoRequestsDashboard })));
 const LeadsDashboard           = lazy(() => import('./modules/crm/LeadsDashboard').then(m => ({ default: m.LeadsDashboard })));
 const WarrantiesDashboard      = lazy(() => import('./modules/warranties/WarrantiesDashboard').then(m => ({ default: m.WarrantiesDashboard })));
@@ -228,6 +231,18 @@ function AppContent() {
                 <PlanGuard feature="agent_agenda"><DeliveryAgenda /></PlanGuard>
               } />
               {/* RUTA DEL DÍA: lo que le toca entregar a cada responsable. */}
+              {/* EQUIPO EN VIVO: dónde anda cada quien, como el mapa de camiones. */}
+              <Route path="/equipo-en-vivo" element={
+                <PlanGuard feature="tracking"><LiveTeamMap /></PlanGuard>
+              } />
+              {/* ACTIVAR UBICACIÓN: encender el GPS y ubicar al cliente desde su local. */}
+              <Route path="/activar-ubicacion" element={
+                <PlanGuard feature="customers"><LocationCapturePage /></PlanGuard>
+              } />
+              {/* UBICACIONES: dónde está cada cliente, para armar la ruta. */}
+              <Route path="/ubicaciones" element={
+                <PlanGuard feature="customers"><CustomersMapPage /></PlanGuard>
+              } />
               {/* DEMOS: el vendedor pide la prueba con los módulos que vio hacer falta. */}
               <Route path="/demos" element={
                 <PlanGuard feature="demo_requests"><DemoRequestsDashboard /></PlanGuard>

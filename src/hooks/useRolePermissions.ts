@@ -3,8 +3,20 @@ import { useAuth } from '@/context/AuthContext';
 import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import type { UserPermissionMatrix } from '@/types/Types_Users';
 
-// Cache por (tenantId, role) para evitar refetch en cada render del Sidebar.
-const cache = new Map<string, UserPermissionMatrix>();
+/**
+ * Cache por (tenantId, role) para no consultar en cada render del Sidebar.
+ *
+ * CON VENCIMIENTO a propósito: sin él, un permiso concedido por el dueño no
+ * llegaba nunca al empleado que ya tenía la sesión abierta —la matriz vivía en
+ * memoria hasta cerrar el navegador— y parecía que "no se aplicaron los
+ * permisos". Ahora se revalida sola cada pocos minutos.
+ */
+const TTL_MS = 3 * 60 * 1000;
+const cache = new Map<string, { at: number; matrix: UserPermissionMatrix }>();
+const fresh = (k: string) => {
+  const hit = cache.get(k);
+  return hit && Date.now() - hit.at < TTL_MS ? hit.matrix : null;
+};
 
 export function useRolePermissions() {
   const { user, tenant } = useAuth();
@@ -12,7 +24,7 @@ export function useRolePermissions() {
   const tenantId = tenant?.id ?? '';
   const cacheKey = `${tenantId}::${role}`;
 
-  const [matrix, setMatrix] = useState<UserPermissionMatrix>(() => cache.get(cacheKey) ?? {});
+  const [matrix, setMatrix] = useState<UserPermissionMatrix>(() => fresh(cacheKey) ?? cache.get(cacheKey)?.matrix ?? {});
   const [loaded, setLoaded] = useState(() => cache.has(cacheKey));
 
   useEffect(() => {
@@ -23,16 +35,16 @@ export function useRolePermissions() {
       setLoaded(true);
       return;
     }
-    if (cache.has(cacheKey)) {
-      setMatrix(cache.get(cacheKey)!);
-      setLoaded(true);
-      return;
-    }
+    // Lo cacheado se muestra de una (la pantalla no puede quedar en blanco),
+    // pero si venció se vuelve a pedir en segundo plano.
+    const enCache = cache.get(cacheKey);
+    if (enCache) { setMatrix(enCache.matrix); setLoaded(true); }
+    if (fresh(cacheKey)) return;
+
     (async () => {
       try {
         const m = await rolePermissionsService.getRolePermissions(role);
-        console.log('[useRolePermissions] loaded for', role, 'in tenant', tenantId, ':', m);
-        cache.set(cacheKey, m);
+        cache.set(cacheKey, { at: Date.now(), matrix: m });
         setMatrix(m);
       } catch (err) {
         console.warn('[useRolePermissions] failed to load:', err);
