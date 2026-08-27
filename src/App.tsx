@@ -1,4 +1,5 @@
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
+import { lazyPage as lazy } from '@/utils/lazyPage';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
