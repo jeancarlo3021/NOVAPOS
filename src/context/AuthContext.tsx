@@ -99,6 +99,10 @@ function clearAllAppCache() {
       if (!k) continue;
       if (
         k.startsWith('novapos_cache_') ||   // datos pre-cacheados por tenant
+        // Marca de la sincronización incremental del catálogo. Si se borra el
+        // caché pero se deja la marca, el POS pide «lo que cambió desde ayer»
+        // sin tener contra qué compararlo y se queda con medio catálogo.
+        k.startsWith('novapos_products_since_') ||
         k.startsWith('receipt_cfg_') ||      // config de recibo
         k === AUTH_CACHE_KEY
       ) toRemove.push(k);
@@ -910,14 +914,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const errorMsg = err instanceof Error ? err.message : 'Error de autenticación';
 
       // If it's a network error, fall back to cached data for this user
+      /**
+       * Si hay datos guardados de ESTE mismo usuario, la sesión no se cierra.
+       *
+       * Antes solo se perdonaban los errores de red: cualquier otro tropiezo
+       * —un 500 del servidor, una consulta que devuelve error un instante, un
+       * corte de medio segundo que no llega a marcarse como «sin conexión»—
+       * cerraba la sesión y echaba al cajero a la pantalla de login en plena
+       * venta. El token de Supabase seguía siendo válido; el problema era
+       * pasajero y el sistema reaccionaba como si el usuario ya no existiera.
+       *
+       * Con caché propia se sigue trabajando y se reintenta en la próxima
+       * carga. Cerrar la sesión queda para cuando de verdad no hay con qué
+       * seguir: otro usuario, o ninguna copia guardada.
+       */
       const cache = readAuthCache();
-      if (isNetworkError(err) && cache && cache.userId === userId) {
+      if (cache && cache.userId === userId) {
         setUser(cache.user);
         setTenant(cache.tenant);
         setTenants(cache.tenants);
         setPlanFeatures(cache.planFeatures);
         setPlanName(cache.planName);
-        setError(null);
+        // El aviso solo si NO fue la red: un corte no es algo que el usuario
+        // tenga que resolver, pero un error del servidor conviene verlo.
+        setError(isNetworkError(err) ? null : errorMsg);
       } else {
         setError(errorMsg);
         clearAuthState();
@@ -1028,22 +1048,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
-    // Proactive token refresh every 30 minutes to keep session alive for 12h
-    const refreshInterval = setInterval(async () => {
-      try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        if (currentSession) {
-          await supabase.auth.refreshSession();
-        }
-      } catch {
-        // Silently fail — autoRefreshToken will retry
-      }
-    }, 30 * 60 * 1000); // 30 minutes
+    // OJO: acá NO se renueva la sesión a la fuerza.
+    //
+    // Antes había un temporizador que llamaba a `refreshSession()` cada 30
+    // minutos aunque el token estuviera perfecto. Cada renovación ROTA el token
+    // de refresco: el anterior queda muerto. Con dos pestañas abiertas —o la
+    // caja y la app del repartidor— dos renovaciones se pisaban, la que perdía
+    // se quedaba con un token muerto y Supabase cerraba la sesión. Eso es «se
+    // sale solo»: nadie tocó nada, se cayó por renovar de más.
+    //
+    // El cliente ya trae `autoRefreshToken`, que renueva cuando de verdad falta
+    // poco. Ese es el único que debe hacerlo.
 
     return () => {
       mounted = false;
       subscription?.unsubscribe();
-      clearInterval(refreshInterval);
     };
   }, []);
 

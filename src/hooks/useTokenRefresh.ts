@@ -25,16 +25,14 @@ export function useTokenRefresh() {
       const now = Math.floor(Date.now() / 1000);
       const secondsUntilExpiry = (expiresAt ?? 0) - now;
 
-      // If token expires in less than 5 minutes, refresh it
-      if (secondsUntilExpiry < 300) {
-
-        const { data, error } = await supabase.auth.refreshSession();
-
-        if (error) {
-        } else if (data.session) {
-        }
-      } else {
-        console.log(`✅ Token válido por ${Math.round(secondsUntilExpiry / 60)} minutos`);
+      // Solo si de verdad está por vencer y `autoRefreshToken` todavía no actuó.
+      //
+      // Renovar antes de tiempo no es gratis: cada renovación invalida el token
+      // de refresco anterior, y dos renovaciones simultáneas (dos pestañas, la
+      // caja y el teléfono) dejan a una con un token muerto y cierran la sesión
+      // sin que nadie haya tocado nada.
+      if (secondsUntilExpiry < 120) {
+        await supabase.auth.refreshSession();
       }
     } catch (err) {
       // Silently ignore errors - token refresh is non-critical

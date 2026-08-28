@@ -283,12 +283,22 @@ async function markInvoiceError(id: string, error: string): Promise<void> {
   const inv = await idbGet<OfflineInvoicePayload>(db, INVOICES_STORE, id);
   if (!inv) return;
   const retries = (inv.retries ?? 0) + 1;
-  // After 3 failed attempts mark as permanently failed (synced=1) so it stops retrying
+  /**
+   * La venta sigue PENDIENTE aunque falle muchas veces.
+   *
+   * Antes, al tercer intento se marcaba como sincronizada para que dejara de
+   * reintentar. El efecto real era el contrario del buscado: la venta
+   * desaparecía del contador de pendientes y del botón «Subir ahora», el cajero
+   * veía «0 pendientes» y cerraba la caja convencido de que todo había subido
+   * —mientras esa factura no estaba en ningún lado y el arqueo quedaba corto—.
+   * Se queda visible, con el motivo del fallo, hasta que suba o alguien decida
+   * descartarla a mano.
+   */
   await idbPut(db, INVOICES_STORE, {
     ...inv,
     retries,
     syncError: error,
-    synced: retries >= 3 ? 1 : 0,
+    synced: 0,
   });
   // Avisar a la UI para que el badge de pendientes / fallidas se actualice.
   notifyPendingChanged();
@@ -452,9 +462,18 @@ async function markVoidError(id: string, error: string): Promise<void> {
   const db = await openDB();
   const void_op = await idbGet<OfflineVoidPayload>(db, VOIDS_STORE, id);
   if (void_op) {
+    /**
+     * La anulación queda PENDIENTE, no descartada.
+     *
+     * Antes se marcaba como sincronizada al PRIMER fallo: la anulación se
+     * perdía para siempre y la factura seguía viva, contando en el cierre y en
+     * los reportes, mientras el cajero la daba por anulada porque el sistema se
+     * lo dijo. Una anulación que no llega al servidor es plata que aparece
+     * cobrada dos veces.
+     */
     await idbPut(db, VOIDS_STORE, {
       ...void_op,
-      synced: 1,
+      synced: 0,
       retries: (void_op.retries ?? 0) + 1,
       syncError: error,
     });

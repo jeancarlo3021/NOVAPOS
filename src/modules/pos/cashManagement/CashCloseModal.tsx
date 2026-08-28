@@ -325,9 +325,22 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
   // ── Submit ──
   const handleConfirm = async () => {
-    if (grandTotal <= 0) {
-      setError('Debes ingresar el monto total (efectivo + tarjeta + SINPE) antes de cerrar');
-      return;
+    /**
+     * Cerrar en ₡0 es posible y a veces correcto.
+     *
+     * Pasa de verdad: un día sin ventas, todo cobrado con tarjeta, o el efectivo
+     * ya retirado antes de cerrar. Bloquear el cierre por eso dejaba la caja
+     * abierta sin ninguna forma de cerrarla —el botón simplemente no
+     * respondía—, y al día siguiente ya no se podía abrir la nueva. Se pregunta
+     * una vez, por si fue un olvido, y se deja seguir.
+     */
+    if (grandTotal <= 0 && arqueableSales > 0) {
+      const seguir = window.confirm(
+        'Estás cerrando con ₡0 contados, pero el sistema registra ventas.\n\n'
+        + '¿Contaste la caja? Si cerrás así va a quedar un faltante por el total del día.\n\n'
+        + '¿Cerrar igual?',
+      );
+      if (!seguir) return;
     }
 
     // Método con ventas registradas pero contado en CERO: casi siempre es que se
@@ -368,6 +381,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         closing_amount: grandTotal,
         closing_usd: closingUsd,
         notes: `Desglose: ${breakdown}`,
+        // La hora REAL del cierre. Sin conexión, el cierre sube horas después:
+        // sellarlo con la hora de la subida deja el arqueo diciendo que la caja
+        // se cerró al día siguiente.
+        closed_at: new Date().toISOString(),
       };
 
 
@@ -637,6 +654,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                       inv.invoiceNumber, inv.cashierId ?? null, inv.cashierName ?? null,
                       inv.payments ?? null, inv.documentType ?? 'ticket', inv.customerId ?? null,
                       inv.currencyInfo,
+                      inv.id,   // marca contra el doble cobro al reintentar
                     );
                   });
                   await checkPending();
@@ -926,7 +944,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
               className="h-16 rounded-2xl border-2 border-gray-200 bg-white text-gray-600 font-bold text-lg hover:bg-gray-50 active:bg-gray-100 transition">
               Cancelar
             </button>
-            <button type="button" onClick={handleConfirm} disabled={loading || grandTotal <= 0 || loadFailed}
+            <button type="button" onClick={handleConfirm} disabled={loading || loadFailed}
               className="h-16 rounded-2xl bg-rose-500 hover:bg-rose-600 active:bg-rose-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-lg transition shadow-sm">
               {loading ? 'Cerrando...' : loadFailed ? 'Cargá las ventas primero' : 'Cerrar Caja ✓'}
             </button>

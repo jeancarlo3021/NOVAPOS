@@ -22,7 +22,7 @@ export function usePOSProducts(recipesOnly = false) {
   const [searchTerm, setSearchTerm] = useState('');
   // ── Fetch from API and persist to IndexedDB ────────────────────────────────
 
-  const fetchFromNetwork = async (_tid: string): Promise<Product[]> => {
+  const fetchFromNetwork = async (_tid: string, since?: string | null): Promise<Product[]> => {
     // Trae productos + unit-types + categorías en paralelo y hace JOIN en frontend.
     // Si el backend ya manda el JOIN embebido, esto solo refuerza/normaliza
     // los datos para que el caché siempre tenga las relaciones disponibles.
@@ -36,7 +36,9 @@ export function usePOSProducts(recipesOnly = false) {
     // a la caja normal porque el negocio activó recetas sería moverle el piso a
     // algo que funciona.
     const [base, menu, unitTypes, categories] = await Promise.all([
-      recipesOnly ? Promise.resolve([] as any[]) : apiFetch<any[]>('/products'),
+      recipesOnly
+        ? Promise.resolve([] as any[])
+        : apiFetch<any[]>(since ? `/products?since=${encodeURIComponent(since)}` : '/products'),
       recipesOnly ? apiFetch<any[]>('/recipes/menu').catch(() => [] as any[]) : Promise.resolve([] as any[]),
       apiFetch<any[]>('/unit-types').catch(() => []),
       apiFetch<any[]>('/categories').catch(() => []),
@@ -118,6 +120,49 @@ export function usePOSProducts(recipesOnly = false) {
     });
   };
 
+  /**
+   * Hasta dónde se sincronizó el catálogo (marca de agua).
+   *
+   * Se guarda la MAYOR fecha de modificación recibida, no la hora del aparato:
+   * las tablets del negocio suelen tener la hora corrida y bastan unos minutos
+   * de diferencia para saltarse cambios y no enterarse nunca de un precio nuevo.
+   */
+  const waterMarkKey = (tid: string) => `novapos_products_since_${tid}`;
+  const getWaterMark = (tid: string): string | null => {
+    try { return localStorage.getItem(waterMarkKey(tid)); } catch { return null; }
+  };
+  const setWaterMark = (tid: string, rows: any[]) => {
+    let max = '';
+    for (const r of rows) {
+      const u = String(r?.updated_at ?? '');
+      if (u > max) max = u;
+    }
+    if (!max) return;
+    try {
+      const previo = getWaterMark(tid) ?? '';
+      if (max > previo) localStorage.setItem(waterMarkKey(tid), max);
+    } catch { /* sin storage: se sigue pidiendo todo, funciona igual */ }
+  };
+
+  /**
+   * Mezcla los cambios con lo que ya había.
+   *
+   * Los borrados llegan con `deleted_at` y salen del catálogo; si se ignoraran,
+   * un producto eliminado seguiría vendiéndose desde el aparato para siempre.
+   */
+  const fusionar = (previos: Product[], cambios: any[]): Product[] => {
+    if (!cambios.length) return previos;
+    const porId = new Map(previos.map(p => [String((p as any).id), p]));
+    for (const c of cambios) {
+      const id = String(c?.id ?? '');
+      if (!id) continue;
+      if (c.deleted_at) porId.delete(id);
+      else porId.set(id, c);
+    }
+    return Array.from(porId.values())
+      .sort((a: any, b: any) => String(a?.name ?? '').localeCompare(String(b?.name ?? '')));
+  };
+
   // ── Main load logic ────────────────────────────────────────────────────────
 
   const load = async (tid: string, silent = false) => {
@@ -127,8 +172,24 @@ export function usePOSProducts(recipesOnly = false) {
     // Try network first when online
     if (navigator.onLine) {
       try {
-        const fetched = await fetchFromNetwork(tid);
-        console.log('[usePOSProducts] Fetched products from API:', {
+        /**
+         * Solo lo que cambió, si ya hay catálogo guardado.
+         *
+         * Antes se bajaban los 3.000 productos completos en CADA arranque para
+         * casi siempre descubrir que no había cambiado nada. Con la marca de
+         * agua, el arranque normal trae cero filas.
+         */
+        const marca = recipesOnly ? null : getWaterMark(tid);
+        const previos = marca ? (await loadFromCache(tid)).products : [];
+        // La marca sin catálogo guardado no sirve para nada: se pide todo.
+        const incremental = !!marca && previos.length > 0;
+
+        const cambios = await fetchFromNetwork(tid, incremental ? marca : null);
+        const fetched = incremental ? fusionar(previos, cambios) : cambios;
+        if (!recipesOnly) setWaterMark(tid, cambios);
+        console.log('[usePOSProducts] Catálogo:', {
+          recibidos: cambios.length,
+          incremental,
           count: fetched.length,
           firstProduct: fetched[0] ? JSON.stringify(fetched[0], null, 2) : 'none',
           sample: fetched.slice(0, 2).map(p => ({

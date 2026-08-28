@@ -519,6 +519,7 @@ export const POSMain = () => {
           inv.documentType ?? 'ticket',
           inv.customerId ?? null,
           inv.currencyInfo,
+          inv.id,   // marca contra el doble cobro al reintentar
         );
 
         // Comprobante ELECTRÓNICO hecho offline: emitir a Hacienda ahora (al

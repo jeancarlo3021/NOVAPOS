@@ -135,6 +135,7 @@ export async function closeCashSession(
           closing_amount: input.closing_amount,
           closing_usd: (input as any).closing_usd ?? null,
           notes: input.notes || null,
+          closed_at: (input as any).closed_at ?? null,
         }),
       });
 

@@ -71,7 +71,7 @@ export const invoicesService = {
 
   // Crear factura - ACTUALIZADO CON NUEVOS CAMPOS
   async createInvoice(
-    _tenantId: string,
+    tenantId: string,
     sessionId: string,
     cartItems: CartItem[],
     subtotal: number,
@@ -102,6 +102,14 @@ export const invoicesService = {
       currency?: 'CRC' | 'USD'; exchangeRate?: number; changeCurrency?: 'CRC' | 'USD';
       isDelivery?: boolean; deliveryCommissionPct?: number; deliveryNet?: number; deliveryPlatform?: string;
     },
+    /**
+     * Id local de una venta hecha SIN CONEXIÓN.
+     *
+     * Es lo que impide cobrarla dos veces: si la subida anterior llegó al
+     * servidor pero la respuesta se perdió, el reintento reconoce esta marca y
+     * devuelve la factura que ya existe en lugar de crear otra.
+     */
+    offlineId?: string | null,
   ) {
     // Validaciones según método de pago. En pago mixto (payments con 2+
     // splits) la validación ya la hizo el modal: la suma cuadra con el total y
@@ -145,6 +153,7 @@ export const invoicesService = {
         voucher_number: (paymentMethod === 'card' || paymentMethod === 'sinpe') ? voucherNumber : null,
         notes,
         invoice_number: invoiceNumber, // Preserve offline invoice number if provided
+        offline_id: offlineId ?? null,
         cashier_id: cashierId ?? null,
         cashier_name: cashierName ?? null,
         payments: payments && payments.length > 1 ? payments : null,
@@ -166,18 +175,29 @@ export const invoicesService = {
     // Las porciones de tarjeta/SINPE no afectan el efectivo en caja.
     // En venta a CRÉDITO no entra dinero: no se registra movimiento de caja.
     // En DELIVERY el cobro lo hace la plataforma (se deposita aparte): no toca la caja.
-    if (paymentMethod !== 'credit' && !currencyInfo?.isDelivery) {
+    // Si la factura YA estaba (reintento de una venta offline), su movimiento de
+    // caja también se registró la primera vez. Agregarlo de nuevo metería el
+    // efectivo dos veces y el cierre mostraría un sobrante inexistente.
+    const yaExistia = (invoice as any)?.already_synced === true;
+
+    if (!yaExistia && paymentMethod !== 'credit' && !currencyInfo?.isDelivery) {
       const cashAmount = (payments && payments.length > 1)
         ? (payments.find(p => p.method === 'cash')?.amount ?? 0)
         : (paymentMethod === 'cash' ? total : total);  // mantiene comportamiento legacy
 
+      // SIN CONEXIÓN la factura todavía no existe: lo que vuelve es un acuse
+      // provisional, sin negocio ni número. Tomarlos de ahí encolaba el
+      // movimiento con el negocio vacío, el servidor lo rechazaba al subirlo y
+      // el efectivo de esa venta nunca entraba a la caja: al cerrar, el sistema
+      // decía menos plata de la que había en la gaveta.
+      const provisional = String((invoice as any)?.status ?? '') === 'pending';
       await cashMovementsService.createMovement(
         sessionId,
-        invoice.tenant_id,
+        invoice.tenant_id || tenantId,
         'sale',
         cashAmount,
-        `Venta ${invoice.invoice_number}`,
-        invoice.id
+        `Venta ${invoice.invoice_number ?? invoiceNumber ?? '(sin conexión)'}`,
+        provisional ? undefined : invoice.id
       );
     }
 

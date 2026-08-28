@@ -15,6 +15,9 @@ interface OfflineDB extends DBSchema {
       data: CreateCashSessionInput | any;
       timestamp: number;
       synced: boolean;
+      /** Cuántas veces se intentó subir y por qué falló la última. */
+      retries?: number;
+      lastError?: string;
     };
   };
 }
@@ -139,10 +142,20 @@ export const cashSessionOfflineService = {
   /**
    * Sync all pending operations
    */
-  async syncAll(syncFunction: (op: any) => Promise<any>): Promise<{ synced: number; failed: number }> {
+  /**
+   * @param only Subir solo aperturas o solo cierres.
+   *
+   * El orden importa: un CIERRE tiene que subir DESPUÉS de las facturas del día.
+   * Si sube antes, el servidor calcula los totales sin esas ventas y congela un
+   * cierre en ceros que ya no se puede corregir.
+   */
+  async syncAll(
+    syncFunction: (op: any) => Promise<any>,
+    only?: 'open' | 'close',
+  ): Promise<{ synced: number; failed: number }> {
     const idb = await getDb();
     const pending = await idb.getAll('pending_cash_sessions');
-    const unsynced = pending.filter(op => !op.synced);
+    const unsynced = pending.filter(op => !op.synced && (!only || op.type === only));
 
     let synced = 0;
     let failed = 0;
@@ -161,6 +174,14 @@ export const cashSessionOfflineService = {
         await this.markSynced(op.id);
         synced++;
       } catch (error) {
+        // El motivo se guarda: sin él, una apertura o un cierre que no sube deja
+        // «falló 1» en pantalla y a nadie con qué averiguar por qué.
+        const msg = error instanceof Error ? error.message : String(error);
+        try {
+          await idb.put('pending_cash_sessions', {
+            ...op, retries: (op.retries ?? 0) + 1, lastError: msg,
+          });
+        } catch { /* si no se puede anotar, igual queda pendiente */ }
         failed++;
       }
     }

@@ -16,6 +16,8 @@ interface OfflineDB extends DBSchema {
       timestamp: number;
       synced: boolean;
       retries: number;
+      /** Último error, para poder decir POR QUÉ no subió en vez de callarlo. */
+      lastError?: string;
     };
   };
 }
@@ -143,18 +145,22 @@ export const offlineQueue = {
         );
 
         if (shouldSkipRetry) {
+          // El destino ya no existe (se borró el producto, la factura ya no
+          // está): reintentar no lo va a arreglar nunca.
           console.log(`[SYNC] ⏭️ Saltando operación (no existe): ${op.id}`);
           await this.markSynced(op.id);
           synced++;
         } else {
-          // Increment retry count for real errors
+          // Se sigue reintentando SIEMPRE.
+          //
+          // Antes, al tercer intento fallido la operación se marcaba como
+          // sincronizada y se borraba. Eso no era «rendirse»: era TIRAR UNA
+          // VENTA. La factura desaparecía sin quedar en el servidor ni en el
+          // aparato, y el cierre de caja no cuadraba sin explicación posible.
+          // Una venta se sube o se queda pendiente y a la vista; no se descarta.
           op.retries = (op.retries || 0) + 1;
-          if (op.retries < 3) {
-            console.log(`[SYNC] 🔄 Reintentando (${op.retries}/3): ${op.id}`);
-            await idb.put('pending_operations', op);
-          } else {
-            await this.markSynced(op.id);
-          }
+          op.lastError = errorMsg;
+          await idb.put('pending_operations', op);
           failed++;
           errors.push({
             operationId: op.id,

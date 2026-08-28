@@ -73,8 +73,9 @@ export function useOfflineSync() {
         }
       };
 
-      // Sync cash sessions first (invoices depend on this)
-      const cashSessionResult = await cashSessionOfflineService.syncAll(cashSessionSyncFn);
+      // Solo las APERTURAS: las facturas necesitan que el id de la caja offline
+      // ya esté remapeado. Los cierres van al final, después de las ventas.
+      const aperturas = await cashSessionOfflineService.syncAll(cashSessionSyncFn, 'open');
 
       // Las FACTURAS van después de las cajas y ANTES del resto: necesitan que el
       // id de la sesión offline ya esté remapeado, si no entran apuntando a una
@@ -93,8 +94,25 @@ export function useOfflineSync() {
           inv.invoiceNumber, inv.cashierId ?? null, inv.cashierName ?? null,
           inv.payments ?? null, inv.documentType ?? 'ticket', inv.customerId ?? null,
           inv.currencyInfo,
+          inv.id,   // marca contra el doble cobro al reintentar
         );
       });
+
+      /**
+       * Los CIERRES, al final y solo si ya no quedan ventas por subir.
+       *
+       * Subir el cierre antes que las facturas era la causa de los cierres en
+       * cero: el servidor sumaba los totales sin las ventas del día y ese
+       * arqueo quedaba congelado, imposible de corregir después.
+       */
+      const faltanVentas = await posOfflineService.getPendingCount().catch(() => 0);
+      const cierres = faltanVentas > 0
+        ? { synced: 0, failed: 0 }
+        : await cashSessionOfflineService.syncAll(cashSessionSyncFn, 'close');
+      const cashSessionResult = {
+        synced: aperturas.synced + cierres.synced,
+        failed: aperturas.failed + cierres.failed,
+      };
 
       // Then sync everything else in parallel
       const [genericResult, purchasesResult, queueResult, voidsResult] = await Promise.all([
