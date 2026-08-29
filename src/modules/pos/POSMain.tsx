@@ -1484,6 +1484,21 @@ export const POSMain = () => {
         return;
       }
     } catch (err) {
+      /**
+       * Doble cobro frenado por el servidor: NO es un error del cajero.
+       *
+       * Se cierra el modal de pago y se limpia el carrito, porque la venta SÍ
+       * quedó cobrada —con la factura anterior—. Dejar el modal abierto invita a
+       * tocar de nuevo, que es exactamente lo que provocó el duplicado.
+       */
+      const cuerpo = (err as any)?.body;
+      if (cuerpo?.code === 'duplicate_sale') {
+        setShowPaymentModal(false);
+        setCartOpen(false);
+        resetActive();
+        setSuccess(cuerpo.error ?? 'Esa venta ya se había cobrado.');
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Error procesando el pago');
     } finally {
       setPaymentLoading(false);
