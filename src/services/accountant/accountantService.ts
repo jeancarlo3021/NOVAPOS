@@ -112,6 +112,20 @@ export interface NewClientResult {
 export const accountantService = {
   clients: () => apiFetch<AccountantClient[]>('/accountant/clients'),
 
+  /**
+   * Enlaza un negocio YA EXISTENTE usando el código que el negocio generó.
+   *
+   * El contador no puede engancharse solo: la autorización sale del negocio.
+   */
+  link: (code: string) =>
+    apiFetch<{ tenant_id: string; business_name: string | null }>('/accountant/link', {
+      method: 'POST', body: JSON.stringify({ code }),
+    }),
+
+  /** El NEGOCIO genera el código para dárselo a su contador. */
+  linkCode: () =>
+    apiFetch<{ code: string; expires_at: string }>('/accountant/link-code', { method: 'POST' }),
+
   /** Da de alta un cliente nuevo en la cartera del contador. */
   createClient: (payload: NewClientPayload) =>
     apiFetch<NewClientResult>('/accountant/clients', {

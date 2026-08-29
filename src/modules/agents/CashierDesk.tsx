@@ -179,6 +179,10 @@ export const CashierDesk: React.FC = () => {
         // El comprobante que pidió el CLIENTE, elegido por el agente.
         (charging.document_type ?? 'ticket') as any,
         charging.customer_id ?? null,
+        undefined, undefined,
+        // El correo dictado al preparar el cobro viaja CON la factura: es lo que
+        // permite que el comprobante electrónico le llegue al cliente ocasional.
+        charging.customer_email ?? null,
       );
 
       // Marcar el pedido cobrado y acreditar la comisión del agente.

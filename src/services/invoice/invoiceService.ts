@@ -110,6 +110,14 @@ export const invoicesService = {
      * devuelve la factura que ya existe en lugar de crear otra.
      */
     offlineId?: string | null,
+    /**
+     * Correo para ESTA factura.
+     *
+     * El cliente ocasional dicta su correo al cobrar y no queda registrado como
+     * ficha. Si no viaja con la factura, el comprobante electrónico no tiene a
+     * dónde enviarse aunque el cliente lo haya pedido.
+     */
+    customerEmail?: string | null,
   ) {
     // Validaciones según método de pago. En pago mixto (payments con 2+
     // splits) la validación ya la hizo el modal: la suma cuadra con el total y
@@ -148,6 +156,7 @@ export const invoicesService = {
         customer_id: customerId ?? null,
         customer_name: customerName,
         customer_phone: customerPhone,
+        customer_email: customerEmail || null,
         amount_received: paymentMethod === 'cash' ? amountReceived : null,
         change_amount: paymentMethod === 'cash' ? changeAmount : null,
         voucher_number: (paymentMethod === 'card' || paymentMethod === 'sinpe') ? voucherNumber : null,

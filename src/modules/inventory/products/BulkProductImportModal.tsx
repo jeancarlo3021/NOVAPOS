@@ -56,6 +56,14 @@ const HEADER_ALIASES: Record<string, string> = {
   maximo: 'max_stock_level', stock_maximo: 'max_stock_level',
   infinito: 'stock_infinito', sin_stock: 'stock_infinito',
   categoria: 'category', familia: 'category',
+  // ── Nombres que traen los sistemas de punto de venta de acá ──────────────
+  // Los catálogos que manda el cliente vienen exportados de su sistema viejo y
+  // usan abreviaturas: «P. Venta», «Existencia», «Departamento». Sin estos
+  // alias había que renombrar las columnas a mano antes de poder importar.
+  p_venta: 'unit_price', p_costo: 'cost_price', p_mayoreo: 'wholesale_price',
+  existencia: 'stock_quantity', inv_minimo: 'min_stock_level', inv_maximo: 'max_stock_level',
+  departamento: 'category', linea: 'category', grupo: 'category',
+  tipo_de_venta: 'unit_type', tipo_venta: 'unit_type',
   unidad: 'unit_type', unidad_medida: 'unit_type', medida: 'unit_type',
   cabys: 'cabys_code', codigo_cabys: 'cabys_code',
   iva: 'iva_rate', impuesto: 'iva_rate', tarifa: 'iva_rate',
@@ -92,14 +100,38 @@ const TEMPLATE_CSV =
 
 // ── Parser CSV (simple — soporta valores con comillas y comas escapadas) ──
 // delim: ',' o ';' (Excel en español usa ';'). Se auto-detecta antes de llamar.
+/**
+ * Lector de CSV tolerante a comillas sueltas.
+ *
+ * ── Por qué no basta el CSV «de manual» ────────────────────────────────────
+ * En el catálogo real las comillas aparecen como MEDIDA, no como delimitador:
+ * «Cinta 1/2"», «Elástico 3/4"». Un lector estricto ve esa comilla, cree que
+ * empieza un texto entrecomillado y se traga TODO el resto del archivo —miles de
+ * filas— dentro de una sola celda. El usuario subía 5.600 productos y el sistema
+ * le decía «1.000 válidos», sin ningún error: los otros 4.600 estaban ahí, pegados
+ * dentro de un campo gigante.
+ *
+ * La regla acá: una comilla solo abre texto entrecomillado si está al PRINCIPIO
+ * del campo, y solo lo cierra si después viene un separador, un salto de línea o
+ * el final. En cualquier otro lugar es lo que parece: una pulgada.
+ */
 function parseCSV(text: string, delim: string = ','): string[][] {
   const rows: string[][] = [];
   let cur = '', row: string[] = [], inQuotes = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i], next = text[i + 1];
     if (c === '"') {
-      if (inQuotes && next === '"') { cur += '"'; i++; }
-      else inQuotes = !inQuotes;
+      if (inQuotes && next === '"') { cur += '"'; i++; }        // comilla escapada
+      else if (inQuotes) {
+        // Solo cierra si el campo termina acá. Si sigue texto, era una medida.
+        const cierra = next === undefined || next === delim || next === '\n' || next === '\r';
+        if (cierra) inQuotes = false;
+        else cur += c;
+      } else if (cur === '') {
+        inQuotes = true;                                        // abre el campo
+      } else {
+        cur += c;                                               // 1/2" → pulgadas
+      }
     } else if (c === delim && !inQuotes) {
       row.push(cur); cur = '';
     } else if ((c === '\n' || c === '\r') && !inQuotes) {
@@ -176,7 +208,25 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
       [',', firstLine.split(',').length],
     ];
     const delim = counts.sort((x, y) => y[1] - x[1])[0][1] > 1 ? counts[0][0] : ',';
-    return parseCSV(text, delim).map(r => r.map(cleanCell));
+    const grid = parseCSV(text, delim).map(r => r.map(cleanCell));
+
+    /**
+     * Aviso si se leyeron MUCHAS menos filas que líneas tiene el archivo.
+     *
+     * Es la señal de que algo del formato se está comiendo el resto —una comilla
+     * rara, un carácter de control—. Sin esto, el sistema decía tranquilamente
+     * «1.000 válidos» sobre un archivo de 5.600 y nadie se enteraba de que
+     * faltaban 4.600 productos hasta buscarlos en el inventario.
+     */
+    const lineas = text.split(/\r?\n/).filter(l => l.trim() !== '').length;
+    if (lineas > 10 && grid.length < lineas * 0.9) {
+      console.warn(`[bulk-import] el archivo tiene ${lineas} líneas y solo se leyeron ${grid.length} filas`);
+      setError(
+        `Atención: el archivo tiene ${lineas} líneas pero solo se pudieron leer ${grid.length}.`
+        + ' Revisá que no haya comillas sin cerrar y volvé a guardarlo como CSV UTF-8.',
+      );
+    }
+    return grid;
   };
 
   const handleFile = async (file: File) => {
@@ -293,7 +343,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     // unidades y crea los productos para el tenant destino (service-role).
     if (adminMode) {
       // Fuera del try: si un lote falla, hay que poder decir cuántos SÍ entraron.
-      let created = 0, errors = 0;
+      let created = 0, errors = 0, updated = 0;
       try {
         const payload = validRows.map(r => ({
           name: r.name, sku: r.sku ?? '', sku2: r.sku2 ?? null, description: r.description,
@@ -310,28 +360,81 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         // quedaba a medias, sin saber por dónde se había quedado. Cada lote es
         // una petición corta, y si uno falla los anteriores YA quedaron.
         let detailMsg: string | null = null;
-        for (const batch of chunked(payload, BULK_CHUNK_SIZE)) {
-          const r = await apiFetch<{ created: number; errors: number; error_detail?: string | null }>(
-            `/admin/tenants/${tenantId}/products-import`,
-            { method: 'POST', body: JSON.stringify({ rows: batch }) },
-            60000,   // un lote de 50 nunca debería acercarse a esto
-          );
-          created += r?.created ?? 0;
-          errors  += r?.errors ?? 0;
-          if (!detailMsg && r?.error_detail) detailMsg = r.error_detail;
-          setProgress({ done: created + errors, total: payload.length, errors });
+        const lotes = chunked(payload, BULK_CHUNK_SIZE);
+
+        /**
+         * Un lote que falla YA NO corta la importación.
+         *
+         * Antes el error salía del bucle: con 3.000 productos son 60 lotes, y
+         * bastaba que uno se cayera —un pico de lentitud, un tiempo agotado—
+         * para que los 40 lotes siguientes ni se intentaran. El usuario veía
+         * «se importaron 850» sobre un archivo de 3.000 y no tenía forma de
+         * saber cuáles faltaban. Ahora se siguen todos y al final se dice
+         * exactamente qué filas quedaron fuera.
+         *
+         * De a 3 a la vez y no todos de golpe: el navegador abre pocas
+         * conexiones por dominio, así que lanzar 60 solo haría cola y de paso
+         * castigaría al servidor.
+         *
+         * No se reintenta solo: un lote que se cortó por tiempo pudo haber
+         * entrado igual, y repetirlo duplicaría productos. Se informa y el
+         * usuario reimporta las filas que faltaron.
+         */
+        const fallidas: typeof payload = [];
+        const resultados = await mapWithConcurrency(
+          lotes,
+          async (batch) => {
+            const r = await apiFetch<{ created: number; updated?: number; errors: number; error_detail?: string | null }>(
+              `/admin/tenants/${tenantId}/products-import`,
+              { method: 'POST', body: JSON.stringify({ rows: batch }) },
+              60000,   // un lote de 50 nunca debería acercarse a esto
+            );
+            return r;
+          },
+          { concurrency: 3 },
+        );
+
+        resultados.forEach((res, i) => {
+          if (res.ok) {
+            created += res.value?.created ?? 0;
+            updated += res.value?.updated ?? 0;
+            errors  += res.value?.errors ?? 0;
+            if (!detailMsg && res.value?.error_detail) detailMsg = res.value.error_detail;
+          } else {
+            // El lote entero no llegó: sus filas quedan pendientes.
+            errors += lotes[i].length;
+            fallidas.push(...lotes[i]);
+            if (!detailMsg) {
+              detailMsg = res.error instanceof Error ? res.error.message : String(res.error);
+            }
+          }
+          setProgress({ done: created + updated + errors, total: payload.length, errors });
+        });
+
+        if (fallidas.length > 0) {
+          console.warn('[bulk-import] filas sin importar:', fallidas.map(f => f.name));
         }
 
         setImporting(false);
         const detail = detailMsg ? ` Detalle: ${detailMsg}` : '';
         const res = { created, errors };
-        if (created === 0) {
+        // Actualizar productos que ya existían es un resultado válido, no un
+        // fracaso: reimportar el catálogo para corregir precios no crea ninguno.
+        if (created === 0 && updated === 0) {
           // Dejamos el modal ABIERTO con el error visible (no llamamos onDone,
           // que lo cerraría desde el panel admin).
           setError(`No se creó ningún producto (errores: ${res?.errors ?? '?'}).${detail}`);
         } else {
-          if ((res?.errors ?? 0) > 0) setError(`Se importaron ${created}, pero ${res.errors} fila(s) fallaron.${detail}`);
-          onDone(created);
+          if ((res?.errors ?? 0) > 0) {
+            // Se dice el número exacto: con miles de filas, «algunas fallaron»
+            // deja al usuario sin saber si reimportar todo (y duplicar) o nada.
+            setError(
+              `Se procesaron ${created + updated} de ${payload.length}`
+              + ` (${created} nuevos, ${updated} actualizados).`
+              + ` Quedaron ${res.errors} fila(s) sin subir.${detail}`,
+            );
+          }
+          onDone(created + updated);
         }
       } catch (e) {
         setImporting(false);

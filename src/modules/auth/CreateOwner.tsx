@@ -686,14 +686,24 @@ export const CreateOwner: React.FC = () => {
   // (no facturan ni son clientes de verdad).
   const activeOwners   = visibleOwners.filter(o =>
     o.status === 'active' && !o.is_demo && !o.is_admin_plan);
-  // El plan Admin NO factura — no debe contar en vencidos ni en alertas.
+  /**
+   * Ni el plan Admin ni las DEMOS entran en los avisos de cobro.
+   *
+   * Una demo vence por diseño —para eso es una prueba— y no le debe plata a
+   * nadie. Aparecían mezcladas con los clientes que sí hay que ir a cobrar, y
+   * con varias demos vivas la lista de vencidos dejaba de servir para lo único
+   * que sirve: saber a quién llamar hoy. Las demos ya se controlan desde la
+   * pantalla de Demos.
+   */
+  const facturable = (o: any) => !o.is_admin_plan && !o.is_demo;
+
   const overdueOwners  = visibleOwners.filter(o => {
-    if (o.is_admin_plan) return false;
+    if (!facturable(o)) return false;
     const d = daysUntil(effectiveEndsAt(o).date);
     return d !== null && d < 0 && o.status === 'active';
   });
   const dueSoonOwners  = visibleOwners.filter(o => {
-    if (o.is_admin_plan) return false;
+    if (!facturable(o)) return false;
     const d = daysUntil(effectiveEndsAt(o).date);
     return d !== null && d >= 0 && d <= 7 && o.status === 'active';
   });

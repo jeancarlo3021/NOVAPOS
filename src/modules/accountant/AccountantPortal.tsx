@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Calculator, Loader2, AlertCircle, CheckCircle2, X, KeyRound, Save,
-  ArrowRightCircle, Search, UserPlus, RefreshCw,
+  ArrowRightCircle, Search, UserPlus, RefreshCw, Link as LinkIcon,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { CRLocationFields } from '@/components/CRLocationFields';
@@ -27,6 +27,7 @@ export const AccountantPortal: React.FC = () => {
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [editing, setEditing] = useState<AccountantClient | null>(null);
   const [adding, setAdding] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -95,6 +96,15 @@ export const AccountantPortal: React.FC = () => {
         </div>
         {/* El contador da de alta a su cliente acá mismo: negocio, datos de
             Hacienda y el usuario con el que el cliente entra. Sin Panel Admin. */}
+        {/* Enlazar un negocio que YA existe. Es el caso común: el cliente ya
+            venía usando el sistema y ahora suma a su contador. Antes solo se
+            podía crear uno nuevo, así que había que pedirle al administrador
+            que lo asignara a mano. */}
+        <button onClick={() => setLinking(true)}
+          className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-indigo-200
+                     text-indigo-700 hover:bg-indigo-50 text-sm font-black transition">
+          <LinkIcon size={16} /> Enlazar negocio existente
+        </button>
         <button onClick={() => setAdding(true)}
           className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black transition">
           <UserPlus size={16} /> Añadir cliente
@@ -205,6 +215,13 @@ export const AccountantPortal: React.FC = () => {
             );
           })}
         </div>
+      )}
+
+      {linking && (
+        <LinkClientModal
+          onClose={() => setLinking(false)}
+          onLinked={(text) => { setLinking(false); setMsg({ kind: 'ok', text }); void load(); }}
+        />
       )}
 
       {adding && (
@@ -416,6 +433,73 @@ const ClientFeModal: React.FC<{
           </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+/**
+ * Enlazar un negocio que ya existe, con el código que el negocio generó.
+ *
+ * El contador no puede engancharse por su cuenta a cualquier negocio: eso le
+ * daría acceso a la facturación de gente que no es su cliente. El dueño genera
+ * el código desde su Configuración y se lo dicta.
+ */
+const LinkClientModal: React.FC<{
+  onClose: () => void;
+  onLinked: (msg: string) => void;
+}> = ({ onClose, onLinked }) => {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const enlazar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (code.trim().length < 4) { setError('Escribí el código completo.'); return; }
+    setBusy(true); setError('');
+    try {
+      const r = await accountantService.link(code.trim());
+      onLinked(`${r.business_name ?? 'El negocio'} se agregó a tu cartera.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo enlazar');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <form onSubmit={enlazar} onClick={e => e.stopPropagation()}
+        className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <span className="font-black text-gray-900 flex items-center gap-2">
+            <LinkIcon size={18} className="text-indigo-600" /> Enlazar negocio existente
+          </span>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+
+        <p className="text-xs font-semibold text-gray-500">
+          Pedile a tu cliente que entre a <b>Configuración → Contador</b> y genere el código.
+          Dura tres días y se usa una sola vez.
+        </p>
+
+        <input
+          autoFocus value={code}
+          onChange={e => setCode(e.target.value.toUpperCase())}
+          placeholder="ABCD-2345"
+          className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none focus:border-indigo-400
+                     text-center text-lg font-black tracking-widest"
+        />
+
+        {error && (
+          <p className="flex items-center gap-1.5 text-xs font-bold text-red-600">
+            <AlertCircle size={14} /> {error}
+          </p>
+        )}
+
+        <button type="submit" disabled={busy}
+          className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200
+                     text-white font-black text-sm flex items-center justify-center gap-2">
+          {busy ? <Loader2 size={15} className="animate-spin" /> : <LinkIcon size={15} />} Enlazar
+        </button>
+      </form>
     </div>
   );
 };

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Save, AlertCircle, CheckCircle, Eye, EyeOff, Lock, Percent } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle, Eye, EyeOff, Lock, Percent, Calculator } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { formatCedula, cleanCedula } from '@/utils/cedula';
 import { useAuth } from '@/context/AuthContext';
@@ -55,6 +55,9 @@ export const GeneralSettings: React.FC = () => {
   const [formData, setFormData] = useState(DEFAULTS);
   const [success, setSuccess] = useState(false);
   const [showPin, setShowPin] = useState(false);
+  /** Código de un solo uso para que el contador enlace este negocio. */
+  const [codigoContador, setCodigoContador] = useState('');
+  const [generandoCodigo, setGenerandoCodigo] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -388,6 +391,46 @@ export const GeneralSettings: React.FC = () => {
               </p>
             </label>
           </div>
+        </div>
+
+        {/* Autorizar al contador sobre un negocio que ya existe */}
+        <div className="border-t border-gray-100 pt-5">
+          <label className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
+            <Calculator size={14} className="text-indigo-500" /> Tu contador
+          </label>
+          <p className="text-xs text-gray-400 mb-2">
+            Generá un código y dictáselo. Con él, tu contador suma este negocio a su cartera
+            y puede llevarte la facturación electrónica. Dura tres días y se usa una sola vez.
+          </p>
+          {codigoContador ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-4 py-2 rounded-lg bg-indigo-50 border-2 border-indigo-200
+                               text-indigo-800 font-black tracking-widest text-lg">
+                {codigoContador}
+              </span>
+              <button type="button"
+                onClick={() => { navigator.clipboard?.writeText(codigoContador).catch(() => {}); }}
+                className="px-3 py-2 rounded-lg border border-gray-200 text-gray-600 text-sm font-bold hover:bg-gray-50">
+                Copiar
+              </button>
+            </div>
+          ) : (
+            <button type="button" disabled={!isManager || generandoCodigo}
+              onClick={async () => {
+                setGenerandoCodigo(true);
+                try {
+                  const { accountantService } = await import('@/services/accountant/accountantService');
+                  const r = await accountantService.linkCode();
+                  setCodigoContador(r.code);
+                } catch (e) {
+                  window.alert(e instanceof Error ? e.message : 'No se pudo generar el código');
+                } finally { setGenerandoCodigo(false); }
+              }}
+              className="px-4 py-2 rounded-lg border-2 border-indigo-200 text-indigo-700 text-sm font-black
+                         hover:bg-indigo-50 disabled:opacity-50">
+              {generandoCodigo ? 'Generando…' : 'Generar código para mi contador'}
+            </button>
+          )}
         </div>
 
         <div className="border-t border-gray-100 pt-5">
