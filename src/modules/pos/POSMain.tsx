@@ -29,6 +29,7 @@ import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from 
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
+import { PendingInvoicesModal } from './PendingInvoicesModal';
 import { POSPinLockModal } from './POSPinLockModal';
 import { POSDesktopBar } from './POSDesktopBar';
 import { CashMovementModal } from './cashManagement/CashMovementModal';
@@ -461,6 +462,9 @@ export const POSMain = () => {
       finally { silentOpenRef.current = false; }
     })();
   }, [cashEnabled, sessionLoading, currentSession, isOnline, refetchSession, tenantId, user]);
+
+  /** Lista de ventas sin subir (se abre desde el contador de pendientes). */
+  const [showPending, setShowPending] = useState(false);
 
   // Keep pending invoice count up to date
   const refreshPendingCount = useCallback(async () => {
@@ -1495,11 +1499,20 @@ export const POSMain = () => {
       data-pos-view={posViewMode}
       data-assisted={assisted ? '1' : '0'}
     >
+      {showPending && (
+        <PendingInvoicesModal
+          syncing={syncing}
+          onSync={async () => { await syncOfflineInvoices(); await refreshPendingCount(); }}
+          onClose={() => { setShowPending(false); void refreshPendingCount(); }}
+        />
+      )}
+
       <POSHeader
         isOnline={isOnline}
         error={error}
         success={success}
         pendingCount={pendingInvoices}
+        onShowPending={() => setShowPending(true)}
         syncing={syncing}
         productsCached={productsCached}
         productsCachedAt={productsCachedAt}

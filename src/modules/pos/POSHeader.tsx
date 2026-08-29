@@ -9,6 +9,8 @@ interface POSHeaderProps {
   success: string;
   isOnline: boolean;
   pendingCount: number;
+  /** Abre la lista de ventas sin subir (con el motivo de cada fallo). */
+  onShowPending?: () => void;
   syncing: boolean;
   productsCached: boolean;
   productsCachedAt?: Date | null;
@@ -33,6 +35,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   success,
   isOnline,
   pendingCount,
+  onShowPending,
   syncing,
   productsCached,
   productsCachedAt,
@@ -206,7 +209,9 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           )}
           {pendingCount > 0 && (
             <button
-              onClick={onSync}
+              // Abre el detalle en vez de solo reintentar: si la venta falla
+              // siempre, tocar «subir» una y otra vez no lleva a ningún lado.
+              onClick={onShowPending ?? onSync}
               disabled={!isOnline || syncing}
               className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 text-xs font-semibold px-2 py-1 rounded-lg hover:bg-orange-100 disabled:opacity-50 transition"
             >
