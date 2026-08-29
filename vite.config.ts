@@ -40,6 +40,10 @@ export default defineConfig({
           '**/xlsx-*.js', '**/recharts-*.js', '**/html2canvas-*.js',
           '**/konva-*.js', '**/CreateOwner-*.js', '**/ReportsDashboard-*.js',
           '**/index.es-*.js',
+          // Lector de PDF: solo se usa al subir un logo en PDF, una vez en la
+          // vida del negocio. Son 1,7 MB que no tienen por qué descargarse en
+          // el primer arranque de cada cajero.
+          '**/pdf-*.js', '**/pdf.worker*',
         ],
 
         // Tamaño máximo por archivo en precache (5 MB).

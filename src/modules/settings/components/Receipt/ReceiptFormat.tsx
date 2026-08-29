@@ -38,8 +38,14 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
       return;
     }
 
-    if (!file.type.startsWith('image/')) {
-      setError('El archivo debe ser una imagen');
+    // También se acepta PDF: es como el diseñador entrega el logo. El sistema
+    // toma su primera página y la convierte. El SVG se excluye a propósito: el
+    // navegador no lo puede dibujar sin medidas y falla más adelante, con un
+    // error que no explica nada.
+    const esPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const esImagen = file.type.startsWith('image/') && file.type !== 'image/svg+xml';
+    if (!esPdf && !esImagen) {
+      setError('Subí una imagen PNG o JPG, o el PDF del logo.');
       return;
     }
 
@@ -159,13 +165,13 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
                   )}
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
                     onChange={handleLogoUpload}
                     disabled={uploading}
                     className="hidden"
                   />
                 </label>
-                <span className="text-xs text-gray-400">JPG, PNG, WebP, SVG (max 500 KB)</span>
+                <span className="text-xs text-gray-400">JPG, PNG, WebP o PDF · se ajusta solo</span>
               </div>
             </div>
 
