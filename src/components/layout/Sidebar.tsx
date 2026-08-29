@@ -103,7 +103,6 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Nuevo pedido',       to: '/agent-orders',  icon: Send,      feature: 'agent_orders', module: 'agent_orders', hideForRoles: ['cajero'] },
       { name: 'Demos',              to: '/demos',         icon: MonitorPlay, feature: 'demo_requests', module: 'customers' },
       { name: 'Equipo en vivo',     to: '/equipo-en-vivo', icon: Users2,    feature: 'live_team', module: 'tracking', alsoIf: ['tracking'] },
-      { name: 'Activar ubicación',  to: '/activar-ubicacion', icon: Navigation, feature: 'customers', module: 'customers' },
       { name: 'Leads',              to: '/seguimiento',   icon: TrendingUp, feature: 'crm_leads', module: 'customers' },
       { name: 'Garantías',          to: '/garantias',     icon: ShieldCheck, feature: 'warranties', module: 'inventory' },
       { name: 'Entregas del día',   to: '/entregas',      icon: Truck,     feature: 'agent_agenda', module: 'agent_orders' },
