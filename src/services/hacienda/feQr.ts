@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 /**
  * URL de consulta pública del comprobante electrónico — es el contenido que
  * se codifica en el QR según la representación impresa (resolución DGT 4.4).
- * NOTA: si Hacienda/Facturemos define otra URL exacta, cambiarla solo aquí.
+ * NOTA: si Hacienda define otra URL exacta, cambiarla solo aquí.
  */
 export function haciendaConsultaUrl(clave: string): string {
   return `https://www.hacienda.go.cr/ATV/ComprobanteElectronico/frmConsultaComprobantes.aspx?clave=${clave}`;

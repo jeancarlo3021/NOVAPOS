@@ -17,9 +17,6 @@ interface FeConfig {
   enabled?:               boolean;
   simplificado?:          boolean;
   environment?:           'sandbox' | 'production';
-  api_key_emisor?:        string;   // legacy (fallback)
-  api_key_emisor_production?: string; // ApiKey de producción
-  api_key_emisor_sandbox?:    string; // ApiKey de QA / sandbox
   default_document_type?: 'ticket' | 'tiquete_electronico' | 'factura_electronica';
   // Cuota de comprobantes (acumulable) + cobro por excedente.
   fe_included_docs?:      number;   // facturas + tiquetes por mes (0 = ilimitado)
@@ -292,28 +289,9 @@ export const AdminFeKioskView: React.FC = () => {
                         </select>
                       </div>
 
-                      {/* ApiKey del emisor + datos del emisor (los pone el sistema) */}
+                      {/* Datos del emisor (los pone el sistema) */}
                       <div className="border-t border-gray-100 pt-2 mt-1 space-y-2">
-                        <p className="text-[11px] font-black text-gray-600 uppercase tracking-wider">ApiKey y datos del emisor</p>
-                        <div className="space-y-1.5">
-                          <div>
-                            <label className="block text-[10px] font-bold text-emerald-700 mb-1">ApiKey Producción</label>
-                            <input type="text" value={card.fe.api_key_emisor_production ?? ''}
-                              onChange={e => setFe(b.tenant_id, 'api_key_emisor_production', e.target.value)}
-                              name="fe_apikey_prod" autoComplete="off" spellCheck={false} data-1p-ignore
-                              placeholder="ApiKey de producción"
-                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-mono" />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-amber-700 mb-1">ApiKey QA / Sandbox</label>
-                            <input type="text" value={card.fe.api_key_emisor_sandbox ?? ''}
-                              onChange={e => setFe(b.tenant_id, 'api_key_emisor_sandbox', e.target.value)}
-                              name="fe_apikey_qa" autoComplete="off" spellCheck={false} data-1p-ignore
-                              placeholder="ApiKey de pruebas (QA)"
-                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-mono" />
-                          </div>
-                          <p className="text-[10px] text-gray-400">Se usa según el ambiente elegido arriba.</p>
-                        </div>
+                        <p className="text-[11px] font-black text-gray-600 uppercase tracking-wider">Datos del emisor</p>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <label className="block text-[10px] font-bold text-gray-500 mb-1">Tipo ID</label>

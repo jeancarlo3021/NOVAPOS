@@ -7,7 +7,6 @@ export type DocumentType = 'ticket' | 'tiquete_electronico' | 'factura_electroni
  * ¿Se pueden emitir comprobantes ELECTRÓNICOS en este negocio?
  *
  * La condición depende del proveedor:
- *  · Facturemos → hace falta la ApiKey del emisor (por ambiente).
  *  · Alanube    → no usa ApiKey; el token vive en el servidor y la emisión usa la
  *    empresa principal de la cuenta. Basta con que la FE esté activa.
  *
@@ -33,20 +32,12 @@ export function useFeReady() {
         if (cancelled) return;
         const cfg = raw?.config ?? raw ?? {};
         const env = cfg.environment === 'sandbox' ? 'sandbox' : 'production';
-        const provider = cfg.fe_provider === 'alanube' ? 'alanube' : 'facturemos';
-
-        let ok: boolean;
-        if (provider === 'alanube') {
-          const companyId = env === 'sandbox' ? cfg.alanube_company_id_sandbox : cfg.alanube_company_id_production;
-          ok = cfg.enabled !== false
-            && (!!companyId || !!cfg.alanube_company_id || !!cfg.alanube_main_exists
-              || !!cfg.alanube_registered_at || cfg.enabled === true);
-        } else {
-          const envKey = env === 'sandbox'
-            ? (cfg.api_key_emisor_sandbox || cfg.api_key_emisor)
-            : (cfg.api_key_emisor_production || cfg.api_key_emisor);
-          ok = !!String(envKey ?? '').trim();
-        }
+        // Listo para emitir = la empresa está dada de alta en Alanube para el
+        // ambiente activo y la facturación electrónica no está apagada.
+        const companyId = env === 'sandbox' ? cfg.alanube_company_id_sandbox : cfg.alanube_company_id_production;
+        const ok = cfg.enabled !== false
+          && (!!companyId || !!cfg.alanube_company_id || !!cfg.alanube_main_exists
+            || !!cfg.alanube_registered_at || cfg.enabled === true);
         setFeReady(ok);
 
         const allowed: DocumentType[] = ['ticket', 'tiquete_electronico', 'factura_electronica'];

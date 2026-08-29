@@ -8,7 +8,6 @@ import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 
 interface FeData {
   enabled?: boolean;
-  fe_provider?: 'facturemos' | 'alanube';   // proveedor de FE activo
   environment?: 'sandbox' | 'production';
   api_key_emisor?: string;               // legacy (fallback)
   api_key_emisor_production?: string;     // ApiKey de PRODUCCIÓN
@@ -206,22 +205,6 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
           <div className="flex justify-center py-14"><RefreshCw size={22} className="animate-spin text-gray-300" /></div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {/* Proveedor de FE — cada empresa usa Facturemos O Alanube */}
-            <div>
-              <label className={labelCls}>Proveedor de Facturación Electrónica</label>
-              <div className="grid grid-cols-2 gap-2">
-                {([['facturemos', 'Facturemos'], ['alanube', 'Alanube']] as const).map(([val, lbl]) => (
-                  <button key={val} type="button" onClick={() => set('fe_provider', val)}
-                    className={`py-2 rounded-lg border-2 text-sm font-bold transition ${(fe.fe_provider ?? 'facturemos') === val ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-blue-300'}`}>
-                    {lbl}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1">
-                Se emite con el proveedor elegido. Podés dejar cargadas las credenciales de ambos; solo se usa el activo.
-              </p>
-            </div>
-
             {/* Estado */}
             <div className="grid grid-cols-2 gap-3">
               <label className="flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-3 py-2">
@@ -237,28 +220,6 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                   <option value="sandbox">Sandbox (pruebas)</option>
                 </select>
               </div>
-            </div>
-
-            {/* ApiKeys por ambiente */}
-            <div className="space-y-2">
-              <label className={`${labelCls} flex items-center gap-1`}><KeyRound size={11} /> ApiKeys del emisor <span className="text-blue-500">· Facturemos</span></label>
-              <div>
-                <span className="text-[10px] font-bold text-emerald-700">Producción</span>
-                <input type="text" value={fe.api_key_emisor_production ?? ''} onChange={e => set('api_key_emisor_production', e.target.value)}
-                  name="fe_apikey_prod" autoComplete="off" spellCheck={false} data-1p-ignore
-                  placeholder="ApiKey de producción"
-                  className={`${inputCls} font-mono`} />
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-amber-700">QA / Sandbox</span>
-                <input type="text" value={fe.api_key_emisor_sandbox ?? ''} onChange={e => set('api_key_emisor_sandbox', e.target.value)}
-                  name="fe_apikey_qa" autoComplete="off" spellCheck={false} data-1p-ignore
-                  placeholder="ApiKey de pruebas (QA)"
-                  className={`${inputCls} font-mono`} />
-              </div>
-              <p className="text-[10px] text-gray-400">
-                Se usa la de <b>{(fe.environment ?? 'production') === 'sandbox' ? 'QA / Sandbox' : 'Producción'}</b> según el ambiente elegido arriba.
-              </p>
             </div>
 
             {/* Documento por defecto */}

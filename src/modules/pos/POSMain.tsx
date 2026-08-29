@@ -1421,7 +1421,7 @@ export const POSMain = () => {
             if (res?.clave) {
               const esFactura = (res.tipo ?? (documentType === 'factura_electronica' ? '01' : '04')) === '01';
               // El consecutivo (20 díg) va embebido en la clave (pos 22-41) si
-              // Facturemos no lo devuelve por separado.
+              // El proveedor no lo devuelve por separado.
               const consecFromClave = typeof res.clave === 'string' && res.clave.length === 50
                 ? res.clave.slice(21, 41) : undefined;
               feData = {

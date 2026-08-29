@@ -129,7 +129,7 @@ export const CreateOwner: React.FC = () => {
     try {
       const cur = await apiFetch<any>(`/admin/tenants/${o.id}/fe-config`).catch(() => ({}));
       const existing = cur?.fe ?? {};
-      const key = window.prompt(`ApiKey del emisor (Facturemos) para "${o.name}":`, existing.api_key_emisor ?? '');
+      const key = window.prompt(`Token del emisor para "${o.name}":`, existing.api_key_emisor ?? '');
       if (key === null) return;
       await apiFetch(`/admin/tenants/${o.id}/fe-config`, {
         method: 'PUT',
@@ -430,7 +430,7 @@ export const CreateOwner: React.FC = () => {
           monthly_electronic:  elecCountMap.get(row.id) ?? 0,
           monthly_corriente:   corrCountMap.get(row.id) ?? 0,
           distribution_invoices: distCountMap.get(row.id) ?? 0,
-          // Proveedor de FE (facturemos/alanube) — controla la visibilidad de las
+          // Proveedor de FE — controla la visibilidad de las
           // acciones de "Crear/Actualizar empresa en Alanube" en el menú.
           fe_provider:         row.fe_provider ?? null,
         };
@@ -1491,7 +1491,7 @@ export const CreateOwner: React.FC = () => {
                                 {((q.used_alanube ?? 0) > 0 || (q.used_facturemos ?? 0) > 0) && (
                                   <div className="flex items-center gap-1 text-[10px] font-bold">
                                     <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700" title="Comprobantes emitidos con Alanube (comparables con el reporte de Alanube)">A {(q.used_alanube ?? 0).toLocaleString('es-CR')}</span>
-                                    <span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700" title="Comprobantes emitidos con Facturemos">F {(q.used_facturemos ?? 0).toLocaleString('es-CR')}</span>
+                                    <span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700" title="Comprobantes emitidos con el proveedor anterior">Previo {(q.used_facturemos ?? 0).toLocaleString('es-CR')}</span>
                                   </div>
                                 )}
                                 <span className={`text-[10px] font-semibold ${expired ? 'text-red-600' : soon ? 'text-amber-600' : 'text-gray-400'}`}

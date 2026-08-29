@@ -121,16 +121,16 @@ export interface ConsecutivoAudit {
 }
 
 export const haciendaService = {
-  /** Verifica la conexión con Facturemos (token + emisor). */
+  /** Verifica que el negocio pueda emitir (token de Alanube + empresa creada). */
   testConnection: () => apiFetch<{ token_ok: boolean; emisor_configured: boolean; message?: string }>(
     '/hacienda/test-connection', { method: 'POST' }),
 
-  /** Emite un documento electrónico a Hacienda (vía Facturemos) por su factura. */
+  /** Emite un documento electrónico a Hacienda (vía Alanube) por su factura. */
   /** `warning` avisa de líneas que quedaron fuera del comprobante (sin precio). */
   emit: (invoiceId: string) => apiFetch<{ clave?: string; consecutivo?: string; response?: any; warning?: string | null }>(
     '/hacienda/emit', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId }) }),
 
-  /** Devuelve el payload EXACTO que se enviaría a Facturemos, SIN enviarlo (diagnóstico). */
+  /** Devuelve el payload EXACTO que se enviaría al proveedor, SIN enviarlo (diagnóstico). */
   debug: (invoiceId: string) => apiFetch<{ environment: string; apiKeyEmisor_last4: string; emisor_cedula: string; ConsecutivoModel: any; Factura: any }>(
     '/hacienda/emit', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, debug: true }) }),
 
@@ -308,7 +308,7 @@ export const haciendaService = {
   },
 
   /** Proveedor de FE del tenant actual (para ocultar funciones de Alanube). */
-  provider: () => apiFetch<{ provider: 'alanube' | 'facturemos'; enabled: boolean }>('/hacienda/provider'),
+  provider: () => apiFetch<{ provider: 'alanube'; enabled: boolean }>('/hacienda/provider'),
 
   /**
    * XML firmado y respuesta de Hacienda (base64). El XML es el comprobante que

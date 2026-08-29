@@ -123,7 +123,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
     inv.invoice_number.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Emite una Nota de Crédito (03) que anula la factura (prueba Facturemos/Alanube).
+  // Emite una Nota de Crédito (03) que anula la factura.
   const handleCreditNote = async (row: InvoiceRow) => {
     if (!confirm(`¿Emitir Nota de Crédito para anular la factura ${row.invoice_number}?`)) return;
     setFeMsg(null);

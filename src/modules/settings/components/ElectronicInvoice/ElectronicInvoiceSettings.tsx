@@ -6,7 +6,6 @@ import { useTenantId } from '@/hooks/useTenant';
 interface FESettings {
   enabled:               boolean;
   environment:           'sandbox' | 'production';
-  // Proveedor Facturemos CR
   api_key_emisor:        string;  // Clave del emisor (Genius Technology)
   hacienda_username:     string;  // Cédula jurídica + ATV usuario
   hacienda_password:     string;
@@ -27,7 +26,7 @@ interface FESettings {
   emisor_email:               string;
   // Actividad económica
   economic_activity_code:     string;
-  // Proveedor de sistemas (cédula) — requerido por Facturemos
+  // Proveedor de sistemas (cédula) — requerido por Hacienda
   proveedor_sistemas?:        string;
   // Numeración (consecutivo Hacienda)
   sucursal?:                  string;

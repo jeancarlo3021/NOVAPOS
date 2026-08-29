@@ -320,7 +320,8 @@ export const FeInvoicesDashboard: React.FC = () => {
   };
 
   // Proveedor del comprobante, derivado del consecutivo: Alanube guarda un ULID
-  // (con letras) y Facturemos un consecutivo numérico. '' si aún no fue emitido.
+  // (con letras) y el proveedor ANTERIOR uno numérico. Se conserva porque las
+  // facturas viejas siguen en la base y hay que poder filtrarlas.
   const providerOf = (r: FeRow): 'alanube' | 'facturemos' | '' => {
     const c = String(r.fe_consecutivo ?? '').trim();
     if (!c) return '';
@@ -398,7 +399,7 @@ export const FeInvoicesDashboard: React.FC = () => {
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white">
             <option value="">Todos</option>
             <option value="alanube">Alanube</option>
-            <option value="facturemos">Facturemos</option>
+            <option value="facturemos">Proveedor anterior</option>
           </select>
         </div>
         <div>

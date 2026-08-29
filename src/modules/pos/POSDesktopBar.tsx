@@ -175,7 +175,7 @@ export function POSDesktopBar({
             value={documentType}
             onChange={(e) => {
               const t = e.target.value as DocumentType;
-              // Sin FE configurada (ApiKey de Facturemos o empresa de Alanube) no se
+              // Sin la empresa dada de alta en Alanube no se
               // puede emitir electrónico.
               if (t !== 'ticket' && !feApiKeyReady) {
                 alert('No podés emitir comprobantes electrónicos: la facturación electrónica no está configurada. Contactá al administrador.');
