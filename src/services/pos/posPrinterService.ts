@@ -578,9 +578,21 @@ export class POSPrinterService {
     if (receiptPrinters.length > 0) {
       // Manda bytes raw vía qzPrintToPrinter (usa base64 internamente — el fix
       // del sandbox de antes). Funciona tanto USB como network (TCP:9100).
+      //
+      // Una impresora que falla NO cancela a las demás: con dos configuradas
+      // —la de caja y la de cocina— que la primera esté sin papel dejaba a la
+      // segunda sin recibir nada, y el pedido no llegaba a producción. Se
+      // intentan todas y se reporta al final.
+      const fallos: string[] = [];
       for (const printer of receiptPrinters) {
-        await qzPrintToPrinter(printer, escposBytes);
+        try {
+          await qzPrintToPrinter(printer, escposBytes);
+        } catch (e: any) {
+          fallos.push(`${(printer as any).name ?? 'impresora'}: ${e?.message ?? e}`);
+        }
       }
+      if (fallos.length === receiptPrinters.length) throw new Error(fallos.join(' · '));
+      if (fallos.length > 0) console.warn('[print] alguna impresora falló:', fallos.join(' · '));
     } else {
       // Sin printers configurados en la config del tenant → imprimir RAW a la
       // impresora por defecto del sistema vía QZ (NO abrir el diálogo de Chrome).

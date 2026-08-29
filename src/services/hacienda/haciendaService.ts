@@ -355,7 +355,13 @@ export const haciendaService = {
   /** POS de FE: crea la factura desde el carrito (precio/IVA editables) y emite. */
   emitDirect: (payload: {
     document_type: 'tiquete_electronico' | 'factura_electronica';
-    payment_method: 'cash' | 'card' | 'sinpe' | 'credit';
+    /**
+     * Medio de pago del comprobante. Son los que Hacienda reconoce por código:
+     * efectivo, tarjeta, cheque, transferencia, recaudado por terceros (las
+     * plataformas de delivery), SINPE móvil y plataformas digitales.
+     */
+    payment_method:
+      'cash' | 'card' | 'sinpe' | 'transfer' | 'check' | 'third_party' | 'digital' | 'credit';
     session_id?: string | null;
     notes?: string;
     customer?: any;

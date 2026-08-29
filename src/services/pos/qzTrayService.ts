@@ -381,10 +381,47 @@ function uint8ToBase64(data: Uint8Array): string {
 /**
  * Print raw ESC/POS bytes to a USB printer (identified by OS name).
  */
+/**
+ * Imprime asegurando que el canal esté VIVO, y reintenta una vez.
+ *
+ * ── Por qué ────────────────────────────────────────────────────────────────
+ * QZ corre en la computadora y su conexión se cae sola: la máquina se suspende,
+ * se cambia de red, se reinicia el programa. `qz.websocket.isActive()` sigue
+ * diciendo «activo» cuando el socket quedó a medio morir, así que se llamaba a
+ * imprimir sobre un canal muerto: la impresión fallaba, el recibo no salía y el
+ * cajero veía cortarse el cobro sin entender por qué.
+ *
+ * Acá se comprueba de verdad antes de mandar y, si la impresión falla por
+ * conexión, se reconecta y se manda UNA vez más. Un segundo intento es seguro:
+ * si el canal estaba muerto, el primero no llegó a la impresora.
+ */
+async function conCanalVivo(fn: (q: any) => Promise<void>): Promise<void> {
+  if (!qzIsConnected() || !rawSocketActive()) {
+    await qzConnect();
+  }
+  try {
+    await fn(getQZ());
+    return;
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? '');
+    // Solo se reintenta si el problema fue el canal. Si la impresora rechazó el
+    // trabajo (sin papel, nombre equivocado), repetir no arregla nada y podría
+    // sacar el recibo dos veces.
+    const esConexion = /websocket|connection|closed|not connected|sendData|socket|disconnect/i.test(msg);
+    if (!esConexion) throw e;
+
+    connected = false;
+    emitStatus('disconnected');
+    await qzConnect();
+    await fn(getQZ());
+  }
+}
+
 export async function qzPrintUSB(printerName: string, data: Uint8Array): Promise<void> {
-  const q = getQZ();
-  const config = q.configs.create(printerName);
-  await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
+  await conCanalVivo(async (q) => {
+    const config = q.configs.create(printerName);
+    await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
+  });
 }
 
 /**
@@ -392,9 +429,10 @@ export async function qzPrintUSB(printerName: string, data: Uint8Array): Promise
  * Most thermal printers listen on port 9100.
  */
 export async function qzPrintNetwork(ip: string, port: number, data: Uint8Array): Promise<void> {
-  const q = getQZ();
-  const config = q.configs.create({ host: ip, port });
-  await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
+  await conCanalVivo(async (q) => {
+    const config = q.configs.create({ host: ip, port });
+    await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
+  });
 }
 
 /**
@@ -413,8 +451,10 @@ export async function qzPrintDefault(data: Uint8Array): Promise<void> {
     printerName = list[0] ?? null;
   }
   if (!printerName) throw new Error('No hay impresoras disponibles en QZ Tray');
-  const config = q.configs.create(printerName);
-  await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
+  await conCanalVivo(async (qq) => {
+    const config = qq.configs.create(printerName!);
+    await qq.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
+  });
 }
 
 /**

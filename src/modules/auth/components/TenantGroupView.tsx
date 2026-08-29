@@ -706,6 +706,9 @@ function AddBranchModal({
   const [mode, setMode]         = useState<'new' | 'link'>('new');
   const [name, setName]         = useState('');
   const [linkId, setLinkId]     = useState('');
+  const [buscar, setBuscar]     = useState('');
+  const [negocios, setNegocios] = useState<Array<{ id: string; name: string; is_demo?: boolean; group_id?: string | null }>>([]);
+  const [cargandoNegocios, setCargandoNegocios] = useState(false);
   const [planId, setPlanId]     = useState('');         // plan SaaS de módulos
   const [isDemo, setIsDemo]     = useState(false);
   const [fePlanId, setFePlan]   = useState('');         // plan Facturación Electrónica
@@ -727,10 +730,34 @@ function AddBranchModal({
     })();
   }, []);
 
+  // Negocios existentes, para elegir de una lista en vez de pegar un UUID.
+  useEffect(() => {
+    if (mode !== 'link' || negocios.length > 0 || cargandoNegocios) return;
+    setCargandoNegocios(true);
+    (async () => {
+      try {
+        const { apiFetch } = await import('@/lib/api');
+        const list = await apiFetch<any[]>('/admin/owners').catch(() => []);
+        setNegocios((Array.isArray(list) ? list : []).map((o: any) => ({
+          id: o.id, name: o.business_name || o.name || o.email || 'Negocio',
+          is_demo: !!o.is_demo,
+          // `group_id` viene del cruce con la membresía: si ya está en un grupo,
+          // no tiene sentido ofrecerlo (un negocio pertenece a uno solo).
+          group_id: o.group_id ?? o.group?.id ?? null,
+        })));
+      } finally { setCargandoNegocios(false); }
+    })();
+  }, [mode, negocios.length, cargandoNegocios]);
+
+  const candidatos = negocios
+    .filter(n => !n.group_id)
+    .filter(n => !buscar.trim() || n.name.toLowerCase().includes(buscar.trim().toLowerCase()))
+    .slice(0, 50);
+
   const save = async () => {
     setErr('');
     if (mode === 'new' && !name.trim())     { setErr('El nombre es requerido'); return; }
-    if (mode === 'link' && !linkId.trim())  { setErr('El tenant_id es requerido'); return; }
+    if (mode === 'link' && !linkId.trim())  { setErr('Elegí el negocio que querés enlazar'); return; }
     setSaving(true);
     try {
       await tenantGroupsService.addBranch(groupId, {
@@ -806,11 +833,39 @@ function AddBranchModal({
             </>
           ) : (
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Tenant ID a enlazar *</label>
-              <input value={linkId} onChange={e => setLinkId(e.target.value)} autoFocus
-                placeholder="uuid del tenant existente"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400" />
-              <p className="text-[10px] text-gray-400 mt-1">Pegá el UUID del tenant que querés vincular al grupo.</p>
+              {/* Se elige de una LISTA, no pegando un UUID.
+                  Nadie sabe de memoria el identificador interno de un negocio;
+                  había que ir a buscarlo a la base para poder enlazarlo, así que
+                  en la práctica no se podía sumar un negocio ya creado. */}
+              <label className="block text-xs font-bold text-gray-700 mb-1">Negocio a enlazar *</label>
+              <input value={buscar} onChange={e => setBuscar(e.target.value)} autoFocus
+                placeholder="Buscar por nombre…"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+
+              <div className="mt-2 max-h-52 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-50">
+                {cargandoNegocios && (
+                  <p className="px-3 py-3 text-xs font-bold text-gray-400">Cargando negocios…</p>
+                )}
+                {!cargandoNegocios && candidatos.length === 0 && (
+                  <p className="px-3 py-3 text-xs font-bold text-gray-400">
+                    {negocios.length === 0
+                      ? 'No se pudieron cargar los negocios.'
+                      : 'Ningún negocio libre coincide con esa búsqueda.'}
+                  </p>
+                )}
+                {candidatos.map(n => (
+                  <button key={n.id} type="button" onClick={() => setLinkId(n.id)}
+                    className={`w-full text-left px-3 py-2 text-sm ${
+                      linkId === n.id ? 'bg-cyan-50 font-black text-cyan-800' : 'hover:bg-gray-50 text-gray-700'
+                    }`}>
+                    {n.name}
+                    {n.is_demo && <span className="ml-2 text-[10px] font-black text-amber-700">DEMO</span>}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Solo aparecen los negocios que todavía no pertenecen a ningún grupo.
+              </p>
             </div>
           )}
 

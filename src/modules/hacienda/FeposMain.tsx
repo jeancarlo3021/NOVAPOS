@@ -6,6 +6,25 @@ import { getAllProducts, createProduct } from '@/services/Inventory/InventoryPro
 import { proformasService } from '@/services/proformas/proformasService';
 import type { Product } from '@/types/Types_POS';
 import { haciendaService } from '@/services/hacienda/haciendaService';
+
+/**
+ * Medios de pago, con el código que Hacienda espera en el XML.
+ *
+ * «Crédito» no es un medio de pago sino una CONDICIÓN de venta (no entra plata
+ * ahora), por eso no lleva código: el sistema lo declara aparte.
+ */
+type MedioPago = 'cash' | 'card' | 'sinpe' | 'transfer' | 'check' | 'third_party' | 'digital' | 'credit';
+
+const MEDIOS_PAGO: Array<{ id: MedioPago; label: string; hacienda: string | null }> = [
+  { id: 'cash',        label: 'Efectivo',    hacienda: '01' },
+  { id: 'card',        label: 'Tarjeta',     hacienda: '02' },
+  { id: 'sinpe',       label: 'SINPE',       hacienda: '06' },
+  { id: 'transfer',    label: 'Transfer.',   hacienda: '04' },
+  { id: 'check',       label: 'Cheque',      hacienda: '03' },
+  { id: 'third_party', label: 'Plataforma',  hacienda: '05' },
+  { id: 'digital',     label: 'Billetera',   hacienda: '07' },
+  { id: 'credit',      label: 'Crédito',     hacienda: null },
+];
 import { useTenantId } from '@/hooks/useTenant';
 import { useCashSession } from '@/hooks/useCashSession';
 import { POSCustomerSearch } from '@/modules/pos/POSCustomerSearch';
@@ -42,7 +61,16 @@ export const FeposMain: React.FC = () => {
   const [lines, setLines] = useState<Line[]>([]);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [documentType, setDocumentType] = useState<'tiquete_electronico' | 'factura_electronica'>('tiquete_electronico');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'sinpe' | 'credit'>('cash');
+  /**
+   * Medios de pago del comprobante electrónico.
+   *
+   * Hacienda tiene un código por medio y lo pide en el XML. Con solo cuatro
+   * opciones, un cobro por cheque, transferencia o plataforma de delivery había
+   * que declararlo como otra cosa —normalmente efectivo—, lo que dice que entró
+   * plata a la caja que nunca entró y no cuadra cuando Hacienda cruza la
+   * información con el banco.
+   */
+  const [paymentMethod, setPaymentMethod] = useState<MedioPago>('cash');
   const [showSearch, setShowSearch] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [emitting, setEmitting] = useState(false);
@@ -371,10 +399,11 @@ export const FeposMain: React.FC = () => {
           <div className="flex justify-between text-sm text-gray-500"><span>IVA</span><span>{fmt(iva)}</span></div>
           <div className="flex justify-between text-lg font-black text-gray-900"><span>Total</span><span>{fmt(total)}</span></div>
           <div className="grid grid-cols-4 gap-1.5">
-            {(['cash', 'card', 'sinpe', 'credit'] as const).map(m => (
-              <button key={m} onClick={() => setPaymentMethod(m)}
-                className={`py-1.5 rounded-lg text-xs font-bold ${paymentMethod === m ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                {m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : 'Crédito'}
+            {MEDIOS_PAGO.map(m => (
+              <button key={m.id} onClick={() => setPaymentMethod(m.id)}
+                title={m.hacienda ? `Hacienda: código ${m.hacienda}` : 'Condición de venta: crédito'}
+                className={`py-1.5 rounded-lg text-xs font-bold ${paymentMethod === m.id ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                {m.label}
               </button>
             ))}
           </div>
