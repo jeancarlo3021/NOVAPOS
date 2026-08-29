@@ -1,4 +1,5 @@
 import { registerSW } from 'virtual:pwa-register';
+import { appOcupada, alQuedarLibre } from '@/utils/appBusy';
 
 /** Marca para arrancar SIN service worker (queda hasta que se quite a mano). */
 const NO_SW_KEY = 'novapos_no_sw';
@@ -80,7 +81,20 @@ export function setupPWA() {
           await Promise.all(keys.map(k => caches.delete(k)));
         }
       } catch { /* si falla el borrado, igual aplicamos el update abajo */ }
-      updateSW(true).catch(() => location.reload());
+
+      /**
+       * Nunca se recarga encima de una venta.
+       *
+       * Este aviso llega cuando la pestaña vuelve al frente —justo cuando el
+       * cajero retoma el trabajo—. Recargar ahí se lleva el carrito armado y el
+       * cliente queda esperando mientras se rehace la venta. La versión nueva
+       * puede esperar unos minutos; la venta, no.
+       */
+      const aplicar = () => { updateSW(true).catch(() => location.reload()); };
+      if (!appOcupada()) { aplicar(); return; }
+
+      console.info('[pwa] hay una venta en curso: la actualización espera a que termine');
+      const quitar = alQuedarLibre(() => { quitar(); aplicar(); });
     },
     onOfflineReady() {
       // Listo para usar sin conexión — silencioso, no interrumpe al cajero.

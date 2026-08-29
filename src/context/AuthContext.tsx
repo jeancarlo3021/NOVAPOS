@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { apiFetch } from '@/lib/api';
 import { setRememberMe } from '@/lib/authStorage';
 import { globalCacheService } from '@/services/cache/globalCacheService';
+import { appOcupada } from '@/utils/appBusy';
 import { identifySentryUser, clearSentryUser } from '@/lib/sentryUser';
 
 // ============================================
@@ -1435,6 +1436,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!raw) return;
         const loginTs = Number(raw);
         if (Number.isFinite(loginTs) && Date.now() >= sessionExpiresAt(loginTs)) {
+          /**
+           * El corte de madrugada espera si hay una venta en curso.
+           *
+           * Un bar o una soda de trasnoche puede estar cobrando a las 4 a. m.
+           * exactas. Cerrar la sesión ahí borra el carrito y deja al cajero en
+           * la pantalla de ingreso con el cliente enfrente. La sesión se cierra
+           * igual, apenas la caja quede libre: son minutos de diferencia.
+           */
+          if (appOcupada()) {
+            console.log('[auth] corte diario en espera: hay una venta en curso');
+            return;
+          }
           console.log('[auth] sesión vencida (corte diario) — cerrando y limpiando cache');
           clearAllAppCache();
           logout().catch(() => {});

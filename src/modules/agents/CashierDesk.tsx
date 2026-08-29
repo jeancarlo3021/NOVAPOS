@@ -16,6 +16,7 @@ import { PaymentConfirmationModal, type PaymentData } from '@/modules/pos/cashMa
 import { invoicesService } from '@/services/invoice/invoiceService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { invoiceEmail } from '@/services/email/invoiceEmailService';
+import { marcarOcupado } from '@/utils/appBusy';
 import { agentOrdersService, type AgentOrder } from '@/services/agents/salesAgentsService';
 import { OrderItemsEditor } from './OrderItemsEditor';
 import { ChargePrepModal } from './ChargePrepModal';
@@ -261,6 +262,17 @@ export const CashierDesk: React.FC = () => {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'No se pudo cobrar' });
     } finally { setPaying(false); }
   };
+
+  /**
+   * Cobrando: la app no se actualiza sola encima de un cobro.
+   *
+   * Igual que en el punto de venta — una recarga a mitad del cobro deja al
+   * cajero sin saber si la venta entró.
+   */
+  useEffect(() => {
+    if (!charging && !prep) return;
+    return marcarOcupado('cobro-en-curso');
+  }, [charging, prep]);
 
   /** Manda el comprobante recién cobrado al correo del cliente. */
   const enviarPorCorreo = async () => {

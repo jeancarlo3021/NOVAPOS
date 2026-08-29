@@ -30,6 +30,7 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
 import { PendingInvoicesModal } from './PendingInvoicesModal';
+import { marcarOcupado } from '@/utils/appBusy';
 import { POSPinLockModal } from './POSPinLockModal';
 import { POSDesktopBar } from './POSDesktopBar';
 import { CashMovementModal } from './cashManagement/CashMovementModal';
@@ -462,6 +463,19 @@ export const POSMain = () => {
       finally { silentOpenRef.current = false; }
     })();
   }, [cashEnabled, sessionLoading, currentSession, isOnline, refetchSession, tenantId, user]);
+
+  /**
+   * Mientras haya carrito o un cobro abierto, la app NO se actualiza sola.
+   *
+   * La actualización automática borra el caché y recarga; si eso cae encima de
+   * una venta armada, el carrito se pierde y hay que rehacerla con el cliente
+   * esperando. La versión nueva se aplica apenas la caja queda libre.
+   */
+  useEffect(() => {
+    const hayVenta = cartItems.length > 0 || showPaymentModal;
+    if (!hayVenta) return;
+    return marcarOcupado('venta-en-curso');
+  }, [cartItems.length, showPaymentModal]);
 
   /** Lista de ventas sin subir (se abre desde el contador de pendientes). */
   const [showPending, setShowPending] = useState(false);
