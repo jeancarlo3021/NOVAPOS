@@ -826,6 +826,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     currentUserIdRef.current = session.user.id;
     loadingSessionRef.current = true;
 
+    // Cuánto tarda ARMAR la sesión (usuario + empresas + plan). Es lo que corre
+    // después de que Supabase valida la clave, y es donde se va el tiempo cuando
+    // «entrar» se siente lento aunque la contraseña se acepte enseguida.
+    const tSesion = Date.now();
+
     try {
 
       const { data: userData, error: userError } = await supabase
@@ -857,9 +862,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (planData.name === 'demo' && selectedTenant) {
         try {
           const { apiFetch } = await import('@/lib/api');
-          const p = await apiFetch<{ name: string; features: Partial<PlanFeatures> | null }>(`/tenant-groups/my/tenant-plan/${selectedTenant.id}`);
+          /**
+           * Corte corto: esta consulta NO puede demorar el ingreso.
+           *
+           * Es la última de una fila de consultas y va al backend propio, que en
+           * la primera petición del día arranca en frío. Con el tiempo de espera
+           * normal, el usuario se quedaba mirando la pantalla de ingreso hasta
+           * que se agotaba —o entraba tardísimo— por un dato que solo afina el
+           * plan heredado. Si no llega a tiempo, se entra con el plan que ya se
+           * conoce y se corrige en el próximo arranque.
+           */
+          const p = await apiFetch<{ name: string; features: Partial<PlanFeatures> | null }>(
+            `/tenant-groups/my/tenant-plan/${selectedTenant.id}`, {}, 6000,
+          );
           if (p?.features) planData = { name: p.name ?? 'demo', features: { ...DEFAULT_FEATURES, ...p.features } };
-        } catch { /* sin conexión: se queda con lo que haya */ }
+        } catch { /* sin conexión o lento: se queda con lo que haya */ }
       }
 
       if (!isActive()) return;
@@ -947,6 +964,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loadingSessionRef.current = false;
         setLoading(false);
       }
+      const ms = Date.now() - tSesion;
+      if (ms > 3000) console.warn(`[auth] armar la sesión tardó ${ms} ms`);
     }
   };
 
@@ -1145,6 +1164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // usuario convencido de que sus credenciales no sirven.
       const t0 = Date.now();
       let timed = await intentar();
+      console.info(`[auth] Supabase respondió el ingreso en ${Date.now() - t0} ms`);
       if (timed.kind === 'timeout' && navigator.onLine) {
         console.warn(`[auth] el login no respondió en ${Math.round((Date.now() - t0) / 1000)} s: reintentando`);
         timed = await intentar();
