@@ -1,11 +1,11 @@
-// Custom Supabase auth storage with 12-hour guaranteed session duration.
+// Almacenamiento de la sesión de Supabase. Dura una jornada completa.
 // Uses localStorage for persistence with timestamp-based expiration.
 //
 // Sessions persist across:
 // - Page reloads
 // - New tabs
-// - Browser restarts (within 12h window)
-// - Until explicit logout or 12h timeout
+// - Browser restarts (dentro de la ventana de 24 h)
+// - Hasta cerrar sesión a mano, el corte de las 4 a. m., o las 24 h de tope
 //
 // ── Por qué todo pasa por `safeLocal` / `safeSession` ──────────────────────
 // `localStorage` no siempre responde. En una PWA instalada, con "bloquear datos
@@ -22,7 +22,19 @@
 const REMEMBER_KEY      = 'novapos_remember';
 const PERSIST_PREFIX    = 'novapos_p_';
 const SESSION_START_KEY = 'novapos_session_start';
-const SESSION_MAX_MS    = 12 * 60 * 60 * 1000; // 12 hours
+/**
+ * Techo del almacenamiento: UN DÍA.
+ *
+ * No es la regla que manda —esa es el corte de las 4 a. m. en AuthContext, que
+ * dura una jornada de trabajo—, sino un tope de seguridad por si esa marca se
+ * perdiera.
+ *
+ * Antes eran 12 horas y ESE era el problema: quien entraba a las 7 de la mañana
+ * quedaba fuera a las 7 de la tarde, en plena venta, con la caja abierta y sin
+ * ningún aviso. Doce horas no cubren un día de comercio. Con 24 el que decide
+ * es siempre el corte de madrugada, que es el que se pensó para esto.
+ */
+const SESSION_MAX_MS    = 24 * 60 * 60 * 1000; // 24 horas
 
 /** Respaldo cuando el navegador no deja usar su almacenamiento. */
 const memoryLocal   = new Map<string, string>();

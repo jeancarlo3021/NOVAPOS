@@ -9,10 +9,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-// Session duration: 12 hours guaranteed
-// access_token refreshes automatically every ~1h via autoRefreshToken
-// refresh_token stays valid up to 12h via SESSION_MAX_DURATION_MS check
-export const SESSION_MAX_DURATION_MS = 12 * 60 * 60 * 1000; // 12 hours
+// La sesión dura una jornada de trabajo: manda el corte de las 4 a. m. que
+// aplica AuthContext, con este tope de 24 h como red de seguridad.
+// El access_token se renueva solo (autoRefreshToken); no hay que forzarlo.
+export const SESSION_MAX_DURATION_MS = 24 * 60 * 60 * 1000; // 24 horas
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
