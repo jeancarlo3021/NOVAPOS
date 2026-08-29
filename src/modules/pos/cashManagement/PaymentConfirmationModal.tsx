@@ -258,6 +258,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       }
       if (e.key !== 'F1' && e.key !== 'F2' && !(e.key === 'F3' && allowPdf)) return;
       e.preventDefault();
+      // Tecla MANTENIDA: el sistema la repite decenas de veces por segundo y
+      // cada repetición era otro intento de cobro.
+      if (e.repeat) return;
       if (confirmDisabled) return;
       handleConfirm(e.key !== 'F1', e.key === 'F3');
     };
@@ -272,7 +275,24 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     return () => { delete document.body.dataset.posModal; };
   }, []);
 
+  /**
+   * Candado contra el doble cobro.
+   *
+   * Los botones disparan en `pointerdown` —para que la pantalla táctil responda
+   * al instante— pero `loading` viene del componente padre y solo llega en el
+   * SIGUIENTE renderizado. Entre el primer toque y ese renderizado, el botón
+   * sigue habilitado: un doble toque, o un dedo que rebota en el vidrio, manda
+   * dos veces la venta y salen DOS facturas por el mismo cobro.
+   *
+   * Una marca en memoria se pone en el acto, sin esperar a React, y cierra esa
+   * ventana. Se libera cuando el cobro termina (`loading` vuelve a false), para
+   * que un cobro fallido se pueda reintentar.
+   */
+  const cobrando = useRef(false);
+  useEffect(() => { if (!loading) cobrando.current = false; }, [loading]);
+
   const handleConfirm = (skipPrint = false, downloadPdf = false) => {
+    if (cobrando.current || loading) return;
     if (isMixed) {
       if (!mixedValid) {
         setError(`Falta cubrir ₡${mixedDiff.toLocaleString('es-CR')}`);
@@ -286,6 +306,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       // El método dominante (mayor monto) para reportes legacy.
       const dominant = [...splits].sort((a, b) => b.amount - a.amount)[0];
       const cashAmt = mixedAmount('cash');
+      cobrando.current = true;
       onConfirm({
         paymentMethod: dominant.method,
         amountReceived: cashAmt > 0 ? cashAmt : undefined,
@@ -312,6 +333,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       return;
     }
     // Comprobante de tarjeta/SINPE es opcional.
+    cobrando.current = true;
     onConfirm({
       paymentMethod: method,
       // Guardamos el equivalente en ₡ para que caja/reportes cuadren; la moneda

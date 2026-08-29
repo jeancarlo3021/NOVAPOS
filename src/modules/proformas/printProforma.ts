@@ -23,15 +23,33 @@ const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, m => ({ '&': '&amp
 /** Imprime la proforma como documento NO fiscal (ventana del navegador).
  *  Incluye el logo del negocio si está activado en la config de recibo. */
 export async function printProforma(p: Proforma, tenantId?: string | null): Promise<void> {
-  // Logo del negocio (si showLogo + logoUrl en la config de recibo).
+  /**
+   * Datos del negocio, los mismos que en Personalización de factura.
+   *
+   * La cotización sale del local y llega a un cliente que todavía no compró: si
+   * va sin teléfono ni dirección, no tiene cómo confirmar el pedido. Antes solo
+   * llevaba el logo y el nombre; el resto de lo configurado se quedaba en el
+   * tiquete y no viajaba a la proforma.
+   */
   let logo = '';
   let storeName = '';
+  let storeAddress = '';
+  let storePhone = '';
+  let footer = '';
   if (tenantId) {
     try {
       const cfg: any = await posPrinterService.loadReceiptConfig(tenantId);
       if (cfg?.showLogo && cfg?.logoUrl) logo = cfg.logoUrl;
       storeName = cfg?.businessName || cfg?.storeName || '';
-    } catch { /* sin logo */ }
+      footer = String(cfg?.footerMessage ?? '').trim();
+      const { apiFetch } = await import('@/lib/api');
+      const g: any = await apiFetch('/settings/general').catch(() => null);
+      if (cfg?.showStoreName !== false) storeName ||= g?.businessName ?? '';
+      if (cfg?.showStoreAddress !== false) {
+        storeAddress = [g?.address, g?.city].filter(Boolean).join(', ');
+      }
+      if (cfg?.showStorePhone !== false) storePhone = g?.phone ?? '';
+    } catch { /* sin datos: la proforma sale igual */ }
   }
 
   const hayDescLinea = (p.items ?? []).some(it => lineaDesc(it) > 0.004);
@@ -72,6 +90,9 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
   </style></head><body>
     ${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : ''}
     ${storeName ? `<div class="store">${esc(storeName)}</div>` : ''}
+    ${(storeAddress || storePhone) ? `<div class="muted" style="margin:-8px 0 14px">${
+      [storeAddress, storePhone && `Tel: ${storePhone}`].filter(Boolean).map(esc).join(' · ')
+    }</div>` : ''}
     <span class="badge">PROFORMA · NO ES FACTURA</span>
     <h1>Cotización ${esc(p.number ?? '')}</h1>
     <div class="meta">Fecha: ${new Date(p.created_at).toLocaleDateString('es-CR')}${p.valid_until ? ` &nbsp;·&nbsp; Vigencia: ${new Date(p.valid_until + 'T00:00:00').toLocaleDateString('es-CR')}` : ''}</div>
@@ -87,6 +108,7 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
       <div class="grand">Total: ${fmt(p.total)}</div>
     </div>
     ${p.notes ? `<div class="muted" style="margin-top:12px">Notas: ${esc(p.notes)}</div>` : ''}
+    ${footer ? `<div class="foot" style="text-align:center;font-weight:700">${esc(footer)}</div>` : ''}
     <div class="foot">Documento no fiscal. Precios sujetos a cambio según vigencia.</div>
     <script>window.onload = function(){ window.print(); }</script>
   </body></html>`;

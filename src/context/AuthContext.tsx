@@ -785,6 +785,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearAuthState = () => {
     sessionGenRef.current++;   // Invalidate any in-progress handleSession
     loadingSessionRef.current = false; // Allow next login to proceed
+    // Al invalidar lo que estaba en curso, ese intento ya no va a apagar el
+    // indicador: se apaga acá o la pantalla queda pensando sin nadie detrás.
+    setLoading(false);
     currentUserIdRef.current  = null;
     setUser(null);
     setTenant(null);
@@ -798,8 +801,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ============================================
 
   const handleSession = async (session: { user: { id: string } } | null) => {
-    // Capture generation at entry — if clearAuthState() is called while we
-    // await, our generation becomes stale and we bail out early.
+    /**
+     * OJO con el orden: el número de intento se toma DESPUÉS de descartar los
+     * avisos repetidos.
+     *
+     * Supabase manda el aviso de «sesión iniciada» más de una vez —otra pestaña,
+     * el aviso inicial, un refresco—. Antes, cada aviso subía el contador ANTES
+     * de comprobar si ya se estaba armando esa misma sesión. El repetido subía
+     * el número, se daba cuenta de que sobraba y se iba… dejando al que sí
+     * estaba trabajando con un número viejo. Ese, al terminar, se consideraba
+     * «vencido» y NO apagaba el indicador de carga: la pantalla de ingreso se
+     * quedaba pensando para siempre, con la sesión ya creada por detrás.
+     *
+     * Descartar primero y numerar después: el que trabaja conserva su número.
+     */
+    if (session?.user
+        && loadingSessionRef.current
+        && currentUserIdRef.current === session.user.id) {
+      return;
+    }
+
     const gen = ++sessionGenRef.current;
     const isActive = () => gen === sessionGenRef.current;
 
@@ -817,11 +838,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const userId = session.user.id;
-
-    // Skip if already loading this exact user (de-duplicate rapid-fire events)
-    if (loadingSessionRef.current && currentUserIdRef.current === session.user.id) {
-      return;
-    }
 
     currentUserIdRef.current = session.user.id;
     loadingSessionRef.current = true;
@@ -964,6 +980,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loadingSessionRef.current = false;
         setLoading(false);
       }
+      // Si este intento quedó viejo, igual se libera el candado: dejarlo puesto
+      // bloquea TODOS los ingresos siguientes de ese usuario.
+      loadingSessionRef.current = false;
       const ms = Date.now() - tSesion;
       if (ms > 3000) console.warn(`[auth] armar la sesión tardó ${ms} ms`);
     }

@@ -26,14 +26,26 @@ export async function downloadProformaPdf(p: Proforma, tenantId?: string | null)
   const M = 40;                 // margen
   let y = 44;
 
-  // Logo + nombre del negocio (config de recibo).
-  let logoUrl = ''; let storeName = '';
+  /**
+   * Datos del negocio, los mismos de Personalización de factura.
+   *
+   * La cotización se le manda a alguien que todavía no compró: sin teléfono ni
+   * dirección no tiene cómo confirmar el pedido. Antes solo viajaba el logo y el
+   * nombre.
+   */
+  let logoUrl = ''; let storeName = ''; let storeAddress = ''; let storePhone = ''; let footer = '';
   if (tenantId) {
     try {
       const cfg: any = await posPrinterService.loadReceiptConfig(tenantId);
       if (cfg?.showLogo && cfg?.logoUrl) logoUrl = cfg.logoUrl;
       storeName = cfg?.businessName || cfg?.storeName || '';
-    } catch { /* sin logo */ }
+      footer = String(cfg?.footerMessage ?? '').trim();
+      const { apiFetch } = await import('@/lib/api');
+      const g: any = await apiFetch('/settings/general').catch(() => null);
+      if (cfg?.showStoreName !== false) storeName ||= g?.businessName ?? '';
+      if (cfg?.showStoreAddress !== false) storeAddress = [g?.address, g?.city].filter(Boolean).join(', ');
+      if (cfg?.showStorePhone !== false) storePhone = g?.phone ?? '';
+    } catch { /* sin datos: la proforma sale igual */ }
   }
   if (logoUrl) {
     const img = await urlToDataUrl(logoUrl);
@@ -44,7 +56,13 @@ export async function downloadProformaPdf(p: Proforma, tenantId?: string | null)
       y += 66;
     }
   }
-  if (storeName) { doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(30); doc.text(storeName, M, y); y += 26; }
+  if (storeName) { doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(30); doc.text(storeName, M, y); y += 20; }
+  const contacto = [storeAddress, storePhone && `Tel: ${storePhone}`].filter(Boolean).join('  ·  ');
+  if (contacto) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(107, 114, 128);
+    doc.text(contacto, M, y); y += 18;
+  }
+  y += 6;
 
   // Badge + título
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(37, 99, 235);
@@ -107,6 +125,12 @@ export async function downloadProformaPdf(p: Proforma, tenantId?: string | null)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(107, 114, 128);
     doc.text(doc.splitTextToSize(`Notas: ${p.notes}`, W - M * 2), M, y);
     y += 24;
+  }
+  doc.setFontSize(9); doc.setTextColor(156, 163, 175);
+  if (footer) {
+    doc.setFontSize(9); doc.setTextColor(107, 114, 128);
+    doc.text(footer, M, Math.min(y, 806));
+    y += 14;
   }
   doc.setFontSize(9); doc.setTextColor(156, 163, 175);
   doc.text('Documento no fiscal. Precios sujetos a cambio según vigencia.', M, Math.min(y, 820));

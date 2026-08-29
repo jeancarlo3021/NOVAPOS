@@ -1838,6 +1838,9 @@ export class POSPrinterService {
     const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const logo = (cfg.showLogo && r.logoUrl) ? r.logoUrl : '';
     const tipoLabel = r.feTipoLabel ?? (r.feClave ? 'COMPROBANTE ELECTRÓNICO' : 'FACTURA');
+    // La hoja A4 respeta los interruptores de dirección, teléfono y cliente.
+    // El NÚMERO y la FECHA van siempre: son parte de lo que hace válido al
+    // documento, no un adorno que se pueda apagar.
 
     const rows = r.items.map((it, i) => `
       <tr>
@@ -1880,7 +1883,7 @@ export class POSPrinterService {
     <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : `<div class="brand">${esc(r.storeName ?? '')}</div>`}
       <div style="font-size:11px;color:#6b7280;margin-top:4px">
         ${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
-        ${r.storeAddress ? esc(r.storeAddress) + '<br>' : ''}${r.storePhone ? 'Tel: ' + esc(r.storePhone) : ''}
+        ${(cfg.showStoreAddress !== false && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${(cfg.showStorePhone !== false && r.storePhone) ? 'Tel: ' + esc(r.storePhone) : ''}
       </div>
     </div>
     <div class="doc">
@@ -1891,7 +1894,7 @@ export class POSPrinterService {
     </div>
   </div>
 
-  ${(r.customerName || r.customerEmail) ? `
+  ${(cfg.showCustomerInfo !== false && (r.customerName || r.customerEmail)) ? `
   <div class="parties"><div class="party">
     <div class="party-title">Cliente</div>
     <div class="party-name">${esc(r.customerName ?? 'Cliente General')}</div>
@@ -1970,7 +1973,12 @@ export class POSPrinterService {
       </div>
     ` : '';
 
-    const customerBlock = (receiptData.customerName || receiptData.customerPhone || receiptData.customerEmail)
+    // Los datos del cliente salen SOLO si están activados en Personalización.
+    // El interruptor existía en la pantalla de ajustes pero no lo miraba nadie:
+    // se apagaba y el tiquete seguía saliendo con el nombre del cliente.
+    const mostrarCliente = cfg.showCustomerInfo !== false;
+    const customerBlock = mostrarCliente
+      && (receiptData.customerName || receiptData.customerPhone || receiptData.customerEmail)
       ? `<div style="text-align:center;font-size:11px;margin:2px 0;">
            <span style="font-weight:bold;">Cliente:</span> ${receiptData.customerName ?? ''}
            ${receiptData.customerPhone ? `<br>Tel: ${receiptData.customerPhone}` : ''}
@@ -2096,7 +2104,10 @@ export class POSPrinterService {
 
   <div class="header">
     ${(() => {
-      const logo = receiptData.logoUrl || cfg.logoUrl;
+      // Respeta el interruptor de Personalización, igual que la hoja A4.
+      // Sin esto, apagar «Mostrar logo» no hacía nada en el tiquete: el negocio
+      // que lo desactivaba para ahorrar papel y tinta lo seguía imprimiendo.
+      const logo = cfg.showLogo === false ? '' : (receiptData.logoUrl || cfg.logoUrl);
       if (!logo) return '';
       // Filtro térmico optimizado para impresión 1-bit:
       // - Matriz luminance (Rec. 709): 0.21R + 0.72G + 0.07B (percepción visual real)
@@ -2302,7 +2313,8 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     if (cfg.showStorePhone && receiptData.storePhone) { centerText(`Tel: ${receiptData.storePhone}`); }
 
     // Customer
-    if (receiptData.customerName || receiptData.customerPhone || receiptData.customerEmail) {
+    if (cfg.showCustomerInfo !== false
+        && (receiptData.customerName || receiptData.customerPhone || receiptData.customerEmail)) {
       sep();
       text('CLIENTE:'); nl();
       if (receiptData.customerName) { centerText(receiptData.customerName); }

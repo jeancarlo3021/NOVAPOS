@@ -3,7 +3,6 @@ import { authStorage } from './authStorage';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
@@ -24,12 +23,17 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// ✅ Cliente con service key (SOLO para operaciones del servidor)
-// ⚠️ NUNCA expongas esto al cliente en producción
-export const supabaseAdmin = supabaseServiceKey
-  ? createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-  : null;
+/**
+ * NO existe un cliente con llave de servicio en el navegador. A propósito.
+ *
+ * Acá había uno que se activaba si estaba definida `VITE_SUPABASE_SERVICE_KEY`.
+ * Todo lo que empieza con VITE_ se COMPILA DENTRO del paquete que descarga el
+ * navegador: cualquiera podía leerla con ver el código fuente de la página, y
+ * esa llave saltea toda la seguridad de la base —lee y borra los datos de todos
+ * los negocios—. Nadie la usaba; bastaba con que alguien la definiera en el
+ * panel de despliegue para regalar la base entera sin enterarse.
+ *
+ * Lo que necesita esa llave vive en el backend, que sí la guarda en secreto.
+ */
 
 export default supabase;
