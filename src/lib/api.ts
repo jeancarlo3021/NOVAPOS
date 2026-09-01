@@ -144,7 +144,21 @@ export async function apiFetch<T = unknown>(
 
   // Online: make normal request
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  /**
+   * El corte por tiempo lleva RAZÓN.
+   *
+   * Sin ella, el navegador cancela y lo único que llega a la pantalla es
+   * «signal is aborted without reason»: no dice qué se pedía, ni que fue por
+   * tiempo, ni que reintentar puede servir. Es el mensaje que aparecía al sacar
+   * el reporte de Alanube, que tarda más que el corte por defecto.
+   */
+  const timeoutId = setTimeout(
+    () => controller.abort(new Error(
+      `La consulta tardó más de ${Math.round(timeoutMs / 1000)} segundos y se canceló.`
+      + ' Probá de nuevo o achicá el rango de fechas.',
+    )),
+    timeoutMs,
+  );
 
   try {
     // Sucursal activa: el backend la usa para filtrar/gating cuando aplique.

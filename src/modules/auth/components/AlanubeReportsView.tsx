@@ -78,7 +78,16 @@ export const AlanubeReportsView: React.FC = () => {
     try {
       const qs = new URLSearchParams({ env, from, until });
       if (legalStatus) qs.set('legalStatus', legalStatus);
-      setData(await apiFetch<ReportResp>(`/admin/alanube/reports/emissions?${qs.toString()}`));
+      /**
+       * 28 segundos, no los 20 de siempre.
+       *
+       * Este reporte consulta a Alanube UNA VEZ POR CUENTA —cada negocio con
+       * token propio suma una llamada— y después cruza todo contra la base. Con
+       * el corte por defecto se cancelaba a mitad de camino en cuanto había
+       * varios negocios. El servidor muere a los 30 s, así que 28 es lo máximo
+       * que tiene sentido esperar.
+       */
+      setData(await apiFetch<ReportResp>(`/admin/alanube/reports/emissions?${qs.toString()}`, {}, 28_000));
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cargar el reporte'); }
     finally { setLoading(false); }
   }, [env, from, until, legalStatus]);
@@ -90,7 +99,7 @@ export const AlanubeReportsView: React.FC = () => {
     try {
       const qs = new URLSearchParams({ env, from, until, debug: '1' });
       if (legalStatus) qs.set('legalStatus', legalStatus);
-      const r = await apiFetch<any>(`/admin/alanube/reports/emissions?${qs.toString()}`);
+      const r = await apiFetch<any>(`/admin/alanube/reports/emissions?${qs.toString()}`, {}, 28_000);
       setRaw(r?.raw ?? r);
     } catch (e) { setRaw({ error: e instanceof Error ? e.message : 'error' }); }
   }, [env, from, until, legalStatus]);
