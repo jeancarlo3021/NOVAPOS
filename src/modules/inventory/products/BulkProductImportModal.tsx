@@ -381,15 +381,28 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
          * usuario reimporta las filas que faltaron.
          */
         const fallidas: typeof payload = [];
+        /**
+         * La barra avanza CON cada lote, no al final.
+         *
+         * Los lotes van de a tres en paralelo, así que si el avance se calculara
+         * al terminar todos, un archivo de 5.000 productos dejaba la barra en
+         * cero durante varios minutos. El cajero no sabe si está trabajando o se
+         * colgó, y termina cerrando la ventana a mitad de la importación.
+         */
+        let procesadas = 0;
         const resultados = await mapWithConcurrency(
           lotes,
           async (batch) => {
-            const r = await apiFetch<{ created: number; updated?: number; errors: number; error_detail?: string | null }>(
-              `/admin/tenants/${tenantId}/products-import`,
-              { method: 'POST', body: JSON.stringify({ rows: batch }) },
-              60000,   // un lote de 50 nunca debería acercarse a esto
-            );
-            return r;
+            try {
+              return await apiFetch<{ created: number; updated?: number; errors: number; error_detail?: string | null }>(
+                `/admin/tenants/${tenantId}/products-import`,
+                { method: 'POST', body: JSON.stringify({ rows: batch }) },
+                60000,   // un lote de 50 nunca debería acercarse a esto
+              );
+            } finally {
+              procesadas += batch.length;
+              setProgress({ done: procesadas, total: payload.length, errors });
+            }
           },
           { concurrency: 3 },
         );
@@ -408,8 +421,8 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
               detailMsg = res.error instanceof Error ? res.error.message : String(res.error);
             }
           }
-          setProgress({ done: created + updated + errors, total: payload.length, errors });
         });
+        setProgress({ done: payload.length, total: payload.length, errors });
 
         if (fallidas.length > 0) {
           console.warn('[bulk-import] filas sin importar:', fallidas.map(f => f.name));
@@ -712,23 +725,34 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                 </table>
               </div>
 
-              {importing && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Loader2 size={14} className="animate-spin text-emerald-600" />
-                    <span className="text-sm font-bold text-emerald-800">
-                      Importando {progress.done} / {progress.total}…
-                    </span>
-                    {progress.errors > 0 && (
-                      <span className="text-xs text-red-600 ml-auto">{progress.errors} fallos</span>
-                    )}
+              {importing && (() => {
+                const pct = Math.min(100, Math.round((progress.done / Math.max(progress.total, 1)) * 100));
+                return (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <Loader2 size={14} className="animate-spin text-emerald-600 shrink-0" />
+                      <span className="text-sm font-black text-emerald-800">
+                        Importando {progress.done.toLocaleString('es-CR')} de {progress.total.toLocaleString('es-CR')}
+                      </span>
+                      <span className="text-sm font-black text-emerald-700 tabular-nums">· {pct}%</span>
+                      {progress.errors > 0 && (
+                        <span className="text-xs font-bold text-red-600 ml-auto">{progress.errors} sin subir</span>
+                      )}
+                    </div>
+                    <div className="h-2.5 bg-emerald-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 transition-all duration-300 rounded-full"
+                        style={{ width: `${pct}%` }} />
+                    </div>
+                    {/* Un archivo grande tarda minutos: sin este aviso, la gente
+                        cierra la ventana creyendo que se colgó y la carga queda
+                        a medias. */}
+                    <p className="mt-2 text-[11px] font-bold text-emerald-700">
+                      No cierres esta ventana hasta que termine.
+                      {progress.total > 500 && ' Un catálogo grande puede tardar varios minutos.'}
+                    </p>
                   </div>
-                  <div className="h-2 bg-emerald-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 transition-all"
-                      style={{ width: `${(progress.done / Math.max(progress.total, 1)) * 100}%` }} />
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           )}
         </div>
