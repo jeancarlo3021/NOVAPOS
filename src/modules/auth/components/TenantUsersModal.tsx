@@ -193,7 +193,28 @@ function UserRow({ user, onSave }: { user: TenantUser; onSave: (u: TenantUser, p
         </select>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <span className="text-[11px] font-mono text-gray-400">{emailToUsername(user.email)}</span>
+        {/* El usuario con el que entra. Se toca para cambiarlo: es la llave de
+            acceso, y corregirlo obligaba a borrar la persona y crearla de nuevo,
+            perdiendo su historial de ventas y cierres. */}
+        <button
+          onClick={() => {
+            const actual = emailToUsername(user.email);
+            const nuevo = window.prompt(
+              `Usuario o correo de ${user.full_name || 'esta persona'}\n\n`
+              + 'Con esto inicia sesión. Al cambiarlo, la próxima vez entra con el nuevo '
+              + '(la contraseña no cambia).',
+              actual,
+            );
+            if (nuevo === null) return;
+            const limpio = nuevo.trim();
+            if (!limpio || limpio === actual) return;
+            onSave(user, { email: limpio } as any);
+          }}
+          title="Cambiar el usuario / correo con el que entra"
+          className="text-[11px] font-mono text-gray-400 hover:text-violet-700 underline decoration-dotted"
+        >
+          {emailToUsername(user.email)}
+        </button>
         <button disabled={!dirty}
           onClick={() => onSave(user, { full_name: fullName.trim(), ticket_alias: alias.trim() || null, role })}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white">
