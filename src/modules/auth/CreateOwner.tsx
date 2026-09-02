@@ -107,6 +107,16 @@ export const CreateOwner: React.FC = () => {
   // Por defecto ocultamos las sucursales (group_role='branch') — la matriz
   // del grupo ya las representa. Toggle para mostrarlas si hace falta.
   const [showBranches, setShowBranches] = useState(false);
+  /**
+   * Mostrar u ocultar los negocios de PRUEBA.
+   *
+   * Con varias demos activas, la lista de negocios se llena de cuentas que no
+   * son clientes: no pagan, vencen solas y no hay que hacerles nada. Ocultarlas
+   * deja a la vista lo que sí requiere atención. Arranca ocultándolas porque ese
+   * es el uso diario; el interruptor las trae de vuelta cuando hay que
+   * atenderlas.
+   */
+  const [showDemos, setShowDemos] = useState(false);
 
   const [formData, setFormData] = useState({
     email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '',
@@ -680,7 +690,8 @@ export const CreateOwner: React.FC = () => {
   // propietario (la "matriz"). Por defecto NO cuentan ni aparecen en la vista del
   // super-admin — solo la matriz representa al grupo. El toggle "Mostrar
   // sucursales" las trae de vuelta a KPIs, alertas, conteo y tabla.
-  const visibleOwners = showBranches ? owners : owners.filter(o => o.group_role !== 'branch');
+  const visibleOwners = (showBranches ? owners : owners.filter(o => o.group_role !== 'branch'))
+    .filter(o => showDemos || !o.is_demo);
 
   // Negocios activos reales: excluye el demo y las cuentas del plan Admin
   // (no facturan ni son clientes de verdad).
@@ -1117,6 +1128,22 @@ export const CreateOwner: React.FC = () => {
                 </button>
               )}
             </div>
+
+            {/* Toggle de negocios de prueba */}
+            {owners.some(o => o.is_demo) && (
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 cursor-pointer transition">
+                <input
+                  type="checkbox"
+                  checked={showDemos}
+                  onChange={e => setShowDemos(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded"
+                />
+                Mostrar demos
+                <span className="text-[10px] font-bold text-gray-400">
+                  ({owners.filter(o => o.is_demo).length})
+                </span>
+              </label>
+            )}
 
             {/* Toggle para mostrar/ocultar sucursales (branches) */}
             {owners.some(o => o.group_role === 'branch') && (

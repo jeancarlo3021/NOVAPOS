@@ -241,6 +241,8 @@ export interface PlanFeatures {
    *  Va aparte del rastreo de camiones: hay negocios sin flota que igual quieren
    *  ver a sus agentes, y flotas que no comparten la ubicación de la gente. */
   live_team?: boolean;
+  /** Apartados: separar mercadería para un cliente, con abonos. */
+  reservations?: boolean;
   tables?: boolean;
   /** Módulo de restaurante: cobro por mesas, toma de pedido full-screen,
    *  adicionales/modificadores, dividir cuenta y comandas. */
@@ -392,6 +394,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   distribution: true,
   tracking: false,
   live_team: false,
+  reservations: false,
   promotions: false,
   labels: false,
   tables: false,
@@ -486,6 +489,7 @@ export const FULL_FEATURES: PlanFeatures = {
   distribution: true,
   tracking: true,
   live_team: true,
+  reservations: true,
   promotions: true,
   labels: true,
   tables: true,
@@ -525,23 +529,39 @@ export const FULL_FEATURES: PlanFeatures = {
 interface PlanData {
   features: PlanFeatures;
   name: string;
+  /**
+   * ¿Se ENCONTRÓ un plan de verdad?
+   *
+   * Hacía falta distinguirlo del nombre. Cuando no hay plan, el sistema devuelve
+   * uno llamado 'demo' por defecto — y el ingreso decidía «no encontré plan»
+   * comparando ese nombre. El problema: los negocios DEMO tienen un plan real
+   * que se llama 'demo', así que en cada ingreso suyo se disparaban dos
+   * consultas más de rescate, una de ellas al backend, que en frío tarda hasta
+   * seis segundos. Justo los negocios que más se usan para probar eran los que
+   * más lento entraban.
+   */
+  found?: boolean;
 }
 
 // Extracts plan features from a tenant's joined subscription (no extra DB call needed)
 function extractPlanData(tenant: Tenant | null, defaults: PlanFeatures): PlanData {
   const sub = tenant?.subscription;
-  if (!sub) return { features: defaults, name: 'demo' };
+  // Sin suscripción: hay que salir a buscar (puede ser una sucursal que hereda
+  // el plan del negocio principal).
+  if (!sub) return { features: defaults, name: 'demo', found: false };
 
+  // Suscripción vencida o suspendida: se ENCONTRÓ plan, solo que no da acceso.
   if (sub.status !== 'active') {
-    return { features: defaults, name: 'demo' };
+    return { features: defaults, name: 'demo', found: true };
   }
 
   const plan = sub.plan;
-  if (!plan) return { features: defaults, name: 'demo' };
+  if (!plan) return { features: defaults, name: 'demo', found: false };
 
   return {
     features: { ...defaults, ...(plan.features as Partial<PlanFeatures>) },
     name: plan.name,
+    found: true,
   };
 }
 
@@ -672,17 +692,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const data = rows?.[0] ?? null;
       if (!data) {
-        return {
-          features: DEFAULT_FEATURES,
-          name: 'demo',
-        };
+        return { features: DEFAULT_FEATURES, name: 'demo', found: false };
       }
 
+      // Suscripción inactiva: SÍ se encontró plan, solo que no da acceso. No
+      // tiene sentido salir a buscar uno heredado.
       if (data.status !== 'active') {
-        return {
-          features: DEFAULT_FEATURES,
-          name: 'demo',
-        };
+        return { features: DEFAULT_FEATURES, name: 'demo', found: true };
       }
 
       const plan = (data as any).subscription_plans;
@@ -697,8 +713,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         features: mergedFeatures,
         name: planName,
+        found: true,
       };
     } catch (err) {
+      // Falló la consulta: NO se sabe si hay plan. Se marca como no encontrado
+      // para que el rescate se intente, que es lo que corresponde ante la duda.
       return {
         features: DEFAULT_FEATURES,
         name: 'demo',
@@ -870,13 +889,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // If the FK join didn't find a plan (tenant.subscription_id may be null),
       // fall back to querying subscriptions directly by tenant_id.
       let planData = joinedPlanData;
-      if (planData.name === 'demo' && selectedTenant) {
+      // Solo si NO se encontró plan. Antes se preguntaba por el nombre, y los
+      // negocios demo —que tienen un plan llamado así— pagaban dos consultas de
+      // rescate en cada ingreso.
+      if (planData.found === false && selectedTenant) {
         planData = await loadPlanFeatures(selectedTenant.id);
       }
       // Si el tenant por defecto es una SUCURSAL sin suscripción propia, el cliente
       // no puede leer el plan del grupo por RLS → quedaría en 'demo'. Pedimos el
       // plan (heredado del tenant principal) al backend con service-role.
-      if (planData.name === 'demo' && selectedTenant) {
+      if (planData.found === false && selectedTenant) {
         try {
           const { apiFetch } = await import('@/lib/api');
           /**

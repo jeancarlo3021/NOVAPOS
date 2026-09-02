@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Package, Search, RefreshCw, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
@@ -19,22 +19,43 @@ export const TenantProductsModal: React.FC<{ owner: any; onClose: () => void }> 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  /**
+   * Paginación DEL SERVIDOR, no de la pantalla.
+   *
+   * La base devuelve 1000 filas como máximo por respuesta: un catálogo de 5.000
+   * productos se veía como «1000 producto(s)» y parecía que la importación había
+   * fallado. Ahora se pide una página a la vez y el servidor dice cuántos hay en
+   * total, así el número que se muestra es el de verdad.
+   */
+  const PAGE_SIZE = 100;
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  /** Búsqueda aplicada (con retardo): buscar en el servidor en cada tecla sería una consulta por letra. */
+  const [busqueda, setBusqueda] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => { setBusqueda(search.trim()); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const load = async () => {
     setLoading(true); setError('');
     try {
-      const r = await apiFetch<{ products: ProdRow[] }>(`/admin/tenants/${owner.id}/products`);
+      const qs = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) });
+      if (busqueda) qs.set('search', busqueda);
+      const r = await apiFetch<{ products: ProdRow[]; total?: number }>(
+        `/admin/tenants/${owner.id}/products?${qs.toString()}`);
       setRows(r?.products ?? []);
+      setTotal(Number(r?.total ?? r?.products?.length ?? 0));
     } catch (e) { setError(e instanceof Error ? e.message : 'Error al cargar productos'); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [owner.id]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [owner.id, page, busqueda]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(p => p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q) || (p.sku2 ?? '').toLowerCase().includes(q));
-  }, [rows, search]);
+  // El filtrado ya lo hizo el servidor: la página que llegó es la que se muestra.
+  const filtered = rows;
+  const paginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const desde = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const hasta = Math.min(page * PAGE_SIZE, total);
 
   const exportCSV = () => {
     const head = ['Nombre', 'SKU', 'SKU2', 'Precio', 'Costo', 'Stock', 'Categoria', 'Unidad', 'Proveedor', 'CABYS', 'IVA'];
@@ -59,7 +80,10 @@ export const TenantProductsModal: React.FC<{ owner: any; onClose: () => void }> 
             <Package size={18} className="text-emerald-600" />
             <div>
               <h2 className="font-black text-gray-900">Productos cargados</h2>
-              <p className="text-xs text-gray-400">{owner.name} · {rows.length} producto(s)</p>
+              <p className="text-xs text-gray-400">
+                {owner.name} · {total.toLocaleString('es-CR')} producto(s)
+                {busqueda && ' encontrados'}
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
@@ -73,7 +97,7 @@ export const TenantProductsModal: React.FC<{ owner: any; onClose: () => void }> 
           </div>
           <button onClick={exportCSV} disabled={filtered.length === 0}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-bold hover:bg-gray-50 disabled:opacity-50">
-            <Download size={14} /> CSV
+            <Download size={14} /> CSV<span className="text-[10px] font-normal text-gray-400"> (esta página)</span>
           </button>
           <button onClick={load} className="p-2 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50"><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /></button>
         </div>
@@ -115,8 +139,24 @@ export const TenantProductsModal: React.FC<{ owner: any; onClose: () => void }> 
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-gray-100 text-right shrink-0">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm">Cerrar</button>
+        <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2 shrink-0 flex-wrap">
+          <span className="text-xs font-bold text-gray-500">
+            {total > 0 ? `${desde.toLocaleString('es-CR')}–${hasta.toLocaleString('es-CR')} de ${total.toLocaleString('es-CR')}` : 'Sin productos'}
+          </span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1 || loading}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-bold hover:bg-gray-50 disabled:opacity-40">
+              Anterior
+            </button>
+            <span className="text-xs font-black text-gray-600 tabular-nums px-1">
+              {page} / {paginas}
+            </span>
+            <button onClick={() => setPage(p => Math.min(paginas, p + 1))} disabled={page >= paginas || loading}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-bold hover:bg-gray-50 disabled:opacity-40">
+              Siguiente
+            </button>
+            <button onClick={onClose} className="px-4 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm">Cerrar</button>
+          </div>
         </div>
       </div>
     </div>

@@ -9,7 +9,7 @@ import {
   Shield, CalendarDays, History,
   FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing, UserCheck, Undo2,
   Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes, Send, Inbox, Calculator,
-  Users2,
+  Users2, MonitorPlay,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { apiFetch } from '@/lib/api';
@@ -152,7 +152,7 @@ const fmtCRC = (n: number) => `₡${Math.round(n).toLocaleString('es-CR')}`;
 
 export default function Plans() {
   const { tenant, refreshPlan } = useAuth();
-  const [viewTab, setViewTab] = useState<'system' | 'fe'>('system');
+  const [viewTab, setViewTab] = useState<'system' | 'demos' | 'fe'>('system');
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
 
   // ── Estado de planes de Facturación Electrónica (local, sin backend aún) ──
@@ -217,6 +217,22 @@ export default function Plans() {
       .then(list => { if (Array.isArray(list) && list.length > 0) setFePlans(list); })
       .catch(() => {});
   }, []);
+
+  /**
+   * ¿Es el plan de una DEMO?
+   *
+   * Cada demo que se arma crea su propio plan —«Demo · Ferretería»— con los
+   * módulos que pidió el vendedor. Son de usar y tirar: nacen con la demo y
+   * mueren con ella. Mezclados con los planes de venta, la pantalla se llenaba
+   * de decenas de tarjetas y encontrar el plan real que hay que cobrar se volvía
+   * imposible.
+   */
+  const esPlanDemo = (p: SubscriptionPlan): boolean =>
+    /^demo\s*[·:.-]/i.test(String(p.name ?? '').trim())
+    || Number(p.price ?? 0) === 0 && /demo/i.test(String(p.name ?? ''));
+
+  const planesReales = plans.filter(p => !esPlanDemo(p));
+  const planesDemo = plans.filter(esPlanDemo);
 
   const fetchPlans = async () => {
     try {
@@ -418,6 +434,7 @@ export default function Plans() {
       <div className="flex gap-2 border-b border-gray-200">
         {[
           { id: 'system' as const, label: 'Planes del Sistema',      icon: Package },
+          { id: 'demos' as const,  label: 'Planes de demos',         icon: MonitorPlay },
           { id: 'fe' as const,     label: 'Facturación Electrónica', icon: FileText },
         ].map(t => {
           const active = viewTab === t.id;
@@ -443,7 +460,7 @@ export default function Plans() {
       {viewTab === 'system' && (
       <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-400 font-semibold">{plans.length} planes configurados</p>
+        <p className="text-sm text-gray-400 font-semibold">{planesReales.length} planes configurados</p>
         <button
           onClick={handleNewPlan}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl transition"
@@ -454,7 +471,7 @@ export default function Plans() {
 
       {/* Plan cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-        {plans.map(plan => {
+        {planesReales.map(plan => {
           const pf = feat(plan);
           const summary = featureSummary(pf);
           const isAdmin = isAdminPlan(plan);
@@ -560,6 +577,63 @@ export default function Plans() {
       )}
 
       {/* ═══ TAB: Facturación Electrónica ═══ */}
+      {/* ═══ TAB: Planes de demos ═══
+          Cada demo crea su plan propio y desechable. Se listan aparte para poder
+          limpiar los que quedaron de demos que ya no existen, sin ensuciar la
+          pantalla de los planes que se venden. */}
+      {viewTab === 'demos' && (
+        <div className="space-y-4">
+          <p className="text-sm text-gray-400 font-semibold">
+            {planesDemo.length} plan(es) creados por demos. Cada demo arma el suyo con los módulos
+            que pidió el vendedor; cuando la demo se borra, su plan queda acá sin uso.
+          </p>
+
+          {planesDemo.length === 0 ? (
+            <p className="text-center text-gray-400 py-14 text-sm font-bold">
+              No hay planes de demo.
+            </p>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-[11px] uppercase text-gray-500 font-bold">
+                  <tr>
+                    <th className="text-left px-4 py-2.5">Plan</th>
+                    <th className="text-left px-4 py-2.5">Módulos</th>
+                    <th className="text-center px-4 py-2.5">Estado</th>
+                    <th className="px-4 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {planesDemo.map(plan => {
+                    const activos = Object.entries(feat(plan) as any)
+                      .filter(([, v]) => v === true).length;
+                    return (
+                      <tr key={plan.id} className="hover:bg-gray-50/60">
+                        <td className="px-4 py-2.5 font-bold text-gray-800">{plan.name}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{activos} activados</td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className={`text-[11px] font-black px-2 py-0.5 rounded-full ${
+                            plan.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                            {plan.is_active ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <button onClick={() => handleDeletePlan(plan)}
+                            title="Borrar este plan de demo"
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-red-100 hover:text-red-700 transition">
+                            Eliminar
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {viewTab === 'fe' && (
         <div className="space-y-6">
           {/* Totales: ingresos, costo del proveedor y ganancia (planes activos) */}

@@ -79,17 +79,40 @@ export function usePOSTabs(tenantId: string | null | undefined): UsePOSTabsResul
     return s;
   });
 
+  /**
+   * De qué negocio son las pestañas que hay AHORA en memoria.
+   *
+   * ── El error que corrige ───────────────────────────────────────────────────
+   * Al abrir el POS, el negocio todavía no está resuelto (la sesión tarda un
+   * instante), así que el estado arranca vacío bajo una llave provisional.
+   * Cuando el negocio llegaba, pasaban dos cosas en el mismo ciclo: el efecto de
+   * recarga pedía las pestañas guardadas, y el de guardado escribía el estado
+   * VACÍO —que todavía no se había reemplazado— sobre la llave del negocio.
+   *
+   * Resultado: las ventas en espera se borraban solas a los pocos segundos de
+   * entrar, sin que nadie tocara nada.
+   *
+   * Con esta marca, solo se guarda cuando lo que hay en memoria pertenece de
+   * verdad al negocio actual.
+   */
+  const tenantDelEstado = useRef(tenantId);
+
   // Re-cargar si cambia el tenant.
   const lastTenantRef = useRef(tenantId);
   useEffect(() => {
     if (lastTenantRef.current !== tenantId) {
       lastTenantRef.current = tenantId;
       setState(loadState(tenantId));
+      tenantDelEstado.current = tenantId;
     }
   }, [tenantId]);
 
-  // Persistir cambios.
+  // Persistir cambios — solo los del negocio al que pertenecen.
   useEffect(() => {
+    // Sin negocio resuelto no se escribe nada: guardar bajo una llave provisional
+    // no sirve, y arriesga pisar lo bueno en cuanto el negocio aparezca.
+    if (!tenantId) return;
+    if (tenantDelEstado.current !== tenantId) return;
     try { localStorage.setItem(KEY(tenantId), JSON.stringify(state)); } catch { /* storage full */ }
   }, [state, tenantId]);
 
