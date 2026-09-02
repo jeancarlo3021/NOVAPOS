@@ -132,6 +132,35 @@ export const UsersList: React.FC = () => {
     await loadUsers();
   };
 
+  /**
+   * Cambia el correo con el que la persona inicia sesión.
+   *
+   * Se avisa en la confirmación que es la LLAVE de entrada y no un dato de
+   * contacto: quien lo cambia tiene que saber que a partir de ahí esa persona
+   * entra con otro usuario, o va a llamar diciendo que «no la deja entrar».
+   */
+  const handleChangeEmail = async (u: { id: string; email?: string | null; full_name?: string | null }) => {
+    const actual = String(u.email ?? '').replace('@nexoerp.local', '');
+    const nuevo = window.prompt(
+      `Correo o usuario de ${u.full_name || 'esta persona'}\n\n`
+      + 'Con esto inicia sesión. Al cambiarlo, la próxima vez entra con el nuevo '
+      + '(la contraseña no cambia).\n\n'
+      + 'Podés poner un correo completo o solo un nombre de usuario.',
+      actual,
+    );
+    if (nuevo === null) return;
+    const limpio = nuevo.trim();
+    if (!limpio || limpio === actual) return;
+    try {
+      const r = await usersService.changeEmail(u.id, limpio);
+      setError('');
+      window.alert(r?.message ?? 'Correo actualizado.');
+      await loadUsers();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo cambiar el correo');
+    }
+  };
+
   const handleResetPassword = (userId: string) => {
     setPasswordUserId(userId);
     setShowPasswordModal(true);
@@ -323,6 +352,13 @@ export const UsersList: React.FC = () => {
             <button onClick={() => handleEdit(user)}
               className="flex-1 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
               <Pencil size={12} /> Editar
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={() => void handleChangeEmail(user)}
+              title="Cambiar el correo / usuario con el que entra"
+              className="px-3 py-1.5 bg-violet-50 text-violet-600 text-xs font-bold rounded-lg hover:bg-violet-100">
+              <Mail size={12} />
             </button>
           )}
           {canEdit && (

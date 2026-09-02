@@ -49,6 +49,20 @@ export const usersService = {
     await apiFetch(`/users/${userId}`, { method: 'DELETE' });
   },
 
+  /**
+   * Cambia el correo con el que la persona INICIA SESIÓN.
+   *
+   * Se acepta también un nombre de usuario sin arroba: el servidor le agrega el
+   * dominio interno, igual que al crearlo.
+   */
+  async changeEmail(userId: string, email: string): Promise<{ email: string; message?: string }> {
+    validateUUID(userId, 'userId');
+    return apiFetch<{ email: string; message?: string }>(`/users/${userId}/email`, {
+      method: 'PUT',
+      body: JSON.stringify({ email }),
+    });
+  },
+
   async resetPassword(userId: string, newPassword: string): Promise<void> {
     validateUUID(userId, 'userId');
     await apiFetch(`/users/${userId}/password`, {

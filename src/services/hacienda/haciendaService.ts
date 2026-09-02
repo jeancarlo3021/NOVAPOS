@@ -152,13 +152,37 @@ export const haciendaService = {
     '/hacienda/debit-note', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason }) }),
 
   /** Lista los comprobantes electrónicos con su estatus (para el módulo FE Facturas). */
-  listInvoices: (params?: { status?: string; from?: string; to?: string }) => {
-    const q = new URLSearchParams();
-    if (params?.status) q.set('status', params.status);
-    if (params?.from) q.set('from', params.from);
-    if (params?.to) q.set('to', params.to);
-    const qs = q.toString();
-    return apiFetch<any[]>(`/hacienda/invoices${qs ? '?' + qs : ''}`);
+  /**
+   * Comprobantes electrónicos del período.
+   *
+   * Trae TODAS las páginas, no la primera.
+   *
+   * El servidor responde de a 500. Antes se pedía una sola vez y punto: un
+   * negocio con más comprobantes en el rango veía solo los primeros, sin ningún
+   * aviso de que faltaban. Para quien revisa lo que declaró, «faltan facturas»
+   * es un problema serio, y acá no faltaban: no se pedían.
+   *
+   * El tope de 20 páginas (10.000 comprobantes) evita que un rango enorme
+   * cuelgue el navegador. Si alguien lo alcanza, lo que corresponde es filtrar
+   * por fechas, no traer más.
+   */
+  listInvoices: async (params?: { status?: string; from?: string; to?: string }) => {
+    const PAGE = 500;
+    const MAX_PAGINAS = 20;
+    const todas: any[] = [];
+
+    for (let page = 1; page <= MAX_PAGINAS; page++) {
+      const q = new URLSearchParams({ page: String(page), page_size: String(PAGE) });
+      if (params?.status) q.set('status', params.status);
+      if (params?.from) q.set('from', params.from);
+      if (params?.to) q.set('to', params.to);
+
+      const lote = await apiFetch<any[]>(`/hacienda/invoices?${q.toString()}`);
+      const filas = Array.isArray(lote) ? lote : [];
+      todas.push(...filas);
+      if (filas.length < PAGE) break;   // última página
+    }
+    return todas;
   },
 
   /** Reenvía la info del comprobante a otro correo. */
