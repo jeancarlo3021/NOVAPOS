@@ -29,6 +29,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
   ]},
   { group: 'Inventario y compras', items: [
     { key: 'inventory', label: 'Inventario' },
+    { key: 'inventory_kits', label: 'Combos / paquetes de productos' },
     { key: 'purchases', label: 'Compras' },
     { key: 'accounts_payable', label: 'Cuentas por Pagar' },
   ]},
@@ -37,10 +38,14 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'customer_prices', label: 'Precios personalizados (por cliente)' },
     { key: 'accounts_receivable', label: 'Cuentas por Cobrar (crédito)' },
     { key: 'exclude_from_close', label: 'Excluir clientes del cierre (ej. empleados)' },
+    { key: 'reservations', label: 'Apartados (separar mercadería con abonos)' },
+    { key: 'warranties', label: 'Garantías' },
+    { key: 'crm_leads', label: 'Leads (seguimiento de interesados)' },
   ]},
   { group: 'Distribución', items: [
     { key: 'distribution', label: 'Distribución / Repartidor' },
     { key: 'tracking', label: 'Rastreo de camiones' },
+    { key: 'live_team', label: 'Equipo en vivo (personas en el mapa)' },
   ]},
   { group: 'Restaurante', items: [
     { key: 'restaurant', label: 'Restaurante (mesas + comandas)' },
@@ -51,6 +56,9 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
   ]},
   { group: 'Agentes de venta', items: [
     { key: 'sales_agents', label: 'Agentes de venta (pedidos → caja)' },
+    { key: 'agent_orders', label: 'Nuevo pedido (el agente arma la venta)' },
+    { key: 'cashier_desk', label: 'Caja de agentes (cobrar los pedidos)' },
+    { key: 'agent_agenda', label: 'Agenda de entregas' },
   ]},
   { group: 'Devoluciones', items: [
     { key: 'returns', label: 'Devoluciones y anulación de facturas' },
@@ -68,6 +76,13 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'labels', label: 'Etiquetas' },
     { key: 'hr', label: 'Recursos Humanos' },
     { key: 'multi_branch', label: 'Multi-sucursal' },
+    { key: 'multi_branch_transfers', label: 'Traslados entre sucursales' },
+    { key: 'digital_menu', label: 'Carta digital (QR)' },
+    { key: 'window_service', label: 'Ventanita / para llevar' },
+    { key: 'invoice_pdf_a4', label: 'Descargar factura en PDF (A4)' },
+    { key: 'accountant_portal', label: 'Portal del contador' },
+    { key: 'businesses_panel', label: 'Panel de negocios (multiempresa)' },
+    { key: 'demo_requests', label: 'Solicitudes de demo' },
   ]},
   { group: 'Sistema', items: [
     { key: 'users', label: 'Usuarios' },
