@@ -9,7 +9,7 @@ import {
   Shield, CalendarDays, History,
   FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing, UserCheck, Undo2,
   Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes, Send, Inbox, Calculator,
-  Users2, MonitorPlay,
+  Users2, MonitorPlay, Bookmark,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { apiFetch } from '@/lib/api';
@@ -1078,6 +1078,9 @@ export default function Plans() {
                   <FeatureRow icon={TrendingUp} color="bg-fuchsia-600" title="Leads (seguimiento de clientes)"
                     description="Interesados desde el primer contacto hasta la venta: historial, etapas y próxima llamada"
                     checked={(features as any).crm_leads ?? false} onChange={v => set({ crm_leads: v } as any)} />
+                  <FeatureRow icon={Bookmark} color="bg-violet-600" title="Apartados"
+                    description="Separar mercadería para un cliente, con abonos y fecha de vencimiento. La factura se hace al entregar"
+                    checked={(features as any).reservations ?? false} onChange={v => set({ reservations: v } as any)} />
                   <FeatureRow icon={Shield} color="bg-cyan-600" title="Garantías"
                     description="Recibir productos con falla, seguirlos donde el proveedor y cerrarlos con su solución"
                     checked={(features as any).warranties ?? false} onChange={v => set({ warranties: v } as any)} />

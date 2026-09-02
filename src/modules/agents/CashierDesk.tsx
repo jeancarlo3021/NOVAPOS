@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Inbox, Loader2, CreditCard, Ban, RotateCcw, Clock, User, AlertCircle, CheckCircle2,
   LockKeyhole, Unlock, ArrowDownCircle, ArrowUpCircle, RefreshCw, Home, Receipt,
-  CalendarDays, ChevronLeft, ChevronRight, Pencil, Mail, Send, X,
+  CalendarDays, ChevronLeft, ChevronRight, Pencil, Mail, Send, X, Printer,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -21,6 +21,7 @@ import { agentOrdersService, type AgentOrder } from '@/services/agents/salesAgen
 import { OrderItemsEditor } from './OrderItemsEditor';
 import { ChargePrepModal } from './ChargePrepModal';
 import { PosShortcutsHint } from '@/modules/pos/PosShortcutsHint';
+import { ReprintInvoiceModal } from '@/modules/pos/ReprintInvoiceModal';
 import type { CartItem } from '@/types/Types_POS';
 
 /** Hoy en Costa Rica. El día del negocio no es el UTC del navegador. */
@@ -78,6 +79,8 @@ export const CashierDesk: React.FC = () => {
   const [ultimaFactura, setUltimaFactura] = useState<{ id: string; numero: string; correo: string } | null>(null);
   const [correoDestino, setCorreoDestino] = useState('');
   const [enviandoCorreo, setEnviandoCorreo] = useState(false);
+  /** Buscador de facturas para reimprimir o descargar. */
+  const [showReprint, setShowReprint] = useState(false);
   const [editing, setEditing] = useState<AgentOrder | null>(null);
   // Paso previo al cobro: confirmar comprobante, IVA y datos del cliente. El
   // pedido del agente viene sin impuesto y muchas veces sin cédula, y ambas
@@ -398,6 +401,14 @@ export const CashierDesk: React.FC = () => {
               </button>
             </>
           )}
+          {/* Reimprimir / descargar una factura ya cobrada.
+              El cliente pide el comprobante después de irse, o el papel salió
+              mal: hasta ahora eso solo se podía hacer desde el punto de venta,
+              y el cajero de esta pantalla no tiene por qué entrar ahí. */}
+          <button onClick={() => setShowReprint(true)} title="Reimprimir o descargar una factura"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-gray-700 text-sm font-black hover:bg-gray-50">
+            <Printer size={15} /> Reimprimir
+          </button>
           <button onClick={() => void load()} title="Actualizar"
             className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -624,6 +635,13 @@ export const CashierDesk: React.FC = () => {
       )}
 
       {/* ── Modales: los MISMOS del POS ──────────────────────────────────── */}
+      {showReprint && (
+        <ReprintInvoiceModal
+          onClose={() => setShowReprint(false)}
+          cashierName={user?.email ?? undefined}
+        />
+      )}
+
       {showOpen && tenantId && user && (
         <CashOpenModal
           tenantId={tenantId} userId={user.id}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Printer, WifiOff, CheckCircle2, Calendar, RefreshCw, RotateCcw } from 'lucide-react';
+import { X, Search, Printer, WifiOff, CheckCircle2, Calendar, RefreshCw, RotateCcw, Download, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService, type Invoice, type InvoiceItem } from '@/services/invoice/invoiceService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
@@ -51,6 +51,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
   const [dateTo, setDateTo]     = useState(''); // YYYY-MM-DD (vacío = sin límite superior)
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [printingId, setPrintingId] = useState<string | null>(null);
+  const [pdfId, setPdfId] = useState<string | null>(null);
   const [doneId, setDoneId] = useState<string | null>(null);
   const [error, setError] = useState('');
   // Prueba de emisión a Hacienda (FE)
@@ -146,6 +147,42 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
     } finally {
       setNcId(null);
     }
+  };
+
+  /**
+   * Vuelve a generar la factura en PDF (hoja A4).
+   *
+   * Reimprimir el tiquete sirve en el mostrador; el PDF sirve cuando el cliente
+   * lo pide por correo o lo perdió. Antes solo se podía descargar en el momento
+   * de cobrar: si el cliente lo pedía después, no había forma de volver a
+   * sacarlo.
+   */
+  const handlePdf = async (row: InvoiceRow) => {
+    if (!tenantId) return;
+    setError(''); setPdfId(row.id);
+    try {
+      const full = (await invoicesService.getInvoiceById(row.id)) as any;
+      const { downloadInvoicePdf } = await import('@/modules/invoice/downloadInvoicePdf');
+      await downloadInvoicePdf({
+        invoiceNumber: full.invoice_number ?? '',
+        date: new Date(full.issued_at ?? full.created_at ?? Date.now()),
+        customerName: full.customer_name ?? null,
+        customerPhone: full.customer_phone ?? null,
+        items: (full.items ?? []).map((it: any) => ({
+          name: it.product_name, quantity: it.quantity,
+          unit_price: it.unit_price, subtotal: it.subtotal,
+        })),
+        subtotal: full.subtotal, tax: full.tax_amount, total: full.total,
+        paymentMethod: full.payment_method,
+        notes: null,
+        feClave: full.fe_clave ?? null,
+        feConsecutivo: full.fe_consecutivo ?? null,
+        documentLabel: full.document_type === 'factura_electronica' ? 'Factura electrónica'
+          : full.document_type === 'tiquete_electronico' ? 'Tiquete electrónico' : 'Factura',
+      }, tenantId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo generar el PDF');
+    } finally { setPdfId(null); }
   };
 
   const handleReprint = async (row: InvoiceRow) => {
@@ -346,6 +383,18 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
                         </button>
                       </>
                     )}
+                    <button
+                      onClick={() => handlePdf(inv)}
+                      disabled={pdfId === inv.id}
+                      title="Descargar la factura en PDF"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition
+                                 text-violet-700 border border-violet-300 bg-white hover:bg-violet-600 hover:text-white
+                                 disabled:opacity-50"
+                    >
+                      {pdfId === inv.id
+                        ? <><Loader2 size={13} className="animate-spin" /> PDF…</>
+                        : <><Download size={13} /> PDF</>}
+                    </button>
                     <button
                       onClick={() => handleReprint(inv)}
                       disabled={isPrinting}
