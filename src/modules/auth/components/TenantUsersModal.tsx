@@ -12,6 +12,8 @@ interface TenantUser {
   id: string;
   full_name: string;
   email: string;
+  /** El dueño del negocio: se muestra pero no se puede borrar ni degradar. */
+  is_owner?: boolean;
   role: string;
   phone?: string | null;
   ticket_alias?: string | null;
@@ -215,6 +217,11 @@ function UserRow({ user, onSave }: { user: TenantUser; onSave: (u: TenantUser, p
         >
           {emailToUsername(user.email)}
         </button>
+        {user.is_owner && (
+          <span className="text-[10px] font-black text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
+            Dueño
+          </span>
+        )}
         <button disabled={!dirty}
           onClick={() => onSave(user, { full_name: fullName.trim(), ticket_alias: alias.trim() || null, role })}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white">
