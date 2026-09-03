@@ -104,6 +104,74 @@ export const AlanubeReportsView: React.FC = () => {
     } catch (e) { setRaw({ error: e instanceof Error ? e.message : 'error' }); }
   }, [env, from, until, legalStatus]);
 
+  /**
+   * Rescate de un comprobante que está en Alanube pero NO en la base.
+   *
+   * Pasa cuando la emisión salió bien y la respuesta se perdió, o cuando el
+   * comprobante se emitió por otra vía con la misma cuenta. Esa venta queda
+   * fuera de los reportes, del cierre y de la declaración, y no hay forma de
+   * traerla sin esto.
+   */
+  const [impClave, setImpClave] = useState('');
+  const [impTenant, setImpTenant] = useState('');
+  /** Id del documento en Alanube: es el «Consecutivo» que sale en el correo. */
+  const [impDocId, setImpDocId] = useState('');
+  const [impCompany, setImpCompany] = useState('');
+  /** Monto, por si Alanube no lo devuelve en un campo reconocible. */
+  const [impTotal, setImpTotal] = useState('');
+  const [impBusy, setImpBusy] = useState(false);
+  const [impMsg, setImpMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  /** Respuesta cruda del último «solo ver», para inspeccionar los campos. */
+  const [impCrudo, setImpCrudo] = useState<any>(null);
+
+  const importar = async (soloVer = false) => {
+    const clave = impClave.replace(/\D/g, '');
+    if (clave.length !== 50) { setImpMsg({ ok: false, text: 'La clave debe tener 50 dígitos.' }); return; }
+    if (!impTenant.trim()) { setImpMsg({ ok: false, text: 'Poné el id del negocio al que pertenece.' }); return; }
+    setImpBusy(true); setImpMsg(null); setImpCrudo(null);
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${impTenant.trim()}/fe-import`, {
+        method: 'POST',
+        body: JSON.stringify({
+          clave,
+          doc_id: impDocId.trim() || undefined,
+          company_id: impCompany.trim() || undefined,
+          total: Number(String(impTotal).replace(/[^\d.]/g, '')) || undefined,
+          preview: soloVer || undefined,
+        }),
+      });
+      if (soloVer) {
+        setImpCrudo(r);
+        setImpMsg({ ok: true, text: `Encontrado. Monto que se leería: ₡${Math.round(Number(r?.monto_leido ?? 0)).toLocaleString('es-CR')}. Revisá abajo antes de importar.` });
+        return;
+      }
+      setImpMsg({
+        ok: true,
+        text: `Registrada como factura ${r?.invoice_number ?? ''} por ₡${Math.round(Number(r?.total ?? 0)).toLocaleString('es-CR')}`
+          + (r?.completada
+            ? ` — se le completaron las ${r.lineas} línea(s) que le faltaban.`
+            : r?.completa
+              ? ` — completa, con ${r.lineas} línea(s) y el cliente del comprobante.`
+              : ' — SOLO EL ENCABEZADO: no se pudo bajar el XML, así que quedó sin el detalle de productos.'
+                + ' Volvé a importarla más tarde y se le agregan las líneas.'),
+      });
+      setImpClave('');
+    } catch (e: any) {
+      // El detalle de cada intento viaja en el cuerpo del error: sin mostrarlo,
+      // «no se encontró» no dice dónde se buscó ni qué falta configurar.
+      const cuerpo = e?.body;
+      const detalle = Array.isArray(cuerpo?.intentos)
+        ? '\n\n' + cuerpo.intentos.map((x: any) => `· ${x.cuenta} · empresa ${x.empresa}: ${x.error}`).join('\n')
+        : '';
+      setImpMsg({
+        ok: false,
+        text: (cuerpo?.error ?? (e instanceof Error ? e.message : 'No se pudo importar'))
+          + (cuerpo?.pista ? `\n\n${cuerpo.pista}` : '') + detalle,
+      });
+    } finally { setImpBusy(false); }
+  };
+
   const companies = Array.isArray(data?.per_company) ? data!.per_company as CompanyRow[] : [];
   const users = Array.isArray(data?.by_user) ? data!.by_user as UserRow[] : [];
   const companyErr = !Array.isArray(data?.per_company) ? (data?.per_company as any)?.error : null;
@@ -136,6 +204,63 @@ export const AlanubeReportsView: React.FC = () => {
           <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Actualizar
         </button>
       </div>
+
+      {/* Rescatar un comprobante que Alanube tiene y la base no */}
+      <details className="bg-white border-2 border-gray-200 rounded-2xl px-4 py-3">
+        <summary className="text-sm font-black text-gray-800 cursor-pointer">
+          Importar un comprobante por su clave
+        </summary>
+        <p className="text-xs font-semibold text-gray-500 mt-2">
+          Para comprobantes que están en Hacienda pero no en el sistema: la emisión salió bien y la
+          respuesta se perdió, o se emitió por otra vía con esta misma cuenta. Sin esto, esa venta
+          no aparece en reportes ni en la declaración.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <input value={impClave} onChange={e => setImpClave(e.target.value)}
+            placeholder="Clave de 50 dígitos"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-indigo-400" />
+          <input value={impTenant} onChange={e => setImpTenant(e.target.value)}
+            placeholder="Id del negocio"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-indigo-400" />
+          <input value={impDocId} onChange={e => setImpDocId(e.target.value)}
+            placeholder="Consecutivo de Alanube (el del correo) — opcional pero recomendado"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-indigo-400" />
+          <input value={impCompany} onChange={e => setImpCompany(e.target.value)}
+            placeholder="company_id (solo si se emitió con otra empresa)"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-indigo-400" />
+          <input value={impTotal} onChange={e => setImpTotal(e.target.value)}
+            placeholder="Monto total (solo si Alanube no lo devuelve)" inputMode="decimal"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-400" />
+        </div>
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          {/* Mirar antes de comprometerse: importar deja la venta en reportes y
+              en la declaración, y deshacerlo es a mano. */}
+          <button onClick={() => void importar(true)} disabled={impBusy}
+            className="px-4 py-2 rounded-lg border-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50
+                       disabled:opacity-50 text-sm font-black">
+            Solo ver (no registra)
+          </button>
+          <button onClick={() => void importar(false)} disabled={impBusy}
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200
+                       disabled:text-gray-400 text-white text-sm font-black">
+            {impBusy ? 'Buscando en Alanube…' : 'Buscar e importar'}
+          </button>
+        </div>
+        {impCrudo && (
+          <pre className="mt-2 max-h-72 overflow-auto bg-gray-900 text-gray-100 rounded-lg p-3 text-[11px] leading-relaxed">
+            {JSON.stringify(impCrudo, null, 2)}
+          </pre>
+        )}
+        {impMsg && (
+          <p className={`mt-2 text-xs font-bold whitespace-pre-wrap ${impMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>
+            {impMsg.text}
+          </p>
+        )}
+        <p className="mt-2 text-[11px] font-semibold text-gray-400">
+          No se importa dos veces la misma clave, y la venta NO entra en ninguna caja: no ocurrió en
+          una sesión de este sistema y metería ruido en un arqueo ya cerrado.
+        </p>
+      </details>
 
       {/* Panel de diagnóstico: respuesta CRUDA de Alanube */}
       {raw && (

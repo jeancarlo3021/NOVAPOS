@@ -22,7 +22,16 @@ interface PurchaseRow {
   document_type: string; doc_date: string; month: string;
   base: number; iva: number; total: number;
 }
-interface TaxData { invoices: InvoiceRow[]; purchases: PurchaseRow[] }
+interface ExcludedRow {
+  invoice_number: string; issued_at: string; total: number;
+  fe_status: string; fe_error?: string | null;
+}
+interface TaxData {
+  invoices: InvoiceRow[];
+  purchases: PurchaseRow[];
+  /** Comprobantes que Hacienda RECHAZÓ: no se declaran, pero hay que verlos. */
+  excluded_failed?: ExcludedRow[];
+}
 
 interface MonthAgg {
   month: string;
@@ -248,6 +257,8 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
     { label: 'Compras (crédito fiscal)', count: data.purchases.length, xlsx: dlPurchasesXlsx },
   ] : [];
 
+  const rechazados = data?.excluded_failed ?? [];
+
   if (loading) return <div className="flex items-center justify-center py-16 text-gray-400"><RefreshCw size={22} className="animate-spin" /></div>;
   if (error) return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">{error}</div>;
   if (!view) return null;
@@ -260,6 +271,36 @@ export const TaxReport: React.FC<Props> = ({ tenantId, from, to }) => {
 
   return (
     <div className="space-y-5">
+      {/* Comprobantes que NO entran en la declaración.
+          Se excluyen porque Hacienda los rechazó —declararlos sería declarar
+          ventas que Hacienda no tiene—, pero callarlo hacía que el contador
+          contara nueve facturas donde esperaba cuarenta sin poder explicar la
+          diferencia. Cada una es una venta que hay que reemitir. */}
+      {rechazados.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl px-4 py-3">
+          <p className="text-sm font-black text-amber-900">
+            {rechazados.length} comprobante(s) NO entran en este reporte porque Hacienda los rechazó
+          </p>
+          <p className="text-xs font-semibold text-amber-800 mt-0.5">
+            No son comprobantes válidos, así que no se declaran. Pero cada uno es una venta que
+            quedó sin respaldo: hay que reemitirla desde la bitácora de FE antes de presentar el período.
+          </p>
+          <details className="mt-2">
+            <summary className="text-xs font-black text-amber-900 cursor-pointer">Ver cuáles</summary>
+            <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+              {rechazados.map(r => (
+                <div key={r.invoice_number} className="text-[11px] font-semibold text-amber-900 flex gap-2 flex-wrap">
+                  <span className="font-black">{r.invoice_number}</span>
+                  <span>{(r.issued_at || '').slice(0, 10)}</span>
+                  <span className="tabular-nums">₡{Math.round(Number(r.total || 0)).toLocaleString('es-CR')}</span>
+                  {r.fe_error && <span className="text-amber-700 min-w-0 truncate">· {r.fe_error}</span>}
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+
       {/* Filtros + Descargas */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
