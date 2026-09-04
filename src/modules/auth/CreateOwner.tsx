@@ -218,7 +218,17 @@ export const CreateOwner: React.FC = () => {
           + raw.slice(0, 1500),
         );
       } else if (r?.company_id) {
-        showToast(`Empresa creada en Alanube · id ${r.company_id} · ${r?.env ?? ''}`, 'success');
+        // Si Alanube solo aceptó el alta al quitar un bloque, eso NO es un
+        // detalle menor: es el campo que su API rechaza. Va en el cuadro
+        // copiable para poder reclamárselo, no en un toast que se va solo.
+        if (r?.omitido) {
+          mostrarDetalle(
+            'Empresa creada, pero con una advertencia',
+            `${r.message}\n\nid: ${r.company_id}\nambiente: ${r?.env ?? ''}\nbloque omitido: ${r.omitido}`,
+          );
+        } else {
+          showToast(`Empresa creada en Alanube · id ${r.company_id} · ${r?.env ?? ''}`, 'success');
+        }
       } else {
         // No se encontró el id automáticamente: mostramos la respuesta cruda.
         console.log('[Alanube createCompany] respuesta:', r?.result);
