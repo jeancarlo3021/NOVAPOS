@@ -33,6 +33,7 @@ import { GroupDocCount } from './components/GroupDocCount';
 import { CabysImport } from './components/CabysImport';
 import { BulkProductImportModal } from '@/modules/inventory/products/BulkProductImportModal';
 import { TenantProductsModal } from './components/TenantProductsModal';
+import { CopyableDialog } from './components/CopyableDialog';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -210,7 +211,8 @@ export const CreateOwner: React.FC = () => {
         // el ID de la empresa existente (para pegarlo en Datos de FE y poder actualizar).
         console.log('[Alanube] error body (para ubicar el id):', r?.alanube_error_body);
         const raw = r?.alanube_error_body ? JSON.stringify(r.alanube_error_body, null, 2) : '(vacío)';
-        window.alert(
+        mostrarDetalle(
+          'La empresa ya existe en Alanube',
           (r?.message ?? 'La empresa principal ya existe en esta cuenta de Alanube. Ya podés emitir.')
           + '\n\n──────────\nRespuesta cruda de Alanube (buscá acá el ID de la empresa):\n'
           + raw.slice(0, 1500),
@@ -226,7 +228,7 @@ export const CreateOwner: React.FC = () => {
       const msg = e instanceof Error ? e.message : 'No se pudo crear la empresa en Alanube';
       // La validación de datos devuelve una lista multi-línea: mostrarla completa
       // en un alert (el toast trunca y no respeta los saltos de línea).
-      if (msg.includes('\n')) window.alert(msg);
+      if (msg.includes('\n')) mostrarDetalle('No se pudo crear la empresa en Alanube', msg);
       else showToast(msg, 'error');
     } finally { setCreatingAlanubeId(null); }
   };
@@ -285,17 +287,17 @@ export const CreateOwner: React.FC = () => {
         info = e instanceof Error ? e.message : String(e);
       }
       if (!info) { showToast('No se pudo identificar la empresa a dar de baja', 'error'); return; }
-      if (!/Escribí la cédula/i.test(info)) { window.alert(info); return; }
+      if (!/Escribí la cédula/i.test(info)) { mostrarDetalle('Dar de baja la empresa', info); return; }
 
       const typed = window.prompt(`${info}\n\nCédula:`);
       if (typed == null) return;
       const r = await apiFetch<any>(`/admin/tenants/${o.id}/alanube/company`, {
         method: 'DELETE', body: JSON.stringify({ confirm: typed.trim() }),
       });
-      window.alert(r?.message ?? 'Empresa dada de baja.');
+      mostrarDetalle('Empresa dada de baja', r?.message ?? 'Empresa dada de baja.');
       fetchOwners();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'No se pudo dar de baja la empresa');
+      mostrarDetalle('No se pudo dar de baja la empresa', e instanceof Error ? e.message : 'No se pudo dar de baja la empresa');
     } finally { setCreatingAlanubeId(null); }
   };
 
@@ -305,7 +307,7 @@ export const CreateOwner: React.FC = () => {
     try {
       const r = await apiFetch<any>(`/admin/tenants/${o.id}/alanube/verify`);
       const msg = `Ambiente: ${r.environment}\nCompany ID: ${r.company_id ?? '(vacío)'}\nExiste en Alanube: ${r.exists ? 'SÍ ✅' : 'NO ❌'}${r.api_status ? `\nEstado: ${r.api_status}` : ''}${r.note ? `\n\n${r.note}` : ''}`;
-      window.alert(msg);
+      mostrarDetalle('Verificación de Alanube', msg);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo verificar', 'error');
     } finally { setCreatingAlanubeId(null); }
@@ -318,7 +320,7 @@ export const CreateOwner: React.FC = () => {
       const r = await apiFetch<any>(`/admin/tenants/${o.id}/fe-test`);
       const lines = (r.checks ?? []).map((c: any) => `${c.ok ? '✅' : '❌'} ${c.label}${c.detail ? `\n     → ${c.detail}` : ''}`).join('\n');
       const head = r.ok ? '✅ FE lista para emitir' : '⚠️ Hay problemas en la configuración de FE';
-      window.alert(`${head}\nProveedor: ${r.provider}${r.environment ? ` · ${r.environment}` : ''}\n\n${lines}`);
+      mostrarDetalle('Prueba de conexión FE', `${head}\nProveedor: ${r.provider}${r.environment ? ` · ${r.environment}` : ''}\n\n${lines}`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo probar la conexión', 'error');
     } finally { setCreatingAlanubeId(null); }
@@ -483,6 +485,10 @@ export const CreateOwner: React.FC = () => {
   const [emailingId, setEmailingId] = useState<string | null>(null);
   // Toast flotante de confirmación/error.
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  // Avisos largos (errores de Alanube, checklist de FE): van en un cuadro que
+  // SÍ deja copiar el texto, porque casi siempre hay que pasárselo a soporte.
+  const [detalle, setDetalle] = useState<{ title: string; text: string } | null>(null);
+  const mostrarDetalle = (title: string, text: string) => setDetalle({ title, text });
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
@@ -1706,6 +1712,11 @@ export const CreateOwner: React.FC = () => {
           onClose={() => setManageFeFor(null)}
           onToast={showToast}
         />
+      )}
+
+      {/* Avisos largos, con botón para copiar */}
+      {detalle && (
+        <CopyableDialog title={detalle.title} text={detalle.text} onClose={() => setDetalle(null)} />
       )}
 
       {/* Toast flotante */}
