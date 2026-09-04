@@ -174,7 +174,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
         })),
         subtotal: full.subtotal, tax: full.tax_amount, total: full.total,
         paymentMethod: full.payment_method,
-        notes: null,
+        notes: full.notes ?? null,
         feClave: full.fe_clave ?? null,
         feConsecutivo: full.fe_consecutivo ?? null,
         documentLabel: full.document_type === 'factura_electronica' ? 'Factura electrónica'
@@ -227,6 +227,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
           storePhone: general?.phone,
           cashierName,
           customerName: full.customer_name ?? undefined,
+          notes: (full as any).notes ?? undefined,
         },
         tenantId,
       );

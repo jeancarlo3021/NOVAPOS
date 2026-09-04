@@ -423,13 +423,15 @@ export const DemoRequestsDashboard: React.FC = () => {
         <ConvertModal
           request={converting}
           onClose={() => setConverting(null)}
-          onDone={(login) => {
+          onDone={(login, account) => {
             setConverting(null);
             setMsg({
               kind: 'ok',
               text: login
                 ? `Cliente creado · entra con ${login.user} / ${login.password}`
-                : 'Convertido en cliente: ya no se borra y quedó con su plan.',
+                : account
+                  ? `Convertido en cliente · dueño: ${account.email} · ya no se borra.`
+                  : 'Convertido en cliente: ya no se borra y quedó con su plan.',
             });
             void load();
           }}
@@ -605,12 +607,30 @@ const DemoEditor: React.FC<{
 const ConvertModal: React.FC<{
   request: DemoRequest;
   onClose: () => void;
-  onDone: (login?: { user: string; password: string }) => void;
+  onDone: (
+    login?: { user: string; password: string },
+    account?: { email: string } | null,
+  ) => void;
 }> = ({ request, onClose, onDone }) => {
   const [plans, setPlans] = useState<Array<{ id: string; name: string; price: number; billing_cycle: string }>>([]);
   const [planId, setPlanId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Correo y clave DEFINITIVOS del cliente.
+   *
+   * En la prueba el acceso es desechable: un usuario inventado y una clave
+   * generada. Al pasar a cliente esa cuenta se vuelve la de verdad —recibe los
+   * avisos y los comprobantes—, así que es acá donde conviene ponerle el correo
+   * real. Si se dejan vacíos, la cuenta sigue con lo que tenía.
+   */
+  const correoActual = (() => {
+    const u = String(request.demo_user ?? '').trim().toLowerCase();
+    return !u ? '' : u.includes('@') ? u : `${u}@nexoerp.local`;
+  })();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [verClave, setVerClave] = useState(false);
 
   useEffect(() => {
     demoRequestsService.plans().then(setPlans).catch(() => setPlans([]));
@@ -620,8 +640,8 @@ const ConvertModal: React.FC<{
     if (!planId) { setError('Elegí el plan que va a llevar.'); return; }
     setBusy(true); setError(null);
     try {
-      const res: any = await demoRequestsService.convert(request.id, planId);
-      onDone(res?.login);
+      const res: any = await demoRequestsService.convert(request.id, planId, { email, password });
+      onDone(res?.login, res?.account ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo convertir');
     } finally { setBusy(false); }
@@ -630,7 +650,7 @@ const ConvertModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4"
       onClick={onClose}>
-      <div className="w-full max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-4 space-y-3"
+      <div className="w-full max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-4 space-y-3 max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
         <p className="text-sm font-black text-gray-800">
           Pasar a cliente
@@ -653,12 +673,54 @@ const ConvertModal: React.FC<{
             </option>
           ))}
         </select>
+        <div className="space-y-2 pt-1 border-t border-gray-100">
+          <p className="text-[11px] font-black text-gray-500 uppercase tracking-wide pt-2">
+            Cuenta del dueño
+          </p>
+          <div>
+            <label className="block text-[11px] font-bold text-gray-500 mb-1">
+              <Mail size={11} className="inline mb-0.5" /> Correo
+            </label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder={correoActual || 'correo@delcliente.com'}
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm" />
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              {correoActual
+                ? `Ahora entra con ${correoActual}. Dejalo vacío para no cambiarlo.`
+                : 'Dejalo vacío para no cambiarlo.'}
+            </p>
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-gray-500 mb-1">
+              <KeyRound size={11} className="inline mb-0.5" /> Contraseña nueva
+            </label>
+            <div className="relative">
+              <input type={verClave ? 'text' : 'password'} value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Dejar vacío para no cambiarla"
+                className="w-full px-3 py-2 pr-16 border border-gray-200 rounded-xl text-sm" />
+              {password && (
+                <button type="button" onClick={() => setVerClave(v => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400 hover:text-gray-600">
+                  {verClave ? 'Ocultar' : 'Ver'}
+                </button>
+              )}
+            </div>
+            {password && password.length < 6 && (
+              <p className="text-[10px] font-bold text-amber-600 mt-0.5">Mínimo 6 caracteres.</p>
+            )}
+          </div>
+          <p className="flex items-start gap-1.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1.5">
+            <Check size={12} className="mt-px shrink-0" />
+            El negocio queda automáticamente a nombre del cliente, no de quien armó la demo.
+          </p>
+        </div>
         {error && (
           <p className="flex items-center gap-1.5 text-xs font-bold text-red-600">
             <AlertCircle size={14} /> {error}
           </p>
         )}
-        <button onClick={() => void convert()} disabled={busy || !planId}
+        <button onClick={() => void convert()} disabled={busy || !planId || (!!password && password.length < 6)}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm disabled:bg-gray-200 disabled:text-gray-400">
           {busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Confirmar plan
         </button>

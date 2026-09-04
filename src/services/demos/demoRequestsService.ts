@@ -81,10 +81,19 @@ export const demoRequestsService = {
    * Al cliente le gustó: se le asigna plan, el negocio deja de ser demo y se
    * queda con todo lo que cargó durante la prueba.
    */
-  convert: (id: string, planId: string) =>
-    apiFetch<DemoRequest & { login?: { user: string; password: string; email: string } }>(
+  convert: (id: string, planId: string, cuenta?: { email?: string; password?: string }) =>
+    apiFetch<DemoRequest & {
+      login?: { user: string; password: string; email: string };
+      /** Cuenta del cliente que quedó como dueña del negocio. */
+      account?: { id: string; email: string; full_name?: string } | null;
+    }>(
       `/demo-requests/${id}/convert`, {
-      method: 'POST', body: JSON.stringify({ plan_id: planId }),
+      method: 'POST',
+      body: JSON.stringify({
+        plan_id: planId,
+        email: cuenta?.email?.trim() || undefined,
+        password: cuenta?.password || undefined,
+      }),
     }),
 
   /** Aprobar / rechazar / entregar. Solo gerencia. */

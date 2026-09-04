@@ -71,6 +71,15 @@ export const FeposMain: React.FC = () => {
    * información con el banco.
    */
   const [paymentMethod, setPaymentMethod] = useState<MedioPago>('cash');
+  /**
+   * Nota del comprobante.
+   *
+   * Hay datos que el cliente pide en la factura y no caben en ninguna línea: el
+   * número de orden de compra, a nombre de quién va el trabajo, la placa del
+   * vehículo, una condición acordada. Sin un lugar para eso terminaban metidos
+   * en el nombre de un producto, que además viaja al XML de Hacienda.
+   */
+  const [notes, setNotes] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [emitting, setEmitting] = useState(false);
@@ -178,6 +187,7 @@ export const FeposMain: React.FC = () => {
         document_type: documentType,
         payment_method: paymentMethod,
         session_id: currentSession?.id ?? null,
+        notes: notes.trim() || undefined,
         customer: customer ?? undefined,
         lines: lines.map(l => ({
           product_id: l.product_id, name: l.name, sku: l.sku,
@@ -206,6 +216,7 @@ export const FeposMain: React.FC = () => {
           tax: res.totales?.iva ?? 0,
           total: res.totales?.total ?? 0,
           paymentMethod: paymentMethod,
+          notes: notes.trim() || undefined,
           // `copyLabel` sale centrado y en grande arriba del tiquete, y además
           // fuerza UNA sola copia: una prueba no se imprime por duplicado.
           copyLabel: 'PRUEBA - SIN VALOR FISCAL',
@@ -248,6 +259,7 @@ export const FeposMain: React.FC = () => {
         document_type: documentType,
         payment_method: paymentMethod,
         session_id: currentSession?.id ?? null,
+        notes: notes.trim() || undefined,
         customer: customer ?? undefined,
         lines: lines.map(l => ({
           product_id: l.product_id, name: l.name, sku: l.sku,
@@ -262,6 +274,7 @@ export const FeposMain: React.FC = () => {
         proformaToConvert.current = null;
       }
       setLines([]); setCustomer(null); setDocumentType('tiquete_electronico'); setCartOpen(false);
+      setNotes('');
       haciendaService.quota().then(setQuota).catch(() => {});   // refrescar contador
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo emitir' });
@@ -406,6 +419,19 @@ export const FeposMain: React.FC = () => {
                 {m.label}
               </button>
             ))}
+          </div>
+          <div>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value.slice(0, 500))}
+              rows={notes ? 2 : 1}
+              placeholder="Nota del comprobante (opcional) — ej. orden de compra, placa, referencia"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none
+                         focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+            />
+            {notes.length > 400 && (
+              <p className="text-[11px] text-gray-400 text-right mt-0.5">{notes.length}/500</p>
+            )}
           </div>
           {msg && (
             <div className={`text-sm font-semibold rounded-lg px-3 py-2 ${msg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{msg.text}</div>

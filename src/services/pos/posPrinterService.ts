@@ -106,6 +106,11 @@ export interface ReceiptData {
   discount?: number;
   /** Etiqueta del descuento (ej. "Combos"). */
   discountLabel?: string;
+  /**
+   * Nota del COMPROBANTE (no de una línea): orden de compra, placa, referencia.
+   * Es un dato que el cliente pide ver impreso en la factura.
+   */
+  notes?: string;
   /** Ajuste por redondeo a ₡10 (positivo = se sumó, negativo = se restó). */
   rounding?: number;
   paymentMethod: string;
@@ -1918,6 +1923,8 @@ export class POSPrinterService {
 
   <div style="margin-top:10px;font-size:11px;color:#374151"><b>Forma de pago:</b> ${esc(r.paymentMethod)}</div>
 
+  ${r.notes?.trim() ? `<div style="margin-top:8px;font-size:11px;color:#374151;white-space:pre-wrap"><b>Nota:</b> ${esc(r.notes.trim())}</div>` : ''}
+
   ${r.feClave ? `<div class="fe">
     <div><b>Clave numérica:</b></div>
     <div class="clave">${esc(r.feClave)}</div>
@@ -2185,6 +2192,12 @@ export class POSPrinterService {
 
   <hr class="divider">
 
+  ${receiptData.notes?.trim() ? `
+  <div class="section-label">NOTA</div>
+  <div class="payment-block" style="white-space:pre-wrap">${receiptData.notes.trim()}</div>
+  <hr class="divider">
+  ` : ''}
+
   <div class="section-label">MÉTODO DE PAGO</div>
   ${receiptData.payments && receiptData.payments.length > 1
     ? `<div class="payment-block">${receiptData.payments.map(p => {
@@ -2359,6 +2372,12 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     sep();
 
     centerText(`*** TOTAL: ${fmt(receiptData.total)} ***`);
+
+    if (receiptData.notes?.trim()) {
+      sep();
+      text('NOTA:'); nl();
+      text(receiptData.notes.trim()); nl();
+    }
 
     sep();
     text('PAGO:'); nl();

@@ -122,15 +122,28 @@ export const GeneralSettings: React.FC = () => {
         {planHasFe && (
           <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
             <Lock size={16} className="shrink-0 mt-0.5" />
-            <span>Con <b>Facturación Electrónica</b> activa, los datos fiscales del negocio se toman de <b>Facturación Electrónica → Datos del emisor</b> (y de ahí salen para el ticket). Editálos ahí.</span>
+            <span>Con <b>Facturación Electrónica</b> activa, los <b>datos fiscales</b> (cédula, dirección, correo) se toman de <b>Facturación Electrónica → Datos del emisor</b>: se editan ahí porque tienen que coincidir con lo inscrito en Hacienda. El <b>nombre del negocio</b> de acá sí se puede cambiar: es el que sale impreso en el tiquete y en los correos, y no viaja al XML.</span>
           </div>
         )}
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">Nombre del Negocio</label>
-          <input type="text" name="businessName" value={formData.businessName} onChange={handleChange} disabled={planHasFe}
+          {/*
+            Este nombre NO se bloquea con Facturacion Electronica.
+            Es el rotulo que sale en el tiquete y en los correos; el nombre fiscal
+            que va al XML es `emisor_name`, que vive en los datos del emisor. Al
+            bloquearlo junto con los datos fiscales, un negocio con FE no tenia
+            forma de corregir el nombre de sus propios tiquetes.
+          */}
+          <input type="text" name="businessName" value={formData.businessName} onChange={handleChange}
             placeholder="Mi Restaurante"
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
+          {planHasFe && (
+            <p className="text-xs text-gray-400 mt-1">
+              Se usa en el tiquete y en los correos. El nombre fiscal que va al comprobante
+              electronico se configura en Facturacion Electronica.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
