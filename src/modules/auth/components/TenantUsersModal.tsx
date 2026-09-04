@@ -31,6 +31,8 @@ const ROLES = (Object.keys(USER_ROLES) as UserRole[]).filter(r => r !== 'owner')
 
 export const TenantUsersModal: React.FC<Props> = ({ owner, onClose, onToast }) => {
   const [users, setUsers] = useState<TenantUser[]>([]);
+  /** Nombre del negocio, editable desde acá. */
+  const [nombreNegocio, setNombreNegocio] = useState(owner.name ?? '');
   /** Editor de permisos por rol de ESTA empresa (sin salir del panel). */
   const [showRoles, setShowRoles] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -77,6 +79,52 @@ export const TenantUsersModal: React.FC<Props> = ({ owner, onClose, onToast }) =
     } finally { setSaving(false); }
   };
 
+  /**
+   * Pasa el negocio a otro usuario.
+   *
+   * Es lo correcto cuando el negocio lo creó el vendedor con su propia cuenta:
+   * se traspasa el NEGOCIO, no la identidad. Cambiarle el correo al vendedor
+   * afectaría a todos los negocios que haya creado con ese mismo usuario.
+   */
+  const hacerDueño = async (u: TenantUser) => {
+    const ok = window.confirm(
+      `¿Pasar «${owner.name}» a ${u.full_name || u.email}?\n\n`
+      + 'Queda como dueño del negocio. El dueño anterior conserva su usuario y su acceso: '
+      + 'si ya no debe entrar, hay que quitarlo aparte.',
+    );
+    if (!ok) return;
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${owner.id}/transfer-owner`, {
+        method: 'POST', body: JSON.stringify({ user_id: u.id }),
+      });
+      onToast(`Ahora el dueño es ${r?.nuevo_dueño ?? u.email}. ${r?.aviso ?? ''}`, 'success');
+      load();
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'No se pudo traspasar', 'error');
+    }
+  };
+
+  /**
+   * Saca a una persona de ESTE negocio.
+   *
+   * No borra su cuenta si tiene otros negocios: el mismo usuario puede estar en
+   * varios, y borrarlo lo dejaría sin acceso a todos de una.
+   */
+  const quitarUsuario = async (u: TenantUser) => {
+    const ok = window.confirm(
+      `¿Quitar a ${u.full_name || u.email} de «${owner.name}»?\n\n`
+      + 'Deja de tener acceso a este negocio. Si trabaja en otros, su cuenta sigue activa.',
+    );
+    if (!ok) return;
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${owner.id}/users/${u.id}`, { method: 'DELETE' });
+      onToast(r?.aviso ?? 'Usuario quitado', 'success');
+      load();
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'No se pudo quitar', 'error');
+    }
+  };
+
   const patchUser = async (u: TenantUser, patch: Partial<TenantUser>) => {
     try {
       await apiFetch(`/admin/tenants/${owner.id}/users/${u.id}`, {
@@ -99,7 +147,34 @@ export const TenantUsersModal: React.FC<Props> = ({ owner, onClose, onToast }) =
             <Users2 size={18} className="text-sky-600" />
             <div>
               <h2 className="text-lg font-black text-gray-900">Usuarios de la empresa</h2>
-              <p className="text-xs text-gray-400">{owner.name}</p>
+              {/* El nombre se toca para corregirlo: se escribe al crear la
+                  cuenta y después sale en tiquetes, facturas y correos. */}
+              <button
+                onClick={async () => {
+                  const nuevo = window.prompt(
+                    'Nombre del negocio\n\n'
+                    + 'Aparece en el tiquete, en la factura y en los correos al cliente.\n'
+                    + 'El nombre que va en el comprobante electrónico se cambia en Datos de FE.',
+                    nombreNegocio,
+                  );
+                  if (nuevo === null) return;
+                  const limpio = nuevo.trim();
+                  if (!limpio || limpio === nombreNegocio) return;
+                  try {
+                    const r = await apiFetch<any>(`/admin/tenants/${owner.id}`, {
+                      method: 'PATCH', body: JSON.stringify({ name: limpio }),
+                    });
+                    setNombreNegocio(r?.name ?? limpio);
+                    onToast('Nombre actualizado', 'success');
+                  } catch (e) {
+                    onToast(e instanceof Error ? e.message : 'No se pudo cambiar el nombre', 'error');
+                  }
+                }}
+                title="Cambiar el nombre del negocio"
+                className="text-xs text-gray-400 hover:text-sky-700 underline decoration-dotted"
+              >
+                {nombreNegocio}
+              </button>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={20} /></button>
@@ -156,7 +231,8 @@ export const TenantUsersModal: React.FC<Props> = ({ owner, onClose, onToast }) =
             ) : (
               <div className="space-y-2">
                 {users.map(u => (
-                  <UserRow key={u.id} user={u} onSave={patchUser} />
+                  <UserRow key={u.id} user={u} onSave={patchUser}
+                    onMakeOwner={hacerDueño} onRemove={quitarUsuario} />
                 ))}
               </div>
             )}
@@ -176,7 +252,12 @@ export const TenantUsersModal: React.FC<Props> = ({ owner, onClose, onToast }) =
 };
 
 // Fila editable: nombre, alias y rol.
-function UserRow({ user, onSave }: { user: TenantUser; onSave: (u: TenantUser, patch: Partial<TenantUser>) => void }) {
+function UserRow({ user, onSave, onMakeOwner, onRemove }: {
+  user: TenantUser;
+  onSave: (u: TenantUser, patch: Partial<TenantUser>) => void;
+  onMakeOwner?: (u: TenantUser) => void;
+  onRemove?: (u: TenantUser) => void;
+}) {
   const [fullName, setFullName] = useState(user.full_name);
   const [alias, setAlias] = useState(user.ticket_alias ?? '');
   const [role, setRole] = useState(user.role);
@@ -217,16 +298,29 @@ function UserRow({ user, onSave }: { user: TenantUser; onSave: (u: TenantUser, p
         >
           {emailToUsername(user.email)}
         </button>
-        {user.is_owner && (
+        {user.is_owner ? (
           <span className="text-[10px] font-black text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
             Dueño
           </span>
+        ) : (
+          <button onClick={() => onMakeOwner?.(user)}
+            title="Pasar el negocio a esta persona"
+            className="text-[10px] font-black text-gray-500 border border-gray-200 rounded-full px-2 py-0.5 hover:bg-gray-50">
+            Hacer dueño
+          </button>
         )}
         <button disabled={!dirty}
           onClick={() => onSave(user, { full_name: fullName.trim(), ticket_alias: alias.trim() || null, role })}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white">
           <Save size={12} /> Guardar
         </button>
+        {/* Al dueño no se le ofrece: primero hay que pasar la propiedad. */}
+        {!user.is_owner && (
+          <button onClick={() => onRemove?.(user)} title="Quitar del negocio"
+            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100">
+            Quitar
+          </button>
+        )}
       </div>
     </div>
   );

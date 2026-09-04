@@ -1465,6 +1465,9 @@ export const POSMain = () => {
 
         if (!data.skipPrint) printReceipt(invoice.invoice_number, cartSnapshot, subSnapshot, taxSnapshot, totSnapshot, data.paymentMethod, invoice.customer_name ?? undefined, data.payments ?? undefined, feData, roundSnapshot, { currency: data.currency, exchangeRate: data.exchangeRate, amountReceived: data.amountReceived, change: data.change, changeCurrency: data.changeCurrency, isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined, deliveryPlatform: data.deliveryPlatform, bipper: bipperSnapshot });
         setInvoiceCounterKey(k => k + 1);
+        // El contador local queda al día con el del servidor: si se cae el
+        // internet en la próxima venta, el tiquete sigue la misma numeración.
+        posOfflineService.syncInvoiceCounter(invoice.invoice_number);
         return;
        } catch (netErr) {
         // Falló el cobro online. Si es error de RED (backend caído/timeout) NO se pierde

@@ -219,6 +219,32 @@ function generateOfflineInvoiceNumber(): string {
 }
 
 /**
+ * Pone el contador local al día con el del SERVIDOR.
+ *
+ * ── El problema que resuelve ───────────────────────────────────────────────
+ * El contador de las ventas sin conexión arrancaba en cero y no sabía nada del
+ * servidor. Un negocio que va por la factura 001805 imprimía «000001» apenas se
+ * caía el internet, y al sincronizar el servidor le asignaba otro número: el
+ * papel que se llevó el cliente no coincidía con nada.
+ *
+ * Se llama después de cada venta EN LÍNEA, con el número que devolvió el
+ * servidor. Así, cuando se corte la conexión, el contador ya está donde debe y
+ * los tiquetes siguen la misma numeración.
+ *
+ * Solo SUBE: si llega un número menor —una respuesta vieja, otra caja— se
+ * ignora. Bajar el contador haría repetir números ya entregados.
+ */
+export function syncInvoiceCounter(numeroDelServidor?: string | number | null): void {
+  const n = parseInt(String(numeroDelServidor ?? '').replace(/\D/g, ''), 10);
+  if (!Number.isFinite(n) || n <= 0) return;
+  try {
+    if (n > getOfflineInvoiceCounter()) {
+      localStorage.setItem(OFFLINE_INVOICE_COUNTER_KEY, String(n));
+    }
+  } catch { /* sin storage: se sigue con lo que haya */ }
+}
+
+/**
  * Genera un consecutivo de factura formato "000000" (6 dígitos)
  * Usar tanto online como offline para mantener consistencia
  */
@@ -511,6 +537,8 @@ async function syncPendingVoids(
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export const posOfflineService = {
+  // Numeración
+  syncInvoiceCounter,
   // Products
   cacheProducts,
   getCachedProducts,

@@ -23,6 +23,13 @@ interface FeData {
   emisor_address?: string;
   emisor_phone?: string;
   emisor_email?: string;
+  /** Teléfonos ADICIONALES. Hacienda acepta uno solo, así que estos van al
+   *  tiquete y a la factura; el principal es `emisor_phone`. */
+  emisor_phones?: string[];
+  /** Correos adicionales del emisor (Alanube sí acepta varios). */
+  emisor_emails?: string[];
+  /** Actividades económicas ADEMÁS de la principal. */
+  economic_activities?: string[];
   economic_activity_code?: string;
   // Certificado criptográfico (.p12) — el archivo va a Storage; acá solo metadata.
   certificate?: { path: string; filename: string; uploaded_at: string };            // legacy (fallback)
@@ -64,6 +71,64 @@ interface Props {
   owner: { id: string; name: string };
   onClose: () => void;
   onToast: (msg: string, type: 'success' | 'error') => void;
+}
+
+/**
+ * Lista de valores sueltos (teléfonos, correos, actividades).
+ *
+ * Se escribe uno y se agrega; cada uno se puede quitar. Sin esto había un solo
+ * campo por dato, y los negocios con dos teléfonos o dos actividades no tenían
+ * dónde ponerlos — terminaban metiéndolos separados por coma en el mismo campo,
+ * que es lo que después Hacienda rechaza.
+ */
+function ListaTexto({ titulo, nota, placeholder, valores, onChange, soloDigitos }: {
+  titulo: string;
+  nota?: string;
+  placeholder?: string;
+  valores: string[];
+  onChange: (v: string[]) => void;
+  soloDigitos?: boolean;
+}) {
+  const [borrador, setBorrador] = useState('');
+
+  const agregar = () => {
+    const v = borrador.trim();
+    if (!v) return;
+    if (valores.includes(v)) { setBorrador(''); return; }   // sin repetidos
+    onChange([...valores, v]);
+    setBorrador('');
+  };
+
+  return (
+    <div className="mt-3">
+      <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">{titulo}</label>
+      <div className="flex gap-2">
+        <input
+          value={borrador}
+          onChange={e => setBorrador(soloDigitos ? e.target.value.replace(/[^\d.]/g, '') : e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); agregar(); } }}
+          placeholder={placeholder}
+          className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400"
+        />
+        <button type="button" onClick={agregar}
+          className="px-3 py-2 rounded-lg border-2 border-blue-200 text-blue-700 text-sm font-black hover:bg-blue-50">
+          Agregar
+        </button>
+      </div>
+      {nota && <p className="text-[10px] text-gray-400 mt-1">{nota}</p>}
+      {valores.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {valores.map(v => (
+            <span key={v} className="inline-flex items-center gap-1.5 text-xs font-bold bg-gray-100 text-gray-700 rounded-full px-2.5 py-1">
+              {v}
+              <button type="button" onClick={() => onChange(valores.filter(x => x !== v))}
+                className="text-gray-400 hover:text-red-600">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) => {
@@ -277,14 +342,33 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
               </div>
               <div className="grid grid-cols-2 gap-3 mt-3">
                 <div>
-                  <label className={labelCls}>Teléfono</label>
+                  <label className={labelCls}>Teléfono principal</label>
                   <input value={fe.emisor_phone ?? ''} onChange={e => set('emisor_phone', e.target.value)} className={inputCls} />
                 </div>
                 <div>
-                  <label className={labelCls}>Email</label>
+                  <label className={labelCls}>Email principal</label>
                   <input type="email" value={fe.emisor_email ?? ''} onChange={e => set('emisor_email', e.target.value)} className={inputCls} />
                 </div>
               </div>
+
+              {/* Teléfonos y correos ADICIONALES.
+                  El comprobante de Hacienda admite un solo teléfono, así que los
+                  demás salen en el tiquete y en la factura, que es donde al
+                  cliente le sirven para llamar. Los correos sí viajan todos. */}
+              <ListaTexto
+                titulo="Otros teléfonos"
+                nota="Hacienda acepta uno solo en el comprobante; estos salen en el tiquete y la factura."
+                placeholder="8888-8888"
+                valores={fe.emisor_phones ?? []}
+                onChange={v => set('emisor_phones', v as any)}
+              />
+              <ListaTexto
+                titulo="Otros correos"
+                nota="Se registran todos en Alanube."
+                placeholder="otro@correo.com"
+                valores={fe.emisor_emails ?? []}
+                onChange={v => set('emisor_emails', v as any)}
+              />
               <div className="mt-3">
                 <div className="flex items-center justify-between mb-1">
                   <label className={labelCls}>Actividad económica (código)</label>
@@ -296,6 +380,20 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                 <input value={fe.economic_activity_code ?? ''} inputMode="numeric"
                   onChange={e => set('economic_activity_code', e.target.value.replace(/[^\d.]/g, ''))}
                   placeholder="Ej. 620100" className={inputCls} />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Es la que va por defecto en cada factura.
+                </p>
+                {/* Un contribuyente puede tener varias actividades inscritas: una
+                    soda que además alquila salón, una ferretería que da servicio.
+                    Declarar una que no le corresponde hace que Hacienda rechace. */}
+                <ListaTexto
+                  titulo="Otras actividades económicas"
+                  nota="Las que el contribuyente también tiene inscritas ante Hacienda."
+                  placeholder="Ej. 682000"
+                  soloDigitos
+                  valores={fe.economic_activities ?? []}
+                  onChange={v => set('economic_activities', v as any)}
+                />
                 {actInfo && (
                   <div className="mt-2 text-[11px] rounded-lg border border-gray-200 bg-gray-50 p-2">
                     <p className="font-bold text-gray-700">{actInfo.nombre ?? '—'} · céd. {actInfo.identificacion}</p>

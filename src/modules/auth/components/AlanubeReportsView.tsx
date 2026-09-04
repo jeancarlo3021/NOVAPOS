@@ -119,6 +119,33 @@ export const AlanubeReportsView: React.FC = () => {
   const [impCompany, setImpCompany] = useState('');
   /** Monto, por si Alanube no lo devuelve en un campo reconocible. */
   const [impTotal, setImpTotal] = useState('');
+  /** Carga a mano: para comprobantes que Alanube no tiene (ATV, otro sistema). */
+  const [impManual, setImpManual] = useState(false);
+  const [impCliente, setImpCliente] = useState('');
+  const [impFecha, setImpFecha] = useState('');
+  const [impIva, setImpIva] = useState('');
+  const [impNumero, setImpNumero] = useState('');
+  /** Detalle de UNA empresa, consultado aparte del reporte general. */
+  const [detalleEmpresa, setDetalleEmpresa] = useState<{ id: string; nombre: string; datos: any } | null>(null);
+  const [cargandoDetalle, setCargandoDetalle] = useState<string | null>(null);
+
+  /**
+   * Consulta el total emitido por UNA empresa.
+   *
+   * El reporte general trae todas las cuentas y a veces no cabe en el tiempo del
+   * servidor. Este mira una sola: es rápido, y es el que sirve cuando hay que
+   * cuadrar un negocio contra lo que muestra la base.
+   */
+  const verEmpresa = async (id: string, nombre: string) => {
+    setCargandoDetalle(id);
+    try {
+      const qs = new URLSearchParams({ env, from, until });
+      const r = await apiFetch<any>(`/admin/alanube/reports/emissions/${id}?${qs.toString()}`);
+      setDetalleEmpresa({ id, nombre, datos: r });
+    } catch (e) {
+      setDetalleEmpresa({ id, nombre, datos: { error: e instanceof Error ? e.message : 'No se pudo consultar' } });
+    } finally { setCargandoDetalle(null); }
+  };
   const [impBusy, setImpBusy] = useState(false);
   const [impMsg, setImpMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -127,7 +154,19 @@ export const AlanubeReportsView: React.FC = () => {
 
   const importar = async (soloVer = false) => {
     const clave = impClave.replace(/\D/g, '');
-    if (clave.length !== 50) { setImpMsg({ ok: false, text: 'La clave debe tener 50 dígitos.' }); return; }
+    // Sin clave solo se admite la carga a mano: es una factura corriente.
+    if (!impManual && clave.length !== 50) {
+      setImpMsg({ ok: false, text: 'La clave debe tener 50 dígitos.' });
+      return;
+    }
+    if (impManual && clave && clave.length !== 50) {
+      setImpMsg({ ok: false, text: 'Si ponés clave, tiene que tener 50 dígitos. Dejala vacía si es una factura corriente.' });
+      return;
+    }
+    if (impManual && !clave && !impNumero.trim()) {
+      setImpMsg({ ok: false, text: 'Poné el número de la factura: sin clave y sin número no hay cómo identificarla.' });
+      return;
+    }
     if (!impTenant.trim()) { setImpMsg({ ok: false, text: 'Poné el id del negocio al que pertenece.' }); return; }
     setImpBusy(true); setImpMsg(null); setImpCrudo(null);
     try {
@@ -139,6 +178,11 @@ export const AlanubeReportsView: React.FC = () => {
           company_id: impCompany.trim() || undefined,
           total: Number(String(impTotal).replace(/[^\d.]/g, '')) || undefined,
           preview: soloVer || undefined,
+          manual: impManual && !soloVer ? true : undefined,
+          tax: Number(String(impIva).replace(/[^\d.]/g, '')) || undefined,
+          customer_name: impCliente.trim() || undefined,
+          issued_at: impFecha || undefined,
+          invoice_number: impNumero.trim() || undefined,
         }),
       });
       if (soloVer) {
@@ -217,7 +261,7 @@ export const AlanubeReportsView: React.FC = () => {
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
           <input value={impClave} onChange={e => setImpClave(e.target.value)}
-            placeholder="Clave de 50 dígitos"
+            placeholder={impManual ? 'Clave (vacía si es corriente)' : 'Clave de 50 dígitos'}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-indigo-400" />
           <input value={impTenant} onChange={e => setImpTenant(e.target.value)}
             placeholder="Id del negocio"
@@ -232,10 +276,38 @@ export const AlanubeReportsView: React.FC = () => {
             placeholder="Monto total (solo si Alanube no lo devuelve)" inputMode="decimal"
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-400" />
         </div>
+        {/* Carga a mano: última salida cuando el comprobante no está en Alanube
+            —emitido desde el ATV o desde otro sistema—. Sin esto, esas ventas
+            quedaban fuera de los reportes para siempre. */}
+        <label className="mt-2 flex items-center gap-2 text-xs font-bold text-gray-600">
+          <input type="checkbox" checked={impManual} onChange={e => setImpManual(e.target.checked)}
+            className="w-4 h-4 rounded" />
+          Cargarla a mano (Alanube no la tiene)
+        </label>
+        {impManual && (
+          <p className="mt-1 text-[11px] font-semibold text-gray-500">
+            Dejá la <b>clave vacía</b> si es una factura <b>corriente</b> —sin comprobante electrónico—.
+            Con clave se registra como electrónica.
+          </p>
+        )}
+        {impManual && (
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <input value={impNumero} onChange={e => setImpNumero(e.target.value)}
+              placeholder="N° de factura"
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-400" />
+            <input value={impCliente} onChange={e => setImpCliente(e.target.value)} placeholder="Cliente"
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-400" />
+            <input type="date" value={impFecha} onChange={e => setImpFecha(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-400" />
+            <input value={impIva} onChange={e => setImpIva(e.target.value)} placeholder="IVA (opcional)" inputMode="decimal"
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-400" />
+          </div>
+        )}
+
         <div className="mt-2 flex items-center gap-2 flex-wrap">
           {/* Mirar antes de comprometerse: importar deja la venta en reportes y
               en la declaración, y deshacerlo es a mano. */}
-          <button onClick={() => void importar(true)} disabled={impBusy}
+          <button onClick={() => void importar(true)} disabled={impBusy || impManual}
             className="px-4 py-2 rounded-lg border-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50
                        disabled:opacity-50 text-sm font-black">
             Solo ver (no registra)
@@ -261,6 +333,22 @@ export const AlanubeReportsView: React.FC = () => {
           una sesión de este sistema y metería ruido en un arqueo ya cerrado.
         </p>
       </details>
+
+      {/* Detalle de una empresa */}
+      {detalleEmpresa && (
+        <div className="bg-white border-2 border-indigo-200 rounded-2xl p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-black text-gray-900">
+              {detalleEmpresa.nombre || 'Empresa'}
+              <span className="block text-[11px] font-mono font-normal text-gray-400">{detalleEmpresa.id}</span>
+            </p>
+            <button onClick={() => setDetalleEmpresa(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+          </div>
+          <pre className="mt-2 max-h-72 overflow-auto bg-gray-900 text-gray-100 rounded-lg p-3 text-[11px] leading-relaxed">
+            {JSON.stringify(detalleEmpresa.datos, null, 2)}
+          </pre>
+        </div>
+      )}
 
       {/* Panel de diagnóstico: respuesta CRUDA de Alanube */}
       {raw && (
@@ -367,6 +455,13 @@ export const AlanubeReportsView: React.FC = () => {
                         )}
                       </div>
                       {r.companyEmail && <div className="text-[11px] text-gray-400">{r.companyEmail}</div>}
+                      {r.idCompany && (
+                        <button onClick={() => void verEmpresa(r.idCompany!, r.companyName ?? '')}
+                          disabled={cargandoDetalle === r.idCompany}
+                          className="mt-1 text-[11px] font-bold text-indigo-700 hover:text-indigo-900 disabled:opacity-50">
+                          {cargandoDetalle === r.idCompany ? 'Consultando…' : 'Ver detalle de esta empresa'}
+                        </button>
+                      )}
                     </td>
                     {COLS.map(c => <td key={c.key} className="px-3 py-2.5 text-right tabular-nums text-gray-700">{n(r[c.key])}</td>)}
                     <td className="px-4 py-2.5 text-right font-black tabular-nums text-gray-900">{n(r.total)}</td>
