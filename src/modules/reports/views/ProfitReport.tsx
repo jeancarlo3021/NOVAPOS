@@ -170,9 +170,14 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
   const byDay = (summary as any).byDay ?? [];
   const revenueByMethod = (summary as any).revenueByMethod ?? [];
   const periodPromos = (summary as any).periodPromos ?? [];
-  const invoiceCount = 0;
-  const cogs = 0;
-  const gross = net;
+  // Vienen del servidor: el costo es el de los PRODUCTOS vendidos (costo del
+  // producto × cantidad), no el de las compras del período. Estaban fijos en
+  // cero, así que la columna de costo salía vacía y la ganancia bruta era igual
+  // a la neta — el informe mostraba como ganancia casi todo lo facturado.
+  const invoiceCount = (summary as any).invoice_count ?? 0;
+  const cogs = (summary as any).cogs ?? 0;
+  const gross = (summary as any).gross_profit ?? (revenue - cogs);
+  const sinCosto = (summary as any).lineas_sin_costo ?? 0;
 
   // Days that had at least one promo active
   const promoDays = new Set(byDay.filter((d: any) => d.activePromos.length > 0).map((d: any) => d.date));
@@ -191,6 +196,17 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
+      )}
+
+      {/* Sin costo cargado, esas líneas cuentan como costo CERO y la ganancia
+          sale mejor de lo que es. Hay que decirlo: si no, el número se lee como
+          bueno y las decisiones de precio se toman sobre un dato inflado. */}
+      {sinCosto > 0 && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3">
+          <b>{sinCosto} línea(s) vendidas sin costo cargado.</b> Cuentan como costo ₡0, así que la
+          ganancia que ves está por encima de la real. Cargá el costo de esos productos en
+          Inventario para que el cálculo cuadre.
+        </div>
       )}
 
       {/* Download button */}
@@ -216,9 +232,9 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
         />
         <KPICard
           icon={ShoppingCart}
-          label="Costo compras"
+          label="Costo de venta"
           value={fmt(cogs)}
-          sub="compras recibidas"
+          sub="costo de lo vendido"
           color="bg-orange-500"
         />
         <KPICard
@@ -264,7 +280,7 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="revenue"  name="Ingresos"       fill="#3b82f6"  radius={[3,3,0,0]} />
-              <Bar dataKey="cogs"     name="Costo compras"  fill="#f97316"  radius={[3,3,0,0]} />
+              <Bar dataKey="cogs"     name="Costo de venta" fill="#f97316"  radius={[3,3,0,0]} />
               <Bar dataKey="expenses" name="Gastos"         fill="#ef4444"  radius={[3,3,0,0]} />
               <Line dataKey="net"     name="Ganancia neta"  stroke="#10b981" strokeWidth={2.5} dot={{ r: 3 }} type="monotone" />
             </ComposedChart>
@@ -287,7 +303,7 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
               bold
             />
             <WaterfallRow
-              label="− Costo de compras"
+              label="− Costo de venta"
               value={-cogs}
               pct={revenue > 0 ? (cogs / revenue) * 100 : 0}
               color="bg-orange-400"
@@ -458,7 +474,7 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
                 <tr className="bg-gray-50 border-b border-gray-100">
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase">Fecha</th>
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Ingresos</th>
-                  <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Costo compras</th>
+                  <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Costo de venta</th>
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Gastos</th>
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Ganancia bruta</th>
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Ganancia neta</th>
@@ -518,7 +534,8 @@ export const ProfitReport: React.FC<Props> = ({ tenantId, from, to }) => {
       )}
 
       <p className="text-xs text-gray-400 text-center">
-        Costo de compras = compras marcadas como recibidas en el período · Gastos = módulo de gastos · Ganancia bruta = Ingresos − Compras · Ganancia neta = Bruta − Gastos
+        Costo de venta = costo de cada producto vendido × cantidad (no las compras del período: comprar no es vender) ·
+        Gastos = módulo de gastos · Ganancia bruta = Ingresos − Costo de venta · Ganancia neta = Bruta − Gastos
         {periodPromos.length > 0 && ' · Los ingresos ya incluyen los descuentos de promociones'}
       </p>
     </div>

@@ -104,7 +104,7 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
     <div class="tot">
       ${descGeneral > 0.004 ? `<div class="row" style="color:#b45309;font-weight:700">Descuento${p.discount_percent ? ` (${p.discount_percent}%)` : ''}: -${fmt(descGeneral)}</div>` : ''}
       <div class="row">Subtotal: ${fmt(p.subtotal)}</div>
-      <div class="row">IVA: ${fmt(p.tax)}</div>
+      ${Number(p.tax) > 0.004 ? `<div class="row">IVA: ${fmt(p.tax)}</div>` : ''}
       <div class="grand">Total: ${fmt(p.total)}</div>
     </div>
     ${p.notes ? `<div class="muted" style="margin-top:12px">Notas: ${esc(p.notes)}</div>` : ''}

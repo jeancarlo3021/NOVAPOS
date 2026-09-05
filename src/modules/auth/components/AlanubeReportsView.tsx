@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BarChart3, RefreshCw, Loader2, AlertTriangle, FileText, Receipt, FileMinus, FilePlus, Inbox, ShoppingCart } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { leerPdfComprobante } from '@/utils/leerPdfComprobante';
 
 // Reporte de emisiones de Alanube (conteo de comprobantes por tipo), a nivel de
 // cuenta/token → devuelve todas las empresas (tenants) de la cuenta del ambiente.
@@ -22,6 +23,8 @@ interface CompanyRow {
   _noEmissions?: boolean;
   /** La fila vino de la cuenta de Alanube PROPIA del negocio, no de la global. */
   _ownAccount?: boolean;
+  /** Negocio dueño de esa cuenta propia: hay que consultarla con SU token. */
+  _tenantId?: string | null;
 }
 interface UserRow {
   idUser?: string;
@@ -126,8 +129,206 @@ export const AlanubeReportsView: React.FC = () => {
   const [impIva, setImpIva] = useState('');
   const [impNumero, setImpNumero] = useState('');
   /** Detalle de UNA empresa, consultado aparte del reporte general. */
-  const [detalleEmpresa, setDetalleEmpresa] = useState<{ id: string; nombre: string; datos: any } | null>(null);
+  const [detalleEmpresa, setDetalleEmpresa] = useState<
+    { id: string; nombre: string; datos: any; rango?: { from: string; until: string } } | null>(null);
   const [cargandoDetalle, setCargandoDetalle] = useState<string | null>(null);
+  /**
+   * Búsqueda directa por id de empresa.
+   *
+   * El reporte general solo lista lo que alcanzó a traer dentro del plazo, y una
+   * empresa en la cuenta propia de un negocio puede no aparecer del todo. Con el
+   * id a mano se consulta igual, sin depender de que salga en la tabla.
+   */
+  const [buscaId, setBuscaId] = useState('');
+  const [buscaTenant, setBuscaTenant] = useState('');
+  /**
+   * Rango PROPIO de la búsqueda por empresa.
+   *
+   * Compartir el rango de arriba obligaba a recargar el reporte general —que
+   * consulta todas las cuentas y tarda— cada vez que se quería mirar otro mes de
+   * una sola empresa. Arranca con las mismas fechas y de ahí se mueve solo.
+   */
+  const [buscaFrom, setBuscaFrom] = useState(from);
+  const [buscaUntil, setBuscaUntil] = useState(until);
+
+  /**
+   * Comprobantes emitidos a un CLIENTE, con su clave.
+   *
+   * El reporte dice cuántos comprobantes hay en Hacienda, pero no cuáles, y para
+   * importar uno hace falta su clave. Alanube solo permite listarlos por
+   * receptor, así que se busca por la cédula del cliente y acá se marca cuáles
+   * ya están en la base: lo que queda sin marcar es lo que hay que importar.
+   */
+  /**
+   * El importador vive en un bloque PLEGABLE y arriba de esta lista.
+   *
+   * Al mandar una clave desde un resultado se llenaban campos que estaban
+   * cerrados y fuera de pantalla: parecía que el botón no hacía nada. Con la
+   * referencia se abre y se lleva a la vista, que es lo que el clic promete.
+   */
+  const importadorRef = useRef<HTMLDetailsElement>(null);
+  const [recienLlenado, setRecienLlenado] = useState(false);
+
+  /**
+   * Cargar los datos desde el PDF que manda Alanube.
+   *
+   * De muchas facturas que no quedaron en la base, lo único que sobrevive es el
+   * PDF del correo. Transcribir a mano una clave de 50 dígitos partida en varias
+   * líneas es lento y un solo dígito mal la vuelve inservible.
+   */
+  const [pdfBusy, setPdfBusy] = useState(false);
+  /** Líneas leídas del PDF: viajan con la carga a mano. */
+  const [pdfLineas, setPdfLineas] = useState<any[]>([]);
+  const cargarDesdePdf = async (file: File | null | undefined) => {
+    if (!file) return;
+    setPdfBusy(true); setImpMsg(null);
+    try {
+      const d = await leerPdfComprobante(file);
+      if (!d.clave) {
+        setImpMsg({
+          ok: false,
+          text: 'No se encontró una clave de 50 dígitos en ese PDF. '
+            + 'Si es un comprobante corriente (sin clave), usá «Cargarla a mano».',
+        });
+        return;
+      }
+      setImpClave(d.clave);
+      if (d.total != null) setImpTotal(String(d.total));
+      if (d.iva != null) setImpIva(String(d.iva));
+      if (d.fecha) setImpFecha(d.fecha);
+      if (d.cliente) setImpCliente(d.cliente);
+      setPdfLineas(d.lineas);
+      /**
+       * Con líneas leídas, se importa A MANO.
+       *
+       * Alanube no entrega el detalle a partir de la clave, así que la vía
+       * normal dejaría la factura sin productos. El PDF sí los trae: cargarla a
+       * mano con esas líneas es lo que la deja completa.
+       */
+      setImpManual(d.lineas.length > 0);
+      setRecienLlenado(true);
+      setTimeout(() => setRecienLlenado(false), 2000);
+      setImpMsg({
+        ok: true,
+        text: `Leído del PDF: comprobante #${Number(d.consecutivo)} del ${d.fecha}`
+          + `${d.total != null ? ` por ₡${d.total.toLocaleString('es-CR')}` : ''}`
+          + (d.lineas.length > 0
+            ? ` con ${d.lineas.length} línea(s) de detalle. Revisá el negocio y dale a importar.`
+            : '. NO se pudieron leer las líneas de productos del PDF: '
+              + 'se va a importar solo el encabezado.'),
+      });
+    } catch (e) {
+      setImpMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo leer el PDF' });
+    } finally { setPdfBusy(false); }
+  };
+  const usarParaImportar = (clave: string, tenant: string) => {
+    setImpClave(clave);
+    setImpTenant(tenant);
+    setImpManual(false);
+    setImpMsg(null);
+    const d = importadorRef.current;
+    if (d) {
+      d.open = true;
+      d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    // Resalte corto: después del salto hay que poder ver QUÉ campo cambió.
+    setRecienLlenado(true);
+    setTimeout(() => setRecienLlenado(false), 2000);
+  };
+
+  /**
+   * Importa un comprobante de la lista DIRECTO, sin pasar por el formulario.
+   *
+   * La clave ya está a la vista y el negocio también: mandar al usuario a copiar
+   * la clave a otro recuadro y llenar campos era trabajo inventado. Con 25
+   * facturas que recuperar, cada paso de más se multiplica por 25.
+   */
+  const [impFila, setImpFila] = useState<string | null>(null);
+  const [resFila, setResFila] = useState<Record<string, { ok: boolean; text: string }>>({});
+
+  const importarFila = async (doc: any) => {
+    const clave = String(doc.clave);
+    const negocio = buscaTenant.trim();
+    if (!negocio) {
+      setResFila(p => ({ ...p, [clave]: { ok: false, text: 'Falta el «Id del negocio» arriba.' } }));
+      return;
+    }
+    // Sin monto no se puede registrar la venta, y adivinarlo sería peor: se dice
+    // qué hacer en vez de importar una factura en cero.
+    if (!(Number(doc.total) > 0)) {
+      setResFila(p => ({
+        ...p,
+        [clave]: {
+          ok: false,
+          text: 'Hacienda no devolvió el monto de este comprobante. Usá «editar» y poné el '
+            + 'total a mano, o subí su PDF para leerlo con el detalle.',
+        },
+      }));
+      return;
+    }
+    setImpFila(clave);
+    try {
+      /**
+       * 28 segundos, no los 20 de siempre.
+       *
+       * Importar baja el XML del comprobante desde Alanube, y ese endpoint suele
+       * tardar más que el corte por defecto: la importación se cancelaba de este
+       * lado aunque del otro lado siguiera trabajando bien. El servidor muere a
+       * los 30 s, así que 28 es lo máximo que tiene sentido esperar.
+       */
+      const r = await apiFetch<any>(`/admin/tenants/${negocio}/fe-import`, {
+        method: 'POST',
+        body: JSON.stringify({
+          clave,
+          company_id: buscaId.trim() || undefined,
+          // El monto viene del registro de Hacienda: es el dato bueno.
+          total: Number(doc.total),
+          tax: Number(doc.iva) || undefined,
+        }),
+      }, 28_000);
+      setResFila(p => ({
+        ...p,
+        [clave]: {
+          ok: true,
+          text: `Factura ${r?.invoice_number ?? ''} · ₡${Math.round(Number(r?.total ?? 0)).toLocaleString('es-CR')}`
+            + (r?.completa || r?.completada
+              ? ` · ${r.lineas} línea(s)`
+              // Sin líneas casi siempre es porque se encontró por clave: Alanube
+              // no entrega el detalle así. Se dice qué hacer, no solo qué faltó.
+              : ' · SIN DETALLE de productos — usá «editar» y poné el Consecutivo'
+                + ' de Alanube que viene en el correo para traer las líneas'),
+        },
+      }));
+      // Deja de estar «faltante»: se marca en la lista sin volver a consultar.
+      setDocs((prev: any) => !prev?.documentos ? prev : ({
+        ...prev,
+        faltan_en_base: Math.max(0, (prev.faltan_en_base ?? 1) - 1),
+        documentos: prev.documentos.map((d: any) => d.clave === clave ? { ...d, en_base: true } : d),
+      }));
+    } catch (e) {
+      setResFila(p => ({ ...p, [clave]: { ok: false, text: e instanceof Error ? e.message : 'No se pudo importar' } }));
+    } finally { setImpFila(null); }
+  };
+
+  const [docCedula, setDocCedula] = useState('');
+  const [docBusy, setDocBusy] = useState(false);
+  const [docs, setDocs] = useState<any | null>(null);
+
+  const buscarDocs = async () => {
+    setDocBusy(true); setDocs(null);
+    try {
+      const qs = new URLSearchParams({ env, cedula: docCedula.replace(/\D/g, '') });
+      // El negocio manda: si tiene cuenta propia, se pregunta con SU token. El id
+      // de empresa solo acota dentro de esa cuenta.
+      if (buscaTenant.trim()) qs.set('tenant', buscaTenant.trim());
+      if (buscaId.trim()) qs.set('company', buscaId.trim());
+      if (buscaFrom) qs.set('from', buscaFrom);
+      if (buscaUntil) qs.set('until', buscaUntil);
+      setDocs(await apiFetch<any>(`/admin/alanube/documents/query?${qs.toString()}`, {}, 28_000));
+    } catch (e) {
+      setDocs({ error: e instanceof Error ? e.message : 'No se pudo consultar' });
+    } finally { setDocBusy(false); }
+  };
 
   /**
    * Consulta el total emitido por UNA empresa.
@@ -136,14 +337,27 @@ export const AlanubeReportsView: React.FC = () => {
    * servidor. Este mira una sola: es rápido, y es el que sirve cuando hay que
    * cuadrar un negocio contra lo que muestra la base.
    */
-  const verEmpresa = async (id: string, nombre: string) => {
+  const verEmpresa = async (
+    id: string, nombre: string, tenantId?: string | null,
+    rango?: { from: string; until: string },
+  ) => {
     setCargandoDetalle(id);
+    // Fuera del try: el rango consultado se muestra también cuando falla, que es
+    // cuando más importa saber qué se preguntó.
+    const usado = { from: rango?.from || from, until: rango?.until || until };
     try {
-      const qs = new URLSearchParams({ env, from, until });
+      const qs = new URLSearchParams({ env, from: usado.from, until: usado.until });
+      // Una empresa que vive en la cuenta propia del negocio NO aparece con el
+      // token global: hay que decirle al servidor con qué cuenta preguntar.
+      if (tenantId) qs.set('tenant', tenantId);
       const r = await apiFetch<any>(`/admin/alanube/reports/emissions/${id}?${qs.toString()}`);
-      setDetalleEmpresa({ id, nombre, datos: r });
+      setDetalleEmpresa({ id, nombre, datos: r, rango: usado });
     } catch (e) {
-      setDetalleEmpresa({ id, nombre, datos: { error: e instanceof Error ? e.message : 'No se pudo consultar' } });
+      setDetalleEmpresa({
+        id, nombre,
+        datos: { error: e instanceof Error ? e.message : 'No se pudo consultar' },
+        rango: usado,
+      });
     } finally { setCargandoDetalle(null); }
   };
   const [impBusy, setImpBusy] = useState(false);
@@ -174,6 +388,9 @@ export const AlanubeReportsView: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({
           clave,
+          // Detalle leído del PDF: es el único lugar donde existe cuando el
+          // comprobante no se puede bajar de Alanube.
+          lines: impManual && pdfLineas.length > 0 ? pdfLineas : undefined,
           doc_id: impDocId.trim() || undefined,
           company_id: impCompany.trim() || undefined,
           total: Number(String(impTotal).replace(/[^\d.]/g, '')) || undefined,
@@ -184,7 +401,7 @@ export const AlanubeReportsView: React.FC = () => {
           issued_at: impFecha || undefined,
           invoice_number: impNumero.trim() || undefined,
         }),
-      });
+      }, 28_000);   // bajar el XML tarda más que el corte por defecto
       if (soloVer) {
         setImpCrudo(r);
         setImpMsg({ ok: true, text: `Encontrado. Monto que se leería: ₡${Math.round(Number(r?.monto_leido ?? 0)).toLocaleString('es-CR')}. Revisá abajo antes de importar.` });
@@ -201,6 +418,7 @@ export const AlanubeReportsView: React.FC = () => {
                 + ' Volvé a importarla más tarde y se le agregan las líneas.'),
       });
       setImpClave('');
+      setPdfLineas([]);
     } catch (e: any) {
       // El detalle de cada intento viaja en el cuerpo del error: sin mostrarlo,
       // «no se encontró» no dice dónde se buscó ni qué falta configurar.
@@ -250,7 +468,7 @@ export const AlanubeReportsView: React.FC = () => {
       </div>
 
       {/* Rescatar un comprobante que Alanube tiene y la base no */}
-      <details className="bg-white border-2 border-gray-200 rounded-2xl px-4 py-3">
+      <details ref={importadorRef} className="bg-white border-2 border-gray-200 rounded-2xl px-4 py-3">
         <summary className="text-sm font-black text-gray-800 cursor-pointer">
           Importar un comprobante por su clave
         </summary>
@@ -262,7 +480,8 @@ export const AlanubeReportsView: React.FC = () => {
         <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
           <input value={impClave} onChange={e => setImpClave(e.target.value)}
             placeholder={impManual ? 'Clave (vacía si es corriente)' : 'Clave de 50 dígitos'}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-indigo-400" />
+            className={`px-3 py-2 border rounded-lg text-sm font-mono outline-none focus:border-indigo-400 transition-colors ${
+              recienLlenado ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200'}`} />
           <input value={impTenant} onChange={e => setImpTenant(e.target.value)}
             placeholder="Id del negocio"
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-indigo-400" />
@@ -276,6 +495,38 @@ export const AlanubeReportsView: React.FC = () => {
             placeholder="Monto total (solo si Alanube no lo devuelve)" inputMode="decimal"
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-400" />
         </div>
+
+        {/* Atajo: sacar la clave del PDF en vez de transcribirla. */}
+        <label className={`mt-2 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-dashed text-xs font-black cursor-pointer ${
+          pdfBusy ? 'border-gray-200 text-gray-400' : 'border-indigo-200 text-indigo-700 hover:bg-indigo-50'}`}>
+          {pdfBusy ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />}
+          {pdfBusy ? 'Leyendo el PDF…' : 'Cargar desde el PDF de Alanube'}
+          <input type="file" accept="application/pdf" className="hidden" disabled={pdfBusy}
+            onChange={e => { void cargarDesdePdf(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+        </label>
+        <p className="text-[11px] font-semibold text-gray-400 text-center mt-1">
+          Saca la clave, la fecha, el monto y las líneas de productos del comprobante
+          que Alanube manda por correo.
+        </p>
+        {pdfLineas.length > 0 && (
+          <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+            <p className="text-[11px] font-black text-emerald-800">
+              {pdfLineas.length} línea(s) leídas del PDF — se van a guardar con la factura
+            </p>
+            <div className="mt-1 space-y-0.5 max-h-40 overflow-y-auto">
+              {pdfLineas.map((l: any, i: number) => (
+                <p key={i} className="text-[11px] text-emerald-900 font-mono">
+                  {l.quantity} × ₡{Number(l.unit_price).toLocaleString('es-CR')} = ₡
+                  {Number(l.subtotal).toLocaleString('es-CR')} · {l.product_name}
+                </p>
+              ))}
+            </div>
+            <p className="mt-1 text-[10px] font-bold text-emerald-700">
+              Suma de líneas: ₡{pdfLineas.reduce((a: number, l: any) => a + Number(l.subtotal || 0), 0).toLocaleString('es-CR')}
+              {' '}· Total del comprobante: ₡{Number(String(impTotal).replace(/[^\d.]/g, '') || 0).toLocaleString('es-CR')}
+            </p>
+          </div>
+        )}
         {/* Carga a mano: última salida cuando el comprobante no está en Alanube
             —emitido desde el ATV o desde otro sistema—. Sin esto, esas ventas
             quedaban fuera de los reportes para siempre. */}
@@ -334,13 +585,203 @@ export const AlanubeReportsView: React.FC = () => {
         </p>
       </details>
 
+      {/* Buscar el total emitido de UNA empresa por su id */}
+      <div className="bg-white border-2 border-gray-100 rounded-2xl p-4 space-y-2">
+        <p className="font-black text-gray-900 text-sm">Buscar por empresa</p>
+        <p className="text-[11px] font-semibold text-gray-400">
+          Consulta el total emitido de una empresa por su id de Alanube, en el rango de fechas de
+          arriba. Sirve cuando no aparece en la tabla.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input
+            value={buscaId}
+            onChange={e => setBuscaId(e.target.value)}
+            placeholder="Id de la empresa en Alanube"
+            className="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm font-mono"
+          />
+          <input
+            value={buscaTenant}
+            onChange={e => setBuscaTenant(e.target.value)}
+            placeholder="Id del negocio (solo si tiene cuenta propia)"
+            className="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm font-mono"
+          />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+          <label className="text-[11px] font-bold text-gray-500 flex flex-col gap-1">
+            Desde
+            <input type="date" value={buscaFrom} onChange={e => setBuscaFrom(e.target.value)}
+              className="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm font-normal text-gray-800" />
+          </label>
+          <label className="text-[11px] font-bold text-gray-500 flex flex-col gap-1">
+            Hasta
+            <input type="date" value={buscaUntil} onChange={e => setBuscaUntil(e.target.value)}
+              className="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm font-normal text-gray-800" />
+          </label>
+          <button
+            onClick={() => void verEmpresa(
+              buscaId.trim(), '', buscaTenant.trim() || null,
+              { from: buscaFrom, until: buscaUntil },
+            )}
+            disabled={!buscaId.trim() || !buscaFrom || !buscaUntil || cargandoDetalle === buscaId.trim()}
+            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+          >
+            {cargandoDetalle === buscaId.trim()
+              ? <Loader2 size={15} className="animate-spin" />
+              : <BarChart3 size={15} />}
+            Consultar
+          </button>
+        </div>
+      </div>
+
+      {/* Comprobantes emitidos a un cliente (para saber CUÁLES faltan) */}
+      <div className="bg-white border-2 border-gray-100 rounded-2xl p-4 space-y-2">
+        <p className="font-black text-gray-900 text-sm">Comprobantes por cliente</p>
+        <p className="text-[11px] font-semibold text-gray-400">
+          Lista lo que Hacienda tiene emitido a la cédula de un <b>cliente</b> (el receptor de la
+          factura, no el negocio), con su clave, y marca cuáles ya están en la base.
+          Usa el <b>id del negocio</b>, el id de empresa y las fechas del recuadro de arriba.
+        </p>
+        <p className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+          Si el negocio tiene su propia cuenta de Alanube, llená «Id del negocio» arriba. Sin eso se
+          pregunta con la cuenta general y Alanube responde «Company not found».
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+          <input
+            value={docCedula}
+            onChange={e => setDocCedula(e.target.value)}
+            placeholder="Cédula del CLIENTE al que se le facturó (ej. 3101612181)"
+            className="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm font-mono"
+          />
+          <button
+            onClick={() => void buscarDocs()}
+            disabled={docBusy || docCedula.replace(/\D/g, '').length < 9}
+            className="px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-black text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+          >
+            {docBusy ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />}
+            Buscar
+          </button>
+        </div>
+
+        {docs?.error && (
+          <div className="text-xs font-bold text-red-600 space-y-1">
+            <p>{docs.error}</p>
+            {/* Traducción del error más común: no es un dato malo, es la cuenta. */}
+            {/company not found|no encontrada/i.test(String(docs.error)) && (
+              <p className="font-semibold text-gray-600">
+                Alanube no encuentra esa empresa en la cuenta con la que se preguntó.
+                Llená «Id del negocio» en el recuadro de arriba para usar su cuenta propia,
+                o revisá que el id de empresa sea el del ambiente {env}.
+              </p>
+            )}
+          </div>
+        )}
+        {docs && !docs.error && (
+          <div className="space-y-1.5">
+            {/* Con qué cuenta y empresa se preguntó: un resultado vacío no dice
+                por sí solo si se buscó donde correspondía. */}
+            {docs.consultado_con && (
+              <p className="text-[10px] font-semibold text-gray-400">
+                Consultado con {docs.consultado_con.cuenta} · {docs.consultado_con.empresa}
+              </p>
+            )}
+            {docs.aviso && (
+              <p className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                {docs.aviso}
+              </p>
+            )}
+            <p className="text-xs font-bold text-gray-600">
+              {docs.encontrados} comprobante(s) ·{' '}
+              <span className={docs.faltan_en_base > 0 ? 'text-red-600' : 'text-emerald-600'}>
+                {docs.faltan_en_base} sin registrar en la base
+              </span>
+            </p>
+            <div className="max-h-80 overflow-y-auto space-y-1">
+              {(docs.documentos ?? []).map((d: any) => (
+                <div key={d.clave}
+                  className={`rounded-xl px-3 py-2 text-[11px] border ${
+                    d.en_base ? 'bg-gray-50 border-gray-100' : 'bg-red-50 border-red-200'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-gray-800">
+                      {d.tipo === '01' ? 'Factura' : d.tipo === '04' ? 'Tiquete'
+                        : d.tipo === '03' ? 'N. Crédito' : d.tipo === '02' ? 'N. Débito' : 'Doc'}
+                      {' '}#{Number(d.consecutivo)}
+                      <span className="ml-2 font-normal text-gray-400">
+                        {String(d.fecha ?? '').slice(0, 10)}
+                      </span>
+                      {/* El monto viene del registro de Hacienda: es lo que se
+                          va a registrar, así que se ve antes de importar. */}
+                      {d.total != null && (
+                        <span className="ml-2 font-black text-gray-900">
+                          ₡{Number(d.total).toLocaleString('es-CR')}
+                        </span>
+                      )}
+                      {!d.en_base && d.total == null && (
+                        <span className="ml-2 font-bold text-amber-700"
+                          title={d.motivo_sin_monto ?? 'Hacienda no devolvió el monto'}>
+                          sin monto
+                        </span>
+                      )}
+                    </span>
+                    {d.en_base
+                      ? <span className="font-bold text-emerald-600">en la base</span>
+                      : (
+                        <span className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => void importarFila(d)}
+                            disabled={impFila === d.clave}
+                            className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-black disabled:bg-gray-300 flex items-center gap-1">
+                            {impFila === d.clave && <Loader2 size={11} className="animate-spin" />}
+                            {impFila === d.clave ? 'Importando…' : 'Importar'}
+                          </button>
+                          {/* Salida por si hace falta ajustar algo antes de importar. */}
+                          <button
+                            onClick={() => usarParaImportar(d.clave, buscaTenant.trim())}
+                            title="Abrir el formulario con esta clave, para revisar o corregir antes"
+                            className="text-gray-400 hover:text-gray-700 font-bold">
+                            editar
+                          </button>
+                        </span>
+                      )}
+                  </div>
+                  <div className="font-mono text-[10px] text-gray-400 break-all">{d.clave}</div>
+                  {/* Por qué no vino el monto: es lo que dice si hay que
+                      corregir algo acá o si Hacienda simplemente no lo da. */}
+                  {!d.en_base && d.motivo_sin_monto && (
+                    <div className="text-[10px] text-amber-700 break-words">
+                      Sin monto: {d.motivo_sin_monto}
+                    </div>
+                  )}
+                  {resFila[d.clave] && (
+                    <div className={`mt-1 font-bold ${resFila[d.clave].ok ? 'text-emerald-700' : 'text-red-700'}`}>
+                      {resFila[d.clave].text}
+                    </div>
+                  )}
+                  {d.notas_credito?.length > 0 && (
+                    <div className="text-[10px] font-bold text-amber-700">
+                      Con {d.notas_credito.length} nota(s) de crédito
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Detalle de una empresa */}
       {detalleEmpresa && (
         <div className="bg-white border-2 border-indigo-200 rounded-2xl p-4">
           <div className="flex items-center justify-between gap-2">
             <p className="font-black text-gray-900">
-              {detalleEmpresa.nombre || 'Empresa'}
+              {detalleEmpresa.nombre || detalleEmpresa.datos?.companyName || 'Empresa'}
               <span className="block text-[11px] font-mono font-normal text-gray-400">{detalleEmpresa.id}</span>
+              {/* El rango consultado va a la vista: sin él, los números se leen
+                  contra las fechas equivocadas cuando el buscador tiene otras. */}
+              {detalleEmpresa.rango && (
+                <span className="block text-[11px] font-normal text-gray-500">
+                  {detalleEmpresa.rango.from} → {detalleEmpresa.rango.until}
+                </span>
+              )}
             </p>
             <button onClick={() => setDetalleEmpresa(null)} className="text-gray-400 hover:text-gray-600">✕</button>
           </div>
@@ -456,7 +897,7 @@ export const AlanubeReportsView: React.FC = () => {
                       </div>
                       {r.companyEmail && <div className="text-[11px] text-gray-400">{r.companyEmail}</div>}
                       {r.idCompany && (
-                        <button onClick={() => void verEmpresa(r.idCompany!, r.companyName ?? '')}
+                        <button onClick={() => void verEmpresa(r.idCompany!, r.companyName ?? '', r._tenantId)}
                           disabled={cargandoDetalle === r.idCompany}
                           className="mt-1 text-[11px] font-bold text-indigo-700 hover:text-indigo-900 disabled:opacity-50">
                           {cargandoDetalle === r.idCompany ? 'Consultando…' : 'Ver detalle de esta empresa'}

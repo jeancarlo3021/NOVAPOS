@@ -7,6 +7,7 @@ import {
   ShoppingCart, CheckCircle2, User, Calendar, Receipt, Download,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
+import { useSettings } from '@/hooks/useSettings';
 import { getAllProducts } from '@/services/Inventory/InventoryProductsService';
 import type { Product } from '@/types/Pos.types';
 import { POSCustomerSearch } from '@/modules/pos/POSCustomerSearch';
@@ -151,6 +152,18 @@ const ProformaEditor: React.FC<{
   onClose: () => void;
   onSaved: () => void;
 }> = ({ tenantId, initial, onClose, onSaved }) => {
+  /**
+   * El IVA de la proforma sigue a la CONFIGURACIÓN del negocio.
+   *
+   * Un negocio que no cobra impuesto lo apaga en Configuración General, y el POS
+   * ya lo respetaba. La proforma no: sumaba 13% fijo. El cliente recibía una
+   * cotización por un monto y al comprar pagaba otro, más bajo — y quedaba la
+   * duda de cuál era el precio de verdad.
+   */
+  const { settings: general } = useSettings('general');
+  const taxEnabled = general?.taxEnabled !== false;
+  const taxPct = typeof general?.taxPercentage === 'number' && general.taxPercentage >= 0
+    ? general.taxPercentage : 13;
   const [products, setProducts] = useState<Product[]>([]);
   const [q, setQ] = useState('');
   const [items, setItems] = useState<ProformaItem[]>(initial.items ?? []);
@@ -178,7 +191,10 @@ const ProformaEditor: React.FC<{
       if (i >= 0) { const c = [...prev]; c[i] = { ...c[i], quantity: c[i].quantity + 1 }; return c; }
       return [...prev, {
         product_id: p.id, name: p.name, sku: p.sku ?? null, quantity: 1,
-        unit_price: Number(p.unit_price) || 0, iva_rate: Number((p as any).iva_rate ?? 13),
+        unit_price: Number(p.unit_price) || 0,
+        // Sin impuesto configurado, la línea va en 0: es lo que el servidor
+        // guarda y lo que termina viendo el cliente en la cotización.
+        iva_rate: taxEnabled ? Number((p as any).iva_rate ?? taxPct) : 0,
         cabys: (p as any).cabys_code ?? null, unit: (p as any).unit ?? null,
       }];
     });
@@ -194,7 +210,7 @@ const ProformaEditor: React.FC<{
   const bases = items.map(l => {
     const linea = l.quantity * l.unit_price;
     const pct = Math.min(100, Math.max(0, Number((l as any).discount_percent ?? 0)));
-    return { base: linea - linea * (pct / 100), rate: l.iva_rate ?? 0 };
+    return { base: linea - linea * (pct / 100), rate: taxEnabled ? (l.iva_rate ?? 0) : 0 };
   });
   const netoLineas = bases.reduce((s, b) => s + b.base, 0);
   const gPct = Math.min(100, Math.max(0, parseFloat(descPct) || 0));
@@ -310,7 +326,9 @@ const ProformaEditor: React.FC<{
                 </>
               )}
               <div className="text-gray-500">Subtotal: <b className="text-gray-800">{fmt(subtotal)}</b></div>
-              <div className="text-gray-500">IVA: <b className="text-gray-800">{fmt(tax)}</b></div>
+              {taxEnabled && tax > 0 && (
+                <div className="text-gray-500">IVA: <b className="text-gray-800">{fmt(tax)}</b></div>
+              )}
               <div className="text-lg font-black text-gray-900">Total: {fmt(subtotal + tax)}</div>
             </div>
           </div>

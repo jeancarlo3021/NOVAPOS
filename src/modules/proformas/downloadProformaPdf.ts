@@ -115,7 +115,12 @@ export async function downloadProformaPdf(p: Proforma, tenantId?: string | null)
     y += 22;
   }
   doc.text('Subtotal', boxX, y + 8); doc.text(money(p.subtotal), xTot - 6, y + 8, { align: 'right' }); y += 22;
-  doc.text('IVA', boxX, y + 8); doc.text(money(p.tax), xTot - 6, y + 8, { align: 'right' }); y += 28;
+  // Un negocio sin impuesto no debe ver una línea de IVA en cero: confunde
+  // sobre si se cobró o no.
+  if (Number(p.tax) > 0.004) {
+    doc.text('IVA', boxX, y + 8); doc.text(money(p.tax), xTot - 6, y + 8, { align: 'right' }); y += 22;
+  }
+  y += 6;
   // Recuadro del TOTAL
   doc.setFillColor(243, 244, 246); doc.roundedRect(boxX, y - 8, 230, 32, 5, 5, 'F');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(17, 24, 39);

@@ -391,6 +391,9 @@ export const FeInvoicesDashboard: React.FC = () => {
             <option value="rejected">Rechazado</option>
             <option value="sent">En proceso</option>
             <option value="error">Error</option>
+            {/* Ventas electrónicas que nunca se emitieron: sin clave y sin error.
+                No es un valor de fe_status, el servidor lo resuelve aparte. */}
+            <option value="pending">Pendientes de emitir</option>
           </select>
         </div>
         <div>
@@ -412,6 +415,15 @@ export const FeInvoicesDashboard: React.FC = () => {
           <input type="date" value={to} onChange={e => setTo(e.target.value)} min={from || undefined}
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
         </div>
+        <button
+          onClick={() => { setStatusFilter('pending'); setProviderFilter(''); }}
+          title="Ventas electrónicas que nunca llegaron a Hacienda"
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+            statusFilter === 'pending'
+              ? 'bg-amber-600 text-white border-amber-600'
+              : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>
+          Ver pendientes
+        </button>
         {(statusFilter || providerFilter || from || to) && (
           <button onClick={() => { setStatusFilter(''); setProviderFilter(''); setFrom(''); setTo(''); }}
             className="px-3 py-1.5 rounded-lg text-gray-500 text-xs font-bold hover:bg-gray-100">Limpiar</button>

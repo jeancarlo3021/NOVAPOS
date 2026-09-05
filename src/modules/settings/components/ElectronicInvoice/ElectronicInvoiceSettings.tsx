@@ -58,6 +58,30 @@ const DEFAULT_SETTINGS: FESettings = {
   terminal: '1',
 };
 
+/** Dato inscrito ante Hacienda: se ve, no se toca. */
+const SoloLectura: React.FC<{ etiqueta: string; valor: string; nota?: string }> = ({ etiqueta, valor, nota }) => (
+  <div>
+    <p className="text-[11px] font-bold text-gray-500 uppercase mb-1">{etiqueta}</p>
+    <div className="px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 text-sm text-gray-700">
+      {valor?.trim() ? valor : <span className="text-gray-400">Sin configurar</span>}
+      {nota && valor?.trim() && <span className="ml-2 text-[11px] text-gray-400">({nota})</span>}
+    </div>
+  </div>
+);
+
+const Campo: React.FC<{
+  etiqueta: string; valor: string; onChange: (v: string) => void;
+  placeholder?: string; tipo?: string; inputMode?: any;
+}> = ({ etiqueta, valor, onChange, placeholder, tipo = 'text', inputMode }) => (
+  <div>
+    <p className="text-[11px] font-bold text-gray-500 uppercase mb-1">{etiqueta}</p>
+    <input type={tipo} value={valor ?? ''} inputMode={inputMode}
+      onChange={e => onChange(e.target.value)} placeholder={placeholder}
+      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white
+                 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+  </div>
+);
+
 export const ElectronicInvoiceSettings: React.FC = () => {
   const { tenantId } = useTenantId();
   const [settings, setSettings] = useState<FESettings>(DEFAULT_SETTINGS);
@@ -100,16 +124,41 @@ export const ElectronicInvoiceSettings: React.FC = () => {
   const handleSave = async () => {
     setSaving(true); setError(''); setSuccess('');
     try {
-      // Traemos lo último del servidor y solo cambiamos el tipo por defecto, para
-      // NO pisar lo que configuró el administrador (ApiKey, datos del emisor, etc.).
-      let latest: any = {};
-      try { latest = (await apiFetch<any>('/settings/electronic-invoice')) ?? {}; } catch { /* usar lo que hay */ }
-      const merged = { ...latest, default_document_type: settings.default_document_type };
-      await apiFetch('/settings/electronic-invoice', {
+      /**
+       * Se mandan SOLO los campos que el negocio puede cambiar.
+       *
+       * Antes se releía la configuración entera y se reenviaba completa para no
+       * pisar lo del administrador. Eso funcionaba, pero cualquier dato que
+       * llegara viejo o incompleto se reescribía igual. El servidor ya solo
+       * acepta esta lista, así que mandar el resto no aporta nada.
+       */
+      const r = await apiFetch<any>('/settings/electronic-invoice', {
         method: 'PUT',
-        body: JSON.stringify(merged),
-      });
-      setSuccess('Configuración guardada');
+        body: JSON.stringify({
+          default_document_type: settings.default_document_type,
+          emisor_commercial_name: settings.emisor_commercial_name,
+          emisor_phone: settings.emisor_phone,
+          emisor_address: settings.emisor_address,
+          emisor_email: settings.emisor_email,
+        }),
+      }, 28_000);   // además de guardar, actualiza la empresa en Hacienda
+
+      /**
+       * Guardado NO es lo mismo que aplicado.
+       *
+       * Estos datos los imprime el proveedor en el comprobante. Si el cambio se
+       * guardó pero no llegó allá, la factura sigue saliendo con lo anterior — y
+       * decir «guardado» a secas haría creer que ya está resuelto.
+       */
+      if (r?.alanube_sync === false) {
+        setError('Se guardó, pero NO se pudo actualizar en Hacienda: los comprobantes van a '
+          + `seguir saliendo con los datos anteriores. ${r?.alanube_motivo ?? ''}`);
+        setSuccess('');
+        return;
+      }
+      setSuccess(r?.alanube_sync
+        ? 'Guardado y actualizado en Hacienda'
+        : 'Configuración guardada');
       setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al guardar');
@@ -137,10 +186,63 @@ export const ElectronicInvoiceSettings: React.FC = () => {
       )}
 
       <p className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
-        Los datos del emisor, la ApiKey y el resto de la configuración de Hacienda los
-        administra el equipo del sistema. Acá solo elegís el tipo de comprobante por defecto
-        y podés probar la conexión.
+        La cédula, la razón social, la ubicación y la actividad económica tienen que coincidir
+        con lo inscrito ante Hacienda: se muestran acá para revisarlos, pero los cambia el
+        equipo del sistema. Los datos de <b>contacto</b> sí los podés editar vos.
       </p>
+
+      {/* Datos inscritos ante Hacienda — solo lectura */}
+      <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 space-y-3">
+        <h3 className="font-black text-gray-900">Datos ante Hacienda</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <SoloLectura etiqueta="Razón social" valor={settings.emisor_name} />
+          <SoloLectura
+            etiqueta="Cédula"
+            valor={settings.emisor_identification}
+            nota={settings.emisor_identification_type === '01' ? 'Física'
+              : settings.emisor_identification_type === '02' ? 'Jurídica'
+              : settings.emisor_identification_type === '03' ? 'DIMEX' : 'NITE'}
+          />
+          <SoloLectura etiqueta="Actividad económica" valor={settings.economic_activity_code} />
+          <SoloLectura
+            etiqueta="Provincia / Cantón / Distrito"
+            valor={[settings.emisor_province_code, settings.emisor_canton_code, settings.emisor_district_code]
+              .filter(Boolean).join(' · ')}
+          />
+          <SoloLectura etiqueta="Sucursal" valor={settings.sucursal ?? ''} />
+          <SoloLectura etiqueta="Terminal" valor={settings.terminal ?? ''} />
+        </div>
+        <p className="text-[11px] font-semibold text-gray-400">
+          ¿Alguno está mal? Escribinos: cambiarlo por tu cuenta haría que Hacienda rechace los
+          comprobantes o que salgan a nombre equivocado.
+        </p>
+      </div>
+
+      {/* Contacto — editable por el negocio */}
+      <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 space-y-3">
+        <h3 className="font-black text-gray-900">Datos de contacto</h3>
+        <p className="text-xs text-gray-500">
+          Salen impresos en el comprobante y se usan para enviarlo al cliente.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Campo etiqueta="Nombre comercial" valor={settings.emisor_commercial_name}
+            onChange={v => set('emisor_commercial_name', v)}
+            placeholder="El rótulo del negocio" />
+          <Campo etiqueta="Teléfono" valor={settings.emisor_phone}
+            onChange={v => set('emisor_phone', v)}
+            placeholder="88887777" inputMode="tel" />
+          <Campo etiqueta="Correo" valor={settings.emisor_email}
+            onChange={v => set('emisor_email', v)}
+            placeholder="facturas@negocio.com" tipo="email" />
+          <Campo etiqueta="Dirección exacta" valor={settings.emisor_address}
+            onChange={v => set('emisor_address', v)}
+            placeholder="Frente a…" />
+        </div>
+        <button onClick={handleSave} disabled={saving}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition disabled:opacity-50 text-sm">
+          <Save size={15} /> {saving ? 'Guardando...' : 'Guardar datos de contacto'}
+        </button>
+      </div>
 
       {/* Documento por defecto en el POS */}
       <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 space-y-2">
