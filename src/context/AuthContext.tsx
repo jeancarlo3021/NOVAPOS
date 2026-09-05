@@ -1232,12 +1232,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error: signInError } = timed.r;
 
       if (signInError) {
-        // Sin internet (o Supabase inalcanzable): intentar el LOGIN OFFLINE con el
-        // verificador local. Solo aplica a errores de RED — una contraseña mala
-        // online sigue fallando igual.
-        setError(signInError.message);
+        /**
+         * El error se traduce ANTES de mostrarlo.
+         *
+         * Supabase contesta en inglés y para quien programa («Invalid login
+         * credentials»). En la caja de un comercio eso no dice qué corregir, y
+         * la misma pantalla salía tanto para una contraseña mal escrita como
+         * para el celular sin datos.
+         */
+        const { traducirErrorDeIngreso } = await import('@/utils/errorDeIngreso');
+        const t = traducirErrorDeIngreso(signInError, emailOrUsername);
+        setError(t.mensaje);
         setLoading(false);
-        throw signInError;
+        const e: any = new Error(t.mensaje);
+        e.tipo = t.tipo;
+        e.original = signInError.message;
+        throw e;
       }
       // onAuthStateChange fires SIGNED_IN and calls handleSession.
       // Navigation happens in Login.tsx via useEffect watching user+loading.

@@ -11,6 +11,15 @@ export const Login: React.FC = () => {
   const [showPass, setShowPass]     = useState(false);
   const [rememberMe, setRememberMe] = useState(() => isRememberMeEnabled());
   const [error, setError]           = useState('');
+  /**
+   * Tipo del fallo, para no pintarlo todo igual.
+   *
+   * Un problema de conexión no es culpa de lo que el usuario escribió y se
+   * resuelve reintentando; una contraseña mala sí. Con el mismo cuadro rojo para
+   * ambos, el cajero borra sus datos y los vuelve a escribir aunque el problema
+   * sea el wifi.
+   */
+  const [errorTipo, setErrorTipo] = useState<string>('');
   const [loading, setLoading]       = useState(false);
 
   const { login, user, loading: authLoading } = useAuth();
@@ -22,12 +31,17 @@ export const Login: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(''); setErrorTipo('');
     setLoading(true);
     try {
       await login(username, password, rememberMe);
     } catch (err: any) {
-      setError(err.message || 'Error al iniciar sesión');
+      // El contexto ya devuelve el mensaje traducido; acá solo se cubre lo que
+      // falle antes de llegar allá (por ejemplo, quedarse sin red en el camino).
+      const { traducirErrorDeIngreso } = await import('@/utils/errorDeIngreso');
+      const t = err?.tipo ? { mensaje: err.message, tipo: err.tipo } : traducirErrorDeIngreso(err, username);
+      setError(t.mensaje);
+      setErrorTipo(t.tipo);
     } finally {
       setLoading(false);
     }
@@ -47,12 +61,32 @@ export const Login: React.FC = () => {
         <div className="bg-white rounded-2xl shadow-2xl p-8">
           <h1 className="text-2xl font-black text-gray-900 mb-6">Iniciar Sesión</h1>
 
-          {error && (
-            <div className="mb-5 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-          )}
+          {error && (() => {
+            // Rojo para lo que el usuario tiene que corregir; ámbar para lo que
+            // no depende de él (red, servidor, bloqueo temporal).
+            const esDeEl = errorTipo === 'credenciales';
+            const c = esDeEl
+              ? { caja: 'bg-red-50 border-red-200', icono: 'text-red-500', texto: 'text-red-700' }
+              : { caja: 'bg-amber-50 border-amber-200', icono: 'text-amber-500', texto: 'text-amber-800' };
+            return (
+              <div className={`mb-5 p-3 border rounded-xl flex items-start gap-3 ${c.caja}`}>
+                <AlertCircle className={`w-5 h-5 shrink-0 mt-0.5 ${c.icono}`} />
+                <div className={`text-sm ${c.texto}`}>
+                  <p>{error}</p>
+                  {errorTipo === 'red' && (
+                    <p className="mt-1 text-xs font-semibold opacity-80">
+                      Tus datos están bien escritos: es la conexión.
+                    </p>
+                  )}
+                  {errorTipo === 'cuenta' && (
+                    <p className="mt-1 text-xs font-semibold opacity-80">
+                      Esto no se arregla reintentando.
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           <form onSubmit={handleLogin} className="space-y-4">
 
