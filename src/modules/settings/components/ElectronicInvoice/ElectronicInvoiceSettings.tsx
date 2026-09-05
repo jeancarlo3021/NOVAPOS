@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { FileText, Save, AlertCircle, CheckCircle2, Plug, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useTenantId } from '@/hooks/useTenant';
+import { cacheSet, cacheKey } from '@/utils/offlineCache';
+import { CRLocationFields } from '@/components/CRLocationFields';
 
 interface FESettings {
   enabled:               boolean;
@@ -23,9 +25,15 @@ interface FESettings {
   emisor_district_code:       string;
   emisor_address:             string;
   emisor_phone:               string;
+  /** Teléfonos ADICIONALES: salen en el tiquete, no en el XML (Hacienda admite uno). */
+  emisor_phones:              string[];
   emisor_email:               string;
+  /** Correos ADICIONALES: reciben copia de los comprobantes emitidos. */
+  emisor_emails:              string[];
   // Actividad económica
   economic_activity_code:     string;
+  /** Actividades ADICIONALES inscritas ante Hacienda. */
+  economic_activities:        string[];
   // Proveedor de sistemas (cédula) — requerido por Hacienda
   proveedor_sistemas?:        string;
   // Numeración (consecutivo Hacienda)
@@ -51,8 +59,11 @@ const DEFAULT_SETTINGS: FESettings = {
   emisor_district_code: '',
   emisor_address: '',
   emisor_phone: '',
+  emisor_phones: [],
   emisor_email: '',
+  emisor_emails: [],
   economic_activity_code: '',
+  economic_activities: [],
   proveedor_sistemas: '',
   sucursal: '1',
   terminal: '1',
@@ -138,7 +149,21 @@ export const ElectronicInvoiceSettings: React.FC = () => {
           default_document_type: settings.default_document_type,
           emisor_commercial_name: settings.emisor_commercial_name,
           emisor_phone: settings.emisor_phone,
+          // Se limpian acá: una fila vacía guardada sale como renglón en blanco
+          // en el tiquete impreso.
+          emisor_phones: (settings.emisor_phones ?? []).map(t => String(t).trim()).filter(Boolean),
+          // Sin vacíos ni repetidos del principal: Alanube rechaza la lista si
+          // trae una entrada en blanco.
+          emisor_emails: (settings.emisor_emails ?? [])
+            .map(m => String(m).trim())
+            .filter(m => m && m !== String(settings.emisor_email ?? '').trim()),
           emisor_address: settings.emisor_address,
+          emisor_province_code: settings.emisor_province_code,
+          emisor_canton_code: settings.emisor_canton_code,
+          emisor_district_code: settings.emisor_district_code,
+          economic_activity_code: String(settings.economic_activity_code ?? '').trim(),
+          economic_activities: (settings.economic_activities ?? [])
+            .map(a => String(a).trim()).filter(Boolean),
           emisor_email: settings.emisor_email,
         }),
       }, 28_000);   // además de guardar, actualiza la empresa en Hacienda
@@ -156,6 +181,19 @@ export const ElectronicInvoiceSettings: React.FC = () => {
         setSuccess('');
         return;
       }
+      /**
+       * La caché local se refresca acá mismo.
+       *
+       * El tiquete arma los datos del negocio desde esta caché, no pidiéndolos
+       * al servidor: sin refrescarla, los teléfonos recién agregados no salían
+       * impresos hasta que algo más volviera a leer la configuración —y el
+       * usuario, que acababa de guardarlos, los daba por perdidos.
+       */
+      if (tenantId) {
+        try { cacheSet(cacheKey(tenantId, 'settings_electronic-invoice'), r ?? settings); }
+        catch { /* sin caché disponible: se leerá del servidor */ }
+      }
+
       setSuccess(r?.alanube_sync
         ? 'Guardado y actualizado en Hacienda'
         : 'Configuración guardada');
@@ -203,19 +241,62 @@ export const ElectronicInvoiceSettings: React.FC = () => {
               : settings.emisor_identification_type === '02' ? 'Jurídica'
               : settings.emisor_identification_type === '03' ? 'DIMEX' : 'NITE'}
           />
-          <SoloLectura etiqueta="Actividad económica" valor={settings.economic_activity_code} />
-          <SoloLectura
-            etiqueta="Provincia / Cantón / Distrito"
-            valor={[settings.emisor_province_code, settings.emisor_canton_code, settings.emisor_district_code]
-              .filter(Boolean).join(' · ')}
-          />
           <SoloLectura etiqueta="Sucursal" valor={settings.sucursal ?? ''} />
           <SoloLectura etiqueta="Terminal" valor={settings.terminal ?? ''} />
         </div>
         <p className="text-[11px] font-semibold text-gray-400">
-          ¿Alguno está mal? Escribinos: cambiarlo por tu cuenta haría que Hacienda rechace los
-          comprobantes o que salgan a nombre equivocado.
+          ¿Alguno está mal? Escribinos: la cédula y la razón social identifican al contribuyente
+          y tienen que coincidir con el certificado.
         </p>
+      </div>
+
+      {/* Ubicación y actividades: las conoce el negocio y las cambia solo */}
+      <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 space-y-3">
+        <h3 className="font-black text-gray-900">Ubicación y actividad</h3>
+        <p className="text-xs text-gray-500">
+          Tienen que ser las que están inscritas ante Hacienda. Si declarás una actividad que no
+          te corresponde, el comprobante se rechaza.
+        </p>
+        <CRLocationFields
+          province={settings.emisor_province_code}
+          canton={settings.emisor_canton_code}
+          district={settings.emisor_district_code}
+          onChange={(campo, valor) => set(
+            campo === 'province' ? 'emisor_province_code'
+              : campo === 'canton' ? 'emisor_canton_code' : 'emisor_district_code',
+            valor,
+          )}
+        />
+        <Campo etiqueta="Actividad económica principal" valor={settings.economic_activity_code}
+          onChange={v => set('economic_activity_code', v)}
+          placeholder="Ej. 4752.1 o 475201 (como aparece en el ATV)" />
+
+        {/* Un contribuyente puede tener varias inscritas: una soda que alquila
+            salón, una ferretería que además da servicio. */}
+        <div>
+          <p className="text-[11px] font-bold text-gray-500 uppercase mb-1">Otras actividades</p>
+          <div className="space-y-2">
+            {(settings.economic_activities ?? []).map((act, i) => (
+              <div key={i} className="flex gap-2">
+                <input value={act} placeholder="Código de actividad"
+                  onChange={e => set('economic_activities',
+                    (settings.economic_activities ?? []).map((x, j) => j === i ? e.target.value : x))}
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+                <button type="button"
+                  onClick={() => set('economic_activities', (settings.economic_activities ?? []).filter((_, j) => j !== i))}
+                  className="px-3 rounded-lg border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 text-sm font-bold">
+                  Quitar
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button"
+            onClick={() => set('economic_activities', [...(settings.economic_activities ?? []), ''])}
+            className="mt-2 text-xs font-bold text-blue-700 hover:underline">
+            + Agregar otra actividad
+          </button>
+        </div>
       </div>
 
       {/* Contacto — editable por el negocio */}
@@ -228,19 +309,82 @@ export const ElectronicInvoiceSettings: React.FC = () => {
           <Campo etiqueta="Nombre comercial" valor={settings.emisor_commercial_name}
             onChange={v => set('emisor_commercial_name', v)}
             placeholder="El rótulo del negocio" />
-          <Campo etiqueta="Teléfono" valor={settings.emisor_phone}
+          <Campo etiqueta="Teléfono principal" valor={settings.emisor_phone}
             onChange={v => set('emisor_phone', v)}
             placeholder="88887777" inputMode="tel" />
-          <Campo etiqueta="Correo" valor={settings.emisor_email}
+          <Campo etiqueta="Correo principal" valor={settings.emisor_email}
             onChange={v => set('emisor_email', v)}
             placeholder="facturas@negocio.com" tipo="email" />
           <Campo etiqueta="Dirección exacta" valor={settings.emisor_address}
             onChange={v => set('emisor_address', v)}
             placeholder="Frente a…" />
         </div>
+        {/* Correos adicionales: reciben copia de lo emitido. A diferencia del
+            teléfono, acá el formato SÍ admite varios. */}
+        <div>
+          <p className="text-[11px] font-bold text-gray-500 uppercase mb-1">Otros correos</p>
+          <div className="space-y-2">
+            {(settings.emisor_emails ?? []).map((mail, i) => (
+              <div key={i} className="flex gap-2">
+                <input
+                  type="email" value={mail} placeholder="Ej. contabilidad@negocio.com"
+                  onChange={e => set('emisor_emails',
+                    (settings.emisor_emails ?? []).map((x, j) => j === i ? e.target.value : x))}
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+                <button type="button"
+                  onClick={() => set('emisor_emails', (settings.emisor_emails ?? []).filter((_, j) => j !== i))}
+                  className="px-3 rounded-lg border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 text-sm font-bold">
+                  Quitar
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button"
+            onClick={() => set('emisor_emails', [...(settings.emisor_emails ?? []), ''])}
+            className="mt-2 text-xs font-bold text-blue-700 hover:underline">
+            + Agregar otro correo
+          </button>
+          <p className="text-[11px] text-gray-400 mt-1">
+            Reciben copia de los comprobantes. Útil para el contador o para contabilidad.
+          </p>
+        </div>
+
+        {/* Teléfonos adicionales: el comprobante electrónico admite UNO solo,
+            pero en el papel el cliente agradece tener el de pedidos o WhatsApp. */}
+        <div>
+          <p className="text-[11px] font-bold text-gray-500 uppercase mb-1">Otros teléfonos</p>
+          <div className="space-y-2">
+            {(settings.emisor_phones ?? []).map((tel, i) => (
+              <div key={i} className="flex gap-2">
+                <input
+                  value={tel} inputMode="tel" placeholder="Ej. pedidos o WhatsApp"
+                  onChange={e => set('emisor_phones',
+                    (settings.emisor_phones ?? []).map((x, j) => j === i ? e.target.value : x))}
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+                <button type="button"
+                  onClick={() => set('emisor_phones', (settings.emisor_phones ?? []).filter((_, j) => j !== i))}
+                  className="px-3 rounded-lg border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 text-sm font-bold">
+                  Quitar
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button"
+            onClick={() => set('emisor_phones', [...(settings.emisor_phones ?? []), ''])}
+            className="mt-2 text-xs font-bold text-blue-700 hover:underline">
+            + Agregar otro teléfono
+          </button>
+          <p className="text-[11px] text-gray-400 mt-1">
+            Salen impresos en el tiquete junto al principal. Hacienda solo admite uno en el
+            comprobante electrónico, así que al XML viaja únicamente el principal.
+          </p>
+        </div>
+
         <button onClick={handleSave} disabled={saving}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition disabled:opacity-50 text-sm">
-          <Save size={15} /> {saving ? 'Guardando...' : 'Guardar datos de contacto'}
+          <Save size={15} /> {saving ? 'Guardando...' : 'Guardar mis datos'}
         </button>
       </div>
 

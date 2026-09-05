@@ -6,6 +6,9 @@ import { useSettings } from '@/hooks/useSettings';
 import { formatCedula, cleanCedula } from '@/utils/cedula';
 import { useAuth } from '@/context/AuthContext';
 import { MANAGER_ROLES } from '@/types/Types_Users';
+import { apiFetch } from '@/lib/api';
+import { cacheSet, cacheKey } from '@/utils/offlineCache';
+import { useTenantId } from '@/hooks/useTenant';
 
 const DEFAULTS = {
   businessName: '',
@@ -49,6 +52,16 @@ const DEFAULTS = {
 
 export const GeneralSettings: React.FC = () => {
   const { settings, updateSettings, loading, error } = useSettings('general');
+  /**
+   * Con FE, los datos fiscales viven en la configuración de facturación.
+   *
+   * Esta pantalla solo leía los suyos, y en un negocio con FE nunca se llenaron:
+   * los campos salían vacíos Y bloqueados, así que no había dónde ver la cédula
+   * ni la dirección con la que se está facturando. Se muestran los de FE cuando
+   * acá no hay nada — solo para verlos; lo guardado no se toca.
+   */
+  const { settings: fe } = useSettings('electronic-invoice');
+  const { tenantId } = useTenantId();
   const { user, planFeatures } = useAuth();
   const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
   const planHasFe = !!planFeatures?.electronic_invoice;
@@ -65,6 +78,10 @@ export const GeneralSettings: React.FC = () => {
     }
   }, [settings]);
 
+  // Valor a MOSTRAR: el propio si existe, si no el de facturación electrónica.
+  const conFe = (propio: string, deFe: any) => (String(propio ?? '').trim() || String(deFe ?? '').trim());
+  const feEsJuridica = String(fe?.emisor_identification_type ?? '02') === '02';
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -79,6 +96,36 @@ export const GeneralSettings: React.FC = () => {
     setSuccess(false);
     try {
       await updateSettings(formData);
+
+      /**
+       * Con FE, el contacto se guarda TAMBIÉN en la configuración de facturación.
+       *
+       * Es de ahí que salen el tiquete y el comprobante electrónico. Guardarlo
+       * solo en esta pantalla dejaba la factura con el teléfono y la dirección
+       * viejos, sin ninguna señal de que el cambio no se había aplicado.
+       *
+       * La cédula, la razón social, la ubicación y la actividad NO se mandan:
+       * tienen que coincidir con lo inscrito ante Hacienda y el servidor tampoco
+       * los aceptaría de este lado.
+       */
+      if (planHasFe) {
+        await apiFetch('/settings/electronic-invoice', {
+          method: 'PUT',
+          body: JSON.stringify({
+            emisor_commercial_name: formData.businessName,
+            emisor_phone: formData.phone,
+            emisor_email: formData.email,
+            emisor_address: formData.address,
+          }),
+        }, 28_000).then((r: any) => {
+          // El tiquete arma los datos del negocio desde esta caché: sin
+          // refrescarla, lo recién guardado no sale impreso todavía.
+          if (tenantId) {
+            try { cacheSet(cacheKey(tenantId, 'settings_electronic-invoice'), r ?? {}); } catch { /* sin caché */ }
+          }
+        }).catch(() => { /* el guardado general ya quedó */ });
+      }
+
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch {
@@ -122,7 +169,10 @@ export const GeneralSettings: React.FC = () => {
         {planHasFe && (
           <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
             <Lock size={16} className="shrink-0 mt-0.5" />
-            <span>Con <b>Facturación Electrónica</b> activa, los <b>datos fiscales</b> (cédula, dirección, correo) se toman de <b>Facturación Electrónica → Datos del emisor</b>: se editan ahí porque tienen que coincidir con lo inscrito en Hacienda. El <b>nombre del negocio</b> de acá sí se puede cambiar: es el que sale impreso en el tiquete y en los correos, y no viaja al XML.</span>
+            <span>Con <b>Facturación Electrónica</b> activa, el <b>nombre, teléfono, correo y dirección</b>
+            de acá se guardan también en los datos del emisor, así que salen en el tiquete y en el
+            comprobante electrónico. La <b>cédula</b> no se puede cambiar: tiene que coincidir con lo
+            inscrito ante Hacienda. ¿Está mal? Escribinos.</span>
           </div>
         )}
 
@@ -135,7 +185,9 @@ export const GeneralSettings: React.FC = () => {
             bloquearlo junto con los datos fiscales, un negocio con FE no tenia
             forma de corregir el nombre de sus propios tiquetes.
           */}
-          <input type="text" name="businessName" value={formData.businessName} onChange={handleChange}
+          <input type="text" name="businessName"
+            value={conFe(formData.businessName, fe?.emisor_commercial_name || fe?.emisor_name)}
+            onChange={handleChange}
             placeholder="Mi Restaurante"
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
           {planHasFe && (
@@ -149,7 +201,8 @@ export const GeneralSettings: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula Jurídica / RUC</label>
-            <input type="text" name="ruc" value={formatCedula(formData.ruc ?? '', '02')}
+            <input type="text" name="ruc"
+              value={formatCedula(conFe(formData.ruc, feEsJuridica ? fe?.emisor_identification : ''), '02')}
               onChange={e => setFormData(prev => ({ ...prev, ruc: cleanCedula(e.target.value, '02') }))} disabled={planHasFe}
               inputMode="numeric" placeholder="3-101-123456"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
@@ -157,7 +210,8 @@ export const GeneralSettings: React.FC = () => {
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula (Física)</label>
-            <input type="text" name="cedula" value={formatCedula(formData.cedula ?? '', '01')}
+            <input type="text" name="cedula"
+              value={formatCedula(conFe(formData.cedula, feEsJuridica ? '' : fe?.emisor_identification), '01')}
               onChange={e => setFormData(prev => ({ ...prev, cedula: cleanCedula(e.target.value, '01') }))} disabled={planHasFe}
               inputMode="numeric" placeholder="1-1234-5678"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
@@ -168,13 +222,13 @@ export const GeneralSettings: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
-            <input type="email" name="email" value={formData.email} onChange={handleChange} disabled={planHasFe}
+            <input type="email" name="email" value={conFe(formData.email, fe?.emisor_email)} onChange={handleChange}
               placeholder="info@negocio.com"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Teléfono</label>
-            <input type="tel" name="phone" value={formData.phone} onChange={handleChange} disabled={planHasFe}
+            <input type="tel" name="phone" value={conFe(formData.phone, fe?.emisor_phone)} onChange={handleChange}
               placeholder="+506 2234-5678"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
           </div>
@@ -182,7 +236,7 @@ export const GeneralSettings: React.FC = () => {
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">Dirección</label>
-          <input type="text" name="address" value={formData.address} onChange={handleChange} disabled={planHasFe}
+          <input type="text" name="address" value={conFe(formData.address, fe?.emisor_address)} onChange={handleChange}
             placeholder="Calle Principal 123"
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
         </div>
@@ -197,7 +251,7 @@ export const GeneralSettings: React.FC = () => {
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">Ciudad / Cantón</label>
-          <input type="text" name="city" value={formData.city} onChange={handleChange} disabled={planHasFe}
+          <input type="text" name="city" value={formData.city} onChange={handleChange}
             placeholder="San José"
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
         </div>

@@ -122,6 +122,14 @@ export interface ReceiptData {
   storeAddress?: string;
   storeCity?: string;
   storePhone?: string;
+  /**
+   * Teléfonos ADICIONALES del negocio.
+   *
+   * Hacienda admite uno solo en el comprobante electrónico, pero al cliente le
+   * sirven todos: el del local, el de pedidos, el de WhatsApp. Van impresos
+   * junto al principal.
+   */
+  storePhonesExtra?: string[];
   storeEmail?: string;
   cashierName?: string;
   footerMessage?: string;
@@ -398,6 +406,13 @@ export class POSPrinterService {
       receiptData.storeCedula = undefined;
       if (fe.emisor_address) receiptData.storeAddress = fe.emisor_address;
       if (fe.emisor_phone) receiptData.storePhone = fe.emisor_phone;
+      // Los adicionales: solo para el papel, no viajan al XML.
+      if (Array.isArray(fe.emisor_phones)) {
+        const extra = fe.emisor_phones
+          .map((t: any) => String(t ?? '').trim())
+          .filter((t: string) => t && t !== String(fe.emisor_phone ?? '').trim());
+        if (extra.length) receiptData.storePhonesExtra = extra;
+      }
     } else if (receiptData.storeName || receiptData.storeAddress || receiptData.storeRuc) {
       // Sin FE y el ticket ya trae datos propios (ej. distribución) → no tocar.
       return;
@@ -1888,7 +1903,7 @@ export class POSPrinterService {
     <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : `<div class="brand">${esc(r.storeName ?? '')}</div>`}
       <div style="font-size:11px;color:#6b7280;margin-top:4px">
         ${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
-        ${(cfg.showStoreAddress !== false && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${(cfg.showStorePhone !== false && r.storePhone) ? 'Tel: ' + esc(r.storePhone) : ''}
+        ${(cfg.showStoreAddress !== false && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${(cfg.showStorePhone !== false && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}
       </div>
     </div>
     <div class="doc">
@@ -1976,7 +1991,7 @@ export class POSPrinterService {
         ${receiptData.storeCedula ? `<div class="store-line"><strong>Cédula:</strong> ${receiptData.storeCedula}</div>` : ''}
         ${cfg.showStoreAddress && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
         ${receiptData.storeCity ? `<div class="store-line">${receiptData.storeCity}</div>` : ''}
-        ${cfg.showStorePhone && receiptData.storePhone ? `<div class="store-line"><strong>Tel:</strong> ${receiptData.storePhone}</div>` : ''}
+        ${cfg.showStorePhone && receiptData.storePhone ? `<div class="store-line"><strong>Tel:</strong> ${[receiptData.storePhone, ...(receiptData.storePhonesExtra ?? [])].join(' · ')}</div>` : ''}
       </div>
     ` : '';
 
@@ -2323,7 +2338,11 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     if (receiptData.storeCedula) { centerText(`Cedula: ${receiptData.storeCedula}`); }
     if (cfg.showStoreAddress && receiptData.storeAddress) { centerText(receiptData.storeAddress); }
     if (receiptData.storeCity) { centerText(receiptData.storeCity); }
-    if (cfg.showStorePhone && receiptData.storePhone) { centerText(`Tel: ${receiptData.storePhone}`); }
+    if (cfg.showStorePhone && receiptData.storePhone) {
+      centerText(`Tel: ${receiptData.storePhone}`);
+      // En papel angosto cada teléfono va en su renglón: juntos se cortan.
+      for (const t of (receiptData.storePhonesExtra ?? [])) centerText(t);
+    }
 
     // Customer
     if (cfg.showCustomerInfo !== false
