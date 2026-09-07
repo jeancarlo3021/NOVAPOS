@@ -740,7 +740,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     )
   `;
 
-  const loadTenants = async (userId: string, userTenantId: string): Promise<{
+  /**
+   * `misTenants` puede venir YA EN VUELO.
+   *
+   * La consulta de negocios no depende de la del usuario —la función de la base
+   * resuelve sola quién está pidiendo—, pero se ejecutaban una tras otra: dos
+   * viajes al servidor en fila antes de poder mostrar nada. Recibiendo la
+   * promesa ya iniciada, ambas viajan a la vez y el ingreso se acorta un viaje
+   * completo.
+   */
+  const loadTenants = async (
+    userId: string, userTenantId: string,
+    misTenants?: PromiseLike<any>,
+  ): Promise<{
     tenants: Tenant[];
     selectedTenant: Tenant | null;
     planData: PlanData;
@@ -756,7 +768,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       //    user actual, sin importar si es owner directo o staff invitado.
       let allTenants: Tenant[] = [];
       try {
-        const { data: mt, error: mtErr } = await supabase.rpc('my_tenants');
+        const { data: mt, error: mtErr } = await (misTenants ?? supabase.rpc('my_tenants'));
         if (!mtErr && Array.isArray(mt) && mt.length > 0) {
           // Hidratar con la info completa (subscription + plan)
           const ids = mt.map((r: any) => r.tenant_id);
@@ -869,6 +881,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
 
+      // Las dos consultas salen JUNTAS: la de negocios no necesita el resultado
+      // de la del usuario, y encadenarlas costaba un viaje entero al servidor
+      // en cada ingreso.
+      const misTenants = supabase.rpc('my_tenants');
+
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('id, email, tenant_id, role, full_name, business_name, ticket_alias')
@@ -882,7 +899,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(userData);
       setError(null);
 
-      const { tenants: loadedTenants, selectedTenant, planData: joinedPlanData } = await loadTenants(userData.id, userData.tenant_id);
+      const { tenants: loadedTenants, selectedTenant, planData: joinedPlanData } =
+        await loadTenants(userData.id, userData.tenant_id, misTenants);
 
       if (!isActive()) return; // Superseded while loading tenants/plan
 

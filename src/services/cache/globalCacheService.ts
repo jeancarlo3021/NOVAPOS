@@ -68,12 +68,18 @@ export const globalCacheService = {
       timestamp: new Date().toISOString(),
     };
 
-    const cacheTasks = [
+    const cacheTasks: Array<{
+      name: string; key: string; endpoint: string; statKey: keyof CacheStats;
+      incremental?: boolean;
+    }> = [
       {
         name: 'Productos',
         key: 'global_products',
         endpoint: '/products',
         statKey: 'products' as keyof CacheStats,
+        // El catálogo es de lejos lo más pesado —miles de productos— y casi
+        // nunca cambia entero. Se piden solo los cambios desde la última vez.
+        incremental: true,
       },
       {
         name: 'Promociones',
@@ -133,7 +139,42 @@ export const globalCacheService = {
     const promises = cacheTasks.map(async (task) => {
       try {
         const cacheKeyFull = cacheKey(tenantId, task.key);
-        const data = await apiFetch<any>(task.endpoint);
+        let data: any;
+
+        if (task.incremental) {
+          /**
+           * Descarga INCREMENTAL: solo lo que cambió.
+           *
+           * Bajar el catálogo entero en cada refresco es el grueso del tiempo
+           * de carga —y del tráfico— de un negocio con miles de productos, para
+           * enterarse de que casi nada cambió. El servidor ya sabía responder
+           * solo los cambios; acá simplemente no se le estaba preguntando así.
+           *
+           * La marca de tiempo es PROPIA de este caché: compartirla con la del
+           * POS haría que uno consumiera los cambios y el otro se los perdiera.
+           */
+          const marcaKey = cacheKey(tenantId, `${task.key}_desde`);
+          const desde = cacheGet<string>(marcaKey);
+          const previos = cacheGet<any[]>(cacheKeyFull);
+
+          if (desde && Array.isArray(previos) && previos.length > 0) {
+            const cambios = await apiFetch<any[]>(`${task.endpoint}?since=${encodeURIComponent(desde)}`);
+            const porId = new Map(previos.map((p: any) => [p.id, p]));
+            for (const p of (cambios ?? [])) {
+              // Los borrados llegan marcados: hay que SACARLOS, no actualizarlos.
+              if (p?.deleted_at) porId.delete(p.id);
+              else porId.set(p.id, p);
+            }
+            data = [...porId.values()];
+          } else {
+            data = await apiFetch<any>(task.endpoint);
+          }
+          // La marca se guarda con la hora del servidor no: con la local basta,
+          // y se resta un minuto por si los relojes no coinciden exactamente.
+          try { cacheSet(marcaKey, new Date(Date.now() - 60_000).toISOString()); } catch { /* sin espacio */ }
+        } else {
+          data = await apiFetch<any>(task.endpoint);
+        }
 
         // Store in localStorage
         cacheSet(cacheKeyFull, data);
