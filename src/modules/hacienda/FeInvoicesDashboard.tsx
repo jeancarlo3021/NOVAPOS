@@ -89,11 +89,30 @@ export const FeInvoicesDashboard: React.FC = () => {
 
   // Al abrir, consulta en Hacienda los que están "en proceso" y refresca la lista.
   const [syncing, setSyncing] = useState(false);
+  /**
+   * Qué pasó con los correos reintentados.
+   *
+   * Si el reintento manda comprobantes en silencio, nadie sabe que había
+   * pendientes; y si algunos siguen sin poder salir —cliente sin correo, XML
+   * que no llega—, hay que decirlo para que alguien lo resuelva a mano.
+   */
+  const [avisoCorreos, setAvisoCorreos] = useState<string | null>(null);
   const refreshPending = useCallback(async () => {
     setSyncing(true);
     try {
       const r = await haciendaService.refreshPending();
-      if (r.updated > 0) await load();
+      const co = r.correos;
+      if (r.updated > 0 || (co?.enviados ?? 0) > 0) await load();
+      if (co && co.revisados > 0) {
+        const partes: string[] = [];
+        if (co.enviados)   partes.push(`${co.enviados} enviado(s) que no habían salido`);
+        if (co.sin_correo) partes.push(`${co.sin_correo} sin correo del cliente`);
+        if (co.sin_xml)    partes.push(`${co.sin_xml} esperando el XML de Hacienda`);
+        if (co.errores)    partes.push(`${co.errores} con error al enviar`);
+        setAvisoCorreos(partes.length ? `Correos pendientes: ${partes.join(' · ')}.` : null);
+      } else {
+        setAvisoCorreos(null);
+      }
     } catch { /* silencioso */ }
     finally { setSyncing(false); }
   }, [load]);
@@ -379,6 +398,13 @@ export const FeInvoicesDashboard: React.FC = () => {
           <RefreshCw size={16} className={loading ? 'animate-spin text-gray-400' : 'text-gray-600'} />
         </button>
       </div>
+
+      {avisoCorreos && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-2xl px-4 py-2.5 flex items-start justify-between gap-3">
+          <span>{avisoCorreos} Los que siguen pendientes se reintentan solos cada 20 minutos (hasta 6 veces).</span>
+          <button onClick={() => setAvisoCorreos(null)} className="text-blue-400 hover:text-blue-700 font-bold">×</button>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex flex-wrap items-end gap-3">

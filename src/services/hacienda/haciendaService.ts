@@ -142,7 +142,17 @@ export const haciendaService = {
     '/hacienda/refresh-status', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId }) }),
 
   /** Consulta y actualiza TODOS los comprobantes en proceso del tenant. */
-  refreshPending: () => apiFetch<{ updated: number }>('/hacienda/refresh-pending', { method: 'POST' }),
+  /**
+   * Actualiza los que están en proceso y, de paso, reintenta los correos de
+   * comprobantes aceptados que no salieron al primer intento.
+   */
+  refreshPending: () => apiFetch<{
+    updated: number;
+    correos?: {
+      revisados: number; enviados: number; sin_correo: number;
+      sin_xml: number; errores: number; cortado_por_tiempo: boolean;
+    } | null;
+  }>('/hacienda/refresh-pending', { method: 'POST' }, 28_000),
 
   /** Emite una Nota de Crédito que anula una factura ya emitida. */
   creditNote: (invoiceId: string, reason?: string) => apiFetch<{ nc_clave?: string }>(
