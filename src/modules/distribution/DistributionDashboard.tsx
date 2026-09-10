@@ -2,11 +2,12 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, Plus, X, Package, RefreshCw, LockKeyhole, Trash2,
-  CheckCircle2, Search, Loader2, Navigation, BarChart3, Users, Scale, Printer, Download,
+  CheckCircle2, Search, Loader2, Navigation, BarChart3, Users, Scale, Printer, Download, ClipboardList,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { PrintTicketModal } from './PrintTicketModal';
+import { LoadHistoryModal } from './LoadHistoryModal';
 import { FeQuotaWarning } from '@/components/FeQuotaWarning';
 import { distributionService, type DeliveryRoute, type Truck as TruckT } from '@/services/distribution/distributionService';
 import { truckTracking } from '@/services/distribution/truckTrackingService';
@@ -29,6 +30,8 @@ export const DistributionDashboard: React.FC = () => {
   const [toDate, setToDate] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [loadFor, setLoadFor] = useState<DeliveryRoute | null>(null);
+  /** Ruta cuyo detalle de carga se está mirando (lo que SALIÓ, no lo que queda). */
+  const [historialDe, setHistorialDe] = useState<DeliveryRoute | null>(null);
   const [clearFor, setClearFor] = useState<DeliveryRoute | null>(null);
   const [clearStock, setClearStock] = useState<any[]>([]);
   const [clearLoading, setClearLoading] = useState(false);
@@ -229,17 +232,29 @@ export const DistributionDashboard: React.FC = () => {
                     className="flex items-center justify-center gap-1 bg-red-50 text-red-600 text-xs font-bold py-2 rounded-lg hover:bg-red-100">
                     <LockKeyhole size={13} /> Cerrar
                   </button>
+                  <button onClick={() => setHistorialDe(r)}
+                    className="flex items-center justify-center gap-1 bg-slate-100 text-slate-700 text-xs font-bold py-2 rounded-lg hover:bg-slate-200">
+                    <ClipboardList size={13} /> Ver carga
+                  </button>
                   <button onClick={() => openClearLoad(r)}
-                    className="col-span-2 flex items-center justify-center gap-1 bg-amber-50 text-amber-700 text-xs font-bold py-2 rounded-lg hover:bg-amber-100">
+                    className="flex items-center justify-center gap-1 bg-amber-50 text-amber-700 text-xs font-bold py-2 rounded-lg hover:bg-amber-100">
                     <Trash2 size={13} /> Borrar carga
                   </button>
                 </div>
               )}
               {r.status === 'closed' && (
-                <button onClick={() => reprintClose(r)} disabled={reprintingId === r.id}
-                  className="w-full flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg disabled:opacity-50">
-                  {reprintingId === r.id ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} Reimprimir cierre
-                </button>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button onClick={() => reprintClose(r)} disabled={reprintingId === r.id}
+                    className="flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg disabled:opacity-50">
+                    {reprintingId === r.id ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} Reimprimir
+                  </button>
+                  {/* Después de cerrar es cuando más se ocupa: es con lo que se
+                      cuadra el sobrante contra el chofer. */}
+                  <button onClick={() => setHistorialDe(r)}
+                    className="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 rounded-lg">
+                    <ClipboardList size={13} /> Ver carga
+                  </button>
+                </div>
               )}
             </div>
           ))}
@@ -251,6 +266,14 @@ export const DistributionDashboard: React.FC = () => {
       )}
       {loadFor && tenantId && (
         <LoadTruckModal tenantId={tenantId} route={loadFor} onClose={() => setLoadFor(null)} onDone={async () => { setLoadFor(null); await load(); }} />
+      )}
+
+      {historialDe && (
+        <LoadHistoryModal
+          routeId={historialDe.id}
+          routeLabel={(historialDe as any).warehouse?.name ?? (historialDe as any).truck ?? 'Camión'}
+          onClose={() => setHistorialDe(null)}
+        />
       )}
 
       {/* Modal: confirmar borrado de carga con la lista de productos a devolver */}

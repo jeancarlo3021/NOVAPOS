@@ -8,6 +8,8 @@ import { proformasService } from '@/services/proformas/proformasService';
 import { useCashSession } from '@/hooks/useCashSession';
 import { createCashSession } from '@/services/cashManagement/cashSessionsService';
 import { useTenantId } from '@/hooks/useTenant';
+import { disponibleDe } from '@/utils/existencias';
+import { reservationsService } from '@/services/reservations/reservationsService';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
@@ -30,6 +32,7 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
 import { PendingInvoicesModal } from './PendingInvoicesModal';
+import { ReservationsPickerModal } from './ReservationsPickerModal';
 import { marcarOcupado } from '@/utils/appBusy';
 import { POSPinLockModal } from './POSPinLockModal';
 import { POSDesktopBar } from './POSDesktopBar';
@@ -114,6 +117,45 @@ export const POSMain = () => {
       proformaToConvert.current = pf.id;
       setSuccess(`Proforma ${pf.number} cargada — completá el cobro para convertirla en venta`);
     }).catch(() => setError('No se pudo cargar la proforma'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, productsLoading, products.length]);
+
+  /**
+   * Entregar un APARTADO: llega como `?reservation=<id>`.
+   *
+   * La entrega se cobra por el camino normal del punto de venta —mismo
+   * comprobante, mismo consecutivo, misma caja— en vez de tener una segunda vía
+   * de facturación que mantener. Lo único distinto es que al terminar se cierra
+   * el apartado y su mercadería deja de estar en «standby».
+   */
+  const apartadoAEntregar = useRef<{ id: string; numero: string | null; abonado: number } | null>(null);
+  useEffect(() => {
+    const rid = searchParams.get('reservation');
+    if (!rid || productsLoading || products.length === 0) return;
+    searchParams.delete('reservation'); setSearchParams(searchParams, { replace: true });
+    reservationsService.toCart(rid).then(ap => {
+      const cart = (ap.items ?? []).map(it => {
+        const prod = products.find(p => p.id === it.product_id)
+          ?? ({ id: it.product_id ?? '', name: it.product_name, unit_price: it.unit_price, stock_quantity: 0, tenant_id: tenantId ?? '' } as any);
+        return {
+          product_id: (it.product_id ?? prod.id) as string,
+          product_name: it.product_name,
+          product: prod,
+          unit_price: it.unit_price,
+          quantity: it.quantity,
+          subtotal: it.subtotal,
+        };
+      });
+      if (cart.length === 0) { setError('Ese apartado no tiene artículos'); return; }
+      setCartItems(cart);
+      if (ap.customer_name) setTabCustomerName(ap.customer_name);
+      apartadoAEntregar.current = { id: ap.reservation_id, numero: ap.number, abonado: Number(ap.paid ?? 0) };
+      // El abono YA se cobró: hay que decirlo, porque el POS va a pedir el total
+      // completo y el cajero podría cobrarlo dos veces.
+      setSuccess(Number(ap.paid) > 0
+        ? `Apartado ${ap.number ?? ''} cargado · ya abonó ₡${Number(ap.paid).toLocaleString('es-CR')} — cobrá solo el saldo de ₡${Number(ap.balance ?? 0).toLocaleString('es-CR')}`
+        : `Apartado ${ap.number ?? ''} cargado — completá el cobro para entregarlo`);
+    }).catch(e => setError(e instanceof Error ? e.message : 'No se pudo cargar el apartado'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, productsLoading, products.length]);
 
@@ -479,6 +521,7 @@ export const POSMain = () => {
 
   /** Lista de ventas sin subir (se abre desde el contador de pendientes). */
   const [showPending, setShowPending] = useState(false);
+  const [showApartados, setShowApartados] = useState(false);
 
   // Keep pending invoice count up to date
   const refreshPendingCount = useCallback(async () => {
@@ -875,7 +918,9 @@ export const POSMain = () => {
     if (!p) return Infinity;
     if (!planFeatures.inventory || (planFeatures as any).inventory_products_only) return Infinity;
     if (p.tracks_stock !== true) return Infinity;   // infinito o sin definir
-    return Math.max(0, Number(p.stock_quantity ?? 0));
+    // Lo APARTADO no se puede vender: está en el local, pero con el nombre de
+    // otro cliente encima. Venderlo dejaría al apartado sin mercadería.
+    return disponibleDe(p);
   };
 
   const handleChangeQuantity = (productId: string, quantity: number) => {
@@ -1287,6 +1332,12 @@ export const POSMain = () => {
         proformasService.convert(proformaToConvert.current, invoiceNumber).catch(() => {});
         proformaToConvert.current = null;
       }
+      if (apartadoAEntregar.current) {
+        // Cerrar el apartado libera su mercadería del «standby»; el descuento
+        // del inventario lo hace esta misma venta.
+        reservationsService.deliver(apartadoAEntregar.current.id, invoiceNumber).catch(() => {});
+        apartadoAEntregar.current = null;
+      }
       posOfflineService.addCachedInvoice({
         id: invoiceNumber, invoice_number: invoiceNumber, issued_at: localNowISO(),
         total: totSnapshot, payment_method: data.paymentMethod,
@@ -1414,6 +1465,10 @@ export const POSMain = () => {
           proformasService.convert(proformaToConvert.current, invoice.invoice_number).catch(() => {});
           proformaToConvert.current = null;
         }
+        if (apartadoAEntregar.current) {
+          reservationsService.deliver(apartadoAEntregar.current.id, invoice.id ?? invoice.invoice_number).catch(() => {});
+          apartadoAEntregar.current = null;
+        }
         // Re-chequear la cuota de comprobantes (aviso de 50/20/10) tras emitir.
         if (documentType === 'factura_electronica' || documentType === 'tiquete_electronico') {
           setTimeout(() => window.dispatchEvent(new CustomEvent('fe:quota-changed')), 4000);
@@ -1531,6 +1586,19 @@ export const POSMain = () => {
       data-pos-view={posViewMode}
       data-assisted={assisted ? '1' : '0'}
     >
+      {showApartados && (
+        <ReservationsPickerModal
+          onClose={() => setShowApartados(false)}
+          onPick={(id) => {
+            setShowApartados(false);
+            // Se reusa el mismo camino que la entrega desde el módulo de
+            // apartados: un solo lugar donde se arma el carrito y se cierra.
+            searchParams.set('reservation', id);
+            setSearchParams(searchParams, { replace: true });
+          }}
+        />
+      )}
+
       {showPending && (
         <PendingInvoicesModal
           syncing={syncing}
@@ -1556,6 +1624,7 @@ export const POSMain = () => {
         onCloseCash={() => setShowCloseModal(true)}
         onVoidInvoice={(currentSession && canVoidInvoice) ? () => setShowVoidModal(true) : undefined}
         onReprintInvoice={() => setShowReprintModal(true)}
+        onShowReservations={planFeatures.reservations ? () => setShowApartados(true) : undefined}
         onCashIn={currentSession?.status === 'open' ? () => setCashMovement('in') : undefined}
         onCashOut={currentSession?.status === 'open' ? () => setCashMovement('out') : undefined}
         onOpenDrawer={(canOpenDrawer && currentSession?.status === 'open') ? handleOpenDrawer : undefined}

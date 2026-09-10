@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle, Printer, Inbox } from 'lucide-react';
+import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle, Printer, Inbox, Package } from 'lucide-react';
 import { CashSession } from '@/types/Types_POS';
 import brandLogo from '@/assets/brand/logo.svg';
 
@@ -24,6 +24,8 @@ interface POSHeaderProps {
   onCloseCash: () => void;
   onVoidInvoice?: () => void;
   onReprintInvoice?: () => void;
+  /** Entregar un apartado: sus artículos entran al carrito. */
+  onShowReservations?: () => void;
   onSync?: () => void;
   onCashIn?: () => void;
   onCashOut?: () => void;
@@ -47,6 +49,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   onCloseCash,
   onVoidInvoice,
   onReprintInvoice,
+  onShowReservations,
   onSync,
   onCashIn,
   onCashOut,
@@ -85,6 +88,18 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           >
             <Printer size={15} />
             <span className="hidden lg:inline">Reimprimir</span>
+          </button>
+        )}
+
+        {/* Apartados — el cliente llega a retirar y hay que encontrarlo rápido */}
+        {onShowReservations && (
+          <button
+            onClick={onShowReservations}
+            className="flex items-center gap-1.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 text-violet-700 text-sm font-semibold px-3 py-2 rounded-lg transition min-h-9"
+            title="Entregar un apartado"
+          >
+            <Package size={15} />
+            <span className="hidden lg:inline">Apartados</span>
           </button>
         )}
 

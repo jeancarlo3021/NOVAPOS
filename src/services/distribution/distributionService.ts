@@ -89,6 +89,23 @@ export const distributionService = {
     apiFetch<{ suggestion: Record<string, number>; routes: number; days: number }>(
       `/routes/load-suggestion?warehouse_id=${warehouseId}&days=${days}`),
 
+  /**
+   * CON QUÉ se cargó el camión, no lo que queda.
+   *
+   * El stock del camión es el saldo del momento: un producto agotado a media
+   * ruta desaparece de esa lista, y no se sabe si salió y se vendió todo o si
+   * nunca se cargó. Esto trae lo cargado, lo que queda y la diferencia.
+   */
+  loadHistory: (id: string) =>
+    apiFetch<{
+      route_id: string; route_date: string; status: string; sin_registro?: boolean;
+      items: Array<{
+        product_id: string; name: string; sku: string | null; unit_price: number;
+        loaded: number; remaining: number; moved: number;
+      }>;
+      total_loaded: number; total_remaining: number; total_value: number;
+    }>(`/routes/${id}/load-history`),
+
   /** Borra la carga del camión (devuelve todo al inventario). Solo si no hay ventas. */
   clearLoad: (id: string) => apiFetch<{ returned_items: number }>(`/routes/${id}/clear-load`, { method: 'POST' }),
 

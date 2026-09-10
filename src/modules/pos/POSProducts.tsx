@@ -18,6 +18,7 @@ import { usePOSLayout } from '@/hooks/usePOSLayout';
 import { ProductSearchModal } from './ProductSearchModal';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
 import { displayPrice, productIvaPct } from '@/utils/priceUtils';
+import { disponibleDe, apartadoDe } from '@/utils/existencias';
 import { modifiersService, indexByProduct, type ModifierGroup, type SelectedModifier } from '@/services/modifiers/modifiersService';
 import { ModifierPickerModal } from './ModifierPickerModal';
 
@@ -708,7 +709,10 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-2">
             {displayed.map((product) => {
-              const stock    = product.stock_quantity ?? 0;
+              // Disponible = lo que hay menos lo apartado. Mostrar el stock a
+              // secas hacía que el cajero ofreciera mercadería ya comprometida.
+              const stock    = disponibleDe(product);
+              const apartado = apartadoDe(product);
               // Solo bloqueamos venta cuando tracks_stock está EXPLÍCITAMENTE en true.
               // Si está en false, null o undefined (p. ej. caché vieja sin el campo
               // o producto creado antes de la columna), el producto se vende sin
@@ -760,8 +764,17 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
                         : stock === 0
                         ? 'bg-red-100 text-red-600'
                         : 'bg-gray-100 text-gray-500'
-                    }`}>
+                    }`}
+                      title={apartado > 0
+                        ? `${stock} disponible(s) · ${apartado} apartado(s) por clientes`
+                        : undefined}>
                       {stock}
+                      {/* El apartado se muestra aparte: si no, el cajero ve un
+                          número bajo y cree que hay que reponer, cuando la
+                          mercadería está en el local con dueño. */}
+                      {apartado > 0 && (
+                        <span className="ml-1 text-[10px] font-bold text-violet-600">+{apartado} ap.</span>
+                      )}
                     </span>
                   )}
                   {/* Estrella de favorito */}
