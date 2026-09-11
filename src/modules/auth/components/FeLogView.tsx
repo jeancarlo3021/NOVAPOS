@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X, MailCheck, Download } from 'lucide-react';
+import { FileText, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Search, X, MailCheck, Download, Mail } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { downloadXlsx } from '@/utils/xlsx';
 import { useVisiblePolling } from '@/hooks/useVisiblePolling';
@@ -84,6 +84,69 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
   /** Factura para la que se está eligiendo el consecutivo de re-emisión. */
   const [reemitFor, setReemitFor] = useState<{ id: string; num?: string } | null>(null);
   const [crediting, setCrediting] = useState<string | null>(null);
+  /**
+   * Reenvío del correo del comprobante desde la bitácora.
+   *
+   * Cuando un cliente de un negocio reclama que no le llegó su factura, desde el
+   * panel no había cómo mandársela sin entrar a la cuenta del negocio.
+   */
+  /**
+   * Descarga del XML desde la bitácora.
+   *
+   * El XML es el comprobante que vale ante Hacienda —el PDF es solo su dibujo—,
+   * y cuando un negocio lo pide para su contador hay que poder dárselo desde acá.
+   */
+  const [bajandoXml, setBajandoXml] = useState<string | null>(null);
+  const descargarXml = async (r: FeRow) => {
+    setBajandoXml(r.id);
+    try {
+      const x = await apiFetch<{
+        xml: string | null; xmlHacienda: string | null; filename: string; filename_hacienda: string;
+      }>(`/admin/fe-xml/${r.id}`, {}, 28_000);
+      const guardar = (b64: string, nombre: string) => {
+        const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/xml' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = nombre; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      };
+      if (x.xml) guardar(x.xml, x.filename);
+      // La respuesta de Hacienda es un archivo aparte: el navegador puede pedir
+      // permiso para bajar dos archivos seguidos.
+      if (x.xmlHacienda) setTimeout(() => guardar(x.xmlHacienda!, x.filename_hacienda), 400);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'No se pudo descargar el XML');
+    } finally { setBajandoXml(null); }
+  };
+
+  const [reenvioDe, setReenvioDe] = useState<FeRow | null>(null);
+  const [reenvioCorreo, setReenvioCorreo] = useState('');
+  const [reenviando, setReenviando] = useState(false);
+  const [reenvioMsg, setReenvioMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const reenviar = async () => {
+    if (!reenvioDe) return;
+    setReenviando(true); setReenvioMsg(null);
+    try {
+      const r = await apiFetch<any>(`/admin/fe-resend-email/${reenvioDe.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ email: reenvioCorreo.trim() || undefined }),
+      }, 28_000);   // baja XML y PDF de Alanube antes de mandar: tarda
+      // Sin XML el correo salió, pero no es un comprobante entregado: se avisa
+      // en ámbar en vez de dar por resuelto el reclamo.
+      setReenvioMsg(r?.warning
+        ? { ok: false, text: r.warning }
+        : { ok: true, text: `Enviado${r?.pdf ? ' con XML y PDF' : ' con XML'}.` });
+      if (r?.xml && !r?.warning) {
+        setData(d => d && ({
+          ...d,
+          rows: d.rows.map(x => x.id === reenvioDe.id ? { ...x, fe_emailed: true } : x),
+        }));
+      }
+    } catch (e) {
+      setReenvioMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo reenviar' });
+    } finally { setReenviando(false); }
+  };
 
   // Descarga la bitácora a Excel con UNA FILA por comprobante y el IVA desglosado
   // por tarifa (0/1/2/4/13 %). Respeta los mismos filtros que la vista.
@@ -412,6 +475,29 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                                 )}
                               </p>
                               <div className="flex items-center gap-2 flex-wrap">
+                                {r.fe_clave && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); void descargarXml(r); }}
+                                    disabled={bajandoXml === r.id}
+                                    title="Bajar el XML firmado y la respuesta de Hacienda"
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded-lg disabled:opacity-50">
+                                    {bajandoXml === r.id ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                    {bajandoXml === r.id ? 'Bajando…' : 'Descargar XML'}
+                                  </button>
+                                )}
+                                {/* Reenviar: solo lo que Hacienda aceptó es un comprobante que
+                                    vale la pena mandar al cliente. */}
+                                {r.fe_clave && String(r.fe_status).toLowerCase() === 'accepted' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setReenvioDe(r); setReenvioCorreo(''); setReenvioMsg(null);
+                                    }}
+                                    title={r.fe_emailed ? 'Ya se envió: mandarlo de nuevo' : 'Todavía no se envió al cliente'}
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg">
+                                    <Mail size={13} /> {r.fe_emailed ? 'Reenviar correo' : 'Enviar correo'}
+                                  </button>
+                                )}
                                 {/* Anular: solo tiene sentido en un comprobante que Hacienda ACEPTÓ
                                     y que todavía no tiene nota de crédito. */}
                                 {!r.is_note && String(r.fe_status).toLowerCase() === 'accepted' && !r.fe_nc_clave && (
@@ -466,6 +552,61 @@ export const FeLogView: React.FC<Props> = ({ owners }) => {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {reenvioDe && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => !reenviando && setReenvioDe(null)}>
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-5 space-y-3"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-black text-gray-900 flex items-center gap-2">
+                  <Mail size={17} className="text-blue-600" />
+                  {reenvioDe.fe_emailed ? 'Reenviar comprobante' : 'Enviar comprobante'}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {reenvioDe.business_name} · #{reenvioDe.invoice_number}
+                  {reenvioDe.customer_name ? ` · ${reenvioDe.customer_name}` : ''}
+                </p>
+              </div>
+              <button onClick={() => setReenvioDe(null)} disabled={reenviando}
+                className="text-gray-400 hover:text-gray-700 disabled:opacity-40"><X size={18} /></button>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Correo</label>
+              <input
+                type="email" value={reenvioCorreo} autoFocus
+                onChange={e => setReenvioCorreo(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !reenviando) void reenviar(); }}
+                placeholder="Vacío = el correo registrado del cliente"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Se manda el XML firmado, la respuesta de Hacienda y el PDF.
+              </p>
+            </div>
+
+            {reenvioMsg && (
+              <div className={`text-sm font-semibold rounded-lg px-3 py-2 ${
+                reenvioMsg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
+                {reenvioMsg.text}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setReenvioDe(null)} disabled={reenviando}
+                className="px-4 py-2 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-40">
+                {reenvioMsg?.ok ? 'Cerrar' : 'Cancelar'}
+              </button>
+              <button onClick={() => void reenviar()} disabled={reenviando}
+                className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+                {reenviando ? <Loader2 size={15} className="animate-spin" /> : <Mail size={15} />}
+                {reenviando ? 'Enviando…' : 'Enviar'}
+              </button>
+            </div>
           </div>
         </div>
       )}

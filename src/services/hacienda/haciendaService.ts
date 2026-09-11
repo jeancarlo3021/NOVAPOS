@@ -351,7 +351,7 @@ export const haciendaService = {
   feXml: (invoiceId: string) => apiFetch<{
     xml: string | null; xmlHacienda: string | null;
     filename: string; filename_hacienda: string;
-  }>(`/hacienda/fe-xml/${invoiceId}`),
+  }>(`/hacienda/fe-xml/${invoiceId}`, {}, 28_000),   // Alanube tarda en entregar el XML
 
   /** PDF generado por Alanube (base64) para el comprobante. */
   alanubePdf: (invoiceId: string) =>
