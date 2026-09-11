@@ -659,33 +659,68 @@ export const POSMain = () => {
   // Redondeo a 2 decimales (evita ruido de coma flotante). El POS ahora muestra
   // decimales en el carrito, así que los precios/subtotales conservan los céntimos.
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  const subtotal = round2(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
-  // IVA por producto (usa el iva_rate de cada producto; si no tiene, el IVA global).
-  // Desglosado por tasa para mostrar cada IVA por separado en el carrito.
+  // Tarifa de IVA de una línea: la del producto, o la global. Sin impuesto, 0.
+  const ivaPctDe = (item: { product?: any }): number => {
+    if (!taxEnabled) return 0;
+    const raw = (item.product as any)?.iva_rate;
+    return raw != null && raw !== '' ? Number(raw) : taxRate * 100;
+  };
+
+  // Combos / grupos de promos — varios productos juntos por un precio único o un
+  // % de descuento. El precio del combo es CON IVA incluido.
+  const { applied: combosAplicados, basePorProducto } = computeCartCombos(
+    cartItems.map(it => ({
+      product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity,
+      iva_pct: ivaPctDe(it),
+    })),
+    activePromotions,
+  );
+
+  /**
+   * Líneas NETAS: con el descuento del combo ya dentro de cada una.
+   *
+   * Es lo que se factura y lo que va a Hacienda. Antes el combo se restaba del
+   * total al final y NUNCA llegaba a la factura: las líneas se guardaban a
+   * precio completo, el IVA completo, y el comprobante declaraba más venta y más
+   * impuesto de lo que el cliente pagó.
+   */
+  const cartItemsNetos = cartItems.map(item => {
+    const b = basePorProducto[item.product_id] ?? 0;
+    if (!b) return item;
+    return {
+      ...item,
+      discount_amount: round2((Number((item as any).discount_amount) || 0) + b),
+      subtotal: Math.max(0, round2(item.subtotal - b)),
+    };
+  });
+
+  // Para MOSTRAR: subtotal completo y el combo restado aparte, así las líneas del
+  // carrito y del tiquete siguen sumando. Para FACTURAR: el subtotal neto.
+  const subtotalBruto = round2(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
+  const subtotal = round2(cartItemsNetos.reduce((sum, item) => sum + item.subtotal, 0));
+  const comboDiscount = round2(subtotalBruto - subtotal);
+  const appliedCombos = combosAplicados.map(c => ({ ...c, discount: c.discount_base }));
+
+  // IVA por producto sobre la línea NETA (usa el iva_rate de cada producto; si no
+  // tiene, el IVA global). Desglosado por tasa para mostrarlo en el carrito.
   const { taxAmount, taxBreakdown } = (() => {
     if (!taxEnabled) return { taxAmount: 0, taxBreakdown: {} as Record<number, number> };
     const bd: Record<number, number> = {};
     let total = 0;
-    for (const item of cartItems) {
-      const raw = (item.product as any).iva_rate;
-      const ratePct = raw != null && raw !== '' ? Number(raw) : taxRate * 100;
+    for (const item of cartItemsNetos) {
+      const ratePct = ivaPctDe(item);
       const t = round2(item.subtotal * (ratePct / 100));
       if (t !== 0 || ratePct > 0) bd[ratePct] = (bd[ratePct] ?? 0) + t;
       total += t;
     }
     return { taxAmount: round2(total), taxBreakdown: bd };
   })();
-  // Combos / grupos de promos — descuento a nivel carrito (varios productos juntos
-  // por un precio único o un % de descuento).
-  const { discount: comboDiscount, applied: appliedCombos } = computeCartCombos(
-    cartItems.map(it => ({ product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity })),
-    activePromotions,
-  );
   // Total. En comprobantes ELECTRÓNICOS va exacto (Hacienda exige que el total =
   // suma de líneas + IVA). En tiquetes corrientes se redondea a múltiplos de ₡10
   // (ya no circulan monedas de ₡5). Los productos con "precio cerrado" ya vienen
   // pensados para dar múltiplos de 10, así que en electrónico también cuadra.
-  const rawTotal = Math.max(0, subtotal + taxAmount - comboDiscount);
+  // El combo ya está dentro de `subtotal` (líneas netas): no se resta otra vez.
+  const rawTotal = Math.max(0, subtotal + taxAmount);
   // Total COBRADO a múltiplos de ₡10 SIEMPRE (ya no circulan ₡5), corriente y
   // electrónico. En electrónico, el COMPROBANTE que va a Hacienda se arma de las
   // líneas (total exacto = suma + IVA); la diferencia de ≤₡10 es redondeo de caja.
@@ -1274,7 +1309,7 @@ export const POSMain = () => {
     // Snapshot del carrito para imprimir después (al limpiar inmediatamente)
     const bipperSnapshot = bipper.trim();
     const cartSnapshot = [...cartItems];
-    const subSnapshot = subtotal;
+    const subSnapshot = subtotalBruto;   // el tiquete deduce la línea «Combos» de acá
     const taxSnapshot = taxAmount;
     const totSnapshot = total;
     const roundSnapshot = roundingAdjust;
@@ -1288,7 +1323,7 @@ export const POSMain = () => {
       const invoiceNumber = await posOfflineService.queueInvoice({
         tenantId,
         sessionId: currentSession.id,
-        cartItems,
+        cartItems: cartItemsNetos,
         subtotal,
         taxAmount,
         total,
@@ -1371,7 +1406,7 @@ export const POSMain = () => {
         const invoice = await invoicesService.createInvoice(
           tenantId,
           currentSession.id,
-          cartItems,
+          cartItemsNetos,
           subtotal,
           0,
           0,
@@ -1751,7 +1786,7 @@ export const POSMain = () => {
         <div className={isListLayout ? 'hidden lg:flex flex-1 min-h-0' : 'hidden lg:flex'}>
           <POSCartPanel
             cartItems={cartItems}
-            subtotal={subtotal}
+            subtotal={subtotalBruto}
             taxAmount={taxAmount}
             total={total}
             comboDiscount={comboDiscount}
@@ -1796,7 +1831,7 @@ export const POSMain = () => {
           </button>
           <POSCartPanel
             cartItems={cartItems}
-            subtotal={subtotal}
+            subtotal={subtotalBruto}
             taxAmount={taxAmount}
             total={total}
             comboDiscount={comboDiscount}

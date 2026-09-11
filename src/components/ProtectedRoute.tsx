@@ -10,7 +10,9 @@ interface ProtectedRouteProps {
 // inactive y cancelled bloquean por completo (no logging at all to dashboard).
 // 'suspended' (morosidad > 15 días) ahora permite acceso SOLO-LECTURA al
 // inventario; cualquier otra ruta se redirige a /inventory.
-const HARD_BLOCK_STATUSES = new Set(['inactive', 'cancelled']);
+// 'demo_expired': demo de prospecto vencida. Se bloquea del todo, sin solo
+// lectura: el backend ya rechaza todas sus peticiones.
+const HARD_BLOCK_STATUSES = new Set(['inactive', 'cancelled', 'demo_expired']);
 
 // Rutas que SÍ se permiten en modo solo-lectura. Mantenelo conservador.
 const READ_ONLY_ALLOWED_PATHS = new Set<string>([

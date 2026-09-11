@@ -1450,7 +1450,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Modo solo-lectura: tenant suspendido por morosidad O suscripción vencida
   // hace más de 6 días de gracia. Permite entrar (ver) pero todas las
   // mutaciones quedan deshabilitadas (igual que el bloqueo del backend).
-  const GRACE_DAYS = 6;
+  // Las demos NO tienen prórroga: al llegar a 0 se bloquean. Los clientes que
+  // pagan conservan sus 6 días para regularizar.
+  const GRACE_DAYS = (tenant as any)?.is_demo ? 0 : 6;
   const subEndsAt = tenant?.subscription?.ends_at;
   const isExpiredBeyondGrace = (() => {
     if (!subEndsAt) return false;

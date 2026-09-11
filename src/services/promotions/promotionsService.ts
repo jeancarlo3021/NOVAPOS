@@ -141,13 +141,20 @@ export interface ComboCartItem {
   product_id: string;
   unit_price: number;
   quantity:   number;
+  /**
+   * Tarifa de IVA de la línea, en %. Con ella el precio del combo se toma CON el
+   * impuesto incluido. Sin ella se asume 0 (comportamiento anterior).
+   */
+  iva_pct?:   number;
 }
 
 export interface AppliedCombo {
   promo:    Promotion;
   label:    string;
   sets:     number;   // cuántos combos completos se armaron
-  discount: number;   // descuento total en ₡ que aporta este combo
+  discount: number;   // descuento total en ₡ que aporta este combo, CON IVA
+  /** El mismo descuento expresado sobre la base SIN IVA (lo que baja la línea). */
+  discount_base: number;
 }
 
 /**
@@ -157,7 +164,7 @@ export interface AppliedCombo {
 export function computeCartCombos(
   items: ComboCartItem[],
   promotions: Promotion[],
-): { discount: number; applied: AppliedCombo[] } {
+): { discount: number; applied: AppliedCombo[]; basePorProducto: Record<string, number> } {
   const today = todayCR();
   const combos = promotions.filter(
     p => p.type === 'combo' &&
@@ -167,17 +174,32 @@ export function computeCartCombos(
 
   const applied: AppliedCombo[] = [];
   let discount = 0;
+  const basePorProducto: Record<string, number> = {};
+  const r2 = (n: number) => Math.round(n * 100) / 100;
 
   for (const promo of combos) {
     // ¿Están todos los productos del combo en el carrito? ¿Cuántos sets completos?
     let sets = Infinity;
-    let setUnitTotal = 0;
+    let setConIva = 0;
     let missing = false;
+    const miembros: Array<{ pid: string; conIva: number; factor: number }> = [];
     for (const pid of promo.product_ids) {
       const it = items.find(i => i.product_id === pid);
       if (!it || it.quantity < 1) { missing = true; break; }
       sets = Math.min(sets, Math.floor(it.quantity));
-      setUnitTotal += it.unit_price;
+      /**
+       * El precio del combo es precio FINAL, con el IVA incluido.
+       *
+       * Así lo anuncia el negocio y así lo espera el cliente: «combo a ₡4.000»
+       * es lo que paga. Antes se comparaba contra los precios SIN impuesto y
+       * después se le sumaba el IVA completo, y el cliente terminaba pagando
+       * ₡4.520. En modo porcentaje pasaba lo mismo: el descuento salía de la
+       * base y quedaba corto.
+       */
+      const factor = 1 + (Number(it.iva_pct) || 0) / 100;
+      const conIva = it.unit_price * factor;
+      setConIva += conIva;
+      miembros.push({ pid, conIva, factor });
     }
     if (missing || !isFinite(sets) || sets < 1) continue;
 
@@ -185,16 +207,37 @@ export function computeCartCombos(
     // 'price'   → el combo cuesta EXACTAMENTE promo.value por set; el ajuste puede
     //             ser positivo (ahorro) o negativo (recargo) según el precio à la carte.
     const perSet = promo.combo_mode === 'percent'
-      ? setUnitTotal * (promo.value / 100)
-      : setUnitTotal - promo.value;
-    const comboDiscount = Math.round(perSet * sets);
+      ? setConIva * (promo.value / 100)
+      : setConIva - promo.value;
+    const comboDiscount = r2(perSet * sets);
     if (comboDiscount === 0) continue;
 
+    /**
+     * El descuento se REPARTE entre los productos del combo y se lleva a su base.
+     *
+     * Cada uno aporta en proporción a su precio con IVA, y esa parte se divide
+     * entre su propio factor de impuesto: un combo puede mezclar tarifas (una
+     * bebida al 13% con un producto de canasta al 1%). Bajar la base de cada
+     * línea —en vez de restar un monto suelto al final— es lo que hace que el IVA
+     * se calcule sobre lo que de verdad se cobró, y que el comprobante que va a
+     * Hacienda cuadre con el total.
+     */
+    let baseCombo = 0;
+    for (const m of miembros) {
+      const parte = setConIva > 0 ? comboDiscount * (m.conIva / setConIva) : 0;
+      const base = r2(parte / m.factor);
+      basePorProducto[m.pid] = r2((basePorProducto[m.pid] ?? 0) + base);
+      baseCombo += base;
+    }
+
     discount += comboDiscount;
-    applied.push({ promo, label: promo.name || promoLabel(promo), sets, discount: comboDiscount });
+    applied.push({
+      promo, label: promo.name || promoLabel(promo), sets,
+      discount: comboDiscount, discount_base: r2(baseCombo),
+    });
   }
 
-  return { discount: Math.round(discount), applied };
+  return { discount: r2(discount), applied, basePorProducto };
 }
 
 /** Returns the first applicable promotion for a product (priority: products > category > all) */

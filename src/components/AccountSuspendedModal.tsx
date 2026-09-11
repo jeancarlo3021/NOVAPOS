@@ -17,6 +17,15 @@ const STATUS_META: Record<string, { title: string; description: string; color: s
     description: 'Tu negocio ha sido cancelado. Contacta al administrador si necesitas reactivarlo.',
     color: 'red',
   },
+  // Demo de prospecto que llegó a 0. No es un castigo por falta de pago: es el
+  // momento de decidir, y hay que decir cuánto tiempo queda antes del borrado.
+  demo_expired: {
+    title: 'Tu prueba terminó',
+    description: 'La prueba gratuita llegó a su fin. Para seguir usando el sistema y conservar '
+      + 'lo que cargaste, contactanos para activar tu cuenta. Si no se activa en los próximos '
+      + '4 días, los datos de la prueba se borran.',
+    color: 'blue',
+  },
 };
 
 export function AccountSuspendedModal({ status }: { status: string }) {
