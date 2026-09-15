@@ -12,6 +12,10 @@ interface Status {
   qr: string | null;                 // data:image/png;base64,...
   me: { id: string | null; name: string | null } | null;
   error?: string;
+  /** Versión del worker desplegado (para saber si trae los últimos arreglos). */
+  build?: string;
+  segundos_en_estado?: number;
+  ultimo_error?: string | null;
 }
 
 /**
@@ -160,10 +164,30 @@ export const WhatsAppQrView: React.FC = () => {
         </div>
       )}
 
-      {/* Conectando */}
+      {/* Conectando — con CUÁNTO lleva y por qué: un mensaje fijo no distingue
+          entre «arrancando» y «lleva cinco minutos trabado». */}
       {(st === 'connecting' || st === 'close') && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 flex items-center gap-3 text-gray-600">
-          <Loader2 className="animate-spin" size={18} /> Conectando con WhatsApp…
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-2 text-gray-600">
+          <div className="flex items-center gap-3">
+            <Loader2 className="animate-spin" size={18} />
+            <span>
+              Conectando con WhatsApp…
+              {(status?.segundos_en_estado ?? 0) > 0 && (
+                <span className="text-gray-400"> ({status!.segundos_en_estado}s)</span>
+              )}
+            </span>
+          </div>
+          {status?.ultimo_error && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              {status.ultimo_error}
+            </p>
+          )}
+          {(status?.segundos_en_estado ?? 0) > 60 && (
+            <p className="text-xs text-gray-500">
+              Lleva más de un minuto. El worker reintenta solo cada 45 segundos; si no avanza,
+              revisá que esté encendido y que tenga salida a internet.
+            </p>
+          )}
         </div>
       )}
 
