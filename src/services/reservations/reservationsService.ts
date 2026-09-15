@@ -52,8 +52,14 @@ export const reservationsService = {
 
   get: (id: string) => apiFetch<Reservation>(`/reservations/${id}`),
 
+  /**
+   * `inventario` dice si la mercadería quedó realmente apartada. Sin la columna
+   * de apartados en la base, el apartado se guarda pero NO reserva nada, y eso
+   * hay que poder avisarlo en pantalla.
+   */
   create: (payload: NewReservation) =>
-    apiFetch<Reservation>('/reservations', { method: 'POST', body: JSON.stringify(payload) }),
+    apiFetch<Reservation & { inventario?: { ok: boolean; motivo?: string } }>(
+      '/reservations', { method: 'POST', body: JSON.stringify(payload) }),
 
   /** Registra un abono. El servidor no deja pasarse del saldo. */
   addPayment: (id: string, amount: number, method = 'cash', cashSessionId?: string | null) =>

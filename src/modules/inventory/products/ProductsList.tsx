@@ -1,3 +1,4 @@
+import { disponibleDe } from '@/utils/existencias';
 import React, { useState } from 'react';
 import { Plus, Search, RotateCw, FileSpreadsheet, Tag, Printer, X, Download, Truck } from 'lucide-react';
 import { downloadXlsx } from '@/utils/xlsx';
@@ -155,10 +156,12 @@ export const ProductsList: React.FC = () => {
   const quickCounts = React.useMemo(() => {
     const rastrea = (p: any) => p.tracks_stock !== false;
     return {
-      sin_stock:  products.filter(p => rastrea(p) && Number(p.stock_quantity ?? 0) <= 0).length,
+      // Por DISPONIBLE: un producto entero apartado no está para vender, y
+      // contarlo como existencia hace que nadie lo reponga a tiempo.
+      sin_stock:  products.filter(p => rastrea(p) && disponibleDe(p) <= 0).length,
       stock_bajo: products.filter(p => rastrea(p)
-        && Number(p.stock_quantity ?? 0) > 0
-        && Number(p.stock_quantity ?? 0) < Number(p.min_stock_level ?? 0)).length,
+        && disponibleDe(p) > 0
+        && disponibleDe(p) < Number(p.min_stock_level ?? 0)).length,
       sin_precio: products.filter(p => Number((p as any).unit_price ?? 0) <= 0).length,
       sin_costo:  products.filter(p => Number((p as any).cost_price ?? 0) <= 0).length,
       sin_cabys:  products.filter(p => !String((p as any).cabys_code ?? '').trim()).length,
@@ -169,9 +172,9 @@ export const ProductsList: React.FC = () => {
     const pasaRapido = (p: any) => {
       const rastrea = p.tracks_stock !== false;
       switch (quickFilter) {
-        case 'sin_stock':  return rastrea && Number(p.stock_quantity ?? 0) <= 0;
-        case 'stock_bajo': return rastrea && Number(p.stock_quantity ?? 0) > 0
-          && Number(p.stock_quantity ?? 0) < Number(p.min_stock_level ?? 0);
+        case 'sin_stock':  return rastrea && disponibleDe(p) <= 0;
+        case 'stock_bajo': return rastrea && disponibleDe(p) > 0
+          && disponibleDe(p) < Number(p.min_stock_level ?? 0);
         case 'sin_precio': return Number(p.unit_price ?? 0) <= 0;
         case 'sin_costo':  return Number(p.cost_price ?? 0) <= 0;
         case 'sin_cabys':  return !String(p.cabys_code ?? '').trim();
@@ -248,10 +251,10 @@ export const ProductsList: React.FC = () => {
   // su stock_quantity siempre es 0/N/A y no debería marcarse como "crítico".
   const trackedProducts = filteredProducts.filter(p => (p as any).tracks_stock !== false);
   const lowStockProducts = trackedProducts.filter(
-    p => p.stock_quantity < (p.min_stock_level ?? 0)
+    p => disponibleDe(p) < (p.min_stock_level ?? 0)
   );
   const criticalStockProducts = trackedProducts.filter(
-    p => p.stock_quantity < ((p.min_stock_level ?? 0) * 0.5)
+    p => disponibleDe(p) < ((p.min_stock_level ?? 0) * 0.5)
   );
 
   return (

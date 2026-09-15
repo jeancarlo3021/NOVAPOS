@@ -1,3 +1,4 @@
+import { disponibleDe, apartadoDe } from '@/utils/existencias';
 import React, { useState } from 'react';
 import { Edit2, Trash2, AlertTriangle, TrendingUp, Package, Check, X, Loader, Printer, Star, Scale, MoreHorizontal } from 'lucide-react';
 import { PrintLabelModal } from '@/modules/labels/PrintLabelModal';
@@ -126,8 +127,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
 
   const minStock = product.min_stock_level ?? 0;
   const productTracksStock = (product as any).tracks_stock !== false;
-  const isLowStock = productTracksStock && product.stock_quantity < minStock;
-  const stockPercentage = minStock > 0 ? (product.stock_quantity / minStock) * 100 : 100;
+  /**
+   * Lo que se muestra es lo DISPONIBLE, no lo que hay en la bodega.
+   *
+   * La mercadería apartada está en el local pero tiene dueño: contarla como
+   * disponible hace que alguien la venda dos veces. El apartado se muestra
+   * aparte para que el conteo físico siga cuadrando y se pueda explicar.
+   */
+  const apartado = apartadoDe(product);
+  const disponible = disponibleDe(product);
+  const isLowStock = productTracksStock && disponible < minStock;
+  const stockPercentage = minStock > 0 ? (disponible / minStock) * 100 : 100;
   const stockStatus = stockPercentage > 100 ? 'optimal' : stockPercentage > 50 ? 'warning' : 'critical';
 
   return (
@@ -288,7 +298,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
                   stockStatus === 'optimal' ? 'text-green-600' :
                   stockStatus === 'warning'  ? 'text-orange-600' : 'text-red-600'
                 }`}>
-                  {product.stock_quantity} {unitAbbr}
+                  {disponible} {unitAbbr}
                 </span>
               </div>
             </div>
@@ -305,7 +315,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onEdit, onDel
 
             <div className="flex justify-between text-xs text-gray-500">
               <span>Mínimo: {minStock} {unitAbbr}</span>
-              <span>Actual: {product.stock_quantity} {unitAbbr}</span>
+              <span>
+                Actual: {disponible} {unitAbbr}
+                {apartado > 0 && (
+                  <span className="text-violet-600 font-semibold"> · {apartado} apartado(s)</span>
+                )}
+              </span>
             </div>
           </div>
         )}

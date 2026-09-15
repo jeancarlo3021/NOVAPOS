@@ -51,13 +51,52 @@ const fmt = (n: number) =>
 const fmtDate = (s: string | undefined) =>
   s ? new Date(s + (s.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('es-CR', { dateStyle: 'medium' }) : '—';
 
-const today = () => new Date().toISOString().slice(0, 10);
+/**
+ * Fecha local en YYYY-MM-DD.
+ *
+ * `toISOString()` pasa a UTC: en Costa Rica, de noche devuelve el día
+ * siguiente, y una fecha suelta («2026-10-13») la lee como medianoche UTC y al
+ * volver a local queda un día antes. Con los componentes locales no se corre.
+ */
+const isoLocal = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+const today = () => isoLocal(new Date());
+
+/** Una fecha suelta se lee a mediodía, para que ningún cambio de hora la mueva. */
+const parseFecha = (s: string): Date => new Date(s.includes('T') ? s : `${s}T12:00:00`);
+
+/**
+ * Suma meses SIN desbordarse al mes siguiente.
+ *
+ * `setMonth` hace que el 31 de enero + 1 mes dé 3 de marzo: febrero no tiene 31
+ * y JavaScript sigue contando. Al renovar, eso se veía como si en vez de un mes
+ * se hubieran puesto dos. Cuando el día no existe en el mes destino, se usa el
+ * último día de ese mes, que es lo que cualquiera entiende por «un mes después».
+ */
 function addMonths(dateStr: string | undefined, months = 1): string {
-  const base = dateStr ? new Date(dateStr) : new Date();
-  if (isNaN(base.getTime())) return new Date().toISOString().slice(0, 10);
+  const base = dateStr ? parseFecha(dateStr) : new Date();
+  if (isNaN(base.getTime())) return today();
+  const dia = base.getDate();
+  base.setDate(1);                                   // evita el desborde
   base.setMonth(base.getMonth() + months);
-  return base.toISOString().slice(0, 10);
+  const ultimoDelMes = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  base.setDate(Math.min(dia, ultimoDelMes));
+  return isoLocal(base);
+}
+
+/**
+ * Desde cuándo se cuenta la renovación.
+ *
+ * Si todavía no vence, desde el vencimiento: así no se le regalan ni se le
+ * quitan días a quien paga por adelantado. Si ya venció, desde HOY — contar
+ * desde una fecha pasada dejaba la cuenta vencida después de renovarla, y el
+ * botón parecía no hacer nada.
+ */
+function desdeCuando(endsAt: string | undefined): string {
+  if (!endsAt) return today();
+  const fin = parseFecha(endsAt);
+  return isNaN(fin.getTime()) || fin.getTime() < Date.now() ? today() : endsAt;
 }
 
 function addDaysFromToday(days: number): string {
@@ -96,7 +135,7 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
   const [amountTouched, setAmountTouched]     = useState(false);
 
   const newDate = mode === 'months'
-    ? addMonths(owner.ends_at ?? today(), months)
+    ? addMonths(desdeCuando(owner.ends_at), months)
     : addDaysFromToday(days);
 
   // Monto sugerido por defecto.

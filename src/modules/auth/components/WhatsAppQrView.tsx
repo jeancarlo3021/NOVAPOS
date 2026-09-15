@@ -26,6 +26,29 @@ export const WhatsAppQrView: React.FC = () => {
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
   const firstLoad = useRef(true);
 
+  /**
+   * Diagnóstico: por qué no llegan los avisos.
+   *
+   * Los avisos automáticos (cobro, cuota, error de facturación) se mandan sin
+   * esperar respuesta para no frenar una venta, así que sus errores nunca
+   * llegaban a una pantalla. Esto recorre la misma cadena y dice dónde se corta.
+   */
+  const [diagTenant, setDiagTenant] = useState('');
+  const [diag, setDiag] = useState<{ pasos: Array<{ paso: string; ok: boolean; detalle: string }>; listo: boolean } | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+
+  const revisar = async (enviar: boolean) => {
+    setDiagBusy(true); setDiag(null);
+    try {
+      const qs = new URLSearchParams();
+      if (diagTenant.trim()) qs.set('tenant', diagTenant.trim());
+      if (enviar) qs.set('enviar', '1');
+      setDiag(await apiFetch(`/admin/whatsapp/diagnostico?${qs.toString()}`, {}, 28_000));
+    } catch (e) {
+      setDiag({ listo: false, pasos: [{ paso: 'Diagnóstico', ok: false, detalle: e instanceof Error ? e.message : 'error' }] });
+    } finally { setDiagBusy(false); }
+  };
+
   // Prueba de envío
   const [to, setTo] = useState('');
   const [text, setText] = useState('Hola 👋 Prueba desde ColónClick');
@@ -178,6 +201,45 @@ export const WhatsAppQrView: React.FC = () => {
           </form>
         </>
       )}
+
+      {/* Diagnóstico — sirve sobre todo cuando NADA llega */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3 mt-4">
+        <div>
+          <p className="font-black text-gray-900 text-sm">¿Por qué no llegan los avisos?</p>
+          <p className="text-xs text-gray-500">
+            Revisa la cadena completa: el canal, el worker, el teléfono del negocio y el envío.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            value={diagTenant} onChange={e => setDiagTenant(e.target.value)}
+            placeholder="Id del negocio (opcional, para revisar su teléfono)"
+            className="flex-1 border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-green-400" />
+          <button onClick={() => void revisar(false)} disabled={diagBusy}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white font-bold text-sm disabled:bg-gray-200 disabled:text-gray-400">
+            {diagBusy ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />} Revisar
+          </button>
+          <button onClick={() => void revisar(true)} disabled={diagBusy || !diagTenant.trim()}
+            title={!diagTenant.trim() ? 'Poné el id del negocio para mandarle la prueba' : 'Manda un aviso real por el mismo camino que los automáticos'}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold text-sm disabled:bg-gray-200 disabled:text-gray-400">
+            <Send size={15} /> Probar envío real
+          </button>
+        </div>
+
+        {diag && (
+          <div className="space-y-1.5">
+            {diag.pasos.map((p, i) => (
+              <div key={i} className={`flex items-start gap-2 rounded-xl px-3 py-2 text-sm ${
+                p.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800'}`}>
+                {p.ok ? <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
+                      : <AlertTriangle size={15} className="mt-0.5 shrink-0" />}
+                <span><b>{p.paso}:</b> {p.detalle}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

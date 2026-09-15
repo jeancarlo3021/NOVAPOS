@@ -33,6 +33,7 @@ import { apiFetch } from '@/lib/api';
 import { POSHeader } from './POSHeader';
 import { PendingInvoicesModal } from './PendingInvoicesModal';
 import { ReservationsPickerModal } from './ReservationsPickerModal';
+import { ReserveCartModal } from './ReserveCartModal';
 import { marcarOcupado } from '@/utils/appBusy';
 import { POSPinLockModal } from './POSPinLockModal';
 import { POSDesktopBar } from './POSDesktopBar';
@@ -522,6 +523,7 @@ export const POSMain = () => {
   /** Lista de ventas sin subir (se abre desde el contador de pendientes). */
   const [showPending, setShowPending] = useState(false);
   const [showApartados, setShowApartados] = useState(false);
+  const [apartarCarrito, setApartarCarrito] = useState(false);
 
   // Keep pending invoice count up to date
   const refreshPendingCount = useCallback(async () => {
@@ -1621,6 +1623,36 @@ export const POSMain = () => {
       data-pos-view={posViewMode}
       data-assisted={assisted ? '1' : '0'}
     >
+      {apartarCarrito && (
+        <ReserveCartModal
+          /* Se apartan las líneas NETAS: si el carrito trae un combo, el
+             apartado conserva su precio en vez del de lista. */
+          items={cartItemsNetos.map(it => ({
+            product_id: it.product_id || null,
+            product_name: (it as any).product_name ?? it.product?.name ?? 'Producto',
+            quantity: it.quantity,
+            unit_price: it.quantity > 0 ? round2(it.subtotal / it.quantity) : it.unit_price,
+          }))}
+          total={rawTotal}
+          clienteSugerido={selectedCustomer?.name ?? tabCustomerName ?? ''}
+          customerId={selectedCustomer?.id ?? null}
+          cashSessionId={currentSession?.id ?? null}
+          onClose={() => setApartarCarrito(false)}
+          onCreado={(r) => {
+            setApartarCarrito(false);
+            resetActive();
+            // Lo apartado deja de estar disponible: sin refrescar, el cajero
+            // podría vender la misma mercadería en la venta siguiente.
+            void refetchProducts();
+            const base = `Apartado ${r.number ?? ''} creado · queda debiendo ₡${r.saldo.toLocaleString('es-CR')}`;
+            // Si la mercadería no quedó reservada, es un aviso, no un éxito:
+            // el apartado existe pero cualquiera puede vender esos productos.
+            if (r.aviso) setError(`${base}. ATENCIÓN: ${r.aviso}`);
+            else setSuccess(base);
+          }}
+        />
+      )}
+
       {showApartados && (
         <ReservationsPickerModal
           onClose={() => setShowApartados(false)}
@@ -1660,6 +1692,8 @@ export const POSMain = () => {
         onVoidInvoice={(currentSession && canVoidInvoice) ? () => setShowVoidModal(true) : undefined}
         onReprintInvoice={() => setShowReprintModal(true)}
         onShowReservations={planFeatures.reservations ? () => setShowApartados(true) : undefined}
+        onReservar={(planFeatures.reservations && cartItems.length > 0)
+          ? () => setApartarCarrito(true) : undefined}
         onCashIn={currentSession?.status === 'open' ? () => setCashMovement('in') : undefined}
         onCashOut={currentSession?.status === 'open' ? () => setCashMovement('out') : undefined}
         onOpenDrawer={(canOpenDrawer && currentSession?.status === 'open') ? handleOpenDrawer : undefined}

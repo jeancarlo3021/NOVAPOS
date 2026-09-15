@@ -26,6 +26,8 @@ interface POSHeaderProps {
   onReprintInvoice?: () => void;
   /** Entregar un apartado: sus artículos entran al carrito. */
   onShowReservations?: () => void;
+  /** Apartar lo que hay en el carrito. Solo aparece si hay algo que apartar. */
+  onReservar?: () => void;
   onSync?: () => void;
   onCashIn?: () => void;
   onCashOut?: () => void;
@@ -50,6 +52,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   onVoidInvoice,
   onReprintInvoice,
   onShowReservations,
+  onReservar,
   onSync,
   onCashIn,
   onCashOut,
@@ -88,6 +91,18 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           >
             <Printer size={15} />
             <span className="hidden lg:inline">Reimprimir</span>
+          </button>
+        )}
+
+        {/* Apartar el carrito: el cliente separa la mercadería y abona */}
+        {onReservar && (
+          <button
+            onClick={onReservar}
+            className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 border border-violet-600 text-white text-sm font-semibold px-3 py-2 rounded-lg transition min-h-9"
+            title="Apartar lo que está en el carrito"
+          >
+            <Package size={15} />
+            <span className="hidden lg:inline">Apartar</span>
           </button>
         )}
 
