@@ -177,6 +177,10 @@ export const WhatsAppQrView: React.FC = () => {
               )}
             </span>
           </div>
+          {/* La versión del worker: sin esto no se sabe si el despliegue tomó. */}
+          {status?.build && (
+            <p className="text-[11px] font-mono text-gray-400">worker {status.build}</p>
+          )}
           {status?.ultimo_error && (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               {status.ultimo_error}

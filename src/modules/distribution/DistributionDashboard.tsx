@@ -602,6 +602,18 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
     setQty(prev => ({ ...prev, [id]: Math.max(0, Math.min(cap, Number(n) || 0)) }));
   };
 
+  /**
+   * Saca un producto de la carga.
+   *
+   * Se borra la clave en vez de dejarla en 0: así no queda una línea fantasma en
+   * la plantilla que se guarde después. Para quitar algo había que buscarlo en la
+   * cuadrícula y bajarlo a mano hasta cero.
+   */
+  const quitar = (id: string) => {
+    setQty(prev => { const n = { ...prev }; delete n[id]; return n; });
+    setRecount(r => { const n = { ...r }; delete n[id]; return n; });
+  };
+
   const nameOf = (id: string) => products.find(p => p.id === id)?.name ?? id;
   const abbrOf = (id: string) => unitMap[id]?.abbreviation ?? 'u';
 
@@ -706,7 +718,14 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
                     <div className="w-9 h-9 rounded-lg bg-linear-to-br from-blue-100 to-cyan-100 text-blue-700 font-black flex items-center justify-center text-sm shrink-0">
                       {p.name.charAt(0).toUpperCase()}
                     </div>
-                    {q > 0 && <span className="text-[10px] font-black bg-blue-600 text-white rounded-full px-1.5 py-0.5">{q}</span>}
+                    {q > 0 && (
+                      <span className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] font-black bg-blue-600 text-white rounded-full px-1.5 py-0.5">{q}</span>
+                        {/* Quitar de una vez: bajar de a uno desde 40 es inusable. */}
+                        <button onClick={() => quitar(p.id)} title="Quitar de la carga"
+                          className="text-gray-300 hover:text-red-600"><Trash2 size={13} /></button>
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs font-bold text-gray-800 leading-tight mt-1.5 line-clamp-2 min-h-8">{p.name}</p>
                   <p className={`text-[10px] font-bold mt-0.5 ${out ? 'text-red-500' : 'text-emerald-600'}`}>
@@ -737,6 +756,12 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
           <div className="flex-1">
             <p className="text-xs text-gray-400">A cargar</p>
             <p className="font-black text-gray-900">{items.length} productos · {totalUnits} u.</p>
+            {items.length > 0 && (
+              <button onClick={() => { setQty({}); setRecount({}); }}
+                className="text-[11px] font-bold text-gray-400 hover:text-red-600">
+                Vaciar la carga
+              </button>
+            )}
           </div>
           <button onClick={() => { setErr(''); setRecount({}); setShowReview(true); }} disabled={items.length === 0}
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white font-black px-6 py-3 rounded-xl text-sm flex items-center justify-center gap-2">
@@ -783,6 +808,12 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
                     ) : (
                       <span className="text-sm font-black text-gray-900">{i.quantity} {abbrOf(i.product_id)}</span>
                     )}
+                    <button
+                      onClick={() => quitar(i.product_id)}
+                      title="Quitar de la carga"
+                      className="p-1 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50 shrink-0">
+                      <Trash2 size={15} />
+                    </button>
                   </div>
                 );
               })}
