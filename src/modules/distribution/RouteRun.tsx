@@ -639,6 +639,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
       payments = (['cash', 'card', 'sinpe'] as const).filter(m => mix[m] > 0).map(m => ({ method: m, amount: mix[m] }));
     }
     setSaving(true); setErr('');
+    let avisoFe = '';
     try {
       const items = lines.map(l => ({
         product_id: l.product_id, quantity: l.q, unit_price: l.unit_price,
@@ -664,17 +665,13 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
         // Emisión electrónica a Hacienda (solo online y con factura real).
         let feFields: any = {};
         if (feEnabled && navigator.onLine && inv?.id && !inv.offline) {
-          try {
-            const { haciendaService } = await import('@/services/hacienda/haciendaService');
-            const res: any = await haciendaService.emit(inv.id);
-            if (res?.clave) {
-              const esFactura = (res.tipo ?? (documentType === 'factura_electronica' ? '01' : '04')) === '01';
-              const consec = res.consecutivo ?? (typeof res.clave === 'string' && res.clave.length === 50 ? res.clave.slice(21, 41) : undefined);
-              feFields = { feClave: res.clave, feConsecutivo: consec, feTipoLabel: esFactura ? 'FACTURA ELECTRÓNICA' : 'TIQUETE ELECTRÓNICO' };
-            }
-          } catch (e) {
-            console.error('[FE emit distribución] Error:', e);
-          }
+          const { emitirConPlazo } = await import('@/services/hacienda/emitirConPlazo');
+          const r = await emitirConPlazo(inv.id, documentType);
+          feFields = r.feFields;
+          // Si no llegó a tiempo, se dice: el ticket sale sin clave y el
+          // comprobante queda emitiéndose. Callarlo haría pensar que no se emitió.
+          if (!r.aTiempo) avisoFe = 'El comprobante se está emitiendo: el ticket sale sin la clave. '
+            + 'Podés reimprimirlo desde FE Facturas cuando Hacienda responda.';
         }
 
         const now = new Date();
@@ -718,6 +715,8 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
         } catch { /* impresora no disponible */ }
       }
       onDone();
+      // Después de entregar el ticket, nunca antes: el aviso no debe demorarlo.
+      if (avisoFe) alert(avisoFe);
     } catch (e) { setErr(e instanceof Error ? e.message : 'Error'); }
     finally { setSaving(false); }
   };

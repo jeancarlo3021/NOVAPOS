@@ -409,18 +409,15 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
 
       // Emisión electrónica a Hacienda (solo online y con factura real).
       let feFields: any = {};
+      let avisoFe = '';
       if (feEnabled && navigator.onLine && inv?.id && !inv.offline) {
-        try {
-          const { haciendaService } = await import('@/services/hacienda/haciendaService');
-          const res: any = await haciendaService.emit(inv.id);
-          if (res?.clave) {
-            const esFactura = (res.tipo ?? (documentType === 'factura_electronica' ? '01' : '04')) === '01';
-            const consec = res.consecutivo ?? (typeof res.clave === 'string' && res.clave.length === 50 ? res.clave.slice(21, 41) : undefined);
-            feFields = { feClave: res.clave, feConsecutivo: consec, feTipoLabel: esFactura ? 'FACTURA ELECTRÓNICA' : 'TIQUETE ELECTRÓNICO' };
-          }
-        } catch (e) {
-          console.error('[FE emit distribución] Error:', e);
-        }
+        const { emitirConPlazo } = await import('@/services/hacienda/emitirConPlazo');
+        const r = await emitirConPlazo(inv.id, documentType);
+        feFields = r.feFields;
+        // Si no llegó a tiempo, se dice: el ticket sale sin clave y el
+        // comprobante queda emitiéndose. Callarlo haría pensar que no se emitió.
+        if (!r.aTiempo) avisoFe = 'El comprobante se está emitiendo: el ticket sale sin la clave. '
+          + 'Podés reimprimirlo desde FE Facturas cuando Hacienda responda.';
       }
 
       const now = new Date();
@@ -449,6 +446,8 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
       };
       onPrint({ invoiceNumber: inv?.invoice_number, total: Number(order.total ?? 0), print: doPrint, receipt: data });
       onDelivered();
+      // Después de entregar el ticket, nunca antes: el aviso no debe demorarlo.
+      if (avisoFe) alert(avisoFe);
     } finally { setSaving(false); }
   };
 
