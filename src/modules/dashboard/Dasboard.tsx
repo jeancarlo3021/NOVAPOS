@@ -5,7 +5,7 @@ import {
   TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
   Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone,
   UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay,
-  Bookmark,
+  Bookmark, User2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -313,6 +313,26 @@ export const Dashboard = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+      {/* ── Panel Admin — primero, porque es donde entra el administrador ──
+          Estaba solo al final de la barra lateral, dentro de «Sistema»: quien
+          administra la plataforma entra varias veces al día y tenía que abrir el
+          menú y bajar hasta el último grupo. */}
+      {isSaasAdmin && (
+        <button
+          type="button"
+          onClick={() => navigate('/create-owner')}
+          className="w-full flex items-center gap-3 rounded-2xl px-5 py-4 bg-slate-900 hover:bg-slate-800 text-white shadow-md transition"
+        >
+          <span className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+            <User2 size={22} />
+          </span>
+          <span className="text-left min-w-0">
+            <span className="block font-black text-lg leading-tight">Panel Admin</span>
+            <span className="block text-slate-300 text-xs">Negocios, planes, facturación y demos</span>
+          </span>
+        </button>
+      )}
 
       {/* ── Hero compacto: saludo + ventas de hoy ────────────────────────── */}
       <div className="bg-linear-to-br from-emerald-600 via-emerald-600 to-teal-700 rounded-2xl px-5 sm:px-6 py-5 text-white shadow-md flex items-center justify-between gap-4 flex-wrap">

@@ -62,7 +62,10 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
 
   return (
     <div className="bg-white border-b border-gray-200 px-3 sm:px-4 py-1.5 shrink-0 shadow-sm">
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* En CELULAR la fila se desplaza de lado en vez de partirse en varias:
+          con los botones de caja, apartados y anulación, el ajuste de línea
+          ocupaba media pantalla. De `sm` en adelante queda igual que antes. */}
+      <div className="flex items-center gap-2 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible [scrollbar-width:none]">
         {/* Back - siempre habilitado */}
         <button
           onClick={() => navigate('/')}

@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
   Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator,
+  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone,
 } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
@@ -120,7 +120,7 @@ export const CreateOwner: React.FC = () => {
   const [showDemos, setShowDemos] = useState(false);
 
   const [formData, setFormData] = useState({
-    email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '',
+    email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '', phone: '',
   });
   const [formErrors, setFormErrors] = useState({ email: '', password: '', businessName: '' });
 
@@ -673,23 +673,46 @@ export const CreateOwner: React.FC = () => {
       });
       if (fnError) throw new Error(fnError.message);
       if (data?.error) throw new Error(data.error);
+      /**
+       * El negocio recién creado: su id se resuelve UNA vez.
+       *
+       * Lo usan el plan de FE y el teléfono; antes se buscaba solo para el plan.
+       */
+      let tid: string | undefined = data?.tenant_id ?? data?.tenant?.id;
+      if (!tid && (formData.fePlanId || formData.phone.trim())) {
+        const list = await apiFetch<any[]>('/admin/owners').catch(() => []);
+        tid = (list ?? []).find(o => (o.email ?? '').toLowerCase() === formData.email.toLowerCase())?.id;
+      }
+
       // Asignar plan FE si se eligió (si queda vacío, el negocio no usa FE).
-      if (formData.fePlanId) {
+      if (formData.fePlanId && tid) {
         try {
-          const tenantId = data?.tenant_id ?? data?.tenant?.id;
-          let tid = tenantId;
-          if (!tid) {
-            const list = await apiFetch<any[]>('/admin/owners').catch(() => []);
-            tid = (list ?? []).find(o => (o.email ?? '').toLowerCase() === formData.email.toLowerCase())?.id;
-          }
-          if (tid) await apiFetch(`/admin/tenants/${tid}/fe-plan`, { method: 'PUT', body: JSON.stringify({ fe_plan_id: formData.fePlanId }) });
+          await apiFetch(`/admin/tenants/${tid}/fe-plan`, { method: 'PUT', body: JSON.stringify({ fe_plan_id: formData.fePlanId }) });
         } catch { /* no bloquear la creación por el FE */ }
+      }
+
+      /**
+       * El teléfono queda como número de AVISOS, no como el de la factura.
+       *
+       * El de la factura (`emisor_phone`) tiene que coincidir con lo inscrito
+       * ante Hacienda y se carga en «Datos de FE»; escribirlo acá lo daría por
+       * bueno sin que nadie lo haya verificado. `notify_phone` es el que usan
+       * los avisos de WhatsApp, y es el que faltaba: sin él, cobro, cuota y
+       * errores de facturación se saltaban en silencio.
+       */
+      if (formData.phone.trim() && tid) {
+        try {
+          await apiFetch(`/admin/tenants/${tid}/fe-config`, {
+            method: 'PUT',
+            body: JSON.stringify({ fe: { notify_phone: formData.phone.trim() } }),
+          });
+        } catch { /* el negocio ya quedó creado: el teléfono se puede cargar después */ }
       }
       // El negocio nuevo aparece también como CLIENTE en el POS (para facturarle
       // la suscripción). No bloquea la creación si falla.
       try { await apiFetch('/admin/sync-customers', { method: 'POST' }); } catch { /* ignore */ }
       setSuccess(`✅ Negocio creado — Email: ${formData.email}`);
-      setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '' });
+      setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '', phone: '' });
       setShowForm(false);
       await new Promise(r => setTimeout(r, 800));
       fetchOwners();
@@ -1063,6 +1086,23 @@ export const CreateOwner: React.FC = () => {
                     className={`w-full pl-9 pr-4 py-2 border rounded-xl text-sm focus:outline-none focus:ring-2 ${formErrors.businessName ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-emerald-400'}`} />
                 </div>
                 {formErrors.businessName && <p className="text-red-500 text-xs mt-1">{formErrors.businessName}</p>}
+              </div>
+              {/* Teléfono de AVISOS. Sin él, el negocio no recibe nada por
+                  WhatsApp (cobro, cuota, errores de facturación) y se salta en
+                  silencio. El de la factura va aparte, en «Datos de FE». */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">WhatsApp para avisos</label>
+                <div className="relative">
+                  <Phone size={15} className="absolute left-3 top-2.5 text-gray-400" />
+                  <input type="tel" inputMode="tel" value={formData.phone}
+                    onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                    placeholder="8888 8888"
+                    className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Recibe los avisos de cobro, cuota y errores de facturación.
+                  El teléfono que sale en la factura se configura en «Datos de FE».
+                </p>
               </div>
               {/* Plan */}
               <div>

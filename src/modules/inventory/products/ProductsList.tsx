@@ -502,7 +502,8 @@ export const ProductsList: React.FC = () => {
 
       {/* Filtros rápidos: las preguntas de todos los días. Los que no aplican
           (cero productos) no se muestran, para no ofrecer botones vacíos. */}
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible
+                      [scrollbar-width:none] -mx-1 px-1">
         {([
           { id: 'sin_stock' as const,  label: 'Sin stock',      n: quickCounts.sin_stock,  cls: 'border-red-300 text-red-700 bg-red-50' },
           { id: 'stock_bajo' as const, label: 'Stock bajo',     n: quickCounts.stock_bajo, cls: 'border-amber-300 text-amber-800 bg-amber-50' },
@@ -515,7 +516,7 @@ export const ProductsList: React.FC = () => {
           <button
             key={f.id}
             onClick={() => setQuickFilter(prev => (prev === f.id ? '' : f.id))}
-            className={`px-3 py-1.5 rounded-xl border-2 text-xs font-black transition ${
+            className={`shrink-0 px-3 py-1.5 rounded-xl border-2 text-xs font-black transition ${
               quickFilter === f.id ? 'border-gray-800 bg-gray-800 text-white' : f.cls}`}
           >
             {f.label} · {f.n}

@@ -297,8 +297,8 @@ export const PurchaseDetailModal: React.FC<PurchaseDetailModalProps> = ({ purcha
             {purchaseItems.length === 0 ? (
               <p className="text-gray-500 text-center py-4">Sin productos registrados</p>
             ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="border rounded-lg overflow-x-auto">
+                <table className="w-full min-w-[34rem] text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold text-gray-700">Producto</th>

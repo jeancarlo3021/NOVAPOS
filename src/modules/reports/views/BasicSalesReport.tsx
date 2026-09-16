@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts';
-import { TrendingUp, ShoppingBag, CreditCard, Receipt } from 'lucide-react';
+import { TrendingUp, ShoppingBag, CreditCard, Receipt, Download, FileText } from 'lucide-react';
 import { useReportsData } from '@/hooks/reports/useReportsData';
 
 const fmt = (n: number) =>
@@ -30,10 +30,13 @@ interface Props { tenantId: string | null }
 export const BasicSalesReport: React.FC<Props> = ({ tenantId }) => {
   const week = getLast7();
 
-  const { summary, loading, fetchSummary } = useReportsData(tenantId);
+  const { summary, loading, fetchSummary, invoices, fetchInvoices, exportCSV } = useReportsData(tenantId);
 
   useEffect(() => {
     fetchSummary(week.from, week.to);
+    // El detalle de facturas: los totales dicen CUÁNTO se vendió, pero no
+    // permiten buscar una venta concreta cuando el cliente pregunta por ella.
+    fetchInvoices(week.from, week.to);
   }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const todaySub = summary
@@ -94,6 +97,60 @@ export const BasicSalesReport: React.FC<Props> = ({ tenantId }) => {
           </ResponsiveContainer>
         ) : (
           <p className="text-gray-400 text-center py-12 text-sm">Sin ventas en los últimos 7 días</p>
+        )}
+      </div>
+
+      {/* Facturas del período */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-6 py-4 flex items-center justify-between gap-3 border-b border-gray-100">
+          <h2 className="text-base font-black text-gray-900 flex items-center gap-2">
+            <FileText size={17} className="text-gray-400" />
+            Facturas hechas
+            <span className="text-xs font-bold text-gray-400">últimos 7 días</span>
+          </h2>
+          <button onClick={exportCSV} disabled={invoices.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-bold hover:bg-gray-50 disabled:opacity-40">
+            <Download size={14} /> Excel
+          </button>
+        </div>
+
+        {invoices.length === 0 ? (
+          <p className="text-gray-400 text-center py-10 text-sm">
+            {loading ? 'Cargando…' : 'Sin facturas en los últimos 7 días'}
+          </p>
+        ) : (
+          /* Con scroll propio: un negocio con cientos de ventas no puede empujar
+             el resto del reporte fuera de la pantalla. */
+          <div className="max-h-96 overflow-auto">
+            <table className="w-full min-w-[34rem] text-sm">
+              <thead className="sticky top-0 bg-gray-50">
+                <tr className="text-[11px] font-bold text-gray-500 uppercase">
+                  <th className="text-left px-6 py-2">Factura</th>
+                  <th className="text-left px-3 py-2">Fecha</th>
+                  <th className="text-left px-3 py-2">Cliente</th>
+                  <th className="text-left px-3 py-2">Pago</th>
+                  <th className="text-right px-6 py-2">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map(f => (
+                  <tr key={f.id} className="border-t border-gray-50 hover:bg-gray-50/60">
+                    <td className="px-6 py-2 font-bold text-gray-800">#{f.invoice_number}</td>
+                    <td className="px-3 py-2 text-gray-500">
+                      {new Date(f.issued_at).toLocaleString('es-CR', {
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </td>
+                    <td className="px-3 py-2 text-gray-600 truncate max-w-[14rem]">{f.customer_name || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">
+                      {PAYMENT_LABELS[f.payment_method] ?? f.payment_method}
+                    </td>
+                    <td className="px-6 py-2 text-right font-black text-gray-900">{fmt(f.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

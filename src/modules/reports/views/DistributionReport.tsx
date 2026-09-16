@@ -61,8 +61,8 @@ export const DistributionReport: React.FC<Props> = ({ from, to }) => {
       {/* Por camión */}
       <div>
         <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-2"><Truck size={16} className="text-cyan-600" /> Por camión</h3>
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs">
               <tr>
                 <th className="text-left px-4 py-2 font-bold">Camión</th>
@@ -89,8 +89,8 @@ export const DistributionReport: React.FC<Props> = ({ from, to }) => {
       {/* Por ruta */}
       <div>
         <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-2"><RouteIcon size={16} className="text-cyan-600" /> Por ruta</h3>
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs">
               <tr>
                 <th className="text-left px-4 py-2 font-bold">Fecha</th>

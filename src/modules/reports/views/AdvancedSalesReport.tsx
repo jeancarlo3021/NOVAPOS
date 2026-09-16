@@ -273,7 +273,7 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
               ) : detailError ? (
                 <p className="text-red-600 text-sm text-center py-6">{detailError}</p>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[34rem] text-sm">
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr>
                       <th className="px-3 py-2 text-left text-xs font-bold text-gray-500 uppercase">Producto</th>

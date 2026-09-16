@@ -59,8 +59,8 @@ export const ReceivablesReport: React.FC = () => {
       {/* Saldo por cliente */}
       <div>
         <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-2"><Users size={16} className="text-emerald-600" /> Saldo por cliente</h3>
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs">
               <tr><th className="text-left px-4 py-2 font-bold">Cliente</th><th className="text-right px-4 py-2 font-bold">Cuentas</th><th className="text-right px-4 py-2 font-bold">Saldo</th></tr>
             </thead>
@@ -81,8 +81,8 @@ export const ReceivablesReport: React.FC = () => {
       {/* Detalle */}
       <div>
         <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-2"><HandCoins size={16} className="text-emerald-600" /> Cuentas pendientes</h3>
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs">
               <tr>
                 <th className="text-left px-4 py-2 font-bold">Cliente</th>
