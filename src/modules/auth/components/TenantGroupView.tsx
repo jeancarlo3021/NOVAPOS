@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Building2, Plus, RefreshCw, AlertCircle, CheckCircle2, X, Trash2,
-  Crown, Layers, Wallet, BarChart3, Zap, ChevronDown, ChevronUp, UserPlus,
+  Crown, Layers, Wallet, BarChart3, Zap, ChevronDown, ChevronUp, UserPlus, Copy,
 } from 'lucide-react';
 import {
   tenantGroupsService,
   type TenantGroup, type BranchMember, type GroupBilling, type FePlan, type UserLite,
 } from '@/services/admin/tenantGroupsService';
 import { AddClientModal } from '@/modules/accountant/AddClientModal';
+import { apiFetch } from '@/lib/api';
 
 const fmt = (n: number) => `₡${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
 const fmtDate = (s?: string | null) =>
@@ -28,6 +29,35 @@ export function TenantGroupView() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   /** Grupo activo para modales contextuales (transfer, add-branch, etc.). */
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+
+  /**
+   * Copiar el catálogo de otra sucursal.
+   *
+   * Cada sucursal es un negocio aparte con sus propios productos: una nueva
+   * abría vacía y había que cargarle todo de cero o por Excel.
+   */
+  const [copiarA, setCopiarA] = useState<{ groupId: string; tenantId: string; nombre: string } | null>(null);
+  const [copiarDe, setCopiarDe] = useState('');
+  const [copiando, setCopiando] = useState(false);
+
+  const copiarProductos = async () => {
+    if (!copiarA || !copiarDe) return;
+    setCopiando(true); setError('');
+    try {
+      const r = await apiFetch<{ copiados: number; omitidos: number; motivo?: string }>(
+        `/tenant-groups/${copiarA.groupId}/copy-products`,
+        { method: 'POST', body: JSON.stringify({ from_tenant: copiarDe, to_tenant: copiarA.tenantId }) },
+        60_000,   // un catálogo grande son miles de filas
+      );
+      setSuccess(r.motivo
+        ? r.motivo
+        : `${r.copiados} producto(s) copiados a ${copiarA.nombre}`
+          + (r.omitidos ? ` · ${r.omitidos} ya existían y se dejaron como estaban` : ''));
+      setCopiarA(null); setCopiarDe('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron copiar los productos');
+    } finally { setCopiando(false); }
+  };
 
   const [feCatalog, setFeCatalog] = useState<FePlan[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -383,7 +413,17 @@ export function TenantGroupView() {
                                             {t.status === 'active' ? '● Activa' : '● Suspendida'}
                                           </span>
                                         </td>
-                                        <td className="px-4 py-2 text-center">
+                                        <td className="px-4 py-2 text-center whitespace-nowrap">
+                                          {/* Copiar el catálogo de otra sucursal del grupo */}
+                                          <button
+                                            onClick={() => { setCopiarA({ groupId: g.id, tenantId: t.id, nombre: t.name }); setCopiarDe(''); }}
+                                            disabled={busy || d.members.length < 2}
+                                            title={d.members.length < 2
+                                              ? 'Hace falta otra sucursal en el grupo para copiar desde ahí'
+                                              : 'Copiar los productos de otra sucursal'}
+                                            className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition disabled:opacity-30">
+                                            <Copy size={11} />
+                                          </button>
                                           {m.role !== 'main' && (
                                             <button
                                               onClick={() => handleUnlinkBranch(g.id, t.id, t.name)}
@@ -493,6 +533,55 @@ export function TenantGroupView() {
             flash(true, 'Sucursal agregada');
           }}
         />
+      )}
+
+      {/* Copiar catálogo de otra sucursal del grupo */}
+      {copiarA && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => !copiando && setCopiarA(null)}>
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-5 space-y-3"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-black text-gray-900 flex items-center gap-2">
+                  <Copy size={17} className="text-blue-600" /> Copiar productos
+                </h3>
+                <p className="text-xs text-gray-500">Hacia <b>{copiarA.nombre}</b></p>
+              </div>
+              <button onClick={() => setCopiarA(null)} disabled={copiando}
+                className="text-gray-400 hover:text-gray-700 disabled:opacity-40"><X size={18} /></button>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Desde</label>
+              <select value={copiarDe} onChange={e => setCopiarDe(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border-2 border-gray-200 text-sm bg-white">
+                <option value="">Elegí la sucursal de origen…</option>
+                {(details[copiarA.groupId]?.members ?? [])
+                  .filter(m => m.tenant?.id && m.tenant.id !== copiarA.tenantId)
+                  .map(m => <option key={m.tenant!.id} value={m.tenant!.id}>{m.tenant!.name}</option>)}
+              </select>
+            </div>
+
+            <p className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+              Se copian nombres, precios, códigos, CABYS e impuestos, creando en el destino las
+              categorías y unidades que falten. <b>No se copian las existencias</b>: la sucursal
+              parte sin mercadería. Los productos que ya existan allá no se duplican ni se pisan.
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setCopiarA(null)} disabled={copiando}
+                className="px-4 py-2 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-40">
+                Cancelar
+              </button>
+              <button onClick={() => void copiarProductos()} disabled={copiando || !copiarDe}
+                className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 flex items-center gap-2">
+                {copiando ? <RefreshCw size={15} className="animate-spin" /> : <Copy size={15} />}
+                {copiando ? 'Copiando…' : 'Copiar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

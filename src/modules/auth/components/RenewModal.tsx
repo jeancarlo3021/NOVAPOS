@@ -48,7 +48,7 @@ export interface RenewModalProps {
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
 
-const fmtDate = (s: string | undefined) =>
+const fmtDate = (s: string | null | undefined) =>
   s ? new Date(s + (s.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('es-CR', { dateStyle: 'medium' }) : '—';
 
 /**
@@ -106,7 +106,8 @@ function addDaysFromToday(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-type Mode = 'months' | 'days';
+/** `lifetime` = sin vencimiento: la suscripción queda sin fecha de fin. */
+type Mode = 'months' | 'days' | 'lifetime';
 
 const METHOD_LABEL: Record<string, string> = {
   cash: 'Efectivo',
@@ -134,9 +135,12 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
   // Si el usuario edita el monto manualmente, no lo pisamos al cambiar mode/meses.
   const [amountTouched, setAmountTouched]     = useState(false);
 
-  const newDate = mode === 'months'
-    ? addMonths(desdeCuando(owner.ends_at), months)
-    : addDaysFromToday(days);
+  // Vitalicio: sin fecha. El servidor lo guarda como «sin vencimiento».
+  const newDate = mode === 'lifetime'
+    ? null
+    : mode === 'months'
+      ? addMonths(desdeCuando(owner.ends_at), months)
+      : addDaysFromToday(days);
 
   // Monto sugerido por defecto.
   const suggestedAmount = useMemo(() => {
@@ -294,7 +298,20 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
                 }`}>
                 Por días desde hoy
               </button>
+              <button type="button" onClick={() => setMode('lifetime')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
+                  mode === 'lifetime' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                Sin vencimiento
+              </button>
             </div>
+
+            {mode === 'lifetime' && (
+              <p className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                La cuenta queda <b>sin fecha de vencimiento</b>: no se bloquea ni hay que renovarla.
+                Para volver a ponerle plazo, renovala otra vez por meses o por días.
+              </p>
+            )}
 
             {mode === 'months' ? (
               <>
@@ -336,7 +353,9 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
 
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex justify-between items-center">
             <span className="text-sm font-semibold text-emerald-700">Nueva fecha de vencimiento</span>
-            <span className="text-emerald-700 font-black">{fmtDate(newDate)}</span>
+            <span className="text-emerald-700 font-black">
+              {newDate ? fmtDate(newDate) : '∞ Sin vencimiento'}
+            </span>
           </div>
 
           {owner.plan_price && mode === 'months' && (

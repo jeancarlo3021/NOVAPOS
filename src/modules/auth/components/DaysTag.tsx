@@ -5,7 +5,20 @@ export interface DaysTagProps {
 }
 
 export function DaysTag({ days }: DaysTagProps) {
-  if (days === null) return <span className="text-gray-400 text-xs">Sin fecha</span>;
+  /**
+   * Sin fecha de fin = NO VENCE.
+   *
+   * Es como se representa un plan vitalicio, y el control de acceso lo trata
+   * así. Decir «Sin fecha» parecía un dato faltante y no una decisión.
+   */
+  if (days === null) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full"
+        title="La suscripción no tiene fecha de vencimiento">
+        ∞ Sin vencimiento
+      </span>
+    );
+  }
   if (days < 0)
     return (
       <span className="inline-flex items-center gap-1 text-xs font-black text-red-700 bg-red-100 px-2 py-0.5 rounded-full">

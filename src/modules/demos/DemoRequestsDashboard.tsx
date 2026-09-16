@@ -5,6 +5,7 @@ import {
   MonitorPlay, Phone, MessageCircle, Mail, Trash2, Clock, User, Check, KeyRound, Copy,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { apiFetch } from '@/lib/api';
 import {
   demoRequestsService, type DemoRequest, type DemoStatus,
 } from '@/services/demos/demoRequestsService';
@@ -50,6 +51,26 @@ export const DemoRequestsDashboard: React.FC = () => {
   const [deliver, setDeliver] = useState<DemoRequest | null>(null);
   const [provisioning, setProvisioning] = useState<string | null>(null);
   const [converting, setConverting] = useState<DemoRequest | null>(null);
+  /**
+   * Limpieza de demos vencidas, a mano.
+   *
+   * El borrado automático depende de un trabajo programado en el servidor; si
+   * ese no corre, las demos quedan vivas sin que nada lo avise. Con esto se
+   * puede ejecutar y, sobre todo, VER a cuáles les toca y cuándo.
+   */
+  const [limpiando, setLimpiando] = useState(false);
+  const [limpieza, setLimpieza] = useState<any | null>(null);
+
+  const limpiar = async (simular: boolean) => {
+    setLimpiando(true);
+    try {
+      const r = await apiFetch<any>(`/admin/demos/purge${simular ? '?debug=1' : ''}`, { method: 'POST' }, 28_000);
+      setLimpieza(r);
+      if (!simular && (r.borradas?.length ?? 0) > 0) await load();
+    } catch (e) {
+      setLimpieza({ error: e instanceof Error ? e.message : 'No se pudo revisar' });
+    } finally { setLimpiando(false); }
+  };
 
   /** Crea el negocio de prueba y el usuario: recién ahí las credenciales sirven. */
   const armarDemo = async (r: DemoRequest) => {
@@ -136,11 +157,65 @@ export const DemoRequestsDashboard: React.FC = () => {
           className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50">
           <RefreshCw size={16} className={loading ? 'animate-spin text-gray-400' : 'text-gray-500'} />
         </button>
+        {esGerencia && (
+          <button onClick={() => void limpiar(true)} disabled={limpiando}
+            title="Ver qué demos vencidas se borrarían (no borra nada)"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-600 font-bold text-sm disabled:opacity-50">
+            {limpiando ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />} Vencidas
+          </button>
+        )}
         <button onClick={() => setCreating(true)}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm">
           <Plus size={16} /> Pedir demo
         </button>
       </div>
+
+      {limpieza && (
+        <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3 space-y-2 text-sm">
+          <div className="flex items-start justify-between gap-3">
+            <p className="font-black text-gray-900">
+              {limpieza.error ? 'No se pudo revisar'
+                : limpieza.simulacion ? 'Revisión de demos vencidas (no se borró nada)'
+                : `${limpieza.borradas?.length ?? 0} demo(s) borradas`}
+            </p>
+            <button onClick={() => setLimpieza(null)} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
+          </div>
+
+          {limpieza.error && <p className="text-red-600 font-bold">{limpieza.error}</p>}
+
+          {!limpieza.error && (
+            <>
+              {(limpieza.borradas?.length ?? 0) > 0 && (
+                <p className="text-amber-700">
+                  {limpieza.simulacion ? 'Se borrarían: ' : 'Borradas: '}
+                  <b>{limpieza.borradas.join(', ')}</b>
+                </p>
+              )}
+              {(limpieza.pendientes?.length ?? 0) > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-gray-500 uppercase">Todavía vigentes</p>
+                  <div className="mt-1 space-y-0.5 max-h-40 overflow-y-auto">
+                    {limpieza.pendientes.map((p: any, i: number) => (
+                      <p key={i} className="text-xs text-gray-600">
+                        {p.demo} {p.negocio ? `· ${p.negocio}` : ''} → se borra el <b>{p.borra_el}</b>
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(limpieza.borradas?.length ?? 0) === 0 && (limpieza.pendientes?.length ?? 0) === 0 && (
+                <p className="text-gray-500">No hay demos sin convertir para revisar.</p>
+              )}
+              {limpieza.simulacion && (limpieza.borradas?.length ?? 0) > 0 && (
+                <button onClick={() => void limpiar(false)} disabled={limpiando}
+                  className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-black disabled:opacity-50">
+                  Borrarlas ahora
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {!esGerencia && (
         <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-2 text-xs font-bold text-sky-800">
