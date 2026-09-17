@@ -208,14 +208,38 @@ export interface ReceiptConfig {
 
 export type { PrinterEntry };
 
-// Paper width in mm for each character-width setting
-const PAPER_WIDTH_MM: Record<number, string> = {
-  32: '58mm',
-  40: '72mm',
-  48: '80mm',
-  56: '80mm',
-  80: '80mm',
-};
+/**
+ * Ancho del ticket.
+ *
+ * `paperWidth` guarda CARACTERES POR LÍNEA (32 = papel de 58mm, 48 = papel de
+ * 80mm), no milímetros. El valor por defecto era 80 y había configuraciones
+ * guardadas con 56 u 80: una térmica de 80mm imprime 48 caracteres, así que esas
+ * líneas de 80 se partían y los montos quedaban desalineados. Cualquier negocio
+ * que nunca guardó la personalización del ticket (una actividad recién creada,
+ * por ejemplo) salía así.
+ */
+export function anchoEnCaracteres(paperWidth: unknown): 32 | 40 | 48 {
+  const n = Number(paperWidth);
+  if (!Number.isFinite(n) || n <= 0) return 48;
+  if (n <= 32) return 32;
+  if (n <= 40) return 40;
+  return 48;
+}
+
+/** Ancho del ROLLO: es el tamaño de página que se le pide a la impresora. */
+const PAPEL_MM: Record<number, string> = { 32: '58mm', 40: '72mm', 48: '80mm' };
+
+/**
+ * Ancho que la impresora REALMENTE imprime.
+ *
+ * Un rollo de 80mm imprime unos 72mm: el cabezal no llega a los bordes. Maquetar
+ * el ticket a 80mm dejaba la columna de precios y los totales cortados a la
+ * derecha al imprimir por el navegador. Lo mismo con 58mm, que imprime ~48mm.
+ */
+const IMPRIMIBLE_MM: Record<number, string> = { 32: '48mm', 40: '64mm', 48: '72mm' };
+
+const papelMM = (cfg: { paperWidth?: unknown }) => PAPEL_MM[anchoEnCaracteres(cfg.paperWidth)];
+const imprimibleMM = (cfg: { paperWidth?: unknown }) => IMPRIMIBLE_MM[anchoEnCaracteres(cfg.paperWidth)];
 
 export class POSPrinterService {
   // Los campos se inicializan en el constructor, no como campos de clase: con el
@@ -238,10 +262,20 @@ export class POSPrinterService {
 
   private localPrinterKey(tenantId: string) { return `printer_local_${tenantId}`; }
 
-  /** Config de impresora guardada localmente (por dispositivo). */
+  /**
+   * Config de impresora guardada localmente (por dispositivo).
+   *
+   * Si este negocio todavía no tiene una en el equipo, se usa la última que se
+   * configuró acá. La impresora es del EQUIPO: al cambiar a otra sucursal o a
+   * otra actividad en la misma caja, sigue siendo la misma. Antes quedaba sin
+   * impresora —navegador y sin autoimpresión— y el ticket no salía.
+   */
   getLocalPrinterConfig(tenantId: string): Partial<ReceiptConfig> {
-    try { return JSON.parse(localStorage.getItem(this.localPrinterKey(tenantId)) || '{}'); }
-    catch { return {}; }
+    try {
+      const propia = localStorage.getItem(this.localPrinterKey(tenantId));
+      if (propia) return JSON.parse(propia);
+      return JSON.parse(localStorage.getItem('printer_local_last') || '{}');
+    } catch { return {}; }
   }
 
   /** Guarda SOLO los campos de impresora en localStorage (por dispositivo). */
@@ -250,14 +284,20 @@ export class POSPrinterService {
     for (const k of POSPrinterService.LOCAL_PRINTER_FIELDS) {
       if (cfg[k] !== undefined) local[k] = cfg[k];
     }
-    try { localStorage.setItem(this.localPrinterKey(tenantId), JSON.stringify(local)); } catch {}
+    try {
+      localStorage.setItem(this.localPrinterKey(tenantId), JSON.stringify(local));
+      localStorage.setItem('printer_local_last', JSON.stringify(local));
+    } catch {}
     // Invalidar cache en memoria para que la próxima impresión tome lo nuevo.
     this.clearConfigCache();
   }
 
   /** Sobrepone la config de impresora LOCAL sobre la del tenant. */
   private applyLocalPrinter(cfg: ReceiptConfig, tenantId: string): ReceiptConfig {
-    return { ...cfg, ...this.getLocalPrinterConfig(tenantId) };
+    const merged: ReceiptConfig = { ...cfg, ...this.getLocalPrinterConfig(tenantId) };
+    // Anchos viejos (56, 80) o sin guardar → el que realmente cabe en el papel.
+    if ((merged.paperWidth as any) !== 'a4') merged.paperWidth = anchoEnCaracteres(merged.paperWidth);
+    return merged;
   }
 
   /** Devuelve la config SIN los campos de impresora (para guardar en el tenant). */
@@ -314,7 +354,7 @@ export class POSPrinterService {
 
   getDefaultConfig(): ReceiptConfig {
     return {
-      paperWidth: 80,
+      paperWidth: 48,   // 80mm (48 caracteres por línea)
       showLogo: false,
       showCommercialName: false,
       showStoreName: true,
@@ -930,7 +970,7 @@ export class POSPrinterService {
   /** Imprime un documento genérico (comprobantes de CxC, históricos, listas). */
   async printDoc(lines: Array<{ t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string }>, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
-    const w = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
+    const w = anchoEnCaracteres(cfg.paperWidth);
     const cmds: number[] = [];
     const push = (...b: number[]) => cmds.push(...b);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
@@ -972,7 +1012,7 @@ export class POSPrinterService {
   }
 
   private generateRouteCloseESCPOS(summary: any, cfg: ReceiptConfig): Uint8Array {
-    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
+    const charWidth = anchoEnCaracteres(cfg.paperWidth);
     const cmds: number[] = [];
     const push = (...b: number[]) => cmds.push(...b);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
@@ -1041,7 +1081,7 @@ export class POSPrinterService {
 
   // ESC/POS raw para el cierre de caja — mismo motor que el ticket de venta.
   private generateCashCloseESCPOS(report: any, cfg: ReceiptConfig, general?: any): Uint8Array {
-    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
+    const charWidth = anchoEnCaracteres(cfg.paperWidth);
     const cmds: number[] = [];
     const push = (...bytes: number[]) => cmds.push(...bytes);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
@@ -1208,7 +1248,8 @@ export class POSPrinterService {
   private generateCashCloseHTML(report: any, cfg: ReceiptConfig, general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
     const fmtDateTime = (s: string) => fmtCRDateTime(s, s);
-    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm';
+    const widthMM = papelMM(cfg);
+    const areaMM = imprimibleMM(cfg);
 
     const storeName = general?.businessName || 'CIERRE DE CAJA';
     const diffColor = report.difference === 0 ? '#000' : report.difference > 0 ? '#16a34a' : '#dc2626';
@@ -1242,8 +1283,8 @@ export class POSPrinterService {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     body { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.7;
-      color: #000; background: #fff; width: ${widthMM}; font-weight: 700; }
-    .receipt { width: 100%; padding: 3mm 3mm 6mm; }
+      color: #000; background: #fff; width: ${areaMM}; margin: 0 auto; font-weight: 700; }
+    .receipt { width: 100%; padding: 3mm 1mm 6mm; }
     .title { font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 2px;
       padding: 4px 0; margin-bottom: 6px; border-top: 4px solid #000; border-bottom: 4px solid #000; }
     .store-name { font-size: 14px; font-weight: 900; text-align: center; margin-bottom: 6px; }
@@ -1412,7 +1453,8 @@ export class POSPrinterService {
   }, cfg: ReceiptConfig, _general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
     const fmtDate = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('es-CR', { dateStyle: 'short' });
-    const widthMM = PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm';
+    const widthMM = papelMM(cfg);
+    const areaMM = imprimibleMM(cfg);
 
     const rows = order.items.map(i => `
       <tr>
@@ -1441,10 +1483,10 @@ export class POSPrinterService {
       line-height: 1.7;
       color: #000;
       background: #fff;
-      width: ${widthMM};
+      width: ${areaMM};   /* lo que imprime el cabezal, no el ancho del rollo */
       font-weight: 700;
     }
-    .receipt { width: 100%; padding: 3mm 3mm 6mm; }
+    .receipt { width: 100%; padding: 3mm 1mm 6mm; }
     .center { text-align: center; }
     .bold { font-weight: 900; }
     .divider { border: none; border-top: 3px solid #000; margin: 4px 0; }
@@ -1576,7 +1618,7 @@ export class POSPrinterService {
     total_amount: number;
     notes?: string | null;
   }, cfg: ReceiptConfig, general?: any): Uint8Array {
-    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
+    const charWidth = anchoEnCaracteres(cfg.paperWidth);
     const cmds: number[] = [];
     const push = (...bytes: number[]) => cmds.push(...bytes);
     const text = (s: string) => { for (const b of encodeCP437(s)) cmds.push(b); };
@@ -1955,7 +1997,8 @@ export class POSPrinterService {
   generateHTML(receiptData: ReceiptData, cfg: ReceiptConfig): string {
     const isA4 = (cfg.paperWidth as any) === 'a4';
     if (isA4) return this.generateA4HTML(receiptData, cfg);
-    const widthMM = (PAPER_WIDTH_MM[cfg.paperWidth as number] ?? '80mm');
+    const widthMM = papelMM(cfg);
+    const areaMM = imprimibleMM(cfg);
 
     const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -2052,14 +2095,14 @@ export class POSPrinterService {
       line-height: 1.7;
       color: #000;
       background: #fff;
-      width: ${widthMM};
+      width: ${areaMM};   /* lo que imprime el cabezal, no el ancho del rollo */
       max-width: 100%;
       margin: 0 auto;   /* centrado: evita que se corra a la derecha en papel más ancho */
       font-weight: 700;
     }
     .receipt {
       width: 100%;
-      padding: 3mm 3mm 6mm;
+      padding: 3mm 1mm 6mm;
     }
     /* Nada se parte a la mitad entre páginas: ni una línea de producto ni el total. */
     tr, .total-line, .payment-block, .store-block, .footer, .section-label {
@@ -2270,7 +2313,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
   // ─── ESC/POS commands ─────────────────────────────────────────────────────────
 
   private generateESCPOS(receiptData: ReceiptData, cfg: ReceiptConfig): Uint8Array {
-    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
+    const charWidth = anchoEnCaracteres(cfg.paperWidth);
     const cmds: number[] = [];
 
     const push = (...bytes: number[]) => cmds.push(...bytes);
@@ -2529,7 +2572,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     const t = summary.totals;
     if (!t) throw new Error('No hubo cierres de caja hoy.');
 
-    const charWidth = (typeof cfg.paperWidth === 'number' ? cfg.paperWidth : 48);
+    const charWidth = anchoEnCaracteres(cfg.paperWidth);
     const cmds: number[] = [];
     const push = (...b2: number[]) => cmds.push(...b2);
     const text = (str: string) => push(...encodeCP437(str));

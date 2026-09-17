@@ -6,6 +6,7 @@ import { getAllProducts, createProduct } from '@/services/Inventory/InventoryPro
 import { proformasService } from '@/services/proformas/proformasService';
 import type { Product } from '@/types/Types_POS';
 import { haciendaService } from '@/services/hacienda/haciendaService';
+import { calcularVenta, type DescuentoGeneral } from '@/utils/descuentosVenta';
 
 /**
  * Medios de pago, con el código que Hacienda espera en el XML.
@@ -43,6 +44,8 @@ interface Line {
   iva_rate: number;
   cabys_code?: string;
   unit?: string;
+  /** Descuento de la línea (%). */
+  discount_percent?: number;
 }
 
 // Una FACTURA electrónica (01) exige receptor con datos fiscales completos:
@@ -80,6 +83,8 @@ export const FeposMain: React.FC = () => {
    * en el nombre de un producto, que además viaja al XML de Hacienda.
    */
   const [notes, setNotes] = useState('');
+  // Descuento general de la venta: porcentaje o monto en colones.
+  const [descGeneral, setDescGeneral] = useState<DescuentoGeneral>({ tipo: 'pct', valor: 0 });
   const [showSearch, setShowSearch] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [emitting, setEmitting] = useState(false);
@@ -106,7 +111,13 @@ export const FeposMain: React.FC = () => {
         product_id: it.product_id ?? undefined, name: it.name, sku: it.sku ?? undefined,
         quantity: it.quantity, unit_price: it.unit_price, iva_rate: Number(it.iva_rate ?? 13),
         cabys_code: it.cabys ?? undefined, unit: it.unit ?? undefined,
+        // Los descuentos de la proforma se mantienen: el total tiene que ser el cotizado.
+        discount_percent: Number(it.discount_percent ?? 0) || undefined,
       })));
+      // General: porcentaje si lo tiene; si no, el monto que rebajó.
+      setDescGeneral(Number(pf.discount_percent) > 0
+        ? { tipo: 'pct', valor: Number(pf.discount_percent) }
+        : { tipo: 'monto', valor: 0 });
       proformaToConvert.current = pf.id;
       setMsg({ ok: true, text: `Proforma ${pf.number} cargada — emití para convertirla en venta` });
     }).catch(() => setMsg({ ok: false, text: 'No se pudo cargar la proforma' }));
@@ -137,9 +148,22 @@ export const FeposMain: React.FC = () => {
     setLines(prev => prev.map((l, i) => i === idx ? { ...l, ...patch } : l));
   const removeLine = (idx: number) => setLines(prev => prev.filter((_, i) => i !== idx));
 
-  const subtotal = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0);
-  const iva = lines.reduce((s, l) => s + l.quantity * l.unit_price * (l.iva_rate / 100), 0);
-  const total = subtotal + iva;
+  const venta = useMemo(() => calcularVenta(lines, descGeneral), [lines, descGeneral]);
+  const { subtotal, iva, total } = venta;
+
+  /**
+   * Líneas tal como van al servidor: con su NETO ya descontado. El comprobante
+   * declara ese neto (precio efectivo), así que lo que se cobra y lo que ve
+   * Hacienda son la misma cifra.
+   */
+  const lineasParaEnviar = () => lines.map((l, i) => ({
+    product_id: l.product_id, name: l.name, sku: l.sku,
+    quantity: l.quantity, unit_price: l.unit_price, iva_rate: l.iva_rate,
+    cabys_code: l.cabys_code, unit: l.unit,
+    discount_percent: l.discount_percent ?? 0,
+    discount_amount: venta.descuentos[i],
+    subtotal: venta.netos[i],
+  }));
 
   // Con FE activa el selector solo ofrece electrónicos.
   useEffect(() => {
@@ -161,7 +185,13 @@ export const FeposMain: React.FC = () => {
           product_id: l.product_id ?? null, name: l.name, sku: l.sku ?? null,
           quantity: l.quantity, unit_price: l.unit_price, iva_rate: l.iva_rate,
           cabys: l.cabys_code ?? null, unit: l.unit ?? null,
+          discount_percent: l.discount_percent ?? 0,
         })),
+        // La proforma guarda el general como porcentaje. Un monto fijo se pasa a
+        // su porcentaje equivalente para que el total cotizado sea el mismo.
+        discount_percent: descGeneral.tipo === 'pct'
+          ? descGeneral.valor
+          : (venta.netoLineas > 0 ? Math.round((venta.descuentoGeneral / venta.netoLineas) * 10000) / 100 : 0),
       });
       setMsg({ ok: true, text: `Proforma ${pf.number} guardada ✓` });
     } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo guardar la proforma' }); }
@@ -189,11 +219,7 @@ export const FeposMain: React.FC = () => {
         session_id: currentSession?.id ?? null,
         notes: notes.trim() || undefined,
         customer: customer ?? undefined,
-        lines: lines.map(l => ({
-          product_id: l.product_id, name: l.name, sku: l.sku,
-          quantity: l.quantity, unit_price: l.unit_price, iva_rate: l.iva_rate,
-          cabys_code: l.cabys_code, unit: l.unit,
-        })),
+        lines: lineasParaEnviar(),
       });
       // Lo que de verdad se quiere ver es el TIQUETE: cómo sale en papel, con los
       // productos, los totales y el consecutivo. Se imprime siempre, marcado como
@@ -207,10 +233,10 @@ export const FeposMain: React.FC = () => {
           time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
           customerName: customer?.name ?? undefined,
           customerEmail: (customer as any)?.email ?? undefined,
-          items: lines.map(l => ({
+          items: lines.map((l, i) => ({
             name: l.name, quantity: l.quantity,
             unitPrice: l.unit_price,
-            subtotal: Math.round(l.quantity * l.unit_price * 100) / 100,
+            subtotal: venta.netos[i],
           })),
           subtotal: res.totales?.subtotal ?? 0,
           tax: res.totales?.iva ?? 0,
@@ -261,11 +287,7 @@ export const FeposMain: React.FC = () => {
         session_id: currentSession?.id ?? null,
         notes: notes.trim() || undefined,
         customer: customer ?? undefined,
-        lines: lines.map(l => ({
-          product_id: l.product_id, name: l.name, sku: l.sku,
-          quantity: l.quantity, unit_price: l.unit_price, iva_rate: l.iva_rate,
-          cabys_code: l.cabys_code, unit: l.unit,
-        })),
+        lines: lineasParaEnviar(),
       });
       const tipo = res.tipo === '01' ? 'Factura' : 'Tiquete';
       setMsg({ ok: true, text: `${tipo} ${res.invoice_number} emitido ✓${res.consecutivo ? ` · ${res.consecutivo}` : ''}` });
@@ -275,6 +297,7 @@ export const FeposMain: React.FC = () => {
       }
       setLines([]); setCustomer(null); setDocumentType('tiquete_electronico'); setCartOpen(false);
       setNotes('');
+      setDescGeneral({ tipo: 'pct', valor: 0 });
       haciendaService.quota().then(setQuota).catch(() => {});   // refrescar contador
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo emitir' });
@@ -377,7 +400,7 @@ export const FeposMain: React.FC = () => {
                 <p className="font-bold text-sm text-gray-900 truncate">{l.name}</p>
                 <button onClick={() => removeLine(idx)} className="text-red-500 shrink-0"><Trash2 size={15} /></button>
               </div>
-              <div className="grid grid-cols-3 gap-2 mt-2">
+              <div className="grid grid-cols-4 gap-2 mt-2">
                 <div>
                   <label className="block text-[10px] font-bold text-gray-400 uppercase">Cant.</label>
                   <input type="number" inputMode="decimal" value={l.quantity}
@@ -397,10 +420,25 @@ export const FeposMain: React.FC = () => {
                     {IVA_OPTIONS.map(o => <option key={o} value={o}>{o}%</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase">Desc. %</label>
+                  <input type="number" inputMode="decimal" min={0} max={100}
+                    value={l.discount_percent ?? ''} placeholder="0"
+                    onChange={e => {
+                      const v = parseFloat(e.target.value);
+                      setLine(idx, { discount_percent: Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : undefined });
+                    }}
+                    className={`w-full border rounded-lg px-2 py-1.5 text-sm text-right ${
+                      (l.discount_percent ?? 0) > 0 ? 'border-emerald-300 bg-emerald-50 text-emerald-800 font-bold' : 'border-gray-200'
+                    }`} />
+                </div>
               </div>
               <div className="text-right text-xs text-gray-500 mt-1">
                 {!l.cabys_code && <span className="text-amber-600 mr-2">⚠ sin CABYS</span>}
-                Subtotal: <b>{fmt(l.quantity * l.unit_price)}</b>
+                {venta.descuentos[idx] > 0 && (
+                  <span className="line-through text-gray-400 mr-1.5">{fmt(l.quantity * l.unit_price)}</span>
+                )}
+                Subtotal: <b>{fmt(venta.netos[idx])}</b>
               </div>
             </div>
           ))}
@@ -408,7 +446,33 @@ export const FeposMain: React.FC = () => {
 
         {/* Totales + pago + emitir */}
         <div className="p-3 border-t border-gray-100 space-y-2">
-          <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
+          {/* Descuento general: porcentaje o monto, sobre lo que queda después de los de línea. */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500 flex-1">Descuento general</span>
+            <div className="flex rounded-lg bg-gray-100 p-0.5">
+              {(['pct', 'monto'] as const).map(t => (
+                <button key={t} type="button" onClick={() => setDescGeneral({ tipo: t, valor: 0 })}
+                  className={`px-2 py-0.5 rounded-md text-xs font-bold ${descGeneral.tipo === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+                  {t === 'pct' ? '%' : '₡'}
+                </button>
+              ))}
+            </div>
+            <input type="number" inputMode="decimal" min={0} max={descGeneral.tipo === 'pct' ? 100 : undefined}
+              value={descGeneral.valor || ''} placeholder="0"
+              onChange={e => {
+                const v = Math.max(0, parseFloat(e.target.value) || 0);
+                setDescGeneral(d => ({ ...d, valor: d.tipo === 'pct' ? Math.min(100, v) : v }));
+              }}
+              className="w-24 border border-gray-200 rounded-lg px-2 py-1 text-sm text-right" />
+          </div>
+          {venta.descuento > 0 ? (
+            <>
+              <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(venta.bruto)}</span></div>
+              <div className="flex justify-between text-sm font-bold text-emerald-700"><span>Descuentos</span><span>−{fmt(venta.descuento)}</span></div>
+            </>
+          ) : (
+            <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
+          )}
           <div className="flex justify-between text-sm text-gray-500"><span>IVA</span><span>{fmt(iva)}</span></div>
           <div className="flex justify-between text-lg font-black text-gray-900"><span>Total</span><span>{fmt(total)}</span></div>
           <div className="grid grid-cols-4 gap-1.5">
