@@ -160,15 +160,31 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 }) => {
   const crc = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
   const creditExceeds = total > creditAvailable;
-  const enabled = (id: string) => !enabledMethods || enabledMethods.includes(id);
+  // Sin lista configurada, los de siempre. No «todos»: activarlos es una decisión
+  // del negocio, no algo que deba pasar por no haber configurado nada.
+  const PREDETERMINADOS = ['cash', 'card', 'sinpe', 'credit', 'mixed'];
+  const enabled = (id: string) => (enabledMethods ?? PREDETERMINADOS).includes(id);
   const mixedAllowed = enabled('mixed');
-  const filtered = METHODS.filter(m => {
+  const filtered = METHODS.filter((entry) => {
+    const m: { id: PayMethodId } = entry;
     // Crédito: NO depende de la lista `paymentMethods` (es la feature de Cuentas
     // por Cobrar). Aparece con el plan AR (allowCredit); si falta el cliente
     // registrado se muestra igual pero avisa qué hacer (creditNeedsCustomer).
     if (m.id === 'credit') return allowCredit;
-    return enabled(m.id) &&
-      (m.id === 'cash' || (m.id === 'card' && allowCard) || (m.id === 'sinpe' && allowSinpe));
+    // Efectivo siempre: es el respaldo con el que la caja nunca queda sin cobrar.
+    if (m.id === 'cash') return true;
+    // Tarjeta y SINPE, además de estar activados, dependen del plan.
+    if (m.id === 'card') return enabled('card') && allowCard;
+    if (m.id === 'sinpe') return enabled('sinpe') && allowSinpe;
+    /**
+     * Cheque, transferencia, recaudado por terceros, plataforma digital y otros.
+     *
+     * Se podían activar en Configuración → Pagos, pero este filtro solo dejaba
+     * pasar efectivo, tarjeta y SINPE: se marcaban y nunca aparecían en la caja.
+     * Hacienda los reconoce (03, 04, 05, 07 y 99) y el cierre de caja ya los
+     * agrupa, así que basta con respetar lo configurado.
+     */
+    return enabled(m.id);
   });
   // Nunca dejar el modal sin opciones: si la config dejó todo fuera, cae a efectivo.
   const availableMethods = filtered.length > 0 ? filtered : METHODS.filter(m => m.id === 'cash');
