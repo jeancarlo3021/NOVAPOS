@@ -68,8 +68,10 @@ export const usersService = {
   },
 
   /** Tiendas que maneja el usuario actual (para elegir al crear otro). */
-  async managedTenants(): Promise<Array<{ id: string; name: string }>> {
-    return apiFetch('/users/managed-tenants');
+  async managedTenants(base?: string | null): Promise<Array<{ id: string; name: string }>> {
+    // `base`: negocio donde se crea el usuario. Define qué tiendas se ofrecen:
+    // a un cliente de la cartera de un contador, solo las suyas.
+    return apiFetch(`/users/managed-tenants${base ? `?base=${encodeURIComponent(base)}` : ''}`);
   },
 
   async deleteUser(userId: string): Promise<void> {

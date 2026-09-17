@@ -70,12 +70,13 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
           const sel = new Set(lista.filter(t => t.acceso).map(t => t.tenant_id));
           setTiendas(lista); setTiendasSel(sel); setTiendasIniciales(new Set(sel));
         } else {
-          const lista = await usersService.managedTenants();
+          const lista = await usersService.managedTenants(targetTenantId || tenantId);
           setTiendas((lista ?? []).map(t => ({ tenant_id: t.id, name: t.name, acceso: false, actual: false })));
         }
       } catch { /* sin permiso o sin grupo: la sección no se muestra */ }
     })();
-  }, [isOpen, user]);
+    // Al crear, cambia con la sucursal destino: cada cliente tiene sus propias tiendas.
+  }, [isOpen, user, targetTenantId, tenantId]);
 
   // Cargar tenants accesibles al abrir el modal (solo en modo crear).
   // Necesitamos el array para derivar `canPickTenant` (busca role='owner').
