@@ -6,7 +6,7 @@ import { getAllProducts, createProduct } from '@/services/Inventory/InventoryPro
 import { proformasService } from '@/services/proformas/proformasService';
 import type { Product } from '@/types/Types_POS';
 import { haciendaService } from '@/services/hacienda/haciendaService';
-import { calcularVenta, type DescuentoGeneral } from '@/utils/descuentosVenta';
+import { calcularVenta, netosDeProforma, type DescuentoGeneral } from '@/utils/descuentosVenta';
 import { etiquetaMedioPago } from '@/utils/mediosDePago';
 
 /**
@@ -108,17 +108,20 @@ export const FeposMain: React.FC = () => {
     searchParams.delete('proforma'); setSearchParams(searchParams, { replace: true });
     proformasService.get(pid).then(pf => {
       if (pf.status !== 'open') { setMsg({ ok: false, text: `La proforma ${pf.number} ya está ${pf.status === 'converted' ? 'convertida' : 'anulada'}` }); return; }
-      setLines(pf.items.map(it => ({
+      /**
+       * Los descuentos de la proforma se mantienen: el total tiene que ser el
+       * cotizado. Se traen ya combinados como el porcentaje efectivo de cada
+       * línea (el de la línea más su parte del general), así el carrito da el
+       * mismo total sin volver a aplicar nada por encima.
+       */
+      const { porcentajes } = netosDeProforma(pf.items, pf.discount_percent, pf.subtotal);
+      setLines(pf.items.map((it, i) => ({
         product_id: it.product_id ?? undefined, name: it.name, sku: it.sku ?? undefined,
         quantity: it.quantity, unit_price: it.unit_price, iva_rate: Number(it.iva_rate ?? 13),
         cabys_code: it.cabys ?? undefined, unit: it.unit ?? undefined,
-        // Los descuentos de la proforma se mantienen: el total tiene que ser el cotizado.
-        discount_percent: Number(it.discount_percent ?? 0) || undefined,
+        discount_percent: porcentajes[i] || undefined,
       })));
-      // General: porcentaje si lo tiene; si no, el monto que rebajó.
-      setDescGeneral(Number(pf.discount_percent) > 0
-        ? { tipo: 'pct', valor: Number(pf.discount_percent) }
-        : { tipo: 'monto', valor: 0 });
+      setDescGeneral({ tipo: 'pct', valor: 0 });
       proformaToConvert.current = pf.id;
       setMsg({ ok: true, text: `Proforma ${pf.number} cargada — emití para convertirla en venta` });
     }).catch(() => setMsg({ ok: false, text: 'No se pudo cargar la proforma' }));

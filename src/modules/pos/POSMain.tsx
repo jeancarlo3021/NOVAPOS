@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { netosDeProforma } from '@/utils/descuentosVenta';
 import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { WindowQueueModal, useWindowQueue } from '@/modules/window/WindowQueueModal';
@@ -116,38 +117,15 @@ export const POSMain = () => {
        * Los dos se combinan en el descuento efectivo de la línea, que es lo que
        * el POS usa para el IVA y lo que después declara el comprobante. Aplicar
        * el general aparte, al final, dejaría el detalle sin cuadrar con el total.
+       * El cálculo está en `netosDeProforma` —el mismo que usa el POS electrónico—
+       * y ahí se explica por qué `discount_amount` del documento NO se usa.
        */
-      /**
-       * Se repite EL MISMO cálculo que hace el servidor al guardar la proforma.
-       *
-       * No alcanza con el porcentaje: el descuento puede venir en plata, tanto
-       * por línea como en el general del documento. Aproximarlo con porcentajes
-       * haría que la caja cobre distinto de lo que dice la cotización, que es
-       * justo el problema que se está corrigiendo.
-       */
-      const pct = (n: any) => Math.min(100, Math.max(0, Number(n) || 0));
-      const monto = (n: any) => Math.max(0, Number(n) || 0);
-
-      // 1) Descuento de cada línea (porcentaje o plata), nunca mayor que la línea.
-      const netas = pf.items.map(it => {
-        const bruto = it.quantity * it.unit_price;
-        const p = pct(it.discount_percent);
-        const a = monto(it.discount_amount);
-        const desc = Math.min(bruto, p > 0 ? bruto * (p / 100) : a);
-        return { bruto, neto: bruto - desc };
-      });
-
-      // 2) Descuento general sobre lo que quedó, repartido en proporción.
-      const netoLineas = netas.reduce((t, l) => t + l.neto, 0);
-      const gPct = pct(pf.discount_percent);
-      const gAmt = monto(pf.discount_amount);
-      const descGeneral = Math.min(netoLineas, gPct > 0 ? netoLineas * (gPct / 100) : gAmt);
-      const factor = netoLineas > 0 ? (netoLineas - descGeneral) / netoLineas : 1;
+      const { netos, brutos, porcentajes } = netosDeProforma(
+        pf.items, pf.discount_percent, pf.subtotal);
 
       const cart = pf.items.map((it, i) => {
         const prod = products.find(p => p.id === it.product_id) ?? ({ id: it.product_id ?? '', name: it.name, unit_price: it.unit_price, stock_quantity: 0, tenant_id: tenantId ?? '' } as any);
-        const { bruto, neto } = netas[i];
-        const subtotal = Math.round(neto * factor * 100) / 100;
+        const subtotal = netos[i];
         return {
           product_id: (it.product_id ?? prod.id) as string,
           product_name: it.name,
@@ -155,15 +133,14 @@ export const POSMain = () => {
           unit_price: it.unit_price,
           quantity: it.quantity,
           // El descuento efectivo de la línea, para que se vea en el carrito.
-          discount_percent: bruto > 0 ? Math.round((1 - subtotal / bruto) * 10000) / 100 : 0,
+          discount_percent: porcentajes[i],
           subtotal,
         };
       });
       setCartItems(cart);
       if (pf.customer_name) setTabCustomerName(pf.customer_name);
       proformaToConvert.current = pf.id;
-      const ahorro = pf.items.reduce((t, it) => t + it.quantity * it.unit_price, 0)
-        - cart.reduce((t, it) => t + it.subtotal, 0);
+      const ahorro = brutos.reduce((t, b) => t + b, 0) - cart.reduce((t, it) => t + it.subtotal, 0);
       setSuccess(`Proforma ${pf.number} cargada`
         + (ahorro > 0.5 ? ` · con ₡${Math.round(ahorro).toLocaleString('es-CR')} de descuento` : '')
         + ' — completá el cobro para convertirla en venta');

@@ -58,3 +58,50 @@ export function calcularVenta(lineas: LineaConDescuento[], general: DescuentoGen
     total: r2(subtotal + iva),
   };
 }
+
+/**
+ * Descuentos de una PROFORMA llevados al carrito.
+ *
+ * Ojo con lo guardado: `discount_percent` de la proforma es el descuento general
+ * del documento, pero `discount_amount` es el descuento TOTAL —ya incluye el de
+ * cada línea—. Usarlo como general lo aplica dos veces y termina rebajando
+ * TODAS las líneas, aunque el descuento fuera de un solo producto.
+ *
+ * Devuelve el neto de cada línea (con su descuento y su parte del general) y el
+ * descuento efectivo de cada una, para mostrarlo en el carrito. Si la cuenta no
+ * da el total cotizado —una proforma vieja con el general en plata, que no quedó
+ * guardado como tal— se ajusta en proporción: al cliente se le cobra lo que dice
+ * su cotización.
+ */
+export function netosDeProforma(
+  items: Array<{ quantity: number; unit_price: number; discount_percent?: number | null; discount_amount?: number | null }>,
+  generalPct: number | null | undefined,
+  baseCotizada?: number | null,
+) {
+  const pct = (n: any) => Math.min(100, Math.max(0, Number(n) || 0));
+  const monto = (n: any) => Math.max(0, Number(n) || 0);
+
+  const brutos = items.map(it => (Number(it.quantity) || 0) * (Number(it.unit_price) || 0));
+  const trasLinea = items.map((it, i) => {
+    const p = pct(it.discount_percent);
+    const a = monto(it.discount_amount);
+    return brutos[i] - Math.min(brutos[i], p > 0 ? brutos[i] * (p / 100) : a);
+  });
+
+  const netoLineas = trasLinea.reduce((t, n) => t + n, 0);
+  const g = pct(generalPct);
+  let factor = netoLineas > 0 ? (netoLineas - netoLineas * (g / 100)) / netoLineas : 1;
+
+  const base = Number(baseCotizada ?? 0);
+  const calculada = netoLineas * factor;
+  if (base > 0 && calculada > 0 && Math.abs(calculada - base) > 0.5) factor = factor * (base / calculada);
+
+  const netos = trasLinea.map(n => r2(n * factor));
+  return {
+    netos,
+    brutos: brutos.map(r2),
+    /** Descuento efectivo de cada línea, en %, para mostrarlo en el carrito. */
+    porcentajes: netos.map((n, i) => (brutos[i] > 0 ? Math.round((1 - n / brutos[i]) * 10000) / 100 : 0)),
+    subtotal: r2(netos.reduce((t, n) => t + n, 0)),
+  };
+}
