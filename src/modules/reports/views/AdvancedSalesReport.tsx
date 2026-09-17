@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -15,11 +16,6 @@ const PAYMENT_COLORS: Record<string, string> = {
   cash: '#10b981', card: '#3b82f6', sinpe: '#8b5cf6',
   check: '#f59e0b', transfer: '#6b7280',
 };
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: 'Efectivo', card: 'Tarjeta', sinpe: 'SINPE',
-  check: 'Cheque', transfer: 'Transferencia',
-};
-
 interface Props {
   tenantId: string | null;
   from: string;
@@ -137,7 +133,7 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
                       <div className="flex justify-between text-xs mb-1">
                         <span className="flex items-center gap-1.5 font-medium text-gray-700">
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PAYMENT_COLORS[s.method] ?? '#94a3b8', display: 'inline-block' }} />
-                          {PAYMENT_LABELS[s.method] ?? s.method}
+                          {etiquetaMedioPago(s.method)}
                         </span>
                         <span className="font-black text-gray-900">{fmt(s.total)}</span>
                       </div>
@@ -220,13 +216,13 @@ export const AdvancedSalesReport: React.FC<Props> = ({ tenantId, from, to }) => 
                     <td className="px-5 py-3">
                       {(inv as any).payments && (inv as any).payments.length > 1 ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700"
-                          title={(inv as any).payments.map((p: any) => `${PAYMENT_LABELS[p.method] ?? p.method}: ₡${Number(p.amount).toLocaleString('es-CR')}`).join(' · ')}>
-                          MIXTO ({(inv as any).payments.map((p: any) => (PAYMENT_LABELS[p.method] ?? p.method)[0]).join('+')})
+                          title={(inv as any).payments.map((p: any) => `${etiquetaMedioPago(p.method)}: ₡${Number(p.amount).toLocaleString('es-CR')}`).join(' · ')}>
+                          MIXTO ({(inv as any).payments.map((p: any) => (etiquetaMedioPago(p.method))[0]).join('+')})
                         </span>
                       ) : (
                         <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
                           style={{ background: (PAYMENT_COLORS[inv.payment_method] ?? '#94a3b8') + '22', color: PAYMENT_COLORS[inv.payment_method] ?? '#6b7280' }}>
-                          {PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
+                          {etiquetaMedioPago(inv.payment_method)}
                         </span>
                       )}
                     </td>

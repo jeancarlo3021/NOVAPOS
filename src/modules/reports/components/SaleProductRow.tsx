@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 // ── Expandable sale-by-product row used in ProductDetailReport ────────────────
@@ -9,10 +10,6 @@ const fmt = (n: number) =>
 const fmtDateTime = (iso: string) =>
   new Date(iso).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' });
 
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: 'Efectivo', card: 'Tarjeta', sinpe: 'SINPE',
-  check: 'Cheque', transfer: 'Transferencia',
-};
 const PAYMENT_COLORS: Record<string, string> = {
   cash: '#10b981', card: '#3b82f6', sinpe: '#8b5cf6',
   check: '#f59e0b', transfer: '#6b7280',
@@ -75,7 +72,7 @@ export function SaleProductRow({ group, rank }: SaleProductRowProps) {
           <td className="px-5 py-2.5 text-center">
             <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
               style={{ backgroundColor: (PAYMENT_COLORS[line.payment_method] ?? '#94a3b8') + '22', color: PAYMENT_COLORS[line.payment_method] ?? '#6b7280' }}>
-              {PAYMENT_LABELS[line.payment_method] ?? line.payment_method}
+              {etiquetaMedioPago(line.payment_method)}
             </span>
           </td>
           <td className="px-5 py-2.5 text-right">

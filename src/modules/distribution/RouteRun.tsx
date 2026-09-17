@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, MapPin, ShoppingCart, X,
@@ -23,7 +24,7 @@ import {
 import type { Product } from '@/types/Types_POS';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
-const payLabel = (m: string) => m === 'cash' ? 'Efectivo' : m === 'card' ? 'Tarjeta' : m === 'sinpe' ? 'SINPE' : m === 'mixed' ? 'Mixto' : 'Crédito';
+const payLabel = (m: string) => etiquetaMedioPago(m);
 
 // Imprime el ticket; saca doble factura (cliente + vendedor) si el método de pago
 // está configurado para ello (Configuración → Recibo → Doble factura).

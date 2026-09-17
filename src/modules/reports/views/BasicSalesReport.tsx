@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -13,11 +14,6 @@ const PAYMENT_COLORS: Record<string, string> = {
   cash: '#10b981', card: '#3b82f6', sinpe: '#8b5cf6',
   check: '#f59e0b', transfer: '#6b7280',
 };
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: 'Efectivo', card: 'Tarjeta', sinpe: 'SINPE',
-  check: 'Cheque', transfer: 'Transferencia',
-};
-
 function getLast7() {
   const to = new Date();
   const from = new Date();
@@ -143,7 +139,7 @@ export const BasicSalesReport: React.FC<Props> = ({ tenantId }) => {
                     </td>
                     <td className="px-3 py-2 text-gray-600 truncate max-w-[14rem]">{f.customer_name || '—'}</td>
                     <td className="px-3 py-2 text-gray-500">
-                      {PAYMENT_LABELS[f.payment_method] ?? f.payment_method}
+                      {etiquetaMedioPago(f.payment_method)}
                     </td>
                     <td className="px-6 py-2 text-right font-black text-gray-900">{fmt(f.total)}</td>
                   </tr>
@@ -178,7 +174,7 @@ export const BasicSalesReport: React.FC<Props> = ({ tenantId }) => {
                 <div key={`payment-detail-${idx}`} className="flex items-center justify-between py-1 border-b border-gray-50 last:border-0">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full shrink-0" style={{ background: PAYMENT_COLORS[s.method] ?? '#94a3b8' }} />
-                    <span className="text-sm text-gray-700 font-medium">{PAYMENT_LABELS[s.method] ?? s.method}</span>
+                    <span className="text-sm text-gray-700 font-medium">{etiquetaMedioPago(s.method)}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-gray-400">{s.count} tx</span>

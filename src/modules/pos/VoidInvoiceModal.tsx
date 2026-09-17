@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { X, Search, Ban, Lock, AlertCircle, WifiOff } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService } from '@/services/invoice/invoiceService';
@@ -17,12 +18,6 @@ interface InvoiceRow {
   fe_clave?: string | null;    // si tiene, la factura se emitió a Hacienda
   fe_nc_clave?: string | null; // si tiene, ya se le emitió Nota de Crédito
 }
-
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: 'Efectivo',
-  card: 'Tarjeta',
-  sinpe: 'SINPE',
-};
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -370,7 +365,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                         </div>
                         <p className="text-gray-500 text-xs mt-0.5">
                           {formatWallClock(inv.issued_at, { hour: '2-digit', minute: '2-digit' })}
-                          {' · '}{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}
+                          {' · '}{etiquetaMedioPago(inv.payment_method)}
                         </p>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">

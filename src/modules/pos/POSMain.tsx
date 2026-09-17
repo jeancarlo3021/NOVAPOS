@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { WindowQueueModal, useWindowQueue } from '@/modules/window/WindowQueueModal';
 import { useDeviceRole } from '@/hooks/useDeviceRole';
@@ -58,12 +59,7 @@ import { FeQuotaWarning } from '@/components/FeQuotaWarning';
 import { LoadingState } from '@/components/ui/uiComponents';
 import type { CartItem, Product } from '@/types/Types_POS';
 
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  cash: 'Efectivo',
-  card: 'Tarjeta',
-  sinpe: 'SINPE Móvil',
-  credit: 'Crédito',
-};
+
 
 export const POSMain = () => {
   const { user, planFeatures } = useAuth();
@@ -1156,7 +1152,7 @@ export const POSMain = () => {
         discountLabel: 'Combos',
         // Redondeo a ₡10 (positivo = se sumó, negativo = se restó).
         rounding: Math.round(rounding),
-        paymentMethod: PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod,
+        paymentMethod: etiquetaMedioPago(paymentMethod),
         bipper: currencyInfo?.bipper || undefined,   // localizador para el ticket
         // Datos del local (sin email)
         storeName: general?.businessName,

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { X, Search, Printer, WifiOff, CheckCircle2, Calendar, RefreshCw, RotateCcw, Download, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService, type Invoice, type InvoiceItem } from '@/services/invoice/invoiceService';
@@ -21,12 +22,6 @@ interface InvoiceRow {
 
 /** Día (YYYY-MM-DD) de una factura leyendo el wall-clock literal de issued_at. */
 const invoiceDay = (issuedAt?: string) => String(issuedAt ?? '').slice(0, 10);
-
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: 'Efectivo',
-  card: 'Tarjeta',
-  sinpe: 'SINPE',
-};
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -215,7 +210,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
           subtotal: full.subtotal,
           tax: full.tax_amount,
           total: full.total,
-          paymentMethod: PAYMENT_LABELS[full.payment_method] ?? full.payment_method,
+          paymentMethod: etiquetaMedioPago(full.payment_method),
           payments: (full as any).payments && (full as any).payments.length > 1
             ? (full as any).payments
             : undefined,
@@ -360,10 +355,10 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
                       <span>·</span>
                       {inv.payments && inv.payments.length > 1 ? (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 font-bold text-[10px]">
-                          MIXTO ({inv.payments.map(p => PAYMENT_LABELS[p.method]?.[0] ?? p.method[0].toUpperCase()).join('+')})
+                          MIXTO ({inv.payments.map(p => etiquetaMedioPago(p.method)[0] ?? p.method[0].toUpperCase()).join('+')})
                         </span>
                       ) : (
-                        <span>{PAYMENT_LABELS[inv.payment_method] ?? inv.payment_method}</span>
+                        <span>{etiquetaMedioPago(inv.payment_method)}</span>
                       )}
                     </p>
                   </div>

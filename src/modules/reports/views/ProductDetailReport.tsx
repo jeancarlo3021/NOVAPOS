@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import {
   RefreshCw, TrendingUp, ShoppingBag, Hash,
   Truck, ShoppingCart,
@@ -22,10 +23,6 @@ const fmtDate = (iso: string) =>
 const fmtDateTime = (iso: string) =>
   new Date(iso).toLocaleString('es-CR', { dateStyle: 'short', timeStyle: 'short' });
 
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: 'Efectivo', card: 'Tarjeta', sinpe: 'SINPE',
-  check: 'Cheque', transfer: 'Transferencia',
-};
 const PURCHASE_STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente', received: 'Recibida', cancelled: 'Cancelada',
 };
@@ -49,7 +46,7 @@ function exportSalesCSV(groups: SaleGroup[]) {
   groups.forEach((g) => g.lines.forEach((l) => rows.push([
     g.product_name, l.invoice_number, fmtDateTime(l.issued_at),
     l.customer_name ?? '', l.quantity, l.unit_price, l.subtotal,
-    PAYMENT_LABELS[l.payment_method] ?? l.payment_method,
+    etiquetaMedioPago(l.payment_method),
   ])));
   downloadCsv(`ventas_productos_${new Date().toISOString().slice(0, 10)}`, rows);
 }

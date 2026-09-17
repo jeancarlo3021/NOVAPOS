@@ -7,6 +7,7 @@ import { proformasService } from '@/services/proformas/proformasService';
 import type { Product } from '@/types/Types_POS';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { calcularVenta, type DescuentoGeneral } from '@/utils/descuentosVenta';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 
 /**
  * Medios de pago, con el código que Hacienda espera en el XML.
@@ -241,7 +242,10 @@ export const FeposMain: React.FC = () => {
           subtotal: res.totales?.subtotal ?? 0,
           tax: res.totales?.iva ?? 0,
           total: res.totales?.total ?? 0,
-          paymentMethod: paymentMethod,
+          paymentMethod: etiquetaMedioPago(paymentMethod),
+          // Lo rebajado se ve en el papel: el cliente tiene que poder leer el descuento.
+          discount: venta.descuento || undefined,
+          discountLabel: 'Descuentos',
           notes: notes.trim() || undefined,
           // `copyLabel` sale centrado y en grande arriba del tiquete, y además
           // fuerza UNA sola copia: una prueba no se imprime por duplicado.

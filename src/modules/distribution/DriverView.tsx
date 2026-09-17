@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, MapPin, Navigation, PackageCheck, RefreshCw, Loader2,
@@ -427,7 +428,7 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
         time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
         items: items.map((it: any) => ({ name: it.product_name, quantity: it.quantity, unitPrice: it.unit_price, subtotal: Math.round(it.unit_price * it.quantity) })),
         subtotal: Number(order.total ?? 0), tax: 0, total: Number(order.total ?? 0),
-        paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : paymentMethod === 'sinpe' ? 'SINPE' : paymentMethod === 'mixed' ? 'Mixto' : 'Crédito',
+        paymentMethod: etiquetaMedioPago(paymentMethod),
         payments,
         customerName: order.customer?.name ?? order.customer_name,
         customerEmail: (feEnabled && documentType === 'factura_electronica') ? (order.customer?.email ?? order.customer_email ?? undefined) : undefined,
