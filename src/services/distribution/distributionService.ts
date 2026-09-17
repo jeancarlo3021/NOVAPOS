@@ -109,6 +109,15 @@ export const distributionService = {
   /** Borra la carga del camión (devuelve todo al inventario). Solo si no hay ventas. */
   clearLoad: (id: string) => apiFetch<{ returned_items: number }>(`/routes/${id}/clear-load`, { method: 'POST' }),
 
+  /**
+   * Baja UN producto del camión y lo devuelve al inventario. Sin `quantity`
+   * devuelve todo lo que quede de ese producto arriba.
+   */
+  unloadProduct: (id: string, productId: string, quantity?: number) =>
+    apiFetch<{ product_id: string; product_name: string; devuelto: number; queda_en_camion: number }>(
+      `/routes/${id}/unload-product`,
+      { method: 'POST', body: JSON.stringify({ product_id: productId, quantity }) }),
+
   truckStock: (id: string) =>
     apiFetch<Array<{ product_id: string; quantity: number; product?: { id: string; name: string; sku?: string; unit_price?: number } }>>(`/routes/${id}/truck-stock`),
 

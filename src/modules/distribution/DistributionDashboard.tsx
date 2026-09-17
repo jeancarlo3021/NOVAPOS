@@ -113,6 +113,29 @@ export const DistributionDashboard: React.FC = () => {
     finally { setClearLoading(false); }
   };
 
+  /**
+   * Baja un solo producto del camión.
+   *
+   * Es lo que hace falta cuando subió algo por error o el chofer devuelve parte
+   * de la carga: antes había que borrar la carga entera y volver a armarla, y
+   * eso ni siquiera se podía si la ruta ya tenía ventas.
+   */
+  const [bajando, setBajando] = useState<string | null>(null);
+  const bajarProducto = async (productId: string, nombre: string, cantidad: number, abbr: string) => {
+    if (!clearFor) return;
+    if (!confirm(`¿Bajar ${cantidad}${abbr ? ` ${abbr}` : ''} de "${nombre}" del camión?\n\nVuelven al inventario del sistema.`)) return;
+    setBajando(productId); setClearErr('');
+    try {
+      const res = await distributionService.unloadProduct(clearFor.id, productId);
+      setClearStock(prev => prev.filter(s => s.product_id !== productId));
+      await load();
+      setClearErr('');
+      alert(`${res.product_name}: ${res.devuelto} devuelto(s) al inventario.`);
+    } catch (e) {
+      setClearErr(e instanceof Error ? e.message : 'No se pudo bajar el producto');
+    } finally { setBajando(null); }
+  };
+
   const confirmClearLoad = async () => {
     if (!clearFor) return;
     setClearing(true); setClearErr('');
@@ -238,7 +261,7 @@ export const DistributionDashboard: React.FC = () => {
                   </button>
                   <button onClick={() => openClearLoad(r)}
                     className="flex items-center justify-center gap-1 bg-amber-50 text-amber-700 text-xs font-bold py-2 rounded-lg hover:bg-amber-100">
-                    <Trash2 size={13} /> Borrar carga
+                    <Trash2 size={13} /> Quitar carga
                   </button>
                 </div>
               )}
@@ -281,12 +304,14 @@ export const DistributionDashboard: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => !clearing && setClearFor(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="font-black text-gray-900 flex items-center gap-2"><Trash2 size={18} className="text-amber-600" /> Borrar carga</h2>
+              <h2 className="font-black text-gray-900 flex items-center gap-2"><Trash2 size={18} className="text-amber-600" /> Carga del camión</h2>
               <button onClick={() => !clearing && setClearFor(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
             </div>
             <div className="p-5 overflow-y-auto">
               <p className="text-sm text-gray-600 mb-3">
-                Se devolverán al inventario los siguientes productos del camión <strong>{clearFor.warehouse?.name}</strong>. La ruta queda abierta y vacía para recargar.
+                Estos son los productos que tiene el camión <strong>{clearFor.warehouse?.name}</strong>.
+                Con la <strong>papelera</strong> bajás uno solo y vuelve al inventario; con
+                <strong> Borrar carga</strong> se devuelven todos y la ruta queda vacía para recargar.
               </p>
               {clearErr && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-3">{clearErr}</div>}
               {clearLoading && <p className="text-center text-gray-400 text-sm py-8 flex items-center justify-center gap-2"><Loader2 size={15} className="animate-spin" /> Cargando…</p>}
@@ -294,9 +319,21 @@ export const DistributionDashboard: React.FC = () => {
               {clearStock.length > 0 && (
                 <ul className="divide-y divide-gray-100 border border-gray-100 rounded-xl">
                   {clearStock.sort((a, b) => (a.product?.name ?? '').localeCompare(b.product?.name ?? '')).map(s => (
-                    <li key={s.product_id} className="flex items-center justify-between px-3 py-2">
+                    <li key={s.product_id} className="flex items-center justify-between gap-2 px-3 py-2">
                       <span className="font-bold text-gray-800 truncate">{s.product?.name ?? 'Producto'}</span>
-                      <span className="font-black text-amber-700 shrink-0 ml-3">{Number(s.quantity)}{s.product?.unit_type?.abbreviation ? ` ${s.product.unit_type.abbreviation}` : ''}</span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        <span className="font-black text-amber-700">{Number(s.quantity)}{s.product?.unit_type?.abbreviation ? ` ${s.product.unit_type.abbreviation}` : ''}</span>
+                        {/* Bajar SOLO este producto, sin tocar el resto de la carga. */}
+                        <button
+                          onClick={() => void bajarProducto(
+                            s.product_id, s.product?.name ?? 'Producto',
+                            Number(s.quantity), s.product?.unit_type?.abbreviation ?? '')}
+                          disabled={clearing || bajando === s.product_id}
+                          title="Bajar este producto del camión y devolverlo al inventario"
+                          className="p-1 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50 disabled:opacity-40">
+                          {bajando === s.product_id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>
