@@ -17,6 +17,14 @@ export const emailToUsername = (email?: string | null): string => {
   return email.endsWith(`@${USERNAME_DOMAIN}`) ? email.slice(0, -(`@${USERNAME_DOMAIN}`).length) : email;
 };
 
+export interface TiendaDeUsuario {
+  tenant_id: string;
+  name: string;
+  acceso: boolean;
+  /** Tienda en la que está trabajando ahora. */
+  actual: boolean;
+}
+
 export const usersService = {
   async getAllUsers(_tenantId: string, scope: 'tenant' | 'group' = 'tenant'): Promise<User[]> {
     return apiFetch<User[]>(`/users?scope=${scope}`);
@@ -42,6 +50,26 @@ export const usersService = {
       method: 'PUT',
       body: JSON.stringify(form),
     });
+  },
+
+  /** Tiendas que maneja quien edita, marcando a cuáles puede entrar el usuario. */
+  async getUserTenants(userId: string): Promise<{ tiendas: TiendaDeUsuario[]; otras: number }> {
+    validateUUID(userId, 'userId');
+    return apiFetch(`/users/${userId}/tenants`);
+  },
+
+  /** Deja al usuario con acceso exactamente a estas tiendas (de las que maneja quien edita). */
+  async setUserTenants(userId: string, tenantIds: string[]): Promise<{ agregadas: number; quitadas: number; movido_a: string | null }> {
+    validateUUID(userId, 'userId');
+    return apiFetch(`/users/${userId}/tenants`, {
+      method: 'PUT',
+      body: JSON.stringify({ tenant_ids: tenantIds }),
+    });
+  },
+
+  /** Tiendas que maneja el usuario actual (para elegir al crear otro). */
+  async managedTenants(): Promise<Array<{ id: string; name: string }>> {
+    return apiFetch('/users/managed-tenants');
   },
 
   async deleteUser(userId: string): Promise<void> {

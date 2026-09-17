@@ -49,6 +49,63 @@ export interface BranchMember {
     } | null;
   } | null;
   fe?: TenantFePlan | null;
+  /** Actividad económica y sucursal ante Hacienda con que factura el negocio. */
+  actividad?: {
+    economic_activity_code: string | null;
+    sucursal: string | null;
+    /** Si es una actividad de otra sociedad: id del negocio principal. */
+    shared_from: string | null;
+    tiene_cedula: boolean;
+  } | null;
+  /** Bolsa de comprobantes FE (la de su razón social). */
+  bolsa?: {
+    limitada: boolean;
+    incluidos: number;
+    usados: number;
+    /** null = sin límite */
+    restantes: number | null;
+    desde: string | null;
+    titular: string;
+    /** La comparte con otros negocios de la misma cédula. */
+    compartida: boolean;
+    fe_activa: boolean;
+  } | null;
+}
+
+export interface AddActivityPayload {
+  from_tenant: string;
+  economic_activity_code: string;
+  new_tenant?: { name: string; plan_id?: string | null; is_demo?: boolean };
+  tenant_id?: string;
+  fe_plan_id?: string | null;
+  copy_products?: boolean;
+}
+
+export interface AddActivityResult {
+  tenant_id: string;
+  creado: boolean;
+  economic_activity_code: string;
+  sucursal: string;
+  catalogo: { copiados?: number; omitidos?: number; motivo?: string; error?: string } | null;
+  alanube_sync: boolean;
+  alanube_motivo?: string;
+}
+
+/** Lo que hay que cobrar del grupo, agrupado por razón social. */
+export interface CobroDelGrupo {
+  razones_sociales: Array<{
+    titular: string;
+    nombre: string;
+    negocios: string[];
+    saas: number;
+    fe_plan: { nombre: string; precio: number } | null;
+    excedente: { comprobantes: number; precio: number; monto: number };
+    total: number;
+  }>;
+  saas: number;
+  fe: number;
+  excedente: number;
+  total: number;
 }
 
 export interface GroupBilling {
@@ -127,6 +184,7 @@ export const tenantGroupsService = {
     owner_info: { id: string; email: string | null; full_name: string | null } | null;
     members: BranchMember[];
     fe_by_tenant: Record<string, TenantFePlan>;
+    cobro?: CobroDelGrupo | null;
   }> {
     return apiFetch(`/tenant-groups/${groupId}`);
   },
@@ -178,6 +236,17 @@ export const tenantGroupsService = {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+
+  /**
+   * Otra actividad económica de la misma sociedad, llevada como sucursal:
+   * negocio aparte que factura con la cédula del principal y su propia actividad.
+   */
+  addActivityBranch(groupId: string, payload: AddActivityPayload): Promise<AddActivityResult> {
+    return apiFetch(`/tenant-groups/${groupId}/activity-branches`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }, 60_000);   // copia de catálogo + actualización en Alanube
   },
 
   /**

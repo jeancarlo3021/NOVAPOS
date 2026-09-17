@@ -5,9 +5,10 @@ import {
 } from 'lucide-react';
 import {
   tenantGroupsService,
-  type TenantGroup, type BranchMember, type GroupBilling, type FePlan, type UserLite,
+  type TenantGroup, type BranchMember, type GroupBilling, type FePlan, type UserLite, type CobroDelGrupo,
 } from '@/services/admin/tenantGroupsService';
 import { AddClientModal } from '@/modules/accountant/AddClientModal';
+import { AddActivityModal } from './AddActivityModal';
 import { apiFetch } from '@/lib/api';
 
 const fmt = (n: number) => `₡${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
@@ -19,6 +20,7 @@ interface GroupDetail {
   owner_info: { id: string; email: string | null; full_name: string | null } | null;
   members: BranchMember[];
   billing: GroupBilling | null;
+  cobro: CobroDelGrupo | null;
 }
 
 export function TenantGroupView() {
@@ -67,6 +69,7 @@ export function TenantGroupView() {
   const [showCreateGroup,  setShowCreateGroup]  = useState(false);
   const [showAddBranch,    setShowAddBranch]    = useState(false);
   const [showAddClient,    setShowAddClient]    = useState(false);
+  const [showAddActivity,  setShowAddActivity]  = useState(false);
   const [showTransfer,     setShowTransfer]     = useState(false);
   const [users,            setUsers]            = useState<UserLite[]>([]);
 
@@ -111,7 +114,7 @@ export function TenantGroupView() {
       ]);
       setDetails(prev => ({
         ...prev,
-        [groupId]: { group: d.group, owner_info: d.owner_info, members: d.members, billing: b },
+        [groupId]: { group: d.group, owner_info: d.owner_info, members: d.members, billing: b, cobro: d.cobro ?? null },
       }));
     } catch (e: any) {
       flash(false, `Error cargando detalle: ${e?.message ?? e}`);
@@ -129,6 +132,10 @@ export function TenantGroupView() {
   }, [expandedIds]);
 
   const toggleExpand = (groupId: string) => {
+    // Al ABRIR se vuelve a pedir el detalle aunque ya estuviera cargado: si no,
+    // quedaba la copia de la primera vez y los comprobantes o el cobro no se
+    // actualizaban hasta recargar la página. Mientras llega, se ve la anterior.
+    if (!expandedIds.has(groupId) && details[groupId]) void loadDetail(groupId);
     setExpandedIds(prev => {
       const next = new Set(prev);
       if (next.has(groupId)) next.delete(groupId);
@@ -261,7 +268,15 @@ export function TenantGroupView() {
                       {g.billing_email && <span>{g.billing_email}</span>}
                       <span>·</span>
                       <span>Creado {fmtDate(g.created_at)}</span>
-                      {d?.billing && (
+                      {d?.cobro ? (
+                        <>
+                          <span>·</span>
+                          <span className="font-black text-emerald-600 tabular-nums">
+                            {fmt(d.cobro.total)} a cobrar
+                          </span>
+                          <span className="text-gray-400">({d.members.length} negocio{d.members.length === 1 ? '' : 's'})</span>
+                        </>
+                      ) : d?.billing && (
                         <>
                           <span>·</span>
                           <span className="font-black text-emerald-600 tabular-nums">
@@ -284,8 +299,8 @@ export function TenantGroupView() {
                       </div>
                     ) : (
                       <>
-                        {/* KPIs de billing */}
-                        {d.billing && (
+                        {/* Cobro real del grupo, por razón social */}
+                        {d.cobro ? <CobroGrupo cobro={d.cobro} negocios={d.members.length} /> : d.billing && (
                           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                             {[
                               { icon: Building2, label: 'Sucursales',     value: String(d.billing.branches),     color: 'bg-blue-500' },
@@ -336,6 +351,12 @@ export function TenantGroupView() {
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition">
                                 <Plus size={11} /> Agregar sucursal
                               </button>
+                              {/* Otra actividad económica de la MISMA sociedad: negocio aparte
+                                  que factura con la cédula del principal. */}
+                              <button onClick={() => { setActiveGroupId(g.id); setShowAddActivity(true); }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition">
+                                <Layers size={11} /> Agregar actividad
+                              </button>
                               {/* Cliente = negocio de un tercero: se da de alta con sus datos de
                                   Hacienda y con el usuario con el que él entra a su portal. */}
                               <button onClick={() => { setActiveGroupId(g.id); setShowAddClient(true); }}
@@ -357,6 +378,7 @@ export function TenantGroupView() {
                                     <th className="text-left px-4 py-2">Rol</th>
                                     <th className="text-left px-4 py-2">Plan SaaS</th>
                                     <th className="text-left px-4 py-2">Plan FE</th>
+                                    <th className="text-left px-4 py-2">Comprobantes</th>
                                     <th className="text-center px-4 py-2">Estado</th>
                                     <th className="text-center px-4 py-2"></th>
                                   </tr>
@@ -377,10 +399,21 @@ export function TenantGroupView() {
                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-700">
                                               <Crown size={8} /> Matriz
                                             </span>
+                                          ) : m.actividad?.shared_from ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-violet-100 text-violet-700"
+                                              title={`Factura con la cédula de ${d.members.find(x => x.tenant?.id === m.actividad?.shared_from)?.tenant?.name ?? 'la sociedad principal'}`}>
+                                              <Layers size={8} /> Actividad
+                                            </span>
                                           ) : (
                                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
                                               Sucursal
                                             </span>
+                                          )}
+                                          {m.actividad?.economic_activity_code && (
+                                            <p className="text-[9px] text-gray-400 mt-0.5 font-mono">
+                                              Act. {m.actividad.economic_activity_code}
+                                              {m.actividad.sucursal && ` · Suc. ${String(m.actividad.sucursal).padStart(3, '0')}`}
+                                            </p>
                                           )}
                                         </td>
                                         <td className="px-4 py-2 text-xs text-gray-600">
@@ -390,6 +423,12 @@ export function TenantGroupView() {
                                           )}
                                         </td>
                                         <td className="px-4 py-2">
+                                          {m.actividad?.shared_from ? (
+                                            // La bolsa se cobra por razón social: la actividad gasta la del principal.
+                                            <span className="text-[10px] font-bold text-violet-700">
+                                              Bolsa de {d.members.find(x => x.tenant?.id === m.actividad?.shared_from)?.tenant?.name ?? 'la sociedad'}
+                                            </span>
+                                          ) : (<>
                                           <select value={fePlanId} disabled={busy}
                                             onChange={e => handleChangeFePlan(g.id, t.id, e.target.value)}
                                             className="text-xs px-2 py-1 border border-gray-200 rounded-lg bg-white w-full max-w-48">
@@ -405,6 +444,10 @@ export function TenantGroupView() {
                                               {m.fe.current_usage} / {m.fe.fe_plan?.monthly_quota ?? '—'} facts
                                             </p>
                                           )}
+                                          </>)}
+                                        </td>
+                                        <td className="px-4 py-2 whitespace-nowrap">
+                                          <BolsaFe m={m} members={d.members} />
                                         </td>
                                         <td className="px-4 py-2 text-center">
                                           <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full ${
@@ -535,6 +578,27 @@ export function TenantGroupView() {
         />
       )}
 
+      {/* Modal: agregar actividad económica de la misma sociedad */}
+      {showAddActivity && activeGroupId && (
+        <AddActivityModal
+          groupId={activeGroupId}
+          members={details[activeGroupId]?.members ?? []}
+          onClose={() => { setShowAddActivity(false); setActiveGroupId(null); }}
+          onAdded={async (r) => {
+            const gid = activeGroupId;
+            setShowAddActivity(false);
+            setActiveGroupId(null);
+            if (gid) await loadDetail(gid);
+            const partes = [`Actividad ${r.economic_activity_code} agregada · sucursal ${r.sucursal} ante Hacienda`];
+            if (r.catalogo?.copiados != null) partes.push(`${r.catalogo.copiados} producto(s) copiados`);
+            if (r.catalogo?.error) partes.push(`no se copiaron los productos: ${r.catalogo.error}`);
+            // Sin la actividad cargada en Alanube, los comprobantes se rechazan: se dice.
+            if (!r.alanube_sync) partes.push(`⚠️ falta actualizar la empresa en Alanube (${r.alanube_motivo ?? 'sin detalle'})`);
+            flash(r.alanube_sync, partes.join(' · '));
+          }}
+        />
+      )}
+
       {/* Copiar catálogo de otra sucursal del grupo */}
       {copiarA && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
@@ -583,6 +647,124 @@ export function TenantGroupView() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Monto a cobrar del grupo ───────────────────────────────────────────────
+/**
+ * Se cobra por razón social: el plan FE y el excedente van una vez por cédula.
+ * El desglose muestra de dónde sale cada monto, para poder explicárselo al
+ * cliente.
+ */
+function CobroGrupo({ cobro, negocios }: { cobro: CobroDelGrupo; negocios: number }) {
+  const [abierto, setAbierto] = useState(false);
+  const tarjetas = [
+    { icon: Building2, label: 'Negocios',         value: String(negocios),       color: 'bg-blue-500' },
+    { icon: Wallet,    label: 'Planes del sistema', value: fmt(cobro.saas),      color: 'bg-emerald-500' },
+    { icon: Zap,       label: 'Facturación elec.', value: fmt(cobro.fe + cobro.excedente), color: 'bg-violet-500' },
+    { icon: BarChart3, label: 'TOTAL A COBRAR',   value: fmt(cobro.total),       color: 'bg-amber-500' },
+  ];
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {tarjetas.map(({ icon: Icon, label, value, color }) => (
+          <div key={label} className="bg-white rounded-xl border border-gray-100 p-3 flex items-center gap-2">
+            <div className={`w-8 h-8 rounded-lg ${color} flex items-center justify-center shrink-0`}>
+              <Icon size={14} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider truncate">{label}</p>
+              <p className="text-sm font-black text-gray-900 tabular-nums truncate">{value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={() => setAbierto(a => !a)}
+        className="text-xs font-bold text-blue-700 hover:underline inline-flex items-center gap-1">
+        {abierto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        Desglose por razón social ({cobro.razones_sociales.length})
+      </button>
+      {abierto && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-500 uppercase">
+                <th className="text-left px-3 py-2">Razón social</th>
+                <th className="text-right px-3 py-2">Sistema</th>
+                <th className="text-right px-3 py-2">Plan FE</th>
+                <th className="text-right px-3 py-2">Excedente</th>
+                <th className="text-right px-3 py-2">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {cobro.razones_sociales.map(r => (
+                <tr key={r.titular}>
+                  <td className="px-3 py-2">
+                    <p className="font-bold text-gray-900">{r.nombre}</p>
+                    {r.negocios.length > 1 && (
+                      <p className="text-[10px] text-gray-400">{r.negocios.length} negocios: {r.negocios.join(', ')}</p>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(r.saas)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {r.fe_plan ? <>{fmt(r.fe_plan.precio)}<span className="block text-[9px] text-gray-400">{r.fe_plan.nombre}</span></> : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {r.excedente.monto > 0
+                      ? <>{fmt(r.excedente.monto)}<span className="block text-[9px] text-gray-400">{r.excedente.comprobantes} × {fmt(r.excedente.precio)}</span></>
+                      : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums font-black text-gray-900">{fmt(r.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-amber-50 border-t border-amber-100">
+                <td className="px-3 py-2 font-black text-gray-900">Total del grupo</td>
+                <td className="px-3 py-2 text-right tabular-nums font-bold">{fmt(cobro.saas)}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-bold">{fmt(cobro.fe)}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-bold">{fmt(cobro.excedente)}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-black text-amber-800">{fmt(cobro.total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Comprobantes restantes de un negocio ────────────────────────────────────
+/**
+ * La bolsa se cobra por razón social: los negocios con la misma cédula muestran
+ * el mismo saldo, y se aclara de quién es para que no parezca que cada uno tiene
+ * la suya.
+ */
+function BolsaFe({ m, members }: { m: BranchMember; members: BranchMember[] }) {
+  const b = m.bolsa;
+  if (!b) return <span className="text-[10px] text-gray-300">—</span>;
+  if (!b.limitada) {
+    return b.fe_activa
+      ? <span className="text-[10px] font-bold text-indigo-700">∞ Sin límite</span>
+      : <span className="text-[10px] text-gray-400">Sin FE</span>;
+  }
+  const restantes = Number(b.restantes ?? 0);
+  const color = restantes <= 0 ? 'text-red-700 bg-red-50'
+    : restantes <= 50 ? 'text-amber-700 bg-amber-50'
+    : 'text-emerald-700 bg-emerald-50';
+  const dueño = b.compartida && b.titular !== m.tenant?.id
+    ? members.find(x => x.tenant?.id === b.titular)?.tenant?.name
+    : null;
+  return (
+    <div title={`${b.usados} usados de ${b.incluidos}${b.desde ? ` desde el ${fmtDate(b.desde)}` : ''}`}>
+      <span className={`inline-block text-[11px] font-black px-2 py-0.5 rounded-full ${color}`}>
+        {restantes <= 0 ? `Agotada (${Math.abs(restantes)} de más)` : `${restantes.toLocaleString('es-CR')} restantes`}
+      </span>
+      <p className="text-[9px] text-gray-400 mt-0.5">
+        {b.usados.toLocaleString('es-CR')} / {b.incluidos.toLocaleString('es-CR')}
+        {b.compartida && (dueño ? ` · bolsa de ${dueño}` : ' · compartida')}
+      </p>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { describirActividades, type ResultadoActividades } from '@/utils/actividadesCreadas';
 import { X, RefreshCw, Check, FileText, KeyRound, ShieldCheck, Upload } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { CRLocationFields } from '@/components/CRLocationFields';
@@ -189,14 +190,16 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
     setSaving(true);
     try {
       // 1) Guardar PRIMERO los campos de texto (claves, PIN, IDs, etc.).
-      await apiFetch(`/admin/tenants/${owner.id}/fe-config`, {
+      const guardado = await apiFetch<ResultadoActividades>(`/admin/tenants/${owner.id}/fe-config`, {
         method: 'PUT', body: JSON.stringify({ fe }),
-      });
+      }, 60_000);   // puede crear los negocios de actividades nuevas
       // 2) Subir DESPUÉS los .p12 pendientes (persisten su metadata sin que el
       //    estado viejo del formulario la revierta).
       if (certFiles.production) await doUploadCert('production');
       if (certFiles.sandbox) await doUploadCert('sandbox');
-      onToast('Datos de FE guardados', 'success');
+      const act = describirActividades(guardado);
+      onToast(['Datos de FE guardados.', act.creadas].filter(Boolean).join(' '), 'success');
+      if (act.avisos) onToast(`No se pudo crear el negocio de alguna actividad: ${act.avisos}`, 'error');
       onClose();
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'No se pudo guardar', 'error');
@@ -388,7 +391,7 @@ export const TenantFeDataModal: React.FC<Props> = ({ owner, onClose, onToast }) 
                     Declarar una que no le corresponde hace que Hacienda rechace. */}
                 <ListaTexto
                   titulo="Otras actividades económicas"
-                  nota="Las que el contribuyente también tiene inscritas ante Hacienda."
+                  nota="Al guardar, cada una se crea como un negocio aparte (inventario, cajas y reportes propios) ligado a este como principal, y factura con esta cédula."
                   placeholder="Ej. 682000"
                   soloDigitos
                   valores={fe.economic_activities ?? []}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { describirActividades } from '@/utils/actividadesCreadas';
 import { FileText, Save, AlertCircle, CheckCircle2, Plug, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useTenantId } from '@/hooks/useTenant';
@@ -39,6 +40,9 @@ interface FESettings {
   // Numeración (consecutivo Hacienda)
   sucursal?:                  string;
   terminal?:                  string;
+  /** Si es una ACTIVIDAD de otra sociedad: id y nombre del negocio principal. */
+  fe_shared_from?:            string | null;
+  fe_shared_from_name?:       string | null;
 }
 
 const DEFAULT_SETTINGS: FESettings = {
@@ -166,7 +170,7 @@ export const ElectronicInvoiceSettings: React.FC = () => {
             .map(a => String(a).trim()).filter(Boolean),
           emisor_email: settings.emisor_email,
         }),
-      }, 28_000);   // además de guardar, actualiza la empresa en Hacienda
+      }, 60_000);   // además de guardar, actualiza la empresa en Hacienda y puede crear negocios
 
       /**
        * Guardado NO es lo mismo que aplicado.
@@ -194,10 +198,14 @@ export const ElectronicInvoiceSettings: React.FC = () => {
         catch { /* sin caché disponible: se leerá del servidor */ }
       }
 
-      setSuccess(r?.alanube_sync
-        ? 'Guardado y actualizado en Hacienda'
-        : 'Configuración guardada');
-      setTimeout(() => setSuccess(''), 3000);
+      const act = describirActividades(r);
+      if (act.avisos) setError(`Se guardó, pero no se pudo crear el negocio de alguna actividad: ${act.avisos}`);
+      setSuccess([
+        r?.alanube_sync ? 'Guardado y actualizado en Hacienda.' : 'Configuración guardada.',
+        act.creadas,
+      ].filter(Boolean).join(' '));
+      // Si se creó un negocio, el aviso se queda: es algo que hay que leer.
+      if (!act.creadas) setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al guardar');
     } finally { setSaving(false); }
@@ -228,6 +236,21 @@ export const ElectronicInvoiceSettings: React.FC = () => {
         con lo inscrito ante Hacienda: se muestran acá para revisarlos, pero los cambia el
         equipo del sistema. Los datos de <b>contacto</b> sí los podés editar vos.
       </p>
+
+      {/* Actividad de una sociedad que tiene varias: los datos son compartidos. */}
+      {settings.fe_shared_from && (
+        <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 text-sm text-violet-900 space-y-1">
+          <p className="font-black">
+            Actividad de «{settings.fe_shared_from_name ?? 'la sociedad principal'}»
+          </p>
+          <p className="text-xs">
+            Este negocio factura con la cédula, el certificado y los datos de contacto de la
+            sociedad: <b>lo que cambies acá cambia también en sus otras actividades</b>. Lo propio
+            de este negocio es su actividad (<b>{settings.economic_activity_code || 'sin definir'}</b>),
+            su sucursal ante Hacienda (<b>{settings.sucursal ?? '—'}</b>) y sus consecutivos.
+          </p>
+        </div>
+      )}
 
       {/* Datos inscritos ante Hacienda — solo lectura */}
       <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 space-y-3">
@@ -267,13 +290,15 @@ export const ElectronicInvoiceSettings: React.FC = () => {
             valor,
           )}
         />
-        <Campo etiqueta="Actividad económica principal" valor={settings.economic_activity_code}
+        <Campo etiqueta={settings.fe_shared_from ? 'Actividad de este negocio' : 'Actividad económica principal'}
+          valor={settings.economic_activity_code}
           onChange={v => set('economic_activity_code', v)}
           placeholder="Ej. 4752.1 o 475201 (como aparece en el ATV)" />
 
         {/* Un contribuyente puede tener varias inscritas: una soda que alquila
-            salón, una ferretería que además da servicio. */}
-        <div>
+            salón, una ferretería que además da servicio. En una actividad de otra
+            sociedad no aplica: la lista completa vive en el negocio principal. */}
+        {!settings.fe_shared_from && <div>
           <p className="text-[11px] font-bold text-gray-500 uppercase mb-1">Otras actividades</p>
           <div className="space-y-2">
             {(settings.economic_activities ?? []).map((act, i) => (
@@ -296,7 +321,11 @@ export const ElectronicInvoiceSettings: React.FC = () => {
             className="mt-2 text-xs font-bold text-blue-700 hover:underline">
             + Agregar otra actividad
           </button>
-        </div>
+          <p className="text-[11px] text-gray-400 mt-1">
+            Al guardar, cada actividad de esta lista se crea como <b>un negocio aparte</b> —con su inventario,
+            cajas y reportes— ligado a este como principal, y factura con esta misma cédula.
+          </p>
+        </div>}
       </div>
 
       {/* Contacto — editable por el negocio */}

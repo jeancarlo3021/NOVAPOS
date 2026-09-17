@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { X, RefreshCw, Check, Building2 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
 import { useAuth } from '@/context/AuthContext';
-import { usersService } from '@/services/users/usersService';
+import { usersService, type TiendaDeUsuario } from '@/services/users/usersService';
 import { tenantGroupsService } from '@/services/admin/tenantGroupsService';
 import type { MyTenant } from '@/services/admin/tenantGroupsService';
 import { USER_ROLES, ROLE_META, ROLE_REQUIRED_FEATURES } from '@/types/Types_Users';
@@ -49,6 +49,33 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
   const isSuperAdmin = planFeatures?.admin_dashboard === true;
   const isGroupOwner = myTenants.some(t => t.role === 'owner');
   const canPickTenant = (isSuperAdmin || isGroupOwner) && myTenants.length > 1;
+
+  /**
+   * Tiendas o sucursales que puede ver el usuario.
+   *
+   * Solo aparecen las que maneja quien edita. Con una sola tienda no hay nada
+   * que elegir y la sección no se muestra.
+   */
+  const [tiendas, setTiendas] = useState<TiendaDeUsuario[]>([]);
+  const [tiendasSel, setTiendasSel] = useState<Set<string>>(new Set());
+  const [tiendasIniciales, setTiendasIniciales] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isOpen) return;
+    setTiendas([]); setTiendasSel(new Set()); setTiendasIniciales(new Set());
+    (async () => {
+      try {
+        if (user) {
+          const r = await usersService.getUserTenants(user.id);
+          const lista = r?.tiendas ?? [];
+          const sel = new Set(lista.filter(t => t.acceso).map(t => t.tenant_id));
+          setTiendas(lista); setTiendasSel(sel); setTiendasIniciales(new Set(sel));
+        } else {
+          const lista = await usersService.managedTenants();
+          setTiendas((lista ?? []).map(t => ({ tenant_id: t.id, name: t.name, acceso: false, actual: false })));
+        }
+      } catch { /* sin permiso o sin grupo: la sección no se muestra */ }
+    })();
+  }, [isOpen, user]);
 
   // Cargar tenants accesibles al abrir el modal (solo en modo crear).
   // Necesitamos el array para derivar `canPickTenant` (busca role='owner').
@@ -139,11 +166,28 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
           ticket_alias: (form as any).ticket_alias ?? '',
         };
         await usersService.updateUser(user.id, updateForm);
+        const cambió = tiendasSel.size !== tiendasIniciales.size
+          || [...tiendasSel].some(t => !tiendasIniciales.has(t));
+        if (tiendas.length > 1 && cambió) {
+          if (tiendasSel.size === 0) { setError('El usuario tiene que poder entrar al menos a una tienda.'); return; }
+          await usersService.setUserTenants(user.id, [...tiendasSel]);
+        }
       } else {
-        await usersService.createUser(tenantId, {
+        const creado = await usersService.createUser(tenantId, {
           ...(form as CreateUserFormData),
           target_tenant_id: targetTenantId || null,
         });
+        // La tienda donde se creó siempre queda; se suman las otras marcadas.
+        const destino = targetTenantId || tenantId;
+        const extra = [...tiendasSel].filter(t => t !== destino);
+        if (creado?.id && extra.length) {
+          try { await usersService.setUserTenants(creado.id, [destino, ...extra]); }
+          catch (e) {
+            setError(`Usuario creado, pero no se le pudo dar acceso a las otras tiendas: ${e instanceof Error ? e.message : 'error'}`);
+            onSuccess();
+            return;
+          }
+        }
       }
 
       onSuccess();
@@ -331,6 +375,47 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
               el usuario (ej. repartidor) solo verá clientes y cuentas por cobrar de esa zona.
             </p>
           </div>
+
+          {/* Tiendas o sucursales que puede ver */}
+          {tiendas.length > 1 && (() => {
+            const destino = targetTenantId || tenantId;
+            return (
+              <div>
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 mb-1">
+                  <Building2 size={11} /> Tiendas o sucursales que puede ver
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {tiendas.map(t => {
+                    // Al crear, la tienda donde se crea el usuario va siempre.
+                    const fija = !isEditing && t.tenant_id === destino;
+                    const marcada = fija || tiendasSel.has(t.tenant_id);
+                    return (
+                      <label key={t.tenant_id}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm cursor-pointer transition ${
+                          marcada ? 'border-blue-400 bg-blue-50 text-blue-900' : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                        } ${fija ? 'opacity-80 cursor-default' : ''}`}>
+                        <input type="checkbox" checked={marcada} disabled={fija}
+                          onChange={e => setTiendasSel(prev => {
+                            const n = new Set(prev);
+                            if (e.target.checked) n.add(t.tenant_id); else n.delete(t.tenant_id);
+                            return n;
+                          })}
+                          className="w-4 h-4 rounded text-blue-600" />
+                        <span className="flex-1 min-w-0 truncate font-semibold">{t.name}</span>
+                        {isEditing && t.actual && (
+                          <span className="text-[9px] font-black uppercase text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">Ahora</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Puede cambiar entre las marcadas con el selector de empresa. Si le quitás la tienda
+                  en la que está trabajando, pasa a una de las que le quedan.
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Alias para el ticket ("Atendido por:") — control interno */}
           {isEditing && (
