@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useTenantId } from '@/hooks/useTenant';
+import { imprimirApartado } from '@/modules/reservations/printReservation';
 import { X, Loader2, Package, Calendar } from 'lucide-react';
 import { reservationsService } from '@/services/reservations/reservationsService';
 
@@ -28,6 +30,7 @@ export const ReserveCartModal: React.FC<{
   onClose: () => void;
   onCreado: (r: { number: string | null; total: number; saldo: number; aviso?: string }) => void;
 }> = ({ items, total, clienteSugerido, customerId, cashSessionId, onClose, onCreado }) => {
+  const { tenantId } = useTenantId();
   const [nombre, setNombre] = useState(clienteSugerido ?? '');
   const [telefono, setTelefono] = useState('');
   const [vence, setVence] = useState(en15Dias());
@@ -58,6 +61,13 @@ export const ReserveCartModal: React.FC<{
         deposit_method: metodo,
         cash_session_id: cashSessionId ?? null,
       });
+      // El comprobante sale de una vez: el cliente está en el mostrador y es su
+      // constancia de lo que apartó y de lo que abonó. Si la impresora falla, el
+      // apartado ya quedó guardado y se reimprime desde Apartados.
+      try {
+        const completo = await reservationsService.get(r.id).catch(() => null);
+        if (completo) await imprimirApartado(completo, tenantId ?? '');
+      } catch (e) { console.warn('[apartado] no se pudo imprimir el comprobante:', e); }
       onCreado({
         number: r.number ?? null,
         total: Number(r.total ?? total),

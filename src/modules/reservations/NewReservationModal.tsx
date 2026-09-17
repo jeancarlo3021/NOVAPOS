@@ -1,4 +1,6 @@
 import React, { useMemo, useState } from 'react';
+import { useTenantId } from '@/hooks/useTenant';
+import { imprimirApartado } from './printReservation';
 import { X, Loader2, Search, Trash2, AlertCircle, Bookmark } from 'lucide-react';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
 import { reservationsService } from '@/services/reservations/reservationsService';
@@ -19,6 +21,7 @@ export const NewReservationModal: React.FC<{
   onClose: () => void;
   onCreated: (msg: string) => void;
 }> = ({ onClose, onCreated }) => {
+  const { tenantId } = useTenantId();
   const { filteredProducts, searchTerm, setSearchTerm, loading: cargandoCatalogo } = usePOSProducts();
 
   const [nombre, setNombre] = useState('');
@@ -69,6 +72,11 @@ export const NewReservationModal: React.FC<{
         items: lineas,
         deposit: abonoNum || undefined,
       });
+      // Igual que en el POS: el comprobante sale al crearlo, con el cliente presente.
+      try {
+        const completo = await reservationsService.get((r as any).id).catch(() => null);
+        if (completo) await imprimirApartado(completo, tenantId ?? '');
+      } catch (e) { console.warn('[apartado] no se pudo imprimir el comprobante:', e); }
       onCreated(`Apartado ${r.number} creado por ${money(total)}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo crear el apartado');

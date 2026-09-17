@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bookmark, Plus, Loader2, AlertCircle, CheckCircle2, Home, Search, Trash2,
-  HandCoins, PackageCheck, CalendarClock,
+  HandCoins, PackageCheck, CalendarClock, Printer,
 } from 'lucide-react';
 import { reservationsService, type Reservation } from '@/services/reservations/reservationsService';
 import { NewReservationModal } from './NewReservationModal';
+import { imprimirApartado } from './printReservation';
+import { useTenantId } from '@/hooks/useTenant';
 
 const money = (n: number) => `₡${Math.round(Number(n || 0)).toLocaleString('es-CR')}`;
 const day = (d?: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('es-CR') : '—');
@@ -28,6 +30,23 @@ const TABS: Array<{ id: Tab; label: string }> = [
  */
 export const ReservationsDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { tenantId } = useTenantId();
+
+  /**
+   * Comprobante del apartado, para el cliente.
+   *
+   * Se vuelve a pedir el apartado antes de imprimir: la lista no trae los
+   * abonos, y el comprobante sin ellos no sirve para probar lo que ya pagó.
+   */
+  const imprimir = async (r: Reservation) => {
+    setBusy(r.id);
+    try {
+      const completo = await reservationsService.get(r.id).catch(() => r);
+      await imprimirApartado(completo ?? r, tenantId ?? '');
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo imprimir el comprobante' });
+    } finally { setBusy(null); }
+  };
   const [tab, setTab] = useState<Tab>('open');
   const [rows, setRows] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,8 +212,17 @@ export const ReservationsDashboard: React.FC = () => {
                   </p>
                 )}
 
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  {/* El comprobante se puede reimprimir siempre: el cliente lo
+                      pierde, o vuelve con un abono nuevo y quiere el detalle. */}
+                  <button onClick={() => void imprimir(r)} disabled={busy === r.id}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-gray-200 text-gray-700 text-sm font-black hover:bg-gray-50">
+                    <Printer size={15} /> Comprobante
+                  </button>
+                </div>
+
                 {r.status === 'open' && (
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
                     <button onClick={() => void abonar(r)} disabled={busy === r.id}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-violet-200 text-violet-700 text-sm font-black hover:bg-violet-50">
                       <HandCoins size={15} /> Abonar
