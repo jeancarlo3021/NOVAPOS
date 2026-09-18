@@ -571,6 +571,35 @@ export const CreateOwner: React.FC = () => {
     }
   };
 
+  // ── Cambiar el nombre del negocio ──────────────────────────────────────────
+  /**
+   * Cambia el nombre con el que el negocio aparece en el panel, en el selector de
+   * empresa y en el ticket. NO toca la razón social ni el nombre comercial de los
+   * datos de FE: esos tienen que coincidir con lo inscrito ante Hacienda.
+   */
+  const handleRename = async (o: OwnerData) => {
+    const input = window.prompt(
+      `Nombre del negocio.\n\nEs el que se ve en el panel, en el selector de empresa y en el ticket.\n`
+      + 'La razón social de los datos de FE no cambia.',
+      o.name ?? '',
+    );
+    if (input === null) return;   // canceló
+    const nombre = input.trim();
+    if (nombre.length < 2) { showToast('El nombre tiene que tener al menos 2 caracteres', 'error'); return; }
+    if (nombre === (o.name ?? '').trim()) return;
+    try {
+      const r = await apiFetch<{ name: string; ticket_actualizado: boolean }>(
+        `/admin/tenants/${o.id}/name`, { method: 'PUT', body: JSON.stringify({ name: nombre }) });
+      showToast(
+        `Negocio renombrado a "${r.name}"`
+        + (r.ticket_actualizado ? '' : ' — el ticket conserva el rótulo que tenía configurado.'),
+        'success');
+      fetchOwners();
+    } catch (err: any) {
+      showToast(err?.message || 'No se pudo cambiar el nombre', 'error');
+    }
+  };
+
   // ── Ajustar monto de venta del plan por negocio ─────────────────────────────
   const handleEditPrice = async (o: OwnerData) => {
     const current = o.custom_price ?? o.plan_price ?? 0;
@@ -1310,6 +1339,11 @@ export const CreateOwner: React.FC = () => {
                                     <button onClick={() => setOpenMenuId(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
                                   </div>
                                   <div className="py-1.5">
+                                  <button onClick={() => { setOpenMenuId(null); void handleRename(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50">
+                                    <Pencil size={13} /> Cambiar nombre del negocio
+                                  </button>
+                                  <div className="my-1 border-t border-gray-100" />
                                   <button onClick={() => { setOpenMenuId(null); setRenewing(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
                                     <RefreshCw size={13} /> Renovar suscripción
