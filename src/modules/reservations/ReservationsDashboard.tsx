@@ -7,6 +7,8 @@ import {
 import { reservationsService, type Reservation } from '@/services/reservations/reservationsService';
 import { NewReservationModal } from './NewReservationModal';
 import { imprimirApartado } from './printReservation';
+import { AbonoModal } from './AbonoModal';
+import { useCashSession } from '@/hooks/useCashSession';
 import { useTenantId } from '@/hooks/useTenant';
 
 const money = (n: number) => `₡${Math.round(Number(n || 0)).toLocaleString('es-CR')}`;
@@ -31,6 +33,9 @@ const TABS: Array<{ id: Tab; label: string }> = [
 export const ReservationsDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { tenantId } = useTenantId();
+  const { currentSession } = useCashSession();
+  // Apartado al que se le está cobrando un abono.
+  const [abonandoA, setAbonandoA] = useState<Reservation | null>(null);
 
   /**
    * Comprobante del apartado, para el cliente.
@@ -72,23 +77,23 @@ export const ReservationsDashboard: React.FC = () => {
       || (r.customer_phone ?? '').includes(t));
   }, [rows, q]);
 
-  const abonar = async (r: Reservation) => {
-    const saldo = Number(r.total) - Number(r.paid);
-    const raw = window.prompt(
-      `Abono para ${r.number}\n\nTotal: ${money(r.total)}\nAbonado: ${money(r.paid)}\nSaldo: ${money(saldo)}\n\n¿Cuánto abona?`,
-      String(Math.round(saldo)),
-    );
-    if (raw === null) return;
-    const monto = Number(String(raw).replace(/[^\d.]/g, ''));
-    if (!(monto > 0)) return;
-    setBusy(r.id);
-    try {
-      await reservationsService.addPayment(r.id, monto);
-      setMsg({ ok: true, text: `Abono de ${money(monto)} registrado en ${r.number}` });
-      await cargar();
-    } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo registrar el abono' });
-    } finally { setBusy(null); }
+  /**
+   * El abono se cobra en su propio modal: monto, MEDIO DE PAGO y nota.
+   *
+   * Antes se pedía solo el monto con una ventanita del navegador y se guardaba
+   * siempre como efectivo y sin caja, así que no aparecía en el cierre.
+   */
+  const abonoRegistrado = async (msg: string, imprimir: boolean) => {
+    const reserva = abonandoA;
+    setAbonandoA(null);
+    setMsg({ ok: true, text: msg });
+    await cargar();
+    if (imprimir && reserva) {
+      try {
+        const completo = await reservationsService.get(reserva.id).catch(() => null);
+        if (completo) await imprimirApartado(completo, tenantId ?? '');
+      } catch (e) { console.warn('[apartado] no se pudo imprimir el comprobante:', e); }
+    }
   };
 
   const anular = async (r: Reservation) => {
@@ -223,7 +228,7 @@ export const ReservationsDashboard: React.FC = () => {
 
                 {r.status === 'open' && (
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    <button onClick={() => void abonar(r)} disabled={busy === r.id}
+                    <button onClick={() => setAbonandoA(r)} disabled={busy === r.id}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-violet-200 text-violet-700 text-sm font-black hover:bg-violet-50">
                       <HandCoins size={15} /> Abonar
                     </button>
@@ -248,6 +253,16 @@ export const ReservationsDashboard: React.FC = () => {
             );
           })}
         </div>
+      )}
+
+
+      {abonandoA && (
+        <AbonoModal
+          reserva={abonandoA}
+          cashSessionId={currentSession?.id ?? null}
+          onClose={() => setAbonandoA(null)}
+          onListo={(msg, imprimir) => void abonoRegistrado(msg, imprimir)}
+        />
       )}
 
       {nuevo && (

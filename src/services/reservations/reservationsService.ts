@@ -62,11 +62,21 @@ export const reservationsService = {
       '/reservations', { method: 'POST', body: JSON.stringify(payload) }),
 
   /** Registra un abono. El servidor no deja pasarse del saldo. */
-  addPayment: (id: string, amount: number, method = 'cash', cashSessionId?: string | null) =>
+  addPayment: (id: string, amount: number, method = 'cash', cashSessionId?: string | null, notes?: string) =>
     apiFetch<Reservation>(`/reservations/${id}/payments`, {
       method: 'POST',
-      body: JSON.stringify({ amount, method, cash_session_id: cashSessionId ?? null }),
+      body: JSON.stringify({ amount, method, cash_session_id: cashSessionId ?? null, notes: notes ?? null }),
     }),
+
+  /**
+   * Abonos de apartados, para el cierre de caja: es plata que entró al cajón
+   * sin que haya factura todavía.
+   */
+  paymentsOfSession: (sessionId: string) =>
+    apiFetch<Array<{
+      id: string; reservation_id: string; numero: string | null; cliente: string | null;
+      amount: number; method: string; notes: string | null; created_at: string;
+    }>>(`/reservations/payments?session=${encodeURIComponent(sessionId)}`),
 
   /** Anula y devuelve la mercadería a la venta. Informa cuánto quedó abonado. */
   cancel: (id: string, reason?: string) =>

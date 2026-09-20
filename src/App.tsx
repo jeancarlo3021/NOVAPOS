@@ -49,6 +49,7 @@ const TablesDashboard          = lazy(() => import('./modules/tables/TablesDashb
 const ModifiersManager         = lazy(() => import('./modules/modifiers/ModifiersManager').then(m => ({ default: m.ModifiersManager })));
 const SalesAgentsManager       = lazy(() => import('./modules/agents/SalesAgentsManager').then(m => ({ default: m.SalesAgentsManager })));
 const ReservationsDashboard    = lazy(() => import('./modules/reservations/ReservationsDashboard').then(m => ({ default: m.ReservationsDashboard })));
+const ManualSalesDashboard     = lazy(() => import('./modules/manualSales/ManualSalesDashboard').then(m => ({ default: m.ManualSalesDashboard })));
 const LiveTeamMap              = lazy(() => import('./modules/customers/LiveTeamMap').then(m => ({ default: m.LiveTeamMap })));
 const DemoRequestsDashboard    = lazy(() => import('./modules/demos/DemoRequestsDashboard').then(m => ({ default: m.DemoRequestsDashboard })));
 const LeadsDashboard           = lazy(() => import('./modules/crm/LeadsDashboard').then(m => ({ default: m.LeadsDashboard })));
@@ -234,6 +235,10 @@ function AppContent() {
               {/* EQUIPO EN VIVO: dónde anda cada quien, como el mapa de camiones. */}
               <Route path="/apartados" element={
                 <PlanGuard feature="reservations"><ReservationsDashboard /></PlanGuard>
+              } />
+              {/* VENTAS SIN SISTEMA: cargar a mano el total de un día que se vendió sin el POS. */}
+              <Route path="/ventas-sin-sistema" element={
+                <PlanGuard feature="reports"><ManualSalesDashboard /></PlanGuard>
               } />
               <Route path="/equipo-en-vivo" element={
                 <PlanGuard feature="live_team" anyOf={['tracking']}><LiveTeamMap /></PlanGuard>

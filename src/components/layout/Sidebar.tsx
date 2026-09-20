@@ -28,7 +28,7 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeInfo,
-  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Crosshair, Users2, Bookmark } from 'lucide-react';
+  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store, CalendarDays, CalendarPlus, ShieldCheck, TrendingUp, MonitorPlay, Crosshair, Users2, Bookmark } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
@@ -103,6 +103,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Nuevo pedido',       to: '/agent-orders',  icon: Send,      feature: 'agent_orders', module: 'agent_orders', hideForRoles: ['cajero'] },
       { name: 'Demos',              to: '/demos',         icon: MonitorPlay, feature: 'demo_requests', module: 'customers' },
       { name: 'Apartados',          to: '/apartados',     icon: Bookmark,  feature: 'reservations', module: 'reservations' },
+      { name: 'Ventas sin sistema', to: '/ventas-sin-sistema', icon: CalendarPlus, feature: 'reports', module: 'reports' },
       { name: 'Equipo en vivo',     to: '/equipo-en-vivo', icon: Users2,    feature: 'live_team', module: 'tracking', alsoIf: ['tracking'] },
       { name: 'Leads',              to: '/seguimiento',   icon: TrendingUp, feature: 'crm_leads', module: 'customers' },
       { name: 'Garantías',          to: '/garantias',     icon: ShieldCheck, feature: 'warranties', module: 'inventory' },

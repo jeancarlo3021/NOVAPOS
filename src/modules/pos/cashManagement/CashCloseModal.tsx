@@ -94,6 +94,15 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     usdChangeOut: number;  // dólares entregados como vuelto
     /** Vendido en dólares, expresado en colones. NO entra al arqueo en ₡. */
     usdCrc: number;
+    /**
+     * Abonos de APARTADOS cobrados en este turno.
+     *
+     * Es plata que entró al cajón sin que haya factura: la venta se factura
+     * cuando el cliente retira la mercadería. Sin contarlos, el arqueo salía con
+     * un sobrante exactamente igual a lo abonado y nadie encontraba el error.
+     */
+    abonos: Array<{ numero: string | null; cliente: string | null; method: string; amount: number; time: string }>;
+    abonosTotal: number;
     loaded: boolean;
   }
   const [sys, setSys] = useState<SysTotals>({
@@ -101,7 +110,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     invoicesCount: 0, invoicesTotal: 0,
     voidsCount: 0, voidsTotal: 0, deliveryCount: 0, deliveryTotal: 0, deliveryNet: 0,
     excludedCount: 0, excludedTotal: 0,
-    cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, usdCrc: 0, loaded: false,
+    cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, usdCrc: 0,
+    abonos: [], abonosTotal: 0, loaded: false,
   });
 
   // Ventas hechas sin conexión que TODAVÍA no subieron. El cierre se calcula con
@@ -136,7 +146,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           sessionId = posOfflineService.mapOfflineSessionId(session.id);
         } catch { /* sin mapeo: se usa el id tal cual */ }
 
-        const [invRes, movRes] = await Promise.all([
+        const [invRes, movRes, abonosRes] = await Promise.all([
           apiFetch<{ invoices: any[]; source?: string }>(`/cash-sessions/${sessionId}/invoices`)
             .catch((e) => {
               if (!cancel) {
@@ -147,6 +157,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
               return { invoices: [] as any[], source: 'error' };
             }),
           apiFetch<any[]>(`/cash-sessions/${sessionId}/movements`).catch(() => []),
+          // Abonos de apartados de esta caja. Si falla, el cierre sigue: se avisa abajo.
+          import('@/services/reservations/reservationsService')
+            .then(({ reservationsService }) => reservationsService.paymentsOfSession(sessionId))
+            .catch(() => [] as any[]),
         ]);
 
         if (cancel) return;
@@ -179,6 +193,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         const voidsCount = voidedInv.length;
         const voidsTotal = voidedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
         let sCash = 0, sCard = 0, sSinpe = 0, sCredit = 0, sTransfer = 0, sOther = 0;
+        // Los abonos de apartados entran por su medio de pago, igual que una venta.
+        const abonos = (Array.isArray(abonosRes) ? abonosRes : []).map((p: any) => ({
+          numero: p.numero ?? null, cliente: p.cliente ?? null,
+          method: String(p.method ?? 'cash'), amount: Number(p.amount || 0),
+          time: String(p.created_at ?? ''),
+        }));
+        const abonosTotal = abonos.reduce((t, a) => t + a.amount, 0);
         let usdReceived = 0, usdChangeOut = 0, usdCrcChangeOut = 0;
         // Monto VENDIDO en dólares, en su equivalente en colones.
         //
@@ -249,6 +270,16 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           }))
           .sort((x: any, y: any) => String(x.time).localeCompare(String(y.time)));
 
+        for (const a of abonos) {
+          switch (a.method) {
+            case 'cash':  sCash += a.amount; break;
+            case 'card':  sCard += a.amount; break;
+            case 'sinpe': sSinpe += a.amount; break;
+            case 'transfer': case 'bank_transfer': sTransfer += a.amount; break;
+            default:      sOther += a.amount;
+          }
+        }
+
         setSys({
           cash: sCash, card: sCard, sinpe: sSinpe, usdCrc: sUsdCrc,
           credit: sCredit, transfer: sTransfer, other: sOther,
@@ -258,6 +289,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           deliveryCount, deliveryTotal, deliveryNet,
           excludedCount, excludedTotal,
           cashIn, cashOut, movements, sales: salesDetail,
+          abonos, abonosTotal,
           usdReceived, usdChangeOut, loaded: true,
         });
       } catch {
@@ -451,6 +483,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             // que el tiquete explique por qué el esperado en ₡ es menor que el
             // total vendido: esa plata se arquea en dólares, no en colones.
             system_usd_crc: sys.usdCrc,
+            // Abonos de apartados del turno: ya están sumados por método arriba,
+            // van aparte para que el tiquete los pueda mostrar como tales.
+            reservations_total: sys.abonosTotal,
+            reservations_count: sys.abonos.length,
             // Lo que el cajero contó por método
             cash_total: cashTotal,
             card_total: cardTotal,
@@ -487,6 +523,11 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             ['Efectivo', m(sys.cash)], ['Tarjeta', m(sys.card)], ['SINPE', m(sys.sinpe)],
             ...(sys.usdCrc > 0 ? [['Cobrado en dólares', m(sys.usdCrc)]] : []),
             ['Facturas', `${sys.invoicesCount} · ${m(sys.invoicesTotal)}`],
+            // Los abonos ya están sumados por método arriba; se nombran para que
+            // el total del turno no se confunda con ventas facturadas.
+            ...(sys.abonos.length > 0
+              ? [['Abonos de apartados (incluidos arriba)', `${sys.abonos.length} · ${m(sys.abonosTotal)}`]]
+              : []),
             ...(sys.voidsCount > 0 ? [['Anulaciones', `${sys.voidsCount} · ${m(sys.voidsTotal)}`]] : []),
           ] },
           { heading: 'Contado', rows: [

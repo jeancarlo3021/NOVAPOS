@@ -687,6 +687,13 @@ export class POSPrinterService {
     non_countable_sales?: number;
     /** Vendido en dólares, en equivalente ₡. Se arquea en $, no en ₡. */
     system_usd_crc?: number;
+    /**
+     * Abonos de APARTADOS cobrados en el turno. Ya vienen sumados en los totales
+     * por método; se imprimen aparte porque no son ventas: la factura sale
+     * cuando el cliente retira la mercadería.
+     */
+    reservations_total?: number;
+    reservations_count?: number;
     /** Detalle de las ventas del turno (para cotejar el arqueo una por una). */
     sales?: Array<{ number: string; time: string; method: string; total: number; kind?: string }>;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
@@ -1131,6 +1138,16 @@ export class POSPrinterService {
     sep();
     row('Total ventas:', fmt(systemTotal));
     row('Facturas:', String(report.invoices_count ?? 0));
+    /**
+     * Los abonos de apartados YA están sumados arriba por su medio de pago —es
+     * plata que entró al cajón—, pero no son ventas: la factura sale cuando el
+     * cliente retira. Se dicen aparte para que el total de ventas del día se
+     * pueda leer sin confundirlo con lo abonado.
+     */
+    if ((report.reservations_count ?? 0) > 0) {
+      row('Abonos apartados:', `${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}`);
+      row('  (incluidos arriba)', '');
+    }
     if ((report.voids_count ?? 0) > 0) row('Anulaciones:', `${report.voids_count} · ${fmt(report.voids_total ?? 0)}`);
     if ((report.delivery_count ?? 0) > 0) {
       sep();

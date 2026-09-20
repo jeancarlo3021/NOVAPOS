@@ -1,4 +1,6 @@
 import React, { useMemo, useState } from 'react';
+import { useCashSession } from '@/hooks/useCashSession';
+import { ETIQUETA_MEDIO_PAGO } from '@/utils/mediosDePago';
 import { useTenantId } from '@/hooks/useTenant';
 import { imprimirApartado } from './printReservation';
 import { X, Loader2, Search, Trash2, AlertCircle, Bookmark } from 'lucide-react';
@@ -22,6 +24,7 @@ export const NewReservationModal: React.FC<{
   onCreated: (msg: string) => void;
 }> = ({ onClose, onCreated }) => {
   const { tenantId } = useTenantId();
+  const { currentSession } = useCashSession();
   const { filteredProducts, searchTerm, setSearchTerm, loading: cargandoCatalogo } = usePOSProducts();
 
   const [nombre, setNombre] = useState('');
@@ -34,6 +37,8 @@ export const NewReservationModal: React.FC<{
   });
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [abono, setAbono] = useState('');
+  // Con qué paga el abono inicial: va al cierre de caja con ese medio.
+  const [metodo, setMetodo] = useState('cash');
   const [notas, setNotas] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
@@ -71,6 +76,9 @@ export const NewReservationModal: React.FC<{
         notes: notas.trim() || null,
         items: lineas,
         deposit: abonoNum || undefined,
+        deposit_method: metodo,
+        // Ligado a la caja abierta: si no, el abono no aparece en el cierre.
+        cash_session_id: currentSession?.id ?? null,
       });
       // Igual que en el POS: el comprobante sale al crearlo, con el cliente presente.
       try {
@@ -181,6 +189,20 @@ export const NewReservationModal: React.FC<{
               <span className="text-xs font-bold text-gray-500 shrink-0">Falta {money(total - abonoNum)}</span>
             )}
           </label>
+          {abonoNum > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">¿Con qué paga el abono?</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(['cash', 'card', 'sinpe', 'transfer'] as const).map(m => (
+                  <button key={m} type="button" onClick={() => setMetodo(m)}
+                    className={`py-1.5 rounded-lg text-[11px] font-bold ${
+                      metodo === m ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                    {ETIQUETA_MEDIO_PAGO[m] ?? m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <button onClick={() => void guardar()} disabled={guardando}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-violet-600 hover:bg-violet-700
                        disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-sm">

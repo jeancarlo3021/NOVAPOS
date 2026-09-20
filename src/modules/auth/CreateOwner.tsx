@@ -278,6 +278,21 @@ export const CreateOwner: React.FC = () => {
       const r = await apiFetch<any>('/admin/sync-customers', { method: 'POST' });
       showToast(`Clientes migrados: ${r?.created ?? 0} nuevos, ${r?.updated ?? 0} actualizados (de ${r?.total ?? 0} negocios)`, 'success');
       if (r?.errors?.length) console.warn('[sync-customers]', r.errors);
+      /**
+       * Los que quedaron sin datos se MUESTRAN.
+       *
+       * La ficha se crea igual con el nombre, pero sin cédula ni dirección no se
+       * le puede facturar, y eso antes solo se descubría al intentar cobrar.
+       */
+      const incompletos: Array<{ negocio: string; faltan: string[] }> = r?.incompletos ?? [];
+      if (incompletos.length > 0) {
+        mostrarDetalle(
+          `Negocios con datos incompletos (${incompletos.length})`,
+          'Se migraron igual, pero les falta información para poder facturarles.\n'
+          + 'Completala en Datos de FE del negocio, o en su Configuración → General.\n\n'
+          + incompletos.map(x => `• ${x.negocio} — falta ${x.faltan.join(', ')}`).join('\n'),
+        );
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudieron migrar los clientes', 'error');
     } finally { setSyncingCustomers(false); }
