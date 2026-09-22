@@ -534,6 +534,16 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             ['Efectivo', m(cashTotal)], ['Tarjeta', m(cardTotal)], ['SINPE', m(sinpeTotal)],
             ['Total contado', m(grandTotal)],
           ] },
+          // Entradas y salidas del fondo: explican por qué el esperado no es
+          // solo fondo + ventas. Sin ellas, el correo no cuadra con el ticket.
+          ...(sys.movements.length > 0 ? [{ heading: 'Movimientos de efectivo', rows: [
+            ['Entradas', m(sys.cashIn)],
+            ['Salidas', m(sys.cashOut)],
+            ...sys.movements.map(mv => [
+              `${mv.type === 'in' ? 'Entrada' : 'Salida'}${mv.reason ? ` · ${mv.reason}` : ''}`,
+              m(mv.amount),
+            ] as [string, string]),
+          ] }] : []),
           { heading: 'Arqueo de efectivo', rows: [
             ['Fondo inicial', m(openingAmount)], ['Efectivo esperado', m(expectedTotal)], ['Efectivo contado', m(cashTotal)],
             [difference === 0 ? 'Cuadrado' : difference > 0 ? 'Sobrante' : 'Faltante', m(Math.abs(difference))],

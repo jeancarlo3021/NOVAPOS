@@ -97,13 +97,23 @@ export const TenantModulesModal: React.FC<Props> = ({ owner, onClose, onToast })
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  /** De qué plan salen los módulos marcados, y si es heredado. */
+  const [planInfo, setPlanInfo] = useState<{ nombre: string | null; heredadoDe: string | null }>(
+    { nombre: null, heredadoDe: null });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiFetch<{ base: Record<string, any>; overrides: Record<string, boolean> }>(`/admin/tenants/${owner.id}/features`);
+      const data = await apiFetch<{
+        base: Record<string, any>; overrides: Record<string, boolean>;
+        plan_name?: string | null; heredado_de?: string | null; heredado_de_nombre?: string | null;
+      }>(`/admin/tenants/${owner.id}/features`);
       setBase(data?.base ?? {});
       setOverrides({ ...(data?.overrides ?? {}) });
+      setPlanInfo({
+        nombre: data?.plan_name ?? null,
+        heredadoDe: data?.heredado_de_nombre ?? null,
+      });
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'No se pudieron cargar los módulos', 'error');
     } finally { setLoading(false); }
@@ -148,6 +158,14 @@ export const TenantModulesModal: React.FC<Props> = ({ owner, onClose, onToast })
             <div>
               <h2 className="text-lg font-black text-gray-900">Módulos personalizados</h2>
               <p className="text-xs text-gray-400">{owner.name}</p>
+              {/* De dónde vienen los módulos marcados: sin esto, un negocio que
+                  hereda el plan parecía no tener ninguno. */}
+              <p className="text-[11px] font-bold text-gray-500 mt-0.5">
+                {planInfo.nombre
+                  ? <>Plan <span className="text-gray-800">{planInfo.nombre}</span>
+                      {planInfo.heredadoDe && <span className="text-violet-700"> · heredado de {planInfo.heredadoDe}</span>}</>
+                  : <span className="text-amber-700">Sin plan activo: los módulos marcados son solo los que le prendas acá.</span>}
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={20} /></button>

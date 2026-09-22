@@ -5,9 +5,11 @@ import {
 } from 'recharts';
 import {
   Lock, Clock, AlertTriangle, CheckCircle2,
-  TrendingUp, RefreshCw, Timer, Download,
+  TrendingUp, RefreshCw, Timer, Download, Printer,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useTenantId } from '@/hooks/useTenant';
+import { posPrinterService } from '@/services/pos/posPrinterService';
 import { KPICard } from '../components/KPICard';
 import { downloadCsv } from '@/utils/csv';
 
@@ -28,6 +30,15 @@ interface SessionRow {
   card_sales: number;
   sinpe_sales: number;
   invoice_count: number;
+  /** Movimientos manuales del fondo de caja (vales, compras, retiros). */
+  cash_in: number;
+  cash_out: number;
+  /** Ventas anuladas del turno: no suman, pero tienen que poder verse. */
+  voids_count: number;
+  voids_total: number;
+  /** Abonos de apartados cobrados en esa caja. */
+  reservations_total: number;
+  reservations_cash: number;
   expected_closing: number;
   discrepancy: number | null;
   duration_min: number | null;
@@ -53,6 +64,7 @@ function durationLabel(min: number | null) {
 interface Props { tenantId: string | null; from: string; to: string }
 
 export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
+  const { tenantId: tenantActual } = useTenantId();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
@@ -91,6 +103,69 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
     : null;
   const withDisc  = closed.filter(s => s.discrepancy !== null && Math.abs(s.discrepancy!) > 10);
   const totalDisc = closed.reduce((s, r) => s + (r.discrepancy ?? 0), 0);
+  const totalIn    = sessions.reduce((s, r) => s + (r.cash_in ?? 0), 0);
+  const totalOut   = sessions.reduce((s, r) => s + (r.cash_out ?? 0), 0);
+  const totalVoids = sessions.reduce((s, r) => s + (r.voids_total ?? 0), 0);
+  const voidsCount = sessions.reduce((s, r) => s + (r.voids_count ?? 0), 0);
+  const totalAbonos = sessions.reduce((s, r) => s + (r.reservations_total ?? 0), 0);
+
+  /**
+   * Imprime el reporte de cierres por la impresora configurada.
+   *
+   * El CSV sirve para la computadora, pero el cierre se revisa en el mostrador y
+   * se archiva en papel: hasta ahora había que abrirlo en Excel para verlo. Sale
+   * por la misma impresora que los tiquetes (térmica, Bluetooth, QZ o navegador).
+   */
+  const [printing, setPrinting] = useState(false);
+  const imprimir = useCallback(async () => {
+    setPrinting(true);
+    try {
+      const L: Array<{ t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string }> = [];
+      L.push({ t: 'title', a: 'CIERRES DE CAJA' });
+      L.push({ t: 'center', a: `${fmtDt(from)} al ${fmtDt(to)}` });
+      L.push({ t: 'center', a: `Impreso ${new Date().toLocaleString('es-CR')}` });
+      L.push({ t: 'sep' });
+
+      for (const s2 of sessions) {
+        L.push({ t: 'text', a: s2.cashier_name || 'Sin vendedor' });
+        L.push({ t: 'row', a: 'Abrió:', b: fmtDt(s2.opening_date) });
+        L.push({ t: 'row', a: 'Cerró:', b: s2.closing_date ? fmtDt(s2.closing_date) : 'ABIERTA' });
+        L.push({ t: 'row', a: 'Fondo:', b: fmt(s2.opening_amount) });
+        L.push({ t: 'row', a: 'Efectivo:', b: fmt(s2.cash_sales) });
+        L.push({ t: 'row', a: 'Tarjeta:', b: fmt(s2.card_sales) });
+        L.push({ t: 'row', a: 'SINPE:', b: fmt(s2.sinpe_sales) });
+        if ((s2.reservations_total ?? 0) > 0) L.push({ t: 'row', a: 'Abonos apartados:', b: fmt(s2.reservations_total) });
+        if ((s2.cash_in ?? 0) > 0) L.push({ t: 'row', a: '+ Entradas:', b: fmt(s2.cash_in) });
+        if ((s2.cash_out ?? 0) > 0) L.push({ t: 'row', a: '- Salidas:', b: fmt(s2.cash_out) });
+        if ((s2.voids_count ?? 0) > 0) L.push({ t: 'row', a: 'Anuladas:', b: `${s2.voids_count} · ${fmt(s2.voids_total)}` });
+        L.push({ t: 'row', a: 'Esperado:', b: fmt(s2.expected_closing) });
+        L.push({ t: 'row', a: 'Contado:', b: s2.closing_amount != null ? fmt(s2.closing_amount) : '—' });
+        if (s2.discrepancy !== null) {
+          const d = s2.discrepancy ?? 0;
+          L.push({ t: 'row', a: d === 0 ? 'CUADRADO' : d > 0 ? 'SOBRANTE:' : 'FALTANTE:', b: fmt(Math.abs(d)) });
+        }
+        L.push({ t: 'sep' });
+      }
+
+      L.push({ t: 'center', a: 'TOTALES DEL PERIODO' });
+      L.push({ t: 'row', a: 'Sesiones:', b: `${closed.length} cerradas · ${open.length} abiertas` });
+      L.push({ t: 'row', a: 'Ventas:', b: fmt(totalSales) });
+      L.push({ t: 'row', a: 'Efectivo:', b: fmt(totalCash) });
+      L.push({ t: 'row', a: 'Tarjeta:', b: fmt(totalCard) });
+      L.push({ t: 'row', a: 'SINPE:', b: fmt(totalSinpe) });
+      if (totalIn > 0) L.push({ t: 'row', a: '+ Entradas:', b: fmt(totalIn) });
+      if (totalOut > 0) L.push({ t: 'row', a: '- Salidas:', b: fmt(totalOut) });
+      if (voidsCount > 0) L.push({ t: 'row', a: 'Anulaciones:', b: `${voidsCount} · ${fmt(totalVoids)}` });
+      if (totalAbonos > 0) L.push({ t: 'row', a: 'Abonos apartados:', b: fmt(totalAbonos) });
+      L.push({ t: 'row', a: 'Diferencias:', b: fmt(totalDisc) });
+      L.push({ t: 'center', a: `${withDisc.length} sesión(es) con diferencia` });
+
+      await posPrinterService.printDoc(L, tenantActual ?? tenantId ?? '');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo imprimir');
+    } finally { setPrinting(false); }
+  }, [sessions, from, to, closed.length, open.length, totalSales, totalCash, totalCard,
+    totalSinpe, totalIn, totalOut, voidsCount, totalVoids, totalAbonos, totalDisc, withDisc.length, tenantActual, tenantId]);
 
   const downloadCSV = useCallback(() => {
     const rows: (string | number | null | undefined)[][] = [];
@@ -103,6 +178,10 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
     rows.push(['Ventas efectivo',     totalCash]);
     rows.push(['Ventas SINPE',        totalSinpe]);
     rows.push(['Ventas tarjeta',      totalCard]);
+    rows.push(['Entradas de efectivo', totalIn]);
+    rows.push(['Salidas de efectivo',  totalOut]);
+    rows.push(['Anulaciones',          `${voidsCount} · ${totalVoids}`]);
+    rows.push(['Abonos de apartados',  totalAbonos]);
     rows.push(['Diferencias totales', totalDisc]);
     rows.push(['Sesiones con diferencia', withDisc.length]);
     rows.push([]);
@@ -113,7 +192,8 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
       'Vendedor', 'Apertura', 'Cierre', 'Estado',
       'Monto apertura (₡)', 'Total ventas (₡)',
       'Efectivo (₡)', 'SINPE (₡)', 'Tarjeta (₡)',
-      'N° facturas', 'Monto cierre (₡)',
+      'N° facturas', 'Entradas (₡)', 'Salidas (₡)',
+      'Anuladas', 'Monto anulado (₡)', 'Abonos apartados (₡)', 'Monto cierre (₡)',
       'Efectivo esperado (₡)', 'Diferencia (₡)', 'Duración (min)',
     ]);
     for (const s of sessions) {
@@ -128,6 +208,11 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
         s.sinpe_sales,
         s.card_sales,
         s.invoice_count,
+        s.cash_in ?? 0,
+        s.cash_out ?? 0,
+        s.voids_count ?? 0,
+        s.voids_total ?? 0,
+        s.reservations_total ?? 0,
         s.closing_amount ?? '',
         s.expected_closing,
         s.discrepancy ?? '',
@@ -162,8 +247,16 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
       )}
 
-      {/* Download */}
-      <div className="flex justify-end">
+      {/* Descargar / imprimir */}
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={() => void imprimir()}
+          disabled={sessions.length === 0 || printing}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 hover:border-violet-400 hover:text-violet-700 text-gray-600 text-sm font-semibold rounded-xl transition disabled:opacity-40 shadow-sm"
+        >
+          {printing ? <RefreshCw size={15} className="animate-spin" /> : <Printer size={15} />}
+          {printing ? 'Imprimiendo…' : 'Imprimir'}
+        </button>
         <button
           onClick={downloadCSV}
           disabled={sessions.length === 0}
@@ -209,6 +302,33 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
           </div>
         </div>
       </div>
+
+      {/* Movimientos del fondo, anulaciones y abonos: parte del cierre que antes
+          no salía en el reporte, y sin la cual la diferencia no se explica. */}
+      {(totalIn > 0 || totalOut > 0 || voidsCount > 0 || totalAbonos > 0) && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+            <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Entradas de efectivo</p>
+            <p className="text-xl font-black text-emerald-800">{fmt(totalIn)}</p>
+            <p className="text-xs text-emerald-600">suman al esperado</p>
+          </div>
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+            <p className="text-xs font-bold text-red-700 uppercase tracking-wide">Salidas de efectivo</p>
+            <p className="text-xl font-black text-red-800">{fmt(totalOut)}</p>
+            <p className="text-xs text-red-600">restan del esperado</p>
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Anulaciones</p>
+            <p className="text-xl font-black text-amber-800">{fmt(totalVoids)}</p>
+            <p className="text-xs text-amber-600">{voidsCount} factura{voidsCount === 1 ? '' : 's'} · no suman</p>
+          </div>
+          <div className="bg-violet-50 border border-violet-200 rounded-2xl p-4">
+            <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">Abonos de apartados</p>
+            <p className="text-xl font-black text-violet-800">{fmt(totalAbonos)}</p>
+            <p className="text-xs text-violet-600">plata sin factura todavía</p>
+          </div>
+        </div>
+      )}
 
       {/* Chart — efectivo, SINPE, tarjeta por sesión */}
       {chartData.length > 1 && (
@@ -261,6 +381,11 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
                   <th className="text-right px-3 py-3 text-xs font-bold text-emerald-600 uppercase">Efectivo</th>
                   <th className="text-right px-3 py-3 text-xs font-bold text-violet-600 uppercase">SINPE</th>
                   <th className="text-right px-3 py-3 text-xs font-bold text-blue-600 uppercase">Tarjeta</th>
+                  {/* Entradas, salidas y anulaciones: forman parte del cierre y
+                      antes no aparecían en ningún lado del reporte. */}
+                  <th className="text-right px-3 py-3 text-xs font-bold text-emerald-600 uppercase">Entradas</th>
+                  <th className="text-right px-3 py-3 text-xs font-bold text-red-600 uppercase">Salidas</th>
+                  <th className="text-right px-3 py-3 text-xs font-bold text-amber-600 uppercase">Anuladas</th>
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Cierre</th>
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Diferencia</th>
                   <th className="text-center px-4 py-3 text-xs font-bold text-gray-500 uppercase">Duración</th>
@@ -291,6 +416,19 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
                       </td>
                       <td className="px-3 py-3 text-right text-blue-700 font-semibold text-xs">
                         {s.card_sales > 0 ? fmt(s.card_sales) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-3 text-right text-emerald-700 font-semibold text-xs">
+                        {s.cash_in > 0 ? fmt(s.cash_in) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-3 text-right text-red-700 font-semibold text-xs">
+                        {s.cash_out > 0 ? fmt(s.cash_out) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-3 text-right text-xs">
+                        {s.voids_count > 0
+                          ? <span className="font-bold text-amber-700" title={`${s.voids_count} factura(s) anulada(s)`}>
+                              {s.voids_count} · {fmt(s.voids_total)}
+                            </span>
+                          : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-gray-700 text-xs">
                         {s.closing_amount !== null ? fmt(s.closing_amount) : '—'}

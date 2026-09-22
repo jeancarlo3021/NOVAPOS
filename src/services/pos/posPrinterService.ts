@@ -759,6 +759,13 @@ export class POSPrinterService {
         ...(((report.voids_count ?? 0) > 0) ? [
           { t: 'row' as const, a: 'Anulaciones', b: `${report.voids_count} · ${money(report.voids_total ?? 0)}` },
         ] : []),
+        // Los abonos de apartados ya están sumados por método arriba (es plata
+        // que entró al cajón), pero no son ventas: se nombran aparte. Solo
+        // estaban en la versión térmica del cierre.
+        ...(((report.reservations_count ?? 0) > 0) ? [
+          { t: 'row' as const, a: 'Abonos apartados (incluidos arriba)',
+            b: `${report.reservations_count} · ${money(report.reservations_total ?? 0)}` },
+        ] : []),
         ...(((report.delivery_count ?? 0) > 0) ? [
           { t: 'sep' as const }, { t: 'title' as const, a: 'DELIVERY (aparte, no en caja)' },
           { t: 'row' as const, a: 'Ventas delivery', b: `${report.delivery_count} · ${money(report.delivery_total ?? 0)}` },
@@ -1338,6 +1345,7 @@ export class POSPrinterService {
     <tr><td><strong>Total ventas:</strong></td><td style="text-align:right"><strong>${fmt((report.system_cash ?? 0) + (report.system_card ?? 0) + (report.system_sinpe ?? 0) + (report.system_credit ?? 0) + (report.system_transfer ?? 0) + (report.system_other ?? 0))}</strong></td></tr>
     <tr><td>Facturas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
     ${(report.voids_count ?? 0) > 0 ? `<tr><td>Anulaciones:</td><td style="text-align:right">${report.voids_count} · ${fmt(report.voids_total ?? 0)}</td></tr>` : ''}
+    ${(report.reservations_count ?? 0) > 0 ? `<tr><td>Abonos apartados:<br><span style="font-size:11px">(incluidos arriba)</span></td><td style="text-align:right">${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}</td></tr>` : ''}
   </table>
 
   ${report.cash_movements && report.cash_movements.length > 0 ? `
