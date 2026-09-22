@@ -223,9 +223,14 @@ export const ReceptionDashboard: React.FC = () => {
     setBusyId(row.id);
     try {
       const r = await haciendaService.resendReceivedAck(row.id);
-      setRows(prev => prev.map(x => (x.id === row.id ? { ...x, ack_id: r.ack_id } : x)));
+      setRows(prev => prev.map(x => (x.id === row.id ? { ...x, ack_id: r.ack_id, ack_error: null } : x)));
+      setError('');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'No se pudo reenviar el mensaje a Hacienda');
+      // El motivo REAL a la vista: «no se pudo» no deja nada que corregir. El
+      // servidor además lo guarda, así que queda en la fila aunque se cierre.
+      const motivo = e instanceof Error ? e.message : 'No se pudo reenviar el mensaje a Hacienda';
+      setRows(prev => prev.map(x => (x.id === row.id ? { ...x, ack_error: motivo } : x)));
+      setError(`No se pudo enviar el mensaje a Hacienda de ${row.issuer_name ?? 'ese comprobante'}: ${motivo}`);
     } finally { setBusyId(null); }
   };
 
@@ -256,11 +261,19 @@ export const ReceptionDashboard: React.FC = () => {
     // Solo se avisa cuando el envío ERA posible y no ocurrió.
     if ((t.includes('accept') || t === '1') && !ackId && mrDisponible) {
       return (
-        <span className="inline-flex items-center gap-1">
-          <span title="Se aceptó en el sistema, pero el Mensaje Receptor no se envió a Hacienda"
+        <span className="inline-flex items-center gap-1 flex-wrap">
+          <span title={row?.ack_error
+            ? `No se pudo enviar el Mensaje Receptor: ${row.ack_error}`
+            : 'Se aceptó en el sistema, pero el Mensaje Receptor no se envió a Hacienda'}
             className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
             <CheckCircle2 size={11} /> Aceptado · sin enviar
           </span>
+          {/* El motivo a la vista: sin esto no hay nada que corregir. */}
+          {row?.ack_error && (
+            <span className="block w-full text-[10px] font-semibold text-amber-700 break-words">
+              {row.ack_error}
+            </span>
+          )}
           {row && (
             <button onClick={e => { e.stopPropagation(); void reenviarAck(row); }}
               disabled={busyId === row.id}

@@ -18,6 +18,9 @@ export interface ReceivedDoc {
   /** Id del Mensaje Receptor en Alanube. Null = se aceptó en el sistema pero
    *  NUNCA se declaró a Hacienda (falló el envío o el tenant no usa Alanube). */
   ack_id?: string | null;
+  /** Por qué falló el último intento de envío del Mensaje Receptor. */
+  ack_error?: string | null;
+  ack_error_at?: string | null;
   kind?: 'gasto' | 'compra' | null;
   items?: ReceivedItem[] | null;
   /** Origen del comprobante: 'email' (cron por correo), 'manual', 'alanube'. */
