@@ -22,13 +22,17 @@ const fecha = (d?: string | null) => {
 export type LineaDoc = { t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string };
 
 /** Contenido del comprobante (separado de la impresión, para poder probarlo). */
-export function lineasDelApartado(r: Reservation, negocio: string, copia?: string): LineaDoc[] {
+export function lineasDelApartado(
+  r: Reservation, negocio: string, copia?: string, entregado = false,
+): LineaDoc[] {
   const saldo = Math.max(0, Number(r.total ?? 0) - Number(r.paid ?? 0));
   const ahora = new Date();
   const lineas: LineaDoc[] = [];
 
   if (negocio) lineas.push({ t: 'title', a: negocio });
-  lineas.push({ t: 'title', a: 'COMPROBANTE DE APARTADO' });
+  // Al entregar es el comprobante de la venta cobrada, no del apartado abierto.
+  lineas.push({ t: 'title', a: entregado ? 'TICKET DE CAJA' : 'COMPROBANTE DE APARTADO' });
+  if (entregado) lineas.push({ t: 'center', a: 'Apartado pagado y entregado' });
   if (copia) lineas.push({ t: 'center', a: `** ${copia} **` });
   lineas.push({ t: 'center', a: `N° ${r.number ?? r.id.slice(0, 8)}` });
   lineas.push({ t: 'center', a: `${ahora.toLocaleDateString('es-CR')} ${ahora.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}` });
@@ -68,16 +72,23 @@ export function lineasDelApartado(r: Reservation, negocio: string, copia?: strin
   }
 
   lineas.push({ t: 'sep' });
-  lineas.push({ t: 'center', a: 'Este comprobante NO es una factura.' });
-  lineas.push({ t: 'center', a: 'La factura se emite al retirar la mercadería.' });
-  if (saldo > 0) lineas.push({ t: 'center', a: `Presente este comprobante para pagar el saldo de ${money(saldo)}.` });
+  if (entregado) {
+    lineas.push({ t: 'center', a: '*** PAGADO POR COMPLETO ***' });
+    lineas.push({ t: 'center', a: 'Mercadería entregada. ¡Gracias por su compra!' });
+  } else {
+    lineas.push({ t: 'center', a: 'Este comprobante NO es una factura.' });
+    lineas.push({ t: 'center', a: 'La factura se emite al retirar la mercadería.' });
+    if (saldo > 0) lineas.push({ t: 'center', a: `Presente este comprobante para pagar el saldo de ${money(saldo)}.` });
+  }
 
   return lineas;
 }
 
-export async function imprimirApartado(r: Reservation, tenantId: string, copia?: string): Promise<void> {
+export async function imprimirApartado(
+  r: Reservation, tenantId: string, copia?: string, entregado = false,
+): Promise<void> {
   const general: any = cacheGet<any>(cacheKey(tenantId, 'settings_general'))
     ?? cacheGet<any>(cacheKey(tenantId, 'general_settings'));
   const negocio = String(general?.config?.businessName ?? general?.businessName ?? '').trim();
-  await posPrinterService.printDoc(lineasDelApartado(r, negocio, copia), tenantId);
+  await posPrinterService.printDoc(lineasDelApartado(r, negocio, copia, entregado), tenantId);
 }

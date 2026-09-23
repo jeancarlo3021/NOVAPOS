@@ -7,6 +7,7 @@ import { cashSessionService } from '@/services/cashManagement/cashSessionsServic
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
+import { ETIQUETA_MEDIO_PAGO } from '@/utils/mediosDePago';
 import { useAuth } from '@/context/AuthContext';
 import { CashSession } from '@/types/Types_POS';
 import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
@@ -487,6 +488,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             // van aparte para que el tiquete los pueda mostrar como tales.
             reservations_total: sys.abonosTotal,
             reservations_count: sys.abonos.length,
+            // Detalle de cada abono, para poder cuadrar el turno uno por uno.
+            reservations: sys.abonos.map(a => ({
+              numero: a.numero, cliente: a.cliente, method: a.method, amount: a.amount, time: a.time,
+            })),
             // Lo que el cajero contó por método
             cash_total: cashTotal,
             card_total: cardTotal,
@@ -536,6 +541,15 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           ] },
           // Entradas y salidas del fondo: explican por qué el esperado no es
           // solo fondo + ventas. Sin ellas, el correo no cuadra con el ticket.
+          // Cada abono con su apartado y su medio de pago: el total junto no se
+          // puede revisar contra nada al cuadrar el turno.
+          ...(sys.abonos.length > 0 ? [{ heading: 'Abonos de apartados', rows: [
+            ...sys.abonos.map(a => [
+              `${[a.numero, a.cliente].filter(Boolean).join(' · ') || 'Apartado'} · ${ETIQUETA_MEDIO_PAGO[a.method] ?? a.method}`,
+              m(a.amount),
+            ] as [string, string]),
+            ['Total abonos', m(sys.abonosTotal)],
+          ] }] : []),
           ...(sys.movements.length > 0 ? [{ heading: 'Movimientos de efectivo', rows: [
             ['Entradas', m(sys.cashIn)],
             ['Salidas', m(sys.cashOut)],

@@ -15,6 +15,8 @@ export interface ReservationPayment {
   method: string;
   notes?: string | null;
   created_at: string;
+  /** Caja en la que se recibió. Vacío = se busca por el horario del turno. */
+  cash_session_id?: string | null;
 }
 
 export interface Reservation {
@@ -77,6 +79,27 @@ export const reservationsService = {
       id: string; reservation_id: string; numero: string | null; cliente: string | null;
       amount: number; method: string; notes: string | null; created_at: string;
     }>>(`/reservations/payments?session=${encodeURIComponent(sessionId)}`),
+
+  /**
+   * Corrige un abono ya registrado: medio de pago, nota o la caja a la que
+   * pertenece. El monto no se cambia (para eso se borra y se vuelve a registrar).
+   */
+  updatePayment: (pagoId: string, patch: { method?: string; notes?: string | null; cash_session_id?: string | null }) =>
+    apiFetch<ReservationPayment>(`/reservations/payments/${pagoId}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    }),
+
+  /** Borra un abono mal registrado y recalcula lo abonado del apartado. */
+  deletePayment: (pagoId: string) =>
+    apiFetch<{ deleted: true; paid: number }>(`/reservations/payments/${pagoId}`, { method: 'DELETE' }),
+
+  /**
+   * Entrega un apartado YA PAGADO: descuenta el inventario y lo cierra, SIN
+   * crear una venta (la plata ya entró como abonos, día por día).
+   */
+  deliverPaid: (id: string) =>
+    apiFetch<Reservation & { payments?: ReservationPayment[]; productos_descontados: number }>(
+      `/reservations/${id}/deliver-paid`, { method: 'POST' }),
 
   /** Anula y devuelve la mercadería a la venta. Informa cuánto quedó abonado. */
   cancel: (id: string, reason?: string) =>

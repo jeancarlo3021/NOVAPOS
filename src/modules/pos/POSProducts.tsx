@@ -43,7 +43,7 @@ interface POSProductsPanelProps {
   allProducts?: Product[];          // full list for SKU lookup
   searchTerm: string;
   onSearchChange: (term: string) => void;
-  onAddToCart: (product: Product, quantity: number, mods?: SelectedModifier[], note?: string) => void;
+  onAddToCart: (product: Product, quantity: number, mods?: SelectedModifier[], note?: string, montoExacto?: number) => void;
   currentSession: CashSession | null;
   productsError?: string | null;
   /** When true, stock_quantity is ignored — plan doesn't track stock */
@@ -328,9 +328,9 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
     }
   };
 
-  const handleWeightConfirm = (weight: number) => {
+  const handleWeightConfirm = (weight: number, montoExacto?: number) => {
     if (weightProduct) {
-      onAddToCart(weightProduct, weight);
+      onAddToCart(weightProduct, weight, undefined, undefined, montoExacto);
       setWeightProduct(null);
     }
   };
@@ -533,6 +533,10 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
         {weightProduct && (
           <WeightInputModal
             product={weightProduct}
+            ignoreStock={ignoreStock}
+            customerPrice={customerPrices?.[weightProduct.id]}
+            taxEnabled={taxEnabled}
+            ivaPct={productIvaPct(weightProduct, globalIvaPct)}
             onConfirm={handleWeightConfirm}
             onClose={() => setWeightProduct(null)}
           />
@@ -888,6 +892,8 @@ export const POSProductsPanel: React.FC<POSProductsPanelProps> = ({
           product={weightProduct}
           ignoreStock={ignoreStock}
           customerPrice={customerPrices?.[weightProduct.id]}
+          taxEnabled={taxEnabled}
+          ivaPct={productIvaPct(weightProduct, globalIvaPct)}
           onConfirm={handleWeightConfirm}
           onClose={() => setWeightProduct(null)}
         />

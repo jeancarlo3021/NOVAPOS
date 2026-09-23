@@ -4,18 +4,28 @@ import { Product } from '@/types/Types_POS';
 
 interface Props {
   product: Product;
-  onConfirm: (weight: number) => void;
+  /**
+   * `montoExacto` viene solo en el modo «por monto»: es lo que el cliente pidió
+   * y lo que hay que cobrarle, sin que el redondeo del peso lo cambie.
+   */
+  onConfirm: (weight: number, montoExacto?: number) => void;
   onClose: () => void;
   /** Si el plan no controla stock, no se topa la cantidad. */
   ignoreStock?: boolean;
   /** Precio especial del cliente (si aplica). */
   customerPrice?: number;
+  /** ¿El negocio cobra impuesto? (Configuración → General). */
+  taxEnabled?: boolean;
+  /** % de IVA de ESTE producto (o el general si no tiene uno propio). */
+  ivaPct?: number;
 }
 
 const fmt = (n: number) =>
   n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-export const WeightInputModal: React.FC<Props> = ({ product, onConfirm, onClose, ignoreStock, customerPrice }) => {
+export const WeightInputModal: React.FC<Props> = ({
+  product, onConfirm, onClose, ignoreStock, customerPrice, taxEnabled = true, ivaPct = 13,
+}) => {
   const [mode, setMode] = useState<'weight' | 'amount'>('weight');
   const [input, setInput] = useState('');
   const [canClose, setCanClose] = useState(false);
@@ -28,12 +38,25 @@ export const WeightInputModal: React.FC<Props> = ({ product, onConfirm, onClose,
   const tracks = (product as any).tracks_stock !== false;
   const maxStock = (ignoreStock || !tracks) ? Infinity : Number(product.stock_quantity ?? Infinity);
 
+  /**
+   * «Por monto» tiene que dar EXACTAMENTE lo que el cliente pide.
+   *
+   * Cuando el negocio cobra impuesto, el cliente que pide «mil pesos de queso»
+   * paga mil pesos en total, no mil más el IVA. El peso se calculaba dividiendo
+   * entre el precio SIN impuesto, así que se despachaba de más y el cobro salía
+   * por encima de lo pedido. Si el impuesto está apagado, el precio efectivo es
+   * el mismo de siempre y no cambia nada.
+   */
+  const iva = taxEnabled ? (Number(ivaPct) || 0) / 100 : 0;
+  const precioCobrado = Math.round(price * (1 + iva) * 100) / 100;
+
   const num = parseFloat(input) || 0;
-  let weight = mode === 'weight' ? num : (price > 0 ? num / price : 0);
+  let weight = mode === 'weight' ? num : (precioCobrado > 0 ? num / precioCobrado : 0);
   weight = Math.round(weight * 1000) / 1000;
   const capped = Math.min(weight, maxStock);
   const exceeds = weight > maxStock;
-  const total = capped * price;
+  // Lo que se le va a cobrar, con impuesto si corresponde.
+  const total = Math.round(capped * precioCobrado * 100) / 100;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -48,7 +71,18 @@ export const WeightInputModal: React.FC<Props> = ({ product, onConfirm, onClose,
 
   const handleConfirm = () => {
     if (capped <= 0) return;
-    onConfirm(capped);
+    /**
+     * Por monto se cobra lo PEDIDO, no lo que da el peso redondeado.
+     *
+     * El peso se recorta a tres decimales, como la balanza: ₡1.000 de un
+     * producto de ₡14.000 el kilo son 0,0714… kg → 0,071 kg, y eso por el precio
+     * da ₡994. El cliente pidió mil y tiene que pagar mil.
+     *
+     * Si el peso se topó por falta de existencias, ya no se pidió ese monto: se
+     * cobra lo que salga del peso disponible.
+     */
+    const exacto = mode === 'amount' && !exceeds && num > 0 ? num : undefined;
+    onConfirm(capped, exacto);
   };
 
   const presets = mode === 'weight' ? [0.25, 0.5, 1, 2, 5] : [1000, 2000, 5000, 10000];
@@ -70,7 +104,7 @@ export const WeightInputModal: React.FC<Props> = ({ product, onConfirm, onClose,
             <div className="min-w-0">
               <p className="text-white font-black text-base leading-tight line-clamp-1">{product.name}</p>
               <p className="text-emerald-100 text-sm">
-                ₡{fmt(price)} / {unitLabel}{maxStock !== Infinity ? ` · disp. ${fmt(maxStock)} ${unitLabel}` : ''}
+                ₡{fmt(precioCobrado)} / {unitLabel}{iva > 0 ? ' (con IVA)' : ''}{maxStock !== Infinity ? ` · disp. ${fmt(maxStock)} ${unitLabel}` : ''}
               </p>
             </div>
           </div>

@@ -694,6 +694,8 @@ export class POSPrinterService {
      */
     reservations_total?: number;
     reservations_count?: number;
+    /** Detalle de cada abono: sin esto, el total no se puede revisar contra nada. */
+    reservations?: Array<{ numero?: string | null; cliente?: string | null; method: string; amount: number; time?: string }>;
     /** Detalle de las ventas del turno (para cotejar el arqueo una por una). */
     sales?: Array<{ number: string; time: string; method: string; total: number; kind?: string }>;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
@@ -765,6 +767,12 @@ export class POSPrinterService {
         ...(((report.reservations_count ?? 0) > 0) ? [
           { t: 'row' as const, a: 'Abonos apartados (incluidos arriba)',
             b: `${report.reservations_count} · ${money(report.reservations_total ?? 0)}` },
+          // Uno por uno: el total junto no se puede cuadrar contra nada.
+          ...(report.reservations ?? []).map(a => ({
+            t: 'row' as const,
+            a: `   ${[a.numero, a.cliente].filter(Boolean).join(' · ') || 'Apartado'}`,
+            b: `${this.etiquetaCortaMedio(a.method)} ${money(a.amount)}`,
+          })),
         ] : []),
         ...(((report.delivery_count ?? 0) > 0) ? [
           { t: 'sep' as const }, { t: 'title' as const, a: 'DELIVERY (aparte, no en caja)' },
@@ -1094,6 +1102,15 @@ export class POSPrinterService {
   }
 
   // ESC/POS raw para el cierre de caja — mismo motor que el ticket de venta.
+  /** Medio de pago en corto, para que entre en el ancho del tiquete. */
+  private etiquetaCortaMedio(m: string): string {
+    const corto: Record<string, string> = {
+      cash: 'Efvo', card: 'Tarj', sinpe: 'SINPE', transfer: 'Transf', check: 'Cheque',
+      third_party: '3ros', digital: 'Digital', other: 'Otros', credit: 'Credito',
+    };
+    return corto[String(m)] ?? String(m);
+  }
+
   private generateCashCloseESCPOS(report: any, cfg: ReceiptConfig, general?: any): Uint8Array {
     const charWidth = anchoEnCaracteres(cfg.paperWidth);
     const cmds: number[] = [];
@@ -1154,6 +1171,16 @@ export class POSPrinterService {
     if ((report.reservations_count ?? 0) > 0) {
       row('Abonos apartados:', `${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}`);
       row('  (incluidos arriba)', '');
+      /**
+       * Uno por uno.
+       *
+       * El total junto no se puede revisar contra nada: para cuadrar el turno
+       * hay que ver de qué apartado salió cada abono y con qué se pagó.
+       */
+      for (const a of report.reservations ?? []) {
+        const quien = [a.numero, a.cliente].filter(Boolean).join(' ');
+        row(`  ${quien || 'Apartado'}`.slice(0, charWidth - 12), `${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}`);
+      }
     }
     if ((report.voids_count ?? 0) > 0) row('Anulaciones:', `${report.voids_count} · ${fmt(report.voids_total ?? 0)}`);
     if ((report.delivery_count ?? 0) > 0) {
@@ -1346,6 +1373,7 @@ export class POSPrinterService {
     <tr><td>Facturas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
     ${(report.voids_count ?? 0) > 0 ? `<tr><td>Anulaciones:</td><td style="text-align:right">${report.voids_count} · ${fmt(report.voids_total ?? 0)}</td></tr>` : ''}
     ${(report.reservations_count ?? 0) > 0 ? `<tr><td>Abonos apartados:<br><span style="font-size:11px">(incluidos arriba)</span></td><td style="text-align:right">${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}</td></tr>` : ''}
+    ${(report.reservations ?? []).map((a: any) => `<tr><td style="font-size:11px;padding-left:8px">${[a.numero, a.cliente].filter(Boolean).join(' · ') || 'Apartado'}</td><td style="text-align:right;font-size:11px">${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}</td></tr>`).join('')}
   </table>
 
   ${report.cash_movements && report.cash_movements.length > 0 ? `

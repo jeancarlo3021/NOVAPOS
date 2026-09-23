@@ -878,7 +878,31 @@ export const POSMain = () => {
     refetchProducts();
   };
 
-  const handleAddToCart = (product: Product, quantity: number = 1, mods?: SelectedModifier[], note?: string) => {
+  const handleAddToCart = (
+    product: Product, quantity: number = 1, mods?: SelectedModifier[], note?: string,
+    montoExacto?: number,
+  ) => {
+    /**
+     * Venta POR MONTO de un producto pesado: manda el monto, no el peso.
+     *
+     * El peso se redondea a tres decimales (lo que muestra la balanza) y al
+     * multiplicarlo por el precio el total se corre: ₡1.000 de algo que vale
+     * ₡14.000 el kilo daba ₡994. Se arma la línea con el monto pedido y el
+     * unitario que le corresponde a ese peso, así el cliente paga lo que pidió.
+     */
+    if (montoExacto && montoExacto > 0 && quantity > 0) {
+      const conIva = 1 + ivaPctDe({ product } as any) / 100;   // sin impuesto, ivaPctDe da 0
+      // El monto que pidió el cliente incluye el impuesto; la línea se guarda NETA.
+      const neto = round2(montoExacto / conIva);
+      setCartItems(prev => [...prev, {
+        product_id: product.id,
+        product,
+        quantity,
+        unit_price: round2(neto / quantity),
+        subtotal: neto,
+      } as any]);
+      return;
+    }
     // Con MODIFICADORES la línea es única aunque el producto se repita: un casado
     // "sin cebolla" y otro "con extra queso" no se pueden fusionar ni comparten
     // precio. Se agrega como línea propia, con su unitario ya ajustado.

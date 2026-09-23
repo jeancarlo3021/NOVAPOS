@@ -83,15 +83,35 @@ export function useReportsData(tenantId: string | null) {
           currency?: string;
           exchange_rate?: number;
         }>;
+        /** Abonos de apartados del período: plata cobrada sin factura todavía. */
+        reservations?: {
+          count: number; total: number;
+          payments: Array<{ id: string; amount: number; method: string; date: string }>;
+        };
       }>(`/reports/sales?from=${from}&to=${to}`);
 
       const all = response?.invoices ?? [];
+      /**
+       * Los ABONOS de apartados cuentan como venta del día en que se cobraron.
+       *
+       * El apartado no tiene factura hasta que el cliente retira, así que esta
+       * plata no estaba en ninguna fila de `invoices`: el total del día salía
+       * corto y no cuadraba con la caja. Se guardan en hora de Costa Rica, igual
+       * que las ventas, para que caigan en el día correcto.
+       */
+      const abonos = (response?.reservations?.payments ?? []).map(p => ({
+        ...p,
+        // `date` viene en UTC; las ventas usan hora de CR (UTC−6).
+        diaCR: new Date(new Date(p.date).getTime() - 6 * 3600 * 1000).toISOString().slice(0, 10),
+      }));
 
       // Today subset
       const today = all.filter(r => {
         const d = wallClockDate(r.issued_at) ?? new Date(r.issued_at);
         return d >= todayStart && d <= todayEnd;
       });
+      const hoyCR = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+      const abonosHoy = abonos.filter(p => p.diaCR === hoyCR);
 
       // Daily stats — build a map keyed by YYYY-MM-DD
       const dayMap: Record<string, { total: number; count: number }> = {};
@@ -100,6 +120,11 @@ export function useReportsData(tenantId: string | null) {
         if (!dayMap[key]) dayMap[key] = { total: 0, count: 0 };
         dayMap[key].total += Number(r.total);
         dayMap[key].count += 1;
+      });
+      // Cada abono suma al día en que se cobró (no cuenta como factura).
+      abonos.forEach(p => {
+        if (!dayMap[p.diaCR]) dayMap[p.diaCR] = { total: 0, count: 0 };
+        dayMap[p.diaCR].total += Number(p.amount);
       });
 
       // Generate every date in [from, to]
@@ -125,6 +150,13 @@ export function useReportsData(tenantId: string | null) {
         pmMap[m].total += Number(r.total);
         pmMap[m].count += 1;
       });
+      // Los abonos entran por el medio con que se cobraron, igual que una venta.
+      abonos.forEach(p => {
+        const m = String(p.method ?? 'cash');
+        if (!pmMap[m]) pmMap[m] = { total: 0, count: 0 };
+        pmMap[m].total += Number(p.amount);
+        pmMap[m].count += 1;
+      });
       const paymentStats: PaymentStat[] = Object.entries(pmMap).map(([m, v]) => ({
         method: m,
         label: PAYMENT_LABELS[m] ?? m,
@@ -132,7 +164,9 @@ export function useReportsData(tenantId: string | null) {
         count: v.count,
       }));
 
-      const periodTotal = all.reduce((s, r) => s + Number(r.total), 0);
+      const abonosTotal = abonos.reduce((s, p) => s + Number(p.amount), 0);
+      const periodTotal = all.reduce((s, r) => s + Number(r.total), 0) + abonosTotal;
+      // Las facturas se cuentan aparte: un abono no es una factura.
       const periodCount = all.length;
 
       // Ventas cobradas en dólares (moneda de la venta = USD).
@@ -144,7 +178,8 @@ export function useReportsData(tenantId: string | null) {
       };
 
       setSummary({
-        todayTotal: today.reduce((s, r) => s + Number(r.total), 0),
+        todayTotal: today.reduce((s, r) => s + Number(r.total), 0)
+          + abonosHoy.reduce((s, p) => s + Number(p.amount), 0),
         todayCount: today.length,
         periodTotal,
         periodCount,

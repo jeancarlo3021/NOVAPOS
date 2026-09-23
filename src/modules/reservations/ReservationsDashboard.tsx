@@ -8,7 +8,10 @@ import { reservationsService, type Reservation } from '@/services/reservations/r
 import { NewReservationModal } from './NewReservationModal';
 import { imprimirApartado } from './printReservation';
 import { AbonoModal } from './AbonoModal';
+import { EditarAbonoModal } from './EditarAbonoModal';
+import type { ReservationPayment } from '@/services/reservations/reservationsService';
 import { useCashSession } from '@/hooks/useCashSession';
+import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { useTenantId } from '@/hooks/useTenant';
 
 const money = (n: number) => `₡${Math.round(Number(n || 0)).toLocaleString('es-CR')}`;
@@ -36,6 +39,8 @@ export const ReservationsDashboard: React.FC = () => {
   const { currentSession } = useCashSession();
   // Apartado al que se le está cobrando un abono.
   const [abonandoA, setAbonandoA] = useState<Reservation | null>(null);
+  // Abono que se está corrigiendo (medio de pago, nota, caja) o borrando.
+  const [editandoAbono, setEditandoAbono] = useState<ReservationPayment | null>(null);
 
   /**
    * Comprobante del apartado, para el cliente.
@@ -85,14 +90,33 @@ export const ReservationsDashboard: React.FC = () => {
    */
   const abonoRegistrado = async (msg: string, imprimir: boolean) => {
     const reserva = abonandoA;
-    setAbonandoA(null);
+    const cerrar = cerrarAlAbonar;
+    setAbonandoA(null); setCerrarAlAbonar(false);
     setMsg({ ok: true, text: msg });
-    await cargar();
-    if (imprimir && reserva) {
+    if (!reserva) { await cargar(); return; }
+
+    const completo = await reservationsService.get(reserva.id).catch(() => null);
+    const saldo = completo ? Number(completo.total) - Number(completo.paid) : 1;
+
+    // Se terminó de pagar y se venía de «cobrar y entregar»: se cierra de una,
+    // con su ticket de caja. Sin venta: la plata ya entró como abonos.
+    if (cerrar && saldo <= 0.005) {
       try {
-        const completo = await reservationsService.get(reserva.id).catch(() => null);
-        if (completo) await imprimirApartado(completo, tenantId ?? '');
-      } catch (e) { console.warn('[apartado] no se pudo imprimir el comprobante:', e); }
+        const entregado = await reservationsService.deliverPaid(reserva.id);
+        setMsg({ ok: true, text: `${reserva.number} pagado y entregado · ticket de caja impreso` });
+        await cargar();
+        try { await imprimirApartado(entregado, tenantId ?? '', undefined, true); }
+        catch (e) { console.warn('[apartado] no se pudo imprimir el ticket:', e); }
+        return;
+      } catch (e) {
+        setMsg({ ok: false, text: `El abono quedó registrado, pero no se pudo entregar: ${e instanceof Error ? e.message : 'error'}` });
+      }
+    }
+
+    await cargar();
+    if (imprimir && completo) {
+      try { await imprimirApartado(completo, tenantId ?? ''); }
+      catch (e) { console.warn('[apartado] no se pudo imprimir el comprobante:', e); }
     }
   };
 
@@ -124,7 +148,38 @@ export const ReservationsDashboard: React.FC = () => {
   };
 
   /** Entregar = cobrar el saldo en el POS. La factura sale por el camino normal. */
-  const entregar = (r: Reservation) => navigate(`/pos?reservation=${r.id}`);
+  /**
+   * Cerrar el apartado: cobrar el saldo (si queda) y entregar.
+   *
+   * No pasa por el punto de venta. Cada abono ya entró a la caja el día que se
+   * recibió y cuenta como venta de ese día; crear además una venta por el total
+   * al entregar contaría la misma plata dos veces. Acá solo se descuenta la
+   * mercadería y sale el TICKET DE CAJA.
+   */
+  const entregar = async (r: Reservation) => {
+    const saldo = Number(r.total) - Number(r.paid);
+    if (saldo > 0.005) {
+      // Queda saldo: se cobra como el último abono y al guardarse se entrega.
+      setAbonandoA(r); setCerrarAlAbonar(true);
+      return;
+    }
+    if (!confirm(`¿Entregar el apartado ${r.number}?\n\n`
+      + 'Está pagado por completo. Se descuenta la mercadería del inventario '
+      + 'y sale el ticket de caja.')) return;
+    setBusy(r.id);
+    try {
+      const entregado = await reservationsService.deliverPaid(r.id);
+      setMsg({ ok: true, text: `${r.number} entregado · ${entregado.productos_descontados} producto(s) descontados del inventario` });
+      await cargar();
+      try { await imprimirApartado(entregado, tenantId ?? '', undefined, true); }
+      catch (e) { console.warn('[apartado] no se pudo imprimir el ticket:', e); }
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo entregar' });
+    } finally { setBusy(null); }
+  };
+
+  /** Si el abono que se está cobrando es el último, al guardarlo se entrega. */
+  const [cerrarAlAbonar, setCerrarAlAbonar] = useState(false);
 
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-6xl mx-auto">
@@ -211,6 +266,25 @@ export const ReservationsDashboard: React.FC = () => {
                   </div>
                 )}
 
+                {/* Con qué se pagó: antes solo se veía el monto abonado, y no
+                    había forma de saber si entró en efectivo, tarjeta o SINPE. */}
+                {(r.payments ?? []).length > 0 && (
+                  <p className="mt-1.5 flex flex-wrap gap-1.5">
+                    {(r.payments ?? []).map(p => (
+                      <button key={p.id} type="button"
+                        onClick={() => setEditandoAbono(p)}
+                        title="Corregir el medio de pago de este abono (o borrarlo)"
+                        className="inline-flex items-center gap-1 text-[10px] font-bold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-100 rounded-full px-2 py-0.5">
+                        {money(p.amount)} · {etiquetaMedioPago(p.method)}
+                        <span className="text-violet-400">{day(String(p.created_at).slice(0, 10))}</span>
+                        {!(p as any).cash_session_id && (
+                          <span className="text-amber-600" title="No quedó ligado a una caja">•</span>
+                        )}
+                      </button>
+                    ))}
+                  </p>
+                )}
+
                 {(r.reservation_items ?? []).length > 0 && (
                   <p className="mt-2 text-[11px] font-semibold text-gray-500 truncate">
                     {(r.reservation_items ?? []).map(it => `${it.quantity}× ${it.product_name}`).join(' · ')}
@@ -232,9 +306,9 @@ export const ReservationsDashboard: React.FC = () => {
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-violet-200 text-violet-700 text-sm font-black hover:bg-violet-50">
                       <HandCoins size={15} /> Abonar
                     </button>
-                    <button onClick={() => entregar(r)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black">
-                      <PackageCheck size={15} /> Entregar y cobrar
+                    <button onClick={() => void entregar(r)} disabled={busy === r.id}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black disabled:opacity-50">
+                      <PackageCheck size={15} /> {saldo > 0 ? 'Cobrar saldo y entregar' : 'Entregar (pagado)'}
                     </button>
                     <button onClick={() => void anular(r)} disabled={busy === r.id}
                       className="ml-auto p-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50">
@@ -255,6 +329,16 @@ export const ReservationsDashboard: React.FC = () => {
         </div>
       )}
 
+
+      {editandoAbono && (
+        <EditarAbonoModal
+          abono={editandoAbono}
+          cajaAbierta={currentSession?.status === 'open' ? currentSession.id : null}
+          tieneCaja={!!(editandoAbono as any).cash_session_id}
+          onClose={() => setEditandoAbono(null)}
+          onListo={async (msg) => { setEditandoAbono(null); setMsg({ ok: true, text: msg }); await cargar(); }}
+        />
+      )}
 
       {abonandoA && (
         <AbonoModal
