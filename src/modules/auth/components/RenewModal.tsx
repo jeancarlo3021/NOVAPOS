@@ -118,7 +118,10 @@ const METHOD_LABEL: Record<string, string> = {
 };
 
 export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
-  const [mode, setMode] = useState<Mode>('months');
+  const [mode, setMode] = useState<Mode>(
+    // Plan vitalicio: lo normal es dejarla sin vencimiento, no ponerle un mes.
+    (owner.plan_billing_cycle ?? '').toLowerCase() === 'lifetime' ? 'lifetime' : 'months',
+  );
   const [months, setMonths] = useState(1);
   const [days, setDays] = useState(30);
   const [saving, setSaving] = useState(false);
@@ -135,12 +138,39 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
   // Si el usuario edita el monto manualmente, no lo pisamos al cambiar mode/meses.
   const [amountTouched, setAmountTouched]     = useState(false);
 
+  /**
+   * ¿Los meses se cuentan desde el VENCIMIENTO o desde HOY?
+   *
+   * Contar desde el vencimiento respeta los días que ya pagó: quien renueva
+   * antes de tiempo no los pierde. Pero si le quedaban treinta días, renovar
+   * «un mes» lo deja con sesenta, y desde afuera eso se ve como que el botón
+   * sumó un mes de más. Ahora se elige, se ve cuál está activa y se muestra
+   * cuántos días quedan en total.
+   */
+  const [baseMeses, setBaseMeses] = useState<'vencimiento' | 'hoy'>(() => {
+    try { return (localStorage.getItem('renew_base_meses') as any) === 'hoy' ? 'hoy' : 'vencimiento'; }
+    catch { return 'vencimiento'; }
+  });
+  const elegirBase = (b: 'vencimiento' | 'hoy') => {
+    setBaseMeses(b);
+    try { localStorage.setItem('renew_base_meses', b); } catch { /* sin almacenamiento */ }
+  };
+  /** Días que le quedan hoy (negativo si ya venció). */
+  const diasActuales = owner.ends_at
+    ? Math.ceil((parseFecha(owner.ends_at).getTime() - Date.now()) / 86400000)
+    : null;
+
   // Vitalicio: sin fecha. El servidor lo guarda como «sin vencimiento».
   const newDate = mode === 'lifetime'
     ? null
     : mode === 'months'
-      ? addMonths(desdeCuando(owner.ends_at), months)
+      ? addMonths(baseMeses === 'hoy' ? today() : desdeCuando(owner.ends_at), months)
       : addDaysFromToday(days);
+
+  /** Días totales que va a tener la cuenta con esta renovación. */
+  const diasNuevos = newDate
+    ? Math.ceil((parseFecha(newDate).getTime() - Date.now()) / 86400000)
+    : null;
 
   // Monto sugerido por defecto.
   const suggestedAmount = useMemo(() => {
@@ -290,7 +320,7 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
                   mode === 'months' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
                 }`}>
-                Por meses (desde vencimiento)
+                Por meses
               </button>
               <button type="button" onClick={() => setMode('days')}
                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
@@ -315,6 +345,31 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
 
             {mode === 'months' ? (
               <>
+                {/* Desde cuándo se cuentan los meses: es lo que decide si se le
+                    guardan o no los días que todavía tiene pagados. */}
+                <label className="block text-sm font-bold text-gray-700 mb-2">Contar desde</label>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button type="button" onClick={() => elegirBase('vencimiento')}
+                    className={`px-3 py-2 rounded-xl border-2 text-left transition ${
+                      baseMeses === 'vencimiento' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'
+                    }`}>
+                    <span className="block text-xs font-black text-gray-800">El vencimiento</span>
+                    <span className="block text-[10px] text-gray-500">
+                      {diasActuales != null && diasActuales > 0
+                        ? `Le quedan ${diasActuales} día(s) y se le suman`
+                        : 'Ya venció: se cuenta desde hoy'}
+                    </span>
+                  </button>
+                  <button type="button" onClick={() => elegirBase('hoy')}
+                    className={`px-3 py-2 rounded-xl border-2 text-left transition ${
+                      baseMeses === 'hoy' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'
+                    }`}>
+                    <span className="block text-xs font-black text-gray-800">Hoy</span>
+                    <span className="block text-[10px] text-gray-500">
+                      El mes arranca hoy{diasActuales != null && diasActuales > 0 ? `; pierde los ${diasActuales} día(s)` : ''}
+                    </span>
+                  </button>
+                </div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">Extender por</label>
                 <div className="grid grid-cols-3 gap-2">
                   {[1, 2, 3].map(m => (
@@ -351,8 +406,20 @@ export function RenewModal({ owner, onClose, onDone }: RenewModalProps) {
             )}
           </div>
 
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex justify-between items-center">
-            <span className="text-sm font-semibold text-emerald-700">Nueva fecha de vencimiento</span>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex justify-between items-center gap-3">
+            <div>
+              <span className="block text-sm font-semibold text-emerald-700">Nueva fecha de vencimiento</span>
+              {/* Cuántos días le quedan en total: es el número por el que preguntan
+                  y el que hacía parecer que la renovación sumaba de más. */}
+              {diasNuevos != null && (
+                <span className="block text-[11px] font-bold text-emerald-600">
+                  {diasNuevos} día(s) en total
+                  {diasActuales != null && diasActuales > 0 && mode === 'months' && baseMeses === 'vencimiento'
+                    ? ` (${diasActuales} que le quedaban + ${diasNuevos - diasActuales} nuevos)`
+                    : ''}
+                </span>
+              )}
+            </div>
             <span className="text-emerald-700 font-black">
               {newDate ? fmtDate(newDate) : '∞ Sin vencimiento'}
             </span>

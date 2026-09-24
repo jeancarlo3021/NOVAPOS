@@ -499,7 +499,12 @@ export default function Plans() {
                 <p className="text-xs text-gray-400">{plan.description}</p>
                 <div className="mt-3">
                   <span className="text-3xl font-black text-blue-600">₡{Number(plan.price ?? 0).toLocaleString('es-CR')}</span>
-                  <span className="text-gray-400 text-sm ml-1">/{plan.billing_cycle}</span>
+                  {/* «lifetime» en crudo no dice nada; y lo importante de ese ciclo
+                      es justamente que la cuenta NO vence. */}
+                  <span className="text-gray-400 text-sm ml-1">
+                    {plan.billing_cycle === 'lifetime' ? '· ∞ sin vencimiento'
+                      : plan.billing_cycle === 'yearly' ? '/año' : '/mes'}
+                  </span>
                 </div>
               </div>
 
@@ -859,10 +864,16 @@ export default function Plans() {
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">Ciclo</label>
                   <select value={formData.billing_cycle || ''} onChange={e => setFormData({ ...formData, billing_cycle: e.target.value })}
                     className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
-                    <option value="monthly">Mensual</option>
-                    <option value="yearly">Anual</option>
-                    <option value="lifetime">Vitalicio</option>
+                    <option value="monthly">Mensual (30 días)</option>
+                    <option value="yearly">Anual (365 días)</option>
+                    <option value="lifetime">Vitalicio (sin vencimiento)</option>
                   </select>
+                  {formData.billing_cycle === 'lifetime' && (
+                    <p className="text-[11px] font-semibold text-emerald-700 mt-1">
+                      Los negocios con este plan quedan <b>sin fecha de vencimiento</b>: no se
+                      bloquean ni hay que renovarlos.
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3">

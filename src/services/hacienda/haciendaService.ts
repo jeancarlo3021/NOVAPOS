@@ -212,7 +212,13 @@ export const haciendaService = {
 
   // ── Recepción de comprobantes (Mensaje Receptor) — Alanube ──
   /** Bandeja de comprobantes recibidos de proveedores. */
-  listReceived: () => apiFetch<ReceivedDoc[]>('/hacienda/received'),
+  listReceived: (rango?: { from?: string; to?: string }) => {
+    const p = new URLSearchParams();
+    if (rango?.from) p.set('from', rango.from);
+    if (rango?.to) p.set('to', rango.to);
+    const qs = p.toString();
+    return apiFetch<ReceivedDoc[]>(`/hacienda/received${qs ? '?' + qs : ''}`);
+  },
   /** Registra un comprobante de proveedor en la bandeja (por clave). */
   registerReceived: (body: { clave: string; issuer_id?: string; issuer_name?: string; total?: number; tax?: number; doc_date?: string }) =>
     apiFetch<ReceivedDoc>('/hacienda/received', { method: 'POST', body: JSON.stringify(body) }),
@@ -235,6 +241,24 @@ export const haciendaService = {
    * Trazabilidad de la numeración: qué se emitió por serie y tipo, qué números
    * faltan y quién consumió cada uno de los que faltan.
    */
+  /**
+   * CONSOLIDADO de XML: todos los comprobantes de un período en un ZIP, con un
+   * resumen.csv de lo que trae. Es lo que pide el contador al cerrar el mes.
+   */
+  xmlLote: (opts: { from?: string; to?: string; tipo?: string; desdeFila: number; cantidad?: number }) => {
+    const p = new URLSearchParams();
+    if (opts.from) p.set('from', opts.from);
+    if (opts.to) p.set('to', opts.to);
+    if (opts.tipo && opts.tipo !== 'todos') p.set('tipo', opts.tipo);
+    p.set('desde_fila', String(opts.desdeFila));
+    p.set('cantidad', String(opts.cantidad ?? 15));
+    return apiFetch<{
+      total: number; desde_fila: number; procesados: number; hay_mas: boolean;
+      archivos: Array<{ ruta: string; xml_base64: string }>;
+      resumen: Array<Record<string, any>>;
+    }>(`/hacienda/fe-xml-lote?${p.toString()}`, {}, 45_000);
+  },
+
   consecutivoAudit: (from?: string, to?: string) => {
     const p = new URLSearchParams();
     if (from) p.set('from', from);

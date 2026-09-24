@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { netosDeProforma } from '@/utils/descuentosVenta';
 import { etiquetaMedioPago } from '@/utils/mediosDePago';
-import { useSearchParams, useLocation } from 'react-router-dom';
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { WindowQueueModal, useWindowQueue } from '@/modules/window/WindowQueueModal';
 import { useDeviceRole } from '@/hooks/useDeviceRole';
 import { ShoppingBag, X } from 'lucide-react';
@@ -11,7 +11,6 @@ import { useCashSession } from '@/hooks/useCashSession';
 import { createCashSession } from '@/services/cashManagement/cashSessionsService';
 import { useTenantId } from '@/hooks/useTenant';
 import { disponibleDe } from '@/utils/existencias';
-import { reservationsService } from '@/services/reservations/reservationsService';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePOSProducts } from '@/hooks/POS/usePOSProducts';
@@ -99,6 +98,7 @@ export const POSMain = () => {
   // ── Cargar una PROFORMA en el carrito (?proforma=<id>) ────────────────────
   // Al completar el cobro, la proforma se marca como convertida.
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const proformaToConvert = useRef<string | null>(null);
   useEffect(() => {
     const pid = searchParams.get('proforma');
@@ -149,43 +149,24 @@ export const POSMain = () => {
   }, [searchParams, productsLoading, products.length]);
 
   /**
-   * Entregar un APARTADO: llega como `?reservation=<id>`.
+   * Los APARTADOS ya NO se cierran vendiendo otra vez.
    *
-   * La entrega se cobra por el camino normal del punto de venta —mismo
-   * comprobante, mismo consecutivo, misma caja— en vez de tener una segunda vía
-   * de facturación que mantener. Lo único distinto es que al terminar se cierra
-   * el apartado y su mercadería deja de estar en «standby».
+   * Antes, entregar un apartado cargaba su carrito acá y se cobraba el total por
+   * el camino normal del punto de venta. Pero la plata del apartado ya entró
+   * como abonos el día que se recibió, así que esa venta la contaba por segunda
+   * vez; y el POS no tiene cómo cobrar «solo el saldo»: le pedía el total al
+   * cajero con un aviso, que es pedirle que no se equivoque.
+   *
+   * Ahora se cierra desde Apartados: ahí se cobra el saldo como último abono, se
+   * entrega, sale el ticket de caja y la mercadería descuenta del inventario.
+   * Si alguien llega con el enlace viejo, se lo manda para allá.
    */
-  const apartadoAEntregar = useRef<{ id: string; numero: string | null; abonado: number } | null>(null);
   useEffect(() => {
     const rid = searchParams.get('reservation');
-    if (!rid || productsLoading || products.length === 0) return;
+    if (!rid) return;
     searchParams.delete('reservation'); setSearchParams(searchParams, { replace: true });
-    reservationsService.toCart(rid).then(ap => {
-      const cart = (ap.items ?? []).map(it => {
-        const prod = products.find(p => p.id === it.product_id)
-          ?? ({ id: it.product_id ?? '', name: it.product_name, unit_price: it.unit_price, stock_quantity: 0, tenant_id: tenantId ?? '' } as any);
-        return {
-          product_id: (it.product_id ?? prod.id) as string,
-          product_name: it.product_name,
-          product: prod,
-          unit_price: it.unit_price,
-          quantity: it.quantity,
-          subtotal: it.subtotal,
-        };
-      });
-      if (cart.length === 0) { setError('Ese apartado no tiene artículos'); return; }
-      setCartItems(cart);
-      if (ap.customer_name) setTabCustomerName(ap.customer_name);
-      apartadoAEntregar.current = { id: ap.reservation_id, numero: ap.number, abonado: Number(ap.paid ?? 0) };
-      // El abono YA se cobró: hay que decirlo, porque el POS va a pedir el total
-      // completo y el cajero podría cobrarlo dos veces.
-      setSuccess(Number(ap.paid) > 0
-        ? `Apartado ${ap.number ?? ''} cargado · ya abonó ₡${Number(ap.paid).toLocaleString('es-CR')} — cobrá solo el saldo de ₡${Number(ap.balance ?? 0).toLocaleString('es-CR')}`
-        : `Apartado ${ap.number ?? ''} cargado — completá el cobro para entregarlo`);
-    }).catch(e => setError(e instanceof Error ? e.message : 'No se pudo cargar el apartado'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, productsLoading, products.length]);
+    navigate('/apartados');
+  }, [searchParams, setSearchParams, navigate]);
 
   // ── Cargar la CUENTA DE UNA MESA dejada por el mapa de mesas ──────────────
   // El panel de la mesa guarda el consumo en sessionStorage y navega al POS: acá
@@ -1420,12 +1401,6 @@ export const POSMain = () => {
         proformasService.convert(proformaToConvert.current, invoiceNumber).catch(() => {});
         proformaToConvert.current = null;
       }
-      if (apartadoAEntregar.current) {
-        // Cerrar el apartado libera su mercadería del «standby»; el descuento
-        // del inventario lo hace esta misma venta.
-        reservationsService.deliver(apartadoAEntregar.current.id, invoiceNumber).catch(() => {});
-        apartadoAEntregar.current = null;
-      }
       posOfflineService.addCachedInvoice({
         id: invoiceNumber, invoice_number: invoiceNumber, issued_at: localNowISO(),
         total: totSnapshot, payment_method: data.paymentMethod,
@@ -1552,10 +1527,6 @@ export const POSMain = () => {
         if (proformaToConvert.current) {
           proformasService.convert(proformaToConvert.current, invoice.invoice_number).catch(() => {});
           proformaToConvert.current = null;
-        }
-        if (apartadoAEntregar.current) {
-          reservationsService.deliver(apartadoAEntregar.current.id, invoice.id ?? invoice.invoice_number).catch(() => {});
-          apartadoAEntregar.current = null;
         }
         // Re-chequear la cuota de comprobantes (aviso de 50/20/10) tras emitir.
         if (documentType === 'factura_electronica' || documentType === 'tiquete_electronico') {
@@ -1707,12 +1678,16 @@ export const POSMain = () => {
       {showApartados && (
         <ReservationsPickerModal
           onClose={() => setShowApartados(false)}
-          onPick={(id) => {
+          onPick={() => {
             setShowApartados(false);
-            // Se reusa el mismo camino que la entrega desde el módulo de
-            // apartados: un solo lugar donde se arma el carrito y se cierra.
-            searchParams.set('reservation', id);
-            setSearchParams(searchParams, { replace: true });
+            /**
+             * El apartado se cierra en su módulo, no vendiéndolo de nuevo.
+             *
+             * Ahí se cobra el saldo como último abono —con su medio de pago y su
+             * caja—, se entrega, sale el ticket y la mercadería descuenta del
+             * inventario. La plata ya contada como abonos no se vuelve a contar.
+             */
+            navigate('/apartados');
           }}
         />
       )}

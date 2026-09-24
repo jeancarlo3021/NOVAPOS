@@ -50,6 +50,14 @@ export const ReservationsPickerModal: React.FC<{
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
         </div>
 
+        {/* Dónde se cierra: acá solo se consulta. */}
+        <div className="px-5 pt-3">
+          <p className="text-[11px] font-semibold text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
+            Para entregar uno, tocalo: se abre <b>Apartados</b>, donde se cobra el saldo y sale el
+            ticket. No hay que volver a venderlo: los abonos ya entraron a la caja.
+          </p>
+        </div>
+
         <div className="px-5 py-3 border-b border-gray-100">
           <div className="relative">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />

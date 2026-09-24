@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown, FileCode2, ShieldCheck } from 'lucide-react';
+import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Loader2, FileMinus, FilePlus, FileDown, FileCode2, ShieldCheck, Download } from 'lucide-react';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
@@ -209,6 +209,42 @@ export const FeInvoicesDashboard: React.FC = () => {
    * serie, dice qué comprobante de OTRA serie se lo llevó. Así el hueco deja de
    * ser una laguna y pasa a ser un desglose que se puede cotejar contra el ATV.
    */
+  /**
+   * Consolidado de XML del período: un ZIP con el XML de cada comprobante y un
+   * resumen. Bajarlos de a uno desde la bitácora no es trabajo de nadie cuando
+   * son cientos de tiquetes, y el contador los pide todos juntos.
+   */
+  const [zipping, setZipping] = useState(false);
+  /** Avance de la descarga, para la barra de progreso. */
+  const [avance, setAvance] = useState<{ hechos: number; total: number; archivos: number; detalle: string } | null>(null);
+  const cancelarZip = useRef(false);
+
+  const descargarXml = async () => {
+    setZipping(true); setError('');
+    cancelarZip.current = false;
+    setAvance({ hechos: 0, total: 0, archivos: 0, detalle: 'Buscando los comprobantes del período…' });
+    try {
+      const { descargarXmlConsolidado } = await import('./descargarXmlConsolidado');
+      const r = await descargarXmlConsolidado(
+        { from: from || undefined, to: to || undefined },
+        setAvance,
+        () => cancelarZip.current,
+      );
+      // Lo que NO entró se dice: un ZIP incompleto sin aviso se archiva igual.
+      if (r.cancelado) {
+        setError(`Descarga cancelada: el ZIP trae los ${r.archivos} XML que alcanzaron a bajarse.`);
+      } else if (r.faltantes > 0) {
+        setError(
+          `Se bajaron ${r.archivos} XML de ${r.total} comprobantes. `
+          + `${r.faltantes} no están disponibles todavía; el resumen.csv del ZIP dice cuáles y por qué. `
+          + 'Volviendo a descargar se completan los que el proveedor ya haya publicado.',
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo armar el consolidado de XML');
+    } finally { setZipping(false); setAvance(null); }
+  };
+
   const [auditing, setAuditing] = useState(false);
   const downloadAudit = async () => {
     setAuditing(true);
@@ -406,6 +442,35 @@ export const FeInvoicesDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Descarga de XML en curso: barra de avance real (tanda por tanda). */}
+      {zipping && avance && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <FileCode2 size={18} className="text-emerald-600" />
+              <p className="font-black text-gray-900">Bajando los XML del período</p>
+            </div>
+            <div className="h-3 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-full bg-emerald-500 transition-all duration-300"
+                style={{ width: `${avance.total > 0 ? Math.min(100, Math.round((avance.hechos / avance.total) * 100)) : 5}%` }} />
+            </div>
+            <p className="text-sm font-bold text-gray-700 tabular-nums">
+              {avance.total > 0
+                ? `${Math.min(avance.hechos, avance.total)} de ${avance.total} comprobantes · ${avance.archivos} XML`
+                : avance.detalle}
+            </p>
+            <p className="text-[11px] text-gray-500">
+              Los XML que no estaban guardados se le piden al proveedor uno por uno, por eso tarda.
+              Lo que se baja queda guardado: la próxima vez es más rápido.
+            </p>
+            <button onClick={() => { cancelarZip.current = true; }}
+              className="w-full py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-bold hover:bg-gray-50">
+              Cancelar y bajar lo que ya se trajo
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Filtros */}
       <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex flex-wrap items-end gap-3">
         <div>
@@ -454,9 +519,16 @@ export const FeInvoicesDashboard: React.FC = () => {
           <button onClick={() => { setStatusFilter(''); setProviderFilter(''); setFrom(''); setTo(''); }}
             className="px-3 py-1.5 rounded-lg text-gray-500 text-xs font-bold hover:bg-gray-100">Limpiar</button>
         )}
+        {/* Consolidado de XML del período: lo que pide el contador al cerrar el mes. */}
+        <button onClick={() => void descargarXml()} disabled={zipping}
+          title="Descarga en un ZIP el XML de cada comprobante del período, con un resumen"
+          className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 text-xs font-bold disabled:opacity-50">
+          {zipping ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+          {zipping ? 'Armando el ZIP…' : 'XML del período (ZIP)'}
+        </button>
         <button onClick={downloadAudit} disabled={auditing}
           title="Reporte de trazabilidad: qué número usó cada comprobante y por qué faltan los que faltan"
-          className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 bg-white hover:bg-indigo-50 text-xs font-bold disabled:opacity-50">
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 bg-white hover:bg-indigo-50 text-xs font-bold disabled:opacity-50">
           {auditing ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
           Trazabilidad de consecutivos
         </button>

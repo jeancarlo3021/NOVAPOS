@@ -49,12 +49,31 @@ export const ReceptionDashboard: React.FC = () => {
     if (tenantId) expenseCategoriesService.getAll(tenantId).then(setCategories).catch(() => {});
   }, [tenantId]);
 
+  /**
+   * Rango de fechas de la bandeja.
+   *
+   * Sin rango se traen los últimos 300 recibidos, como siempre. Con rango, TODOS
+   * los del período: para cuadrar un mes con el contador hay que poder verlos
+   * completos, no los últimos que quepan.
+   */
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+
   const load = useCallback(async () => {
     setLoading(true); setError('');
-    try { setRows(await haciendaService.listReceived()); }
+    try { setRows(await haciendaService.listReceived({ from: desde || undefined, to: hasta || undefined })); }
     catch (e) { setError(e instanceof Error ? e.message : 'Error al cargar la bandeja'); }
     finally { setLoading(false); }
-  }, []);
+  }, [desde, hasta]);
+
+  /** Atajos: el mes en curso y el anterior, que es lo que se cuadra siempre. */
+  const ponerMes = (atras: number) => {
+    const hoy = new Date(Date.now() - 6 * 3600 * 1000);
+    const ini = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - atras, 1));
+    const fin = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - atras + 1, 0));
+    setDesde(ini.toISOString().slice(0, 10));
+    setHasta(fin.toISOString().slice(0, 10));
+  };
   useEffect(() => { load(); }, [load]);
 
   // ── Timer: el cron lee el correo cada 15 min (en :00, :15, :30, :45).
@@ -352,6 +371,37 @@ export const ReceptionDashboard: React.FC = () => {
             <p className="text-lg font-black text-gray-900 tabular-nums">{mmss}</p>
           </div>
         </div>
+      </div>
+
+      {/* Filtro por fechas */}
+      <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Desde</label>
+          <input type="date" value={desde} max={hasta || undefined} onChange={e => setDesde(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Hasta</label>
+          <input type="date" value={hasta} min={desde || undefined} onChange={e => setHasta(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+        </div>
+        <button onClick={() => ponerMes(0)}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-bold hover:bg-gray-50">
+          Este mes
+        </button>
+        <button onClick={() => ponerMes(1)}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-bold hover:bg-gray-50">
+          Mes pasado
+        </button>
+        {(desde || hasta) && (
+          <button onClick={() => { setDesde(''); setHasta(''); }}
+            className="px-3 py-1.5 rounded-lg text-gray-500 text-xs font-bold hover:bg-gray-100">Limpiar</button>
+        )}
+        <span className="ml-auto text-xs text-gray-400 self-center">
+          {rows.length} comprobante(s)
+          {(desde || hasta) ? ' en el período' : ' (últimos 300)'}
+          {' · '}₡{Math.round(rows.reduce((t, r) => t + Number(r.total ?? 0), 0)).toLocaleString('es-CR')}
+        </span>
       </div>
 
       {error && (
