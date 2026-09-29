@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ChevronLeft,
   MonitorSmartphone,
+  Monitor,
   FileText,
   ShieldCheck,
   Tag,
@@ -24,10 +25,11 @@ import { POSViewSettings } from '../components/POSView/POSViewSettings';
 import { ElectronicInvoiceSettings } from '../components/ElectronicInvoice/ElectronicInvoiceSettings';
 import { LabelPrinterSettings } from '../components/LabelPrinter/LabelPrinterSettings';
 import { DeliverySettings } from '../components/Delivery/DeliverySettings';
+import { CustomerDisplaySettings } from '../components/CustomerDisplay/CustomerDisplaySettings';
 import { useAuth } from '@/context/AuthContext';
 import { MANAGER_ROLES } from '@/types/Types_Users';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'account';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'customer_display' | 'account';
 
 const SETTINGS_TABS = [
   {
@@ -67,6 +69,12 @@ const SETTINGS_TABS = [
     description: 'Táctil o escritorio',
   },
   {
+    id: 'customer_display' as SettingTab,
+    label: 'Pantalla del cliente',
+    icon: Monitor,
+    description: 'Segundo monitor para el cliente',
+  },
+  {
     id: 'delivery' as SettingTab,
     label: 'Delivery',
     icon: Truck,
@@ -93,7 +101,7 @@ export const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingTab>(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     const valid: SettingTab[] = ['general', 'products', 'payments', 'users', 'notifications',
-      'receipt', 'pos_view', 'electronic_invoice', 'labels', 'delivery', 'account'];
+      'receipt', 'pos_view', 'electronic_invoice', 'labels', 'delivery', 'customer_display', 'account'];
     return (valid as string[]).includes(String(t)) ? (t as SettingTab) : 'general';
   });
   /**
@@ -123,6 +131,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
     }
     // Etiquetadora: solo si el plan tiene el módulo de etiquetas.
     if (tab.id === 'labels' && !planFeatures?.labels) return false;
+    // Pantalla del cliente: solo si el plan trae el segundo monitor.
+    if (tab.id === 'customer_display' && !(planFeatures as any)?.pos_customer_screen) return false;
     // Delivery: solo si el plan tiene la función de delivery.
     if (tab.id === 'delivery' && !(planFeatures as any)?.pos_delivery) return false;
     // Cuenta / cambio de contraseña: solo el propietario.
@@ -155,6 +165,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
         return <LabelPrinterSettings />;
       case 'delivery':
         return <DeliverySettings />;
+      case 'customer_display':
+        return <CustomerDisplaySettings />;
       case 'account':
         return <AccountSettings />;
       default:

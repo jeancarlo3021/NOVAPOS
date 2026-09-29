@@ -50,6 +50,7 @@ const ModifiersManager         = lazy(() => import('./modules/modifiers/Modifier
 const SalesAgentsManager       = lazy(() => import('./modules/agents/SalesAgentsManager').then(m => ({ default: m.SalesAgentsManager })));
 const ReservationsDashboard    = lazy(() => import('./modules/reservations/ReservationsDashboard').then(m => ({ default: m.ReservationsDashboard })));
 const ManualSalesDashboard     = lazy(() => import('./modules/manualSales/ManualSalesDashboard').then(m => ({ default: m.ManualSalesDashboard })));
+const CustomerDisplayScreen    = lazy(() => import('./modules/pos/CustomerDisplayScreen').then(m => ({ default: m.CustomerDisplayScreen })));
 const LiveTeamMap              = lazy(() => import('./modules/customers/LiveTeamMap').then(m => ({ default: m.LiveTeamMap })));
 const DemoRequestsDashboard    = lazy(() => import('./modules/demos/DemoRequestsDashboard').then(m => ({ default: m.DemoRequestsDashboard })));
 const LeadsDashboard           = lazy(() => import('./modules/crm/LeadsDashboard').then(m => ({ default: m.LeadsDashboard })));
@@ -99,6 +100,13 @@ function AppContent() {
               mesa. Va fuera de ProtectedRoute porque su razón de ser es que no
               haga falta iniciar sesión. */}
           <Route path="/m/:slug" element={<PublicMenu />} />
+          {/* PANTALLA DEL CLIENTE (segundo monitor de la caja).
+              Va fuera del layout: no lleva menú ni botones —el monitor puede ser
+              táctil y lo toca cualquiera— y tiene que ocupar la pantalla entera.
+              Sigue dentro de ProtectedRoute: muestra datos del negocio. */}
+          <Route path="/pantalla-cliente" element={
+            <ProtectedRoute><CustomerDisplayScreen /></ProtectedRoute>
+          } />
 
           <Route
               path="/"

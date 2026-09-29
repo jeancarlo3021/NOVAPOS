@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { soloPlanesReales } from '@/utils/planesDemo';
 import { apiFetch } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
@@ -424,7 +425,15 @@ export const CreateOwner: React.FC = () => {
         setError(`No se pudieron cargar: ${failures.join(', ')}. Reintentá en unos segundos.`);
       }
 
-      setPlans(allPlans);
+      /**
+       * Al selector de planes NO entran los planes de demo.
+       *
+       * Son plantillas de una prueba puntual («Demo · Ferretería»): si se elige
+       * una al dar de alta un cliente, el negocio nuevo arranca con los módulos
+       * de la demo de otro y con un plan que el limpiador de demos puede borrar.
+       * Se administran en la pantalla de Planes, que sí los muestra aparte.
+       */
+      setPlans(soloPlanesReales(allPlans));
 
       const countMap = new Map<string, number>(
         (invCounts ?? []).map(r => [r.tenant_id, r.count]),

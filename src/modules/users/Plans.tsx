@@ -12,6 +12,7 @@ import {
   Users2, MonitorPlay, Bookmark,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
+import { esPlanDemo } from '@/utils/planesDemo';
 import { apiFetch } from '@/lib/api';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { PlanFeatures, DEFAULT_FEATURES, useAuth } from '@/context/AuthContext';
@@ -217,19 +218,6 @@ export default function Plans() {
       .then(list => { if (Array.isArray(list) && list.length > 0) setFePlans(list); })
       .catch(() => {});
   }, []);
-
-  /**
-   * ¿Es el plan de una DEMO?
-   *
-   * Cada demo que se arma crea su propio plan —«Demo · Ferretería»— con los
-   * módulos que pidió el vendedor. Son de usar y tirar: nacen con la demo y
-   * mueren con ella. Mezclados con los planes de venta, la pantalla se llenaba
-   * de decenas de tarjetas y encontrar el plan real que hay que cobrar se volvía
-   * imposible.
-   */
-  const esPlanDemo = (p: SubscriptionPlan): boolean =>
-    /^demo\s*[·:.-]/i.test(String(p.name ?? '').trim())
-    || Number(p.price ?? 0) === 0 && /demo/i.test(String(p.name ?? ''));
 
   const planesReales = plans.filter(p => !esPlanDemo(p));
   const planesDemo = plans.filter(esPlanDemo);
@@ -951,8 +939,11 @@ export default function Plans() {
                       description="Aplicar descuentos por producto" checked={features.pos_discount} onChange={v => set({ pos_discount: v })} />
                     <SubFeatureRow icon={Banknote} color="bg-emerald-400" title="Gestión de Caja"
                       description="Apertura y cierre de caja" checked={!!features.pos_cash_management} onChange={v => set({ pos_cash_management: v })} />
-                    <SubFeatureRow icon={Monitor} color="bg-cyan-500" title="Display de Cliente"
-                      description="Pantalla secundaria para el cliente" checked={!!features.pos_customer_display} onChange={v => set({ pos_customer_display: v })} />
+                    <SubFeatureRow icon={Monitor} color="bg-cyan-500" title="Display de Cliente (visor USB)"
+                      description="Visor numérico de dos líneas conectado por USB/serie" checked={!!features.pos_customer_display} onChange={v => set({ pos_customer_display: v })} />
+                    <SubFeatureRow icon={Monitor} color="bg-cyan-600" title="Pantalla del cliente (2.º monitor)"
+                      description="Segundo monitor que ve el cliente: productos, total y vuelto, con saludo, colores y avisos personalizables"
+                      checked={!!(features as any).pos_customer_screen} onChange={v => set({ pos_customer_screen: v } as any)} />
                     <SubFeatureRow icon={FileX} color="bg-red-400" title="Anular Facturas"
                       description="Permite anular facturas emitidas" checked={!!features.pos_void_invoice} onChange={v => set({ pos_void_invoice: v })} />
                     <SubFeatureRow icon={FileText} color="bg-blue-500" title="N° Próxima Factura"

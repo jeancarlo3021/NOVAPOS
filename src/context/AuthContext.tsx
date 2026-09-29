@@ -189,7 +189,8 @@ export interface PlanFeatures {
   pos_sinpe: boolean;
   pos_discount: boolean;
   pos_cash_management?: boolean;     // Apertura/cierre de caja
-  pos_customer_display?: boolean;    // Display de cliente serial
+  pos_customer_display?: boolean;    // Display de cliente serial (visor de 2 líneas por USB)
+  pos_customer_screen?: boolean;     // Pantalla del cliente: segundo monitor completo
   pos_void_invoice?: boolean;        // Anular facturas emitidas
   pos_invoice_preview?: boolean;     // Mostrar nº próxima factura en escritorio
   pos_customer_field?: boolean;      // Campo de cliente en escritorio
@@ -346,6 +347,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   pos_discount: false,
   pos_cash_management: false,
   pos_customer_display: false,
+  pos_customer_screen: false,
   pos_void_invoice: false,
   pos_invoice_preview: false,
   pos_customer_field: false,
@@ -444,6 +446,7 @@ export const FULL_FEATURES: PlanFeatures = {
   pos_discount: true,
   pos_cash_management: true,
   pos_customer_display: true,
+  pos_customer_screen: true,
   pos_void_invoice: true,
   pos_invoice_preview: true,
   pos_customer_field: true,

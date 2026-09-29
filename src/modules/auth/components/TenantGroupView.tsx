@@ -9,6 +9,7 @@ import {
 } from '@/services/admin/tenantGroupsService';
 import { AddClientModal } from '@/modules/accountant/AddClientModal';
 import { AddActivityModal } from './AddActivityModal';
+import { soloPlanesReales } from '@/utils/planesDemo';
 import { apiFetch } from '@/lib/api';
 
 const fmt = (n: number) => `₡${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
@@ -993,7 +994,10 @@ function AddBranchModal({
       try {
         const { plansService } = await import('@/services/users/plansService');
         const list = await plansService.getAllPlans();
-        const onlyActive = (Array.isArray(list) ? list : []).filter((p: any) => p?.is_active !== false);
+        // Sin los planes de demo: son plantillas de una prueba, no algo que se
+        // le asigne a una sucursal real.
+        const onlyActive = soloPlanesReales(
+          (Array.isArray(list) ? list : []).filter((p: any) => p?.is_active !== false));
         setSaasPlans(onlyActive.map((p: any) => ({
           id: p.id, name: p.name, price: p.price ?? 0, billing_cycle: p.billing_cycle,
         })));

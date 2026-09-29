@@ -4,6 +4,7 @@ import {
   tenantGroupsService,
   type BranchMember, type AddActivityResult,
 } from '@/services/admin/tenantGroupsService';
+import { soloPlanesReales } from '@/utils/planesDemo';
 
 const fmt = (n: number) => `₡${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
 
@@ -47,8 +48,9 @@ export function AddActivityModal({
       try {
         const { plansService } = await import('@/services/users/plansService');
         const list = await plansService.getAllPlans();
-        setSaasPlans((Array.isArray(list) ? list : [])
-          .filter((p: any) => p?.is_active !== false)
+        // Sin los planes de demo (ver soloPlanesReales).
+        setSaasPlans(soloPlanesReales((Array.isArray(list) ? list : [])
+          .filter((p: any) => p?.is_active !== false))
           .map((p: any) => ({ id: p.id, name: p.name, price: p.price ?? 0, billing_cycle: p.billing_cycle })));
       } catch { /* el selector queda vacío */ }
     })();

@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { netosDeProforma } from '@/utils/descuentosVenta';
 import { etiquetaMedioPago } from '@/utils/mediosDePago';
+import { useSegundaPantalla } from '@/hooks/POS/useSegundaPantalla';
+import { publicarEnPantalla } from '@/services/pos/customerDisplayService';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { WindowQueueModal, useWindowQueue } from '@/modules/window/WindowQueueModal';
 import { useDeviceRole } from '@/hooks/useDeviceRole';
-import { ShoppingBag, X } from 'lucide-react';
+import { Monitor, ShoppingBag, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { proformasService } from '@/services/proformas/proformasService';
 import { useCashSession } from '@/hooks/useCashSession';
@@ -737,6 +739,33 @@ export const POSMain = () => {
   const total = Math.round(rawTotal / 10) * 10;
   const roundingAdjust = round2(total - rawTotal);
 
+  /**
+   * PANTALLA DEL CLIENTE (segundo monitor), si está activada.
+   *
+   * Se le manda lo mismo que ve el cajero, con los precios tal como se cobran
+   * (con impuesto si así está configurado) para que el cliente vea los mismos
+   * números que en el ticket. Si está apagada, el hook no hace nada.
+   */
+  const segundaPantalla = useSegundaPantalla(tenantId, {
+    lineas: cartItems.map(it => {
+      const iva = 1 + ivaPctDe(it) / 100;
+      return {
+        nombre: it.product?.name ?? 'Producto',
+        cantidad: it.quantity,
+        precio: round2(it.unit_price * iva),
+        total: round2(it.subtotal * iva),
+      };
+    }),
+    subtotal: round2(subtotalBruto),
+    descuento: round2(
+      cartItems.reduce((t, it) => t + Math.max(0, it.quantity * it.unit_price - it.subtotal), 0)
+      + comboDiscount,
+    ),
+    impuesto: round2(taxAmount),
+    total,
+    cliente: selectedCustomer?.name ?? customerName ?? null,
+  }, !!(planFeatures as any)?.pos_customer_screen);
+
   // ── Atajos de teclado estilo Eleventa ─────────────────────────────────
   // F12 = Cobrar · F4 = Anular · Esc = Cerrar modal
   useEffect(() => {
@@ -1115,6 +1144,21 @@ export const POSMain = () => {
       const now = new Date();
 
       // Receipt
+      /**
+       * La pantalla del cliente pasa a «cobrado»: total, vuelto y gracias.
+       *
+       * Es el momento en que el cliente mira la pantalla: si se quedara con el
+       * carrito, tendría que hacer la cuenta del vuelto de memoria.
+       */
+      publicarEnPantalla({
+        tipo: 'cobrado',
+        total: tot,
+        recibido: currencyInfo?.amountReceived ?? null,
+        vuelto: currencyInfo?.change ?? null,
+        metodo: etiquetaMedioPago(paymentMethod),
+        numero: invoiceNumber,
+      });
+
       const receiptData = {
         invoiceNumber,
         date: now.toLocaleDateString('es-CR'),
@@ -1129,9 +1173,23 @@ export const POSMain = () => {
         subtotal: sub,
         tax,
         total: tot,
-        // Combos (sin el redondeo): sub+IVA−tot = combo − rounding → combo = (sub+IVA−tot) + rounding.
-        discount: Math.round((sub + tax - tot) + rounding),
-        discountLabel: 'Combos',
+        /**
+         * TODO lo rebajado, junto: descuentos de línea y combos.
+         *
+         * El descuento por línea ya está restado en `item.subtotal`, así que la
+         * cuenta vieja (sub + IVA − total) daba cero y el tiquete salía SIN
+         * ninguna línea de descuento: el cliente veía el precio rebajado sin
+         * saber cuánto se le rebajó, y el cajero no tenía cómo demostrarlo.
+         *
+         * Se suma lo de cada línea (precio de lista × cantidad − lo que se
+         * cobró) y lo que restaron los combos, que sigue saliendo de la
+         * diferencia con el total.
+         */
+        discount: Math.round(
+          items.reduce((t, it) => t + Math.max(0, (it.quantity * it.unit_price) - it.subtotal), 0)
+          + (sub + tax - tot) + rounding,
+        ),
+        discountLabel: 'Descuentos',
         // Redondeo a ₡10 (positivo = se sumó, negativo = se restó).
         rounding: Math.round(rounding),
         paymentMethod: etiquetaMedioPago(paymentMethod),
@@ -2164,6 +2222,25 @@ export const POSMain = () => {
 
       {/* Aviso de cuota de comprobantes electrónicos (quedan 50/20/10 o agotados). */}
       <FeQuotaWarning />
+
+      {/* PANTALLA DEL CLIENTE: solo aparece si está activada en Configuración.
+          Se abre sola al entrar al POS, pero si el cajero la cerró por error (o
+          el navegador bloqueó la ventana emergente) este botón la vuelve a abrir
+          sin salir de la venta. */}
+      {segundaPantalla.config.enabled && (
+        <button
+          onClick={() => void segundaPantalla.abrir().then(r => {
+            // Solo se avisa cuando NO quedó sola en el segundo monitor: ahí el
+            // cajero tiene que hacer algo (arrastrarla, permitir emergentes…).
+            if (r.motivo) alert(r.motivo);
+          })}
+          title="Abrir la pantalla que ve el cliente en el segundo monitor"
+          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-3 py-2 rounded-xl bg-white/90 backdrop-blur border border-gray-200 shadow text-xs font-bold text-gray-700 hover:bg-white"
+        >
+          <Monitor size={14} className="text-cyan-600" />
+          Pantalla del cliente
+        </button>
+      )}
 
       {/* Hidden display test trigger button — press Ctrl+D to open */}
       {typeof window !== 'undefined' && (
