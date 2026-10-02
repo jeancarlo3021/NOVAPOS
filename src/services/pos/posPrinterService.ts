@@ -127,6 +127,17 @@ export interface ReceiptData {
   // Datos del local (negocio)
   storeName?: string;
   commercialName?: string;    // Nombre comercial (opcional, se muestra según config)
+  /**
+   * Razón social ante Hacienda, cuando NO es el nombre con el que el negocio
+   * trabaja.
+   *
+   * El tiquete salía con la razón social como título —«Inversiones JMR S.A.»—
+   * porque es lo que están los datos de FE, y el cliente que acaba de comprar en
+   * «Pollos del Valle» no reconocía el papel. El nombre grande es el del negocio
+   * (Configuración → General); la razón social va debajo, chiquita, porque el
+   * comprobante electrónico sí tiene que decir a nombre de quién se emite.
+   */
+  storeLegalName?: string;
   storeRuc?: string;          // Cédula jurídica / RUC
   storeCedula?: string;       // Cédula física
   storeAddress?: string;
@@ -216,6 +227,23 @@ export interface ReceiptConfig {
    * impresora, en vez de volver a marcar categoría por categoría en cada una.
    */
   comandaGroups?: Array<{ id: string; name: string; categories: string[] }>;
+  /**
+   * CÓMO SE MANDAN LAS COMANDAS a la cocina.
+   *
+   * Iba pegado al transporte del TIQUETE (`printerType`), y son dos cosas
+   * distintas: la caja puede imprimir el tiquete por el navegador o por una
+   * térmica Bluetooth, mientras la cocina tiene su impresora colgada de la red.
+   * Peor todavía: con el tiquete en «navegador», las comandas no salían por
+   * ningún lado y nadie se enteraba —el POS decía «Pedido enviado a cocina»
+   * igual—.
+   *
+   *   'auto'      — lo que haya: Bluetooth si así está la caja, si no QZ Tray.
+   *   'qztray'    — QZ Tray en una PC del local. Es el único camino para una
+   *                 impresora de COCINA POR RED (IP, puerto 9100): el navegador
+   *                 no puede abrir una conexión así por su cuenta.
+   *   'bluetooth' — directo del dispositivo a cada impresora emparejada.
+   */
+  comandaTransport?: 'auto' | 'qztray' | 'bluetooth';
   /**
    * Impresora de CAJA por defecto: a cuál sale el tiquete de la venta.
    *
@@ -511,6 +539,24 @@ export class POSPrinterService {
       catch { /* ignore */ }
     }
     if (!general) return;
+    /**
+     * EL NOMBRE QUE SE IMPRIME ES EL DE CONFIGURACIÓN → GENERAL.
+     *
+     * Antes, con facturación electrónica activa, el título del tiquete era la
+     * razón social del emisor, que es un dato fiscal y muchas veces no se parece
+     * al rótulo del local. Si el negocio llenó su nombre en General, ese es el
+     * que va arriba; la razón social se imprime debajo solo cuando es distinta,
+     * para que el comprobante siga diciendo a nombre de quién se emite.
+     */
+    const comparar = (v: unknown) => String(v ?? '').trim().toLowerCase();
+    const nombreDelNegocio = String(general.businessName ?? '').trim();
+    if (nombreDelNegocio) {
+      const fiscal = String(receiptData.storeName ?? '').trim();
+      if (feOn && fiscal && comparar(fiscal) !== comparar(nombreDelNegocio)) {
+        receiptData.storeLegalName = fiscal;
+      }
+      receiptData.storeName = nombreDelNegocio;
+    }
     receiptData.storeName ??= general.businessName;
     receiptData.storeRuc ??= general.ruc;
     receiptData.storeCedula ??= general.cedula;
@@ -1960,20 +2006,52 @@ export class POSPrinterService {
       .filter(j => j.its.length > 0);
     if (jobs.length === 0) return;
 
-    // Bluetooth: enviar a cada estación de comanda conectada por BT.
-    if (cfg.printerType === 'bluetooth') {
-      const { btPrintTo } = await import('./bluetoothPrinterService');
-      for (const { printer, its } of jobs.filter(j => (j.printer as any).connection === 'bluetooth')) {
-        try { await btPrintTo(printer.id, buildData(printer, its)); }
-        catch (e) { console.warn('[comanda BT] falló:', e); }
+    /**
+     * El transporte lo decide la configuración de COMANDAS, no la del tiquete.
+     *
+     * Y cuando no se puede mandar, esto LANZA. Antes se devolvía en silencio: el
+     * POS mostraba «Pedido enviado a cocina», la cocina nunca recibía el papel, y
+     * el pedido se perdía sin que nadie pudiera saber por qué.
+     */
+    const via = cfg.comandaTransport && cfg.comandaTransport !== 'auto'
+      ? cfg.comandaTransport
+      : (cfg.printerType === 'bluetooth' ? 'bluetooth' : 'qztray');
+
+    if (via === 'bluetooth') {
+      const btJobs = jobs.filter(j => (j.printer as any).connection === 'bluetooth');
+      if (btJobs.length === 0) {
+        throw new Error(
+          'Las comandas están configuradas por Bluetooth, pero ninguna impresora de cocina '
+          + 'está puesta como Bluetooth. Revisá Configuración → Factura.');
       }
+      const { btPrintTo } = await import('./bluetoothPrinterService');
+      const fallos: string[] = [];
+      for (const { printer, its } of btJobs) {
+        try { await btPrintTo(printer.id, buildData(printer, its)); }
+        catch (e: any) { fallos.push(`${printer.label || 'cocina'}: ${e?.message ?? e}`); }
+      }
+      // Que falle UNA no debe callar a las demás, pero si fallan todas hay que decirlo.
+      if (fallos.length === btJobs.length) throw new Error(fallos.join(' · '));
+      if (fallos.length > 0) console.warn('[comanda BT] alguna falló:', fallos.join(' · '));
       return;
     }
 
-    // QZ Tray / térmica.
-    if (!(await qzIsAvailable())) return;
+    // QZ Tray: USB o IP (puerto 9100). El único camino para cocina POR RED.
+    if (!(await qzIsAvailable())) {
+      throw new Error(
+        'Las comandas salen por QZ Tray y no está corriendo en esta computadora. '
+        + 'Abrilo (o instalalo) y volvé a intentar. Si la cocina imprime por Bluetooth, '
+        + 'cambiá el envío en Configuración → Comandas.');
+    }
     await qzConnect();
-    await Promise.all(jobs.map(({ printer, its }) => qzPrintToPrinter(printer, buildData(printer, its))));
+    const resultados = await Promise.allSettled(
+      jobs.map(({ printer, its }) => qzPrintToPrinter(printer, buildData(printer, its))));
+    const malas = resultados
+      .map((r, i) => r.status === 'rejected'
+        ? `${jobs[i].printer.label || 'cocina'}: ${(r as any).reason?.message ?? 'falló'}` : null)
+      .filter(Boolean) as string[];
+    if (malas.length === jobs.length) throw new Error(malas.join(' · '));
+    if (malas.length > 0) console.warn('[comanda QZ] alguna falló:', malas.join(' · '));
   }
 
   // ─── Browser print ────────────────────────────────────────────────────────────
@@ -2038,7 +2116,17 @@ export class POSPrinterService {
   private generateA4HTML(r: ReceiptData, cfg: ReceiptConfig): string {
     const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
     const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const logo = (cfg.showLogo && r.logoUrl) ? r.logoUrl : '';
+    /**
+     * El logo vive en la CONFIGURACIÓN del tiquete, no en los datos del
+     * comprobante.
+     *
+     * Acá solo se miraba `r.logoUrl`, que ningún lugar del sistema llena: la
+     * imagen que el negocio sube queda en `cfg.logoUrl`. Resultado: en la hoja
+     * A4 el logo NUNCA salía, aunque estuviera subido y el interruptor
+     * encendido. Los otros formatos sí caen a la configuración; este se había
+     * quedado atrás.
+     */
+    const logo = cfg.showLogo ? (r.logoUrl || cfg.logoUrl || '') : '';
     const tipoLabel = r.feTipoLabel ?? (r.feClave ? 'COMPROBANTE ELECTRÓNICO' : 'FACTURA');
     // La hoja A4 respeta los interruptores de dirección, teléfono y cliente.
     // El NÚMERO y la FECHA van siempre: son parte de lo que hace válido al
@@ -2084,7 +2172,7 @@ export class POSPrinterService {
   <div class="head">
     <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : `<div class="brand">${esc(r.storeName ?? '')}</div>`}
       <div style="font-size:11px;color:#6b7280;margin-top:4px">
-        ${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
+        ${r.storeLegalName ? esc(r.storeLegalName) + '<br>' : ''}${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
         ${(cfg.showStoreAddress !== false && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${r.storeCity ? esc(r.storeCity) + '<br>' : ''}${(cfg.showStorePhone !== false && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}${r.storeEmail ? '<br>' + esc(r.storeEmail) : ''}
       </div>
     </div>
@@ -2172,6 +2260,7 @@ export class POSPrinterService {
       <div class="store-block">
         ${cfg.showStoreName && receiptData.storeName ? `<div class="store-name">${receiptData.storeName}</div>` : ''}
         ${cfg.showCommercialName && receiptData.commercialName ? `<div class="store-commercial">${receiptData.commercialName}</div>` : ''}
+        ${receiptData.storeLegalName ? `<div class="store-line">${receiptData.storeLegalName}</div>` : ''}
         ${receiptData.storeRuc ? `<div class="store-line"><strong>Céd. Jurídica:</strong> ${receiptData.storeRuc}</div>` : ''}
         ${receiptData.storeCedula ? `<div class="store-line"><strong>Cédula:</strong> ${receiptData.storeCedula}</div>` : ''}
         ${cfg.showStoreAddress && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
@@ -2544,6 +2633,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     // Store
     if (cfg.showStoreName && receiptData.storeName) { centerText(receiptData.storeName); }
     if (cfg.showCommercialName && receiptData.commercialName) { centerText(receiptData.commercialName); }
+    if (receiptData.storeLegalName) { centerText(receiptData.storeLegalName); }
     if (receiptData.storeRuc) { centerText(`Ced. Juridica: ${receiptData.storeRuc}`); }
     if (receiptData.storeCedula) { centerText(`Cedula: ${receiptData.storeCedula}`); }
     if (cfg.showStoreAddress && receiptData.storeAddress) { centerText(receiptData.storeAddress); }

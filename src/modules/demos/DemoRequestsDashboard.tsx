@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Home, Plus, Search, RefreshCw, Loader2, X, Save, AlertCircle, CheckCircle2,
   MonitorPlay, Phone, MessageCircle, Mail, Trash2, Clock, User, Check, KeyRound, Copy,
+  BarChart3, ListChecks,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/lib/api';
@@ -10,6 +11,7 @@ import {
   demoRequestsService, type DemoRequest, type DemoStatus,
 } from '@/services/demos/demoRequestsService';
 import { DEMO_GROUPS, DEMO_PRESETS, moduleLabel } from './demoModules';
+import { DemoUsageReport } from './DemoUsageReport';
 
 const crToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
 const day = (d?: string | null) => (d ? new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('es-CR') : '—');
@@ -42,6 +44,14 @@ export const DemoRequestsDashboard: React.FC = () => {
   const { user } = useAuth();
   const esGerencia = ['owner', 'admin', 'gerente'].includes(String(user?.role ?? ''));
 
+  /**
+   * Dos vistas: las solicitudes y el USO de las demos ya entregadas.
+   *
+   * Van en el mismo módulo porque se leen juntas: el vendedor abre la lista para
+   * ver a quién le entregó una demo y lo que necesita saber enseguida es si la
+   * está usando. Tenerlo en otra pantalla era garantía de que nadie lo mirara.
+   */
+  const [vista, setVista] = useState<'solicitudes' | 'uso'>('solicitudes');
   const [rows, setRows] = useState<DemoRequest[]>([]);
   const [status, setStatus] = useState('abiertas');
   const [q, setQ] = useState('');
@@ -170,6 +180,18 @@ export const DemoRequestsDashboard: React.FC = () => {
         </button>
       </div>
 
+      {/* Solicitudes / Uso: lo segundo es lo que decide a quién llamar. */}
+      <div className="flex rounded-xl border border-gray-200 overflow-hidden w-fit bg-white">
+        {([['solicitudes', 'Solicitudes', ListChecks], ['uso', 'Uso de las demos', BarChart3]] as const)
+          .map(([id, label, Icono]) => (
+            <button key={id} onClick={() => setVista(id)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-black ${
+                vista === id ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+              <Icono size={15} /> {label}
+            </button>
+          ))}
+      </div>
+
       {limpieza && (
         <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3 space-y-2 text-sm">
           <div className="flex items-start justify-between gap-3">
@@ -223,6 +245,7 @@ export const DemoRequestsDashboard: React.FC = () => {
         </div>
       )}
 
+      {vista === 'solicitudes' && (
       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         {[{ id: 'abiertas', label: 'Abiertas' },
           { id: 'pendiente', label: 'Pendientes' },
@@ -239,6 +262,7 @@ export const DemoRequestsDashboard: React.FC = () => {
           </button>
         ))}
       </div>
+      )}
 
       {msg && (
         <div className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${
@@ -248,7 +272,9 @@ export const DemoRequestsDashboard: React.FC = () => {
         </div>
       )}
 
-      {loading ? (
+      {vista === 'uso' ? (
+        <DemoUsageReport />
+      ) : loading ? (
         <div className="flex items-center justify-center gap-2 py-16 text-sm font-bold text-gray-400">
           <Loader2 size={18} className="animate-spin" /> Cargando…
         </div>

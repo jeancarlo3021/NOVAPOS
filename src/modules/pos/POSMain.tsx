@@ -1263,7 +1263,17 @@ export const POSMain = () => {
             ? (isDeliveryMode ? 'llevar' : 'aca')
             : (tableOrderToClose.current ? 'mesa' : undefined),
         },
-      ).catch(err => console.warn('Error al imprimir comanda:', err));
+      ).catch(err => {
+        /**
+         * La venta YA se cobró: no se puede deshacer por una comanda.
+         *
+         * Pero tampoco se puede callar —la cocina no recibió el pedido y el
+         * cliente está esperando comida—. Se avisa sin trabar la caja.
+         */
+        console.warn('Error al imprimir comanda:', err);
+        setError(`La venta se cobró, pero la COMANDA no salió: ${
+          err instanceof Error ? err.message : 'error'}. Avisá a cocina.`);
+      });
 
     } catch (err) {
       console.error('[printReceipt] error:', err);

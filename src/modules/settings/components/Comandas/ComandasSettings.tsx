@@ -3,16 +3,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ChefHat, Printer, Plus, Trash2, Save, CheckCircle2, AlertCircle, Loader2, Layers, Star,
+  Network, Bluetooth, Wand2, Smartphone, Play,
 } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { useTenantId } from '@/hooks/useTenant';
-import { posPrinterService } from '@/services/pos/posPrinterService';
-import type { PrinterEntry } from '@/services/pos/qzTrayService';
+import { posPrinterService, webBluetoothAvailable } from '@/services/pos/posPrinterService';
+import { qzIsAvailable, qzIsConnected, type PrinterEntry } from '@/services/pos/qzTrayService';
+import { isNativeApp, hasNativeBluetooth } from '@/services/pos/nativePlatform';
 
 interface Grupo { id: string; name: string; categories: string[] }
 interface Categoria { id: string; name: string }
 
 type Pestana = 'grupos' | 'impresoras';
+type Transporte = 'auto' | 'qztray' | 'bluetooth';
 
 const nuevoId = () => `g${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
@@ -37,6 +40,10 @@ export const ComandasSettings: React.FC = () => {
   const [grupos, setGrupos] = useState<Grupo[]>([]);
   const [printers, setPrinters] = useState<PrinterEntry[]>([]);
   const [caja, setCaja] = useState('');
+  const [via, setVia] = useState<Transporte>('auto');
+  /** QZ Tray: ¿está instalado y corriendo en ESTA computadora? */
+  const [qz, setQz] = useState<'buscando' | 'si' | 'no'>('buscando');
+  const [probando, setProbando] = useState(false);
   const [cats, setCats] = useState<Categoria[]>([]);
   const [sucio, setSucio] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -48,6 +55,7 @@ export const ComandasSettings: React.FC = () => {
     setGrupos(Array.isArray(c.comandaGroups) ? c.comandaGroups : []);
     setPrinters(Array.isArray(c.printers) ? c.printers : []);
     setCaja(String(c.defaultReceiptPrinterId ?? ''));
+    setVia((c.comandaTransport ?? 'auto') as Transporte);
     setSucio(false);
   }, [settings]);
 
@@ -58,6 +66,19 @@ export const ComandasSettings: React.FC = () => {
         .then((cs: any[]) => setCats((cs ?? []).map(c => ({ id: String(c.id), name: String(c.name) }))))
         .catch(() => {}));
   }, [tenantId]);
+
+  // ¿Hay QZ Tray en esta máquina? Es la diferencia entre ofrecer el camino de
+  // red y mandar al usuario a configurar algo que no va a funcionar.
+  useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      try {
+        const hay = qzIsConnected() || await qzIsAvailable();
+        if (vivo) setQz(hay ? 'si' : 'no');
+      } catch { if (vivo) setQz('no'); }
+    })();
+    return () => { vivo = false; };
+  }, []);
 
   const comandas = useMemo(() => printers.filter(p => p.type === 'comanda'), [printers]);
   const cajas = useMemo(() => printers.filter(p => p.type === 'receipt'), [printers]);
@@ -74,6 +95,24 @@ export const ComandasSettings: React.FC = () => {
   const setGruposT = (v: Grupo[]) => { setGrupos(v); marcarSucio(); };
   const setPrintersT = (v: PrinterEntry[]) => { setPrinters(v); marcarSucio(); };
   const setCajaT = (v: string) => { setCaja(v); marcarSucio(); };
+  const setViaT = (v: Transporte) => { setVia(v); marcarSucio(); };
+
+  /** Guarda sin tocar los mensajes en pantalla (lo usa la prueba). */
+  const guardarSilencioso = async () => {
+    const limpios = grupos
+      .map(g => ({ ...g, name: g.name.trim() }))
+      .filter(g => g.name || g.categories.length > 0);
+    await updateSettings({
+      ...(settings ?? {}),
+      comandaGroups: limpios,
+      printers,
+      defaultReceiptPrinterId: caja || undefined,
+      comandaTransport: via,
+    });
+    posPrinterService.clearConfigCache();
+    setGrupos(limpios);
+    setSucio(false);
+  };
 
   const guardar = async () => {
     setGuardando(true); setMsg(null);
@@ -88,6 +127,7 @@ export const ComandasSettings: React.FC = () => {
         comandaGroups: limpios,
         printers,
         defaultReceiptPrinterId: caja || undefined,
+        comandaTransport: via,
       });
       posPrinterService.clearConfigCache();
       setGrupos(limpios);
@@ -97,6 +137,47 @@ export const ComandasSettings: React.FC = () => {
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo guardar' });
     } finally { setGuardando(false); }
+  };
+
+  /**
+   * Prueba de verdad: manda una comanda de ejemplo a cocina.
+   *
+   * Es la única forma de saber si el camino elegido funciona. Antes se descubría
+   * en el primer pedido real, con el cliente esperando.
+   */
+  const probar = async () => {
+    if (!tenantId) return;
+    setProbando(true); setMsg(null);
+    try {
+      if (sucio) await guardarSilencioso();
+      posPrinterService.clearConfigCache();
+      await posPrinterService.printComandas(
+        'PRUEBA',
+        comandas.length > 0 && (comandas[0].categories ?? []).length === 0 && (comandas[0].groups ?? []).length === 0
+          ? [{ name: 'Plato de prueba', quantity: 1 }]
+          // Con grupos asignados hay que mandar algo que alguno reclame, si no
+          // la prueba «no imprime nada» y parece que el camino está roto.
+          : [{ name: 'Plato de prueba', quantity: 1, category_id: primeraCategoriaAsignada() }],
+        tenantId,
+        'Prueba de comandas',
+      );
+      setMsg({ ok: true, text: 'Comanda de prueba enviada. Revisá el papel en la cocina.' });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo mandar la comanda de prueba' });
+    } finally { setProbando(false); }
+  };
+
+  /** Una categoría que alguna impresora reclame, para que la prueba salga. */
+  const primeraCategoriaAsignada = (): string | undefined => {
+    for (const p of comandas) {
+      const propias = p.categories ?? [];
+      if (propias.length > 0) return String(propias[0]);
+      for (const gid of (p.groups ?? [])) {
+        const g = grupos.find(x => x.id === gid);
+        if (g?.categories.length) return String(g.categories[0]);
+      }
+    }
+    return undefined;
   };
 
   const agregarGrupo = () =>
@@ -297,6 +378,106 @@ export const ComandasSettings: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+
+          {/* ── Cómo se mandan ── */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
+            <div>
+              <p className="font-black text-gray-900 flex items-center gap-2">
+                <Network size={15} className="text-indigo-500" /> Cómo se mandan las comandas
+              </p>
+              <p className="text-xs text-gray-500">
+                Es aparte del tiquete de la caja: la caja puede imprimir por el navegador y la
+                cocina tener su impresora en la red.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {([
+                {
+                  id: 'auto' as Transporte, icono: Wand2, titulo: 'Automático',
+                  que: 'Usa lo que haya: Bluetooth si la caja está en Bluetooth, si no QZ Tray.',
+                  estado: null as null | { ok: boolean; texto: string },
+                },
+                {
+                  id: 'qztray' as Transporte, icono: Network, titulo: 'QZ Tray (red o USB)',
+                  que: 'Un programa gratis que corre en una computadora del local y le manda a cada '
+                    + 'impresora, por cable USB o por su dirección IP (puerto 9100). Es el ÚNICO '
+                    + 'camino para una impresora de cocina por RED: el navegador no puede abrir una '
+                    + 'conexión así por su cuenta.',
+                  estado: qz === 'buscando' ? { ok: true, texto: 'Revisando…' }
+                    : qz === 'si' ? { ok: true, texto: 'Corriendo en esta computadora' }
+                    : { ok: false, texto: 'No está corriendo acá. Hay que instalarlo y dejarlo abierto.' },
+                },
+                {
+                  id: 'bluetooth' as Transporte, icono: Bluetooth, titulo: 'Bluetooth (directo)',
+                  que: 'Del equipo de la caja a cada impresora emparejada, sin red ni computadora '
+                    + 'extra. Una impresora por estación y hay que estar cerca.',
+                  estado: isNativeApp()
+                    ? (hasNativeBluetooth()
+                      ? { ok: true, texto: 'Disponible en la app de Android' }
+                      : { ok: false, texto: 'Esta versión de la app no trae el módulo de Bluetooth.' })
+                    : (webBluetoothAvailable()
+                      ? { ok: true, texto: 'Disponible en este navegador' }
+                      : { ok: false, texto: 'Este navegador no soporta Bluetooth (usá Chrome o Edge).' }),
+                },
+              ]).map(op => {
+                const Icono = op.icono;
+                const elegido = via === op.id;
+                return (
+                  <button key={op.id} type="button" onClick={() => setViaT(op.id)}
+                    className={`w-full text-left rounded-xl border-2 px-3 py-2.5 transition ${
+                      elegido ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <div className="flex items-center gap-2">
+                      <Icono size={15} className={elegido ? 'text-orange-600' : 'text-gray-400'} />
+                      <span className="font-black text-sm text-gray-900">{op.titulo}</span>
+                      {op.estado && (
+                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+                          op.estado.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
+                          {op.estado.texto}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{op.que}</p>
+                  </button>
+                );
+              })}
+
+              {/* Opción que todavía NO existe. Se muestra apagada a propósito: es
+                  la que todo el mundo pregunta primero, y es mejor decir que no
+                  está que dejar que alguien la configure y no imprima nada. */}
+              <div className="w-full rounded-xl border-2 border-dashed border-gray-200 px-3 py-2.5 opacity-70">
+                <div className="flex items-center gap-2">
+                  <Smartphone size={15} className="text-gray-400" />
+                  <span className="font-black text-sm text-gray-500">Desde la app, directo a la IP</span>
+                  <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">
+                    NO DISPONIBLE
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                  La app de Android todavía no puede abrir una conexión directa a la impresora de
+                  red; hoy solo imprime por Bluetooth. Para cocina por red hace falta QZ Tray en
+                  una computadora del local. Si lo necesitás en la app, se puede agregar.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap pt-1">
+              <button type="button" onClick={() => void probar()} disabled={probando || comandas.length === 0}
+                className="px-4 py-2 rounded-xl border-2 border-orange-200 text-orange-700 font-bold text-sm hover:bg-orange-50 disabled:opacity-40 flex items-center gap-2">
+                {probando ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                Mandar una comanda de prueba
+              </button>
+              {comandas.length === 0 && (
+                <span className="text-[11px] text-gray-400">
+                  Primero hay que tener una impresora de comanda en Configuración → Factura.
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-400">
+              Si el envío falla, el punto de venta ahora lo <b>dice</b>: antes mostraba «Pedido
+              enviado a cocina» igual y el pedido se perdía sin que nadie supiera por qué.
+            </p>
           </div>
 
           {/* ── Caja por defecto ── */}

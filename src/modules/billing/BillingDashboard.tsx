@@ -244,7 +244,17 @@ export function BillingDashboard() {
         },
       );
     } catch (e) {
+      /**
+       * Si la comanda no salió, HAY QUE DECIRLO.
+       *
+       * El botón se tocaba, no pasaba nada visible y el mesero daba por hecho que
+       * cocina ya tenía el pedido. La mesa esperaba comida que nadie estaba
+       * preparando. No hay panel de mensajes en esta pantalla, así que se avisa
+       * con un aviso del navegador: feo, pero imposible de no ver.
+       */
       console.warn('[billing] error comandas:', e);
+      alert(`La comanda NO salió: ${e instanceof Error ? e.message : 'error'}\n\n`
+        + 'Avisá a cocina a mano y revisá Configuración → Comandas.');
     }
   };
 
