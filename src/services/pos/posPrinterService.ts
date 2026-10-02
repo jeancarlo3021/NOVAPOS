@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api';
+import { nombreUbicacion } from '@/data/crLocations';
 import { fmtCRDateTime, fmtCRTime } from '@/utils/crDate';
 import {
   qzConnect, qzIsAvailable, qzPrintToPrinter, qzPrintDefault,
@@ -90,6 +91,15 @@ export interface ReceiptData {
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;   // correo del receptor (al que se envió la factura electrónica)
+  /**
+   * Cédula del CLIENTE (receptor).
+   *
+   * En una factura electrónica es obligatoria en el XML y el cliente la busca en
+   * el papel: es lo que le sirve para respaldar el gasto. Se imprimía el nombre
+   * y el correo del receptor, pero no la cédula, así que el comprobante impreso
+   * no coincidía con el que Hacienda recibió.
+   */
+  customerTaxId?: string;
   bipper?: string;          // bipper/localizador (número o nombre) para llamar al cliente
   items: Array<{
     name: string;
@@ -198,6 +208,23 @@ export interface ReceiptConfig {
   printerType: 'thermal' | 'browser' | 'qztray' | 'bluetooth';
   autoprint: boolean;
   printers?: PrinterEntry[];
+  /**
+   * GRUPOS DE CATEGORÍAS para las comandas.
+   *
+   * Un grupo junta las categorías que salen del mismo lugar («Cocina caliente»
+   * = Platos fuertes + Sopas + Guarniciones). Después se le asigna el grupo a la
+   * impresora, en vez de volver a marcar categoría por categoría en cada una.
+   */
+  comandaGroups?: Array<{ id: string; name: string; categories: string[] }>;
+  /**
+   * Impresora de CAJA por defecto: a cuál sale el tiquete de la venta.
+   *
+   * Vacío = a todas las de recibo activas, que es como funcionaba antes. Con
+   * dos cajas configuradas eso significa que cada venta salía por duplicado, una
+   * en la caja de al lado; poner una por defecto lo arregla sin tener que
+   * desactivar la otra (que se sigue usando para reimprimir o como respaldo).
+   */
+  defaultReceiptPrinterId?: string;
   /** Copias a imprimir por venta (1 o 2). Default 1. */
   printCopies?: number;
   /** Métodos de pago habilitados (cash/card/sinpe/credit/mixed). Default todos. */
@@ -446,6 +473,21 @@ export class POSPrinterService {
       receiptData.storeCedula = undefined;
       if (fe.emisor_address) receiptData.storeAddress = fe.emisor_address;
       if (fe.emisor_phone) receiptData.storePhone = fe.emisor_phone;
+      // El correo también: la pantalla de FE dice «salen impresos en el
+      // comprobante», pero el correo nunca llegaba al papel. Es el dato con el
+      // que el cliente pide después su factura o reclama una garantía.
+      if (fe.emisor_email) receiptData.storeEmail = String(fe.emisor_email).trim();
+      /**
+       * Provincia, cantón y distrito, CON NOMBRE.
+       *
+       * En FE la ubicación se guarda en códigos de Hacienda ('1', '01', '03'),
+       * así que el tiquete salía con la dirección exacta pero sin decir en qué
+       * pueblo queda el negocio: `storeCity` solo se llenaba de Configuración
+       * General, que en un negocio que usa FE suele estar vacía.
+       */
+      const ubicacion = nombreUbicacion(
+        fe.emisor_province_code, fe.emisor_canton_code, fe.emisor_district_code);
+      if (ubicacion) receiptData.storeCity = ubicacion;
       // Los adicionales: solo para el papel, no viajan al XML.
       if (Array.isArray(fe.emisor_phones)) {
         const extra = fe.emisor_phones
@@ -475,12 +517,26 @@ export class POSPrinterService {
     receiptData.storeAddress ??= general.address;
     receiptData.storeCity ??= general.city;
     receiptData.storePhone ??= general.phone;
+    receiptData.storeEmail ??= general.email;
   }
 
   async printAuto(receiptData: ReceiptData, tenantId: string): Promise<void> {
     // Always reload config so we pick up latest settings changes
     const cfg = await this.loadReceiptConfig(tenantId);
     await this.fillStoreInfo(receiptData, tenantId);
+
+    /**
+     * Copia local del tiquete, para poder reimprimirlo SIN internet.
+     *
+     * Se guarda acá —no en la caja— para que valga para todo lo que imprime un
+     * comprobante: punto de venta, POS electrónico, ruta, caja de agentes. Va
+     * después de `fillStoreInfo` para que la copia salga con los datos del local
+     * ya completos, igual que el papel original.
+     */
+    try {
+      const { guardarTicket } = await import('./ticketSnapshots');
+      guardarTicket(tenantId, receiptData);
+    } catch { /* si no se puede guardar, se imprime igual */ }
 
     // Copias configuradas (1 o 2). Los comprobantes que ya traen su propia copia
     // (ej. crédito ORIGINAL/COPIA) no se duplican de nuevo.
@@ -526,7 +582,8 @@ export class POSPrinterService {
     }
 
     if (cfg.printerType === 'bluetooth' || btStations.length > 0) {
-      const bytes = this.generateESCPOS(receiptData, cfg);
+      const bytes = this.generateESCPOS(
+        receiptData, cfg, await this.logoTermico(receiptData, cfg));
       const { btPrint, btPrintTo, btReconnectFor, btIsConnectedFor } =
         await import('./bluetoothPrinterService');
       const receiptStations = btStations;
@@ -576,7 +633,7 @@ export class POSPrinterService {
     if (cfg.printerType === 'bluetooth') {
       if (!webBluetoothAvailable()) throw new Error(unsupportedBluetoothMessage());
       const { btPrint } = await import('./bluetoothPrinterService');
-      await btPrint(this.generateESCPOS(testData, cfg));
+      await btPrint(this.generateESCPOS(testData, cfg, await this.logoTermico(testData, cfg)));
       return;
     }
 
@@ -611,7 +668,7 @@ export class POSPrinterService {
       storeName: cfg.showStoreName ? 'MI NEGOCIO' : undefined,
       footerMessage: cfg.footerMessage,
     };
-    const bytes = this.generateESCPOS(testData, cfg);
+    const bytes = this.generateESCPOS(testData, cfg, await this.logoTermico(testData, cfg));
     const { btPrint, btPrintTo } = await import('./bluetoothPrinterService');
     if (printerId) await btPrintTo(printerId, bytes);
     else await btPrint(bytes);
@@ -630,10 +687,25 @@ export class POSPrinterService {
     // que renderice HTML (no aplica a térmicas). Ahora generamos los bytes
     // ESC/POS directos — incluye `FS .` para cancelar modo chino, ESC t 0
     // para CP437, encoder single-byte y corte automático al final.
-    const escposBytes = this.generateESCPOS(receiptData, config);
-    const receiptPrinters = (config.printers ?? []).filter(
+    const escposBytes = this.generateESCPOS(
+      receiptData, config, await this.logoTermico(receiptData, config));
+    let receiptPrinters = (config.printers ?? []).filter(
       p => p.type === 'receipt' && p.is_active,
     );
+    /**
+     * Si hay una CAJA POR DEFECTO elegida, el tiquete sale solo por ella.
+     *
+     * Con dos cajas activas, cada venta se imprimía en las dos —una de ellas en
+     * el mostrador de al lado—. La otra impresora queda configurada igual, para
+     * reimprimir o como respaldo si la principal se queda sin papel.
+     */
+    const porDefecto = String(config.defaultReceiptPrinterId ?? '');
+    if (porDefecto) {
+      const elegida = receiptPrinters.filter(p => String(p.id) === porDefecto);
+      // Si la elegida se desactivó o se borró, se usan todas: es mejor que el
+      // tiquete salga en la impresora equivocada que que no salga.
+      if (elegida.length > 0) receiptPrinters = elegida;
+    }
 
     if (receiptPrinters.length > 0) {
       // Manda bytes raw vía qzPrintToPrinter (usa base64 internamente — el fix
@@ -1827,10 +1899,25 @@ export class POSPrinterService {
     // reclamó. Sin eso, un plato mal clasificado no se imprimiría en ninguna
     // parte y la cocina nunca se enteraría del pedido.
     const norm = (s: any) => String(s ?? '').trim().toLowerCase();
+    /**
+     * Categorías de una impresora = las propias MÁS las de sus grupos.
+     *
+     * El grupo es solo una forma de no repetir la misma lista en tres
+     * impresoras; a la hora de rutear se resuelve a categorías y todo lo demás
+     * sigue funcionando igual (incluido el catch-all).
+     */
+    const grupos = cfg.comandaGroups ?? [];
+    const catsDe = (p: any): string[] => {
+      const propias = (p.categories ?? []).map(String);
+      const deGrupos = (p.groups ?? [])
+        .flatMap((gid: string) => grupos.find(g => g.id === gid)?.categories ?? [])
+        .map(String);
+      return [...new Set([...propias, ...deGrupos])];
+    };
     const assignedCats = new Set<string>();
     const assignedStations = new Set<string>();
     for (const p of comandaPrinters) {
-      for (const c of ((p as any).categories ?? [])) assignedCats.add(String(c));
+      for (const c of catsDe(p)) assignedCats.add(String(c));
       for (const s of ((p as any).stations ?? [])) assignedStations.add(norm(s));
       // Compatibilidad: instalaciones que ya rutean por el nombre de la estación
       // y todavía no declararon estaciones explícitas.
@@ -1838,7 +1925,7 @@ export class POSPrinterService {
     }
 
     const itemsFor = (p: any): ComandaItem[] => {
-      const cats: string[] = (p.categories ?? []).map(String);
+      const cats: string[] = catsDe(p);
       const stations: string[] = ((p.stations ?? []) as any[]).map(norm);
       // Sin estaciones declaradas se usa el nombre, para no romper lo ya configurado.
       const ownStations = stations.length ? stations : [norm(p.label)];
@@ -1998,7 +2085,7 @@ export class POSPrinterService {
     <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : `<div class="brand">${esc(r.storeName ?? '')}</div>`}
       <div style="font-size:11px;color:#6b7280;margin-top:4px">
         ${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
-        ${(cfg.showStoreAddress !== false && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${(cfg.showStorePhone !== false && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}
+        ${(cfg.showStoreAddress !== false && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${r.storeCity ? esc(r.storeCity) + '<br>' : ''}${(cfg.showStorePhone !== false && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}${r.storeEmail ? '<br>' + esc(r.storeEmail) : ''}
       </div>
     </div>
     <div class="doc">
@@ -2009,10 +2096,11 @@ export class POSPrinterService {
     </div>
   </div>
 
-  ${(cfg.showCustomerInfo !== false && (r.customerName || r.customerEmail)) ? `
+  ${(cfg.showCustomerInfo !== false && (r.customerName || r.customerEmail || r.customerTaxId)) ? `
   <div class="parties"><div class="party">
     <div class="party-title">Cliente</div>
     <div class="party-name">${esc(r.customerName ?? 'Cliente General')}</div>
+    ${r.customerTaxId ? `<div>Cédula: ${esc(r.customerTaxId)}</div>` : ''}
     ${r.customerPhone ? `<div>Tel: ${esc(r.customerPhone)}</div>` : ''}
     ${r.customerEmail ? `<div>${esc(r.customerEmail)}</div>` : ''}
   </div></div>` : ''}
@@ -2077,7 +2165,8 @@ export class POSPrinterService {
       receiptData.storeCedula ||
       (cfg.showStoreAddress && receiptData.storeAddress) ||
       receiptData.storeCity ||
-      (cfg.showStorePhone && receiptData.storePhone)
+      (cfg.showStorePhone && receiptData.storePhone) ||
+      receiptData.storeEmail
     );
     const storeBlock = hasStoreInfo ? `
       <div class="store-block">
@@ -2088,6 +2177,7 @@ export class POSPrinterService {
         ${cfg.showStoreAddress && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
         ${receiptData.storeCity ? `<div class="store-line">${receiptData.storeCity}</div>` : ''}
         ${cfg.showStorePhone && receiptData.storePhone ? `<div class="store-line"><strong>Tel:</strong> ${[receiptData.storePhone, ...(receiptData.storePhonesExtra ?? [])].join(' · ')}</div>` : ''}
+        ${receiptData.storeEmail ? `<div class="store-line">${receiptData.storeEmail}</div>` : ''}
       </div>
     ` : '';
 
@@ -2096,9 +2186,11 @@ export class POSPrinterService {
     // se apagaba y el tiquete seguía saliendo con el nombre del cliente.
     const mostrarCliente = cfg.showCustomerInfo !== false;
     const customerBlock = mostrarCliente
-      && (receiptData.customerName || receiptData.customerPhone || receiptData.customerEmail)
+      && (receiptData.customerName || receiptData.customerPhone
+          || receiptData.customerEmail || receiptData.customerTaxId)
       ? `<div style="text-align:center;font-size:11px;margin:2px 0;">
            <span style="font-weight:bold;">Cliente:</span> ${receiptData.customerName ?? ''}
+           ${receiptData.customerTaxId ? `<br>Cédula: ${receiptData.customerTaxId}` : ''}
            ${receiptData.customerPhone ? `<br>Tel: ${receiptData.customerPhone}` : ''}
            ${receiptData.customerEmail ? `<br>Correo: ${receiptData.customerEmail}` : ''}
          </div>
@@ -2365,7 +2457,26 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
 
   // ─── ESC/POS commands ─────────────────────────────────────────────────────────
 
-  private generateESCPOS(receiptData: ReceiptData, cfg: ReceiptConfig): Uint8Array {
+  /**
+   * Convierte el logo a puntos para la impresora térmica, si corresponde.
+   *
+   * Se hace ACÁ (asíncrono) porque `generateESCPOS` es sincrónico y leer una
+   * imagen no lo es. Si no se puede, devuelve null y el tiquete sale sin logo:
+   * una imagen nunca debe trabar un cobro.
+   */
+  private async logoTermico(receiptData: ReceiptData, cfg: ReceiptConfig): Promise<Uint8Array | null> {
+    try {
+      // Mismo criterio que el tiquete por navegador: manda el interruptor
+      // «Mostrar logo» de Configuración → Factura.
+      if (!cfg.showLogo) return null;
+      const url = receiptData.logoUrl || cfg.logoUrl;
+      if (!url) return null;
+      const { logoEscPos } = await import('./escposImage');
+      return await logoEscPos(String(url), anchoEnCaracteres(cfg.paperWidth));
+    } catch { return null; }
+  }
+
+  private generateESCPOS(receiptData: ReceiptData, cfg: ReceiptConfig, logo?: Uint8Array | null): Uint8Array {
     const charWidth = anchoEnCaracteres(cfg.paperWidth);
     const cmds: number[] = [];
 
@@ -2406,6 +2517,9 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       return new Uint8Array(cmds);
     }
 
+    // El LOGO va primero, como en el tiquete impreso por navegador.
+    if (logo && logo.length > 0) { for (const b of logo) cmds.push(b); }
+
     // Header
     centerText('=== TICKET DE VENTA ===');
     if (receiptData.copyLabel) {
@@ -2439,13 +2553,17 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       // En papel angosto cada teléfono va en su renglón: juntos se cortan.
       for (const t of (receiptData.storePhonesExtra ?? [])) centerText(t);
     }
+    // El correo del negocio: con él el cliente pide después su comprobante.
+    if (receiptData.storeEmail) { centerText(receiptData.storeEmail); }
 
     // Customer
     if (cfg.showCustomerInfo !== false
-        && (receiptData.customerName || receiptData.customerPhone || receiptData.customerEmail)) {
+        && (receiptData.customerName || receiptData.customerPhone
+            || receiptData.customerEmail || receiptData.customerTaxId)) {
       sep();
       text('CLIENTE:'); nl();
       if (receiptData.customerName) { centerText(receiptData.customerName); }
+      if (receiptData.customerTaxId) { centerText(`Cedula: ${receiptData.customerTaxId}`); }
       if (receiptData.customerPhone) { centerText(`Tel: ${receiptData.customerPhone}`); }
       if (receiptData.customerEmail) { centerText(receiptData.customerEmail); }
     }

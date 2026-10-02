@@ -7,6 +7,7 @@ import { cashSessionService } from '@/services/cashManagement/cashSessionsServic
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
+import { localNowISO } from '@/services/invoice/invoiceService';
 import { ETIQUETA_MEDIO_PAGO } from '@/utils/mediosDePago';
 import { useAuth } from '@/context/AuthContext';
 import { CashSession } from '@/types/Types_POS';
@@ -147,14 +148,11 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           sessionId = posOfflineService.mapOfflineSessionId(session.id);
         } catch { /* sin mapeo: se usa el id tal cual */ }
 
+        let fallo: string | null = null;
         const [invRes, movRes, abonosRes] = await Promise.all([
           apiFetch<{ invoices: any[]; source?: string }>(`/cash-sessions/${sessionId}/invoices`)
             .catch((e) => {
-              if (!cancel) {
-                setLoadFailed(true);
-                setError(`No se pudieron cargar las ventas de esta caja: ${
-                  e instanceof Error ? e.message : 'error de conexión'}. Los totales de abajo NO son confiables.`);
-              }
+              fallo = e instanceof Error ? e.message : 'error de conexión';
               return { invoices: [] as any[], source: 'error' };
             }),
           apiFetch<any[]>(`/cash-sessions/${sessionId}/movements`).catch(() => []),
@@ -166,6 +164,72 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
 
         if (cancel) return;
         let allInv = (invRes?.invoices ?? []);
+
+        /**
+         * LAS VENTAS QUE TODAVÍA NO SUBIERON SE LEEN DE ESTA MÁQUINA.
+         *
+         * El servidor no las tiene —están en la cola local— así que el arqueo
+         * salía corto justo en los días malos: se fue el internet, se siguió
+         * vendiendo, y al cerrar el esperado era menor que la plata del cajón.
+         * Sin internet era peor: el cierre mostraba CEROS con un cartel diciendo
+         * que los totales no son confiables, y el cajero tenía que cerrar a
+         * ciegas o esperar a que volviera la red con la caja abierta.
+         *
+         * La cola guarda la venta completa (líneas, medio de pago, pagos mixtos,
+         * dólares, delivery), así que los totales salen igual que con el
+         * servidor. Se cotejan por número para no contar dos veces una venta que
+         * ya subió pero quedó en la cola.
+         */
+        let pendientes: any[] = [];
+        try {
+          const { posOfflineService } = await import('@/services/pos/posOfflineService');
+          const cola = await posOfflineService.getPendingInvoices();
+          pendientes = cola
+            .filter(p => p.sessionId === session.id || p.sessionId === sessionId)
+            .map(p => ({
+              id: p.id,
+              invoice_number: p.invoiceNumber,
+              // La hora que vio el cajero, sin zona: el mismo formato con el que
+              // la venta se va a guardar cuando suba.
+              issued_at: localNowISO(new Date(p.timestamp)),
+              total: Number(p.total || 0),
+              payment_method: p.paymentMethod,
+              payments: p.payments ?? null,
+              status: 'completed',
+              document_type: p.documentType ?? 'ticket',
+              currency: p.currencyInfo?.currency ?? 'CRC',
+              exchange_rate: p.currencyInfo?.exchangeRate ?? null,
+              change_currency: p.currencyInfo?.changeCurrency ?? null,
+              amount_received: p.amountReceived ?? 0,
+              change_amount: p.changeAmount ?? 0,
+              is_delivery: !!p.currencyInfo?.isDelivery,
+              delivery_net: p.currencyInfo?.deliveryNet ?? null,
+              /** Marca para el aviso: esta venta todavía no está en el servidor. */
+              __pendiente: true,
+            }));
+        } catch { /* sin cola accesible: queda lo que dijo el servidor */ }
+
+        if (pendientes.length > 0) {
+          const yaEstan = new Set(allInv.map((i: any) => String(i.invoice_number ?? '')));
+          allInv = [...allInv, ...pendientes.filter(p => !yaEstan.has(String(p.invoice_number)))];
+        }
+
+        const deLaCola = allInv.filter((i: any) => i.__pendiente).length;
+        if (fallo && !cancel) {
+          if (deLaCola > 0) {
+            setError(
+              `Sin conexión con el servidor (${fallo}). El arqueo se armó con las `
+              + `${deLaCola} venta(s) guardadas en esta máquina: revisalas antes de cerrar. `
+              + 'Si alguna venta se cobró en otra caja, no está incluida.');
+          } else {
+            setLoadFailed(true);
+            setError(`No se pudieron cargar las ventas de esta caja: ${fallo}. `
+              + 'Los totales de abajo NO son confiables.');
+          }
+        } else if (deLaCola > 0 && !cancel) {
+          setError(`Hay ${deLaCola} venta(s) que todavía no subieron al servidor. `
+            + 'Están incluidas en el arqueo, tal como se guardaron en esta máquina.');
+        }
 
         // El servidor avisa cuando tuvo que buscar por período: el cajero tiene
         // que saber que esas ventas no estaban ligadas a su caja.
@@ -688,15 +752,17 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           </div>
         )}
 
-        {/* Ventas sin subir: el cierre las ignora porque se calcula con lo que
-            hay en el servidor. Cerrar así deja el arqueo corto y sin explicación. */}
+        {/* Ventas sin subir: YA entran en el arqueo (se leen de la cola local),
+            pero conviene subirlas antes de cerrar para que el servidor quede con
+            lo mismo que el tiquete de cierre. */}
         {pendingOffline > 0 && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-3 flex items-center gap-3 flex-wrap shrink-0">
             <AlertTriangle size={18} className="text-amber-600 shrink-0" />
             <p className="text-sm font-bold text-amber-800 flex-1 min-w-0">
               Hay {pendingOffline} venta(s) hechas sin conexión que todavía no se subieron.
               <span className="block text-xs font-semibold text-amber-700">
-                Si cerrás ahora, esas ventas NO entran en el arqueo.
+                Están incluidas en el arqueo con lo guardado en esta máquina. Si hay internet,
+                subilas antes de cerrar para que el servidor quede igual que el tiquete.
               </span>
             </p>
             <button

@@ -6,6 +6,7 @@ import { invoicesService, type Invoice, type InvoiceItem } from '@/services/invo
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { posOfflineService } from '@/services/pos/posOfflineService';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
+import { ticketGuardado } from '@/services/pos/ticketSnapshots';
 import { useTenantId } from '@/hooks/useTenant';
 import { formatWallClock } from '@/utils/datetime';
 
@@ -156,8 +157,36 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
     if (!tenantId) return;
     setError(''); setPdfId(row.id);
     try {
-      const full = (await invoicesService.getInvoiceById(row.id)) as any;
+      // Igual que reimprimir: sin servidor se arma con la copia local del
+      // tiquete, que tiene las líneas.
+      const copia = ticketGuardado(tenantId, { invoiceNumber: row.invoice_number, id: row.id });
+      const full = (!isOnline || !navigator.onLine)
+        ? null
+        : await invoicesService.getInvoiceById(row.id).catch((e) => { if (copia) return null; throw e; }) as any;
       const { downloadInvoicePdf } = await import('@/modules/invoice/downloadInvoicePdf');
+      if (!full) {
+        if (!copia) {
+          setError(
+            `Sin conexión no se puede armar el PDF de ${row.invoice_number}: `
+            + 'de esa venta no quedó copia en esta máquina.');
+          return;
+        }
+        await downloadInvoicePdf({
+          invoiceNumber: copia.invoiceNumber,
+          date: new Date(row.issued_at ?? Date.now()),
+          customerName: copia.customerName ?? null,
+          customerPhone: copia.customerPhone ?? null,
+          items: (copia.items ?? []).map(it => ({
+            name: it.name, quantity: it.quantity, unit_price: it.unitPrice, subtotal: it.subtotal,
+          })),
+          subtotal: copia.subtotal, tax: copia.tax, total: copia.total,
+          paymentMethod: copia.paymentMethod,
+          notes: copia.notes ?? null,
+          feClave: row.fe_clave ?? null,
+          documentLabel: 'Factura',
+        }, tenantId);
+        return;
+      }
       await downloadInvoicePdf({
         invoiceNumber: full.invoice_number ?? '',
         date: new Date(full.issued_at ?? full.created_at ?? Date.now()),
@@ -185,8 +214,49 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
     setError('');
     setPrintingId(row.id);
     try {
+      /**
+       * SIN INTERNET se reimprime la copia local del tiquete.
+       *
+       * Rearmar el tiquete desde el servidor (`/invoices/:id`, que es lo único
+       * que trae las líneas) no es posible offline, y las ventas hechas sin
+       * conexión no están ni en el servidor. La copia guardada al imprimir sale
+       * idéntica al papel original, que es justo lo que pide el cliente.
+       */
+      const copia = ticketGuardado(tenantId, { invoiceNumber: row.invoice_number, id: row.id });
+      if (!isOnline || !navigator.onLine) {
+        if (!copia) {
+          setError(
+            `Sin conexión no se puede rearmar la factura ${row.invoice_number}: `
+            + 'de esa venta no quedó copia en esta máquina (se cobró en otra, o ya es vieja). '
+            + 'Reimprimila cuando vuelva el internet.');
+          return;
+        }
+        await posPrinterService.printAuto(
+          { ...copia, invoiceNumber: `${copia.invoiceNumber} (Reimpresión)`, cashierName: cashierName ?? copia.cashierName },
+          tenantId,
+        );
+        setDoneId(row.id);
+        setTimeout(() => setDoneId(null), 2000);
+        return;
+      }
+
       // Trae la factura con sus items (el endpoint /invoices/:id incluye items)
-      const full = (await invoicesService.getInvoiceById(row.id)) as Invoice & { items: InvoiceItem[] };
+      const full = await invoicesService.getInvoiceById(row.id).catch(async (e) => {
+        // El servidor no contestó (red intermitente, o es una venta offline que
+        // todavía no subió): si hay copia local, se imprime esa.
+        if (copia) return null;
+        throw e;
+      }) as (Invoice & { items: InvoiceItem[] }) | null;
+
+      if (!full) {
+        await posPrinterService.printAuto(
+          { ...copia!, invoiceNumber: `${copia!.invoiceNumber} (Reimpresión)`, cashierName: cashierName ?? copia!.cashierName },
+          tenantId,
+        );
+        setDoneId(row.id);
+        setTimeout(() => setDoneId(null), 2000);
+        return;
+      }
 
       // Datos de la tienda desde el cache local de settings
       const cachedGeneral =

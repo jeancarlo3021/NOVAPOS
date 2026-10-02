@@ -1206,6 +1206,8 @@ export const POSMain = () => {
         cashierName: activeCashier?.ticket_alias || activeCashier?.full_name
                   || (user as any)?.ticket_alias || user?.full_name || user?.email || undefined,
         customerName,
+        // Cédula del receptor: en factura electrónica es parte del comprobante.
+        customerTaxId: selectedCustomer?.identification ?? undefined,
         simplificadoFooter,
         payments,
         // Datos del comprobante electrónico (si se emitió a Hacienda).

@@ -686,6 +686,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
           payments,
           customerName: customer?.name,
           customerEmail: (feEnabled && documentType === 'factura_electronica') ? (customer?.email ?? undefined) : undefined,
+          customerTaxId: (customer as any)?.identification ?? undefined,
           hideThanks: true,
           ...feFields,
         };

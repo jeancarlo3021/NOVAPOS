@@ -210,39 +210,68 @@ export const ProductsList: React.FC = () => {
     });
   }, [products, searchTerm, supplierFilter, categoryFilter, quickFilter, sortBy]);
 
-  // Exporta a Excel con las MISMAS columnas que espera "Importar Excel", así el
-  // archivo se puede editar y volver a subir. Los números salen como número real
-  // (no texto) para poder sumarlos en Excel. Respeta el filtro de búsqueda activo.
+  /**
+   * Exporta a Excel SOLO las columnas que el plan del negocio usa.
+   *
+   * Antes salían siempre las quince, con lo cual un plan sin facturación
+   * electrónica recibía un archivo con «cabys_code» e «iva_rate» vacíos, y uno
+   * sin control de stock con cuatro columnas de existencias en cero. El cliente
+   * abre el Excel, ve columnas que no entiende, y las llena «por si acaso»:
+   * después vuelve a subir el archivo y mete datos en campos que su sistema no
+   * administra. Columna que no se usa es columna que confunde.
+   *
+   * Las columnas que quedan son siempre un SUBCONJUNTO de las que espera
+   * «Importar Excel», así que el archivo se puede editar y volver a subir —el
+   * importador ignora las que no vengan—. Los números salen como número real
+   * (no texto) para poder sumarlos. Respeta el filtro de búsqueda activo.
+   */
   const exportExcel = () => {
-    const header = [
-      'name', 'sku', 'sku2', 'description', 'supplier', 'unit_price', 'cost_price',
-      'stock_infinito', 'stock_quantity', 'min_stock_level', 'max_stock_level',
-      'category', 'unit_type', 'cabys_code', 'iva_rate',
+    // undefined = plan viejo que no declara la función: se asume encendida.
+    const activa = (v: unknown) => v === undefined ? true : !!v;
+    const f: any = planFeatures ?? {};
+    const soloProductos = !!f.inventory_products_only;
+    const conStock      = !soloProductos;
+    const conProveedor  = activa(f.inventory_suppliers);
+    const conCategoria  = !soloProductos && activa(f.inventory_categories);
+    const conUnidad     = !soloProductos && activa(f.inventory_unit_types);
+    const conFe         = !!f.electronic_invoice;
+
+    /** Cada columna con su regla y de dónde sale el dato. */
+    const columnas: Array<{ key: string; incluir: boolean; valor: (p: any) => string | number }> = [
+      { key: 'name',        incluir: true,         valor: p => p.name ?? '' },
+      { key: 'sku',         incluir: true,         valor: p => p.sku ?? '' },
+      { key: 'sku2',        incluir: true,         valor: p => p.sku2 ?? '' },
+      { key: 'description', incluir: true,         valor: p => p.description ?? '' },
+      { key: 'supplier',    incluir: conProveedor,
+        valor: p => supplierNames.get(String(p.supplier_id ?? '')) ?? p.supplier?.name ?? p.supplier_name ?? '' },
+      { key: 'unit_price',  incluir: true,         valor: p => Number(p.unit_price ?? 0) },
+      { key: 'cost_price',  incluir: true,         valor: p => Number(p.cost_price ?? 0) },
+      /**
+       * «stock_infinito» va SIEMPRE, incluso sin control de stock.
+       *
+       * El importador entiende la columna ausente como «No» (producto que sí
+       * rastrea existencias). Si se omitiera, un plan de solo-productos
+       * exportaría su catálogo de stock infinito y al volver a subirlo todo
+       * quedaría rastreando stock en cero: productos que de golpe no se pueden
+       * vender por falta de existencias que nunca llevó.
+       */
+      { key: 'stock_infinito', incluir: true,      valor: p => p.tracks_stock === false ? 'Sí' : 'No' },
+      // Un producto de stock infinito no tiene cantidad real que exportar.
+      { key: 'stock_quantity', incluir: conStock,
+        valor: p => p.tracks_stock === false ? '' : Number(p.stock_quantity ?? 0) },
+      { key: 'min_stock_level', incluir: conStock, valor: p => Number(p.min_stock_level ?? 0) },
+      { key: 'max_stock_level', incluir: conStock, valor: p => Number(p.max_stock_level ?? 0) },
+      { key: 'category',    incluir: conCategoria, valor: p => p.category?.name ?? p.category_name ?? '' },
+      { key: 'unit_type',   incluir: conUnidad,    valor: p => p.unit_type?.name ?? p.unit_type_name ?? '' },
+      // El CABYS va como TEXTO: si sale como número, Excel come los ceros a la
+      // izquierda y el código queda inválido para Hacienda.
+      { key: 'cabys_code',  incluir: conFe,        valor: p => p.cabys_code ? String(p.cabys_code) : '' },
+      { key: 'iva_rate',    incluir: conFe,        valor: p => Number(p.iva_rate ?? 0) },
     ];
-    const rows = filteredProducts.map(p => {
-      const a = p as any;
-      const infinito = a.tracks_stock === false;
-      return [
-        p.name ?? '',
-        p.sku ?? '',
-        a.sku2 ?? '',
-        a.description ?? '',
-        supplierNames.get(String(a.supplier_id ?? '')) ?? a.supplier?.name ?? a.supplier_name ?? '',
-        Number(p.unit_price ?? 0),
-        Number(a.cost_price ?? 0),
-        infinito ? 'Sí' : 'No',
-        // Un producto de stock infinito no tiene cantidad real que exportar.
-        infinito ? '' : Number(p.stock_quantity ?? 0),
-        Number(p.min_stock_level ?? 0),
-        Number(a.max_stock_level ?? 0),
-        a.category?.name ?? a.category_name ?? '',
-        a.unit_type?.name ?? a.unit_type_name ?? '',
-        // El CABYS va como TEXTO: si sale como número, Excel come los ceros a la
-        // izquierda y el código queda inválido para Hacienda.
-        a.cabys_code ? String(a.cabys_code) : '',
-        Number(a.iva_rate ?? 0),
-      ];
-    });
+
+    const usadas = columnas.filter(c => c.incluir);
+    const header = usadas.map(c => c.key);
+    const rows = filteredProducts.map(p => usadas.map(c => c.valor(p as any)));
     const stamp = new Date().toISOString().slice(0, 10);
     downloadXlsx(`productos-${stamp}`, [{ name: 'Productos', rows: [header, ...rows] }]);
   };

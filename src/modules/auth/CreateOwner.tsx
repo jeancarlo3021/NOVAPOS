@@ -29,7 +29,7 @@ import { VendorPaymentsView } from './components/VendorPaymentsView';
 import { NotifyPhoneModal } from './components/NotifyPhoneModal';
 import { WaReminderModal } from './components/WaReminderModal';
 import { TenantGroupView } from './components/TenantGroupView';
-import { AdminFeKioskView } from './components/AdminFeKioskView';
+import { UsageReportsView } from './components/UsageReportsView';
 import { GroupDocCount } from './components/GroupDocCount';
 import { CabysImport } from './components/CabysImport';
 import { BulkProductImportModal } from '@/modules/inventory/products/BulkProductImportModal';
@@ -72,7 +72,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'fe_kiosk' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp' | 'vendor_payments';
+type AdminTab = 'businesses' | 'groups' | 'usage' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp' | 'vendor_payments';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -897,7 +897,7 @@ export const CreateOwner: React.FC = () => {
           {[
             { id: 'businesses' as AdminTab, label: 'Negocios',     icon: Building2 },
             { id: 'groups'     as AdminTab, label: 'Grupos',       icon: Layers },
-            { id: 'fe_kiosk'   as AdminTab, label: 'FE & Kiosk',   icon: FileText },
+            { id: 'usage'      as AdminTab, label: 'Uso por negocio', icon: BarChart3 },
             { id: 'fe_log'     as AdminTab, label: 'Bitácora FE',  icon: FileText },
             { id: 'reception_log' as AdminTab, label: 'Bitácora Recep.', icon: Receipt },
             { id: 'alanube_reports' as AdminTab, label: 'Reportes Alanube', icon: BarChart3 },
@@ -986,9 +986,9 @@ export const CreateOwner: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'fe_kiosk' && (
+      {activeTab === 'usage' && (
         <div className="max-w-7xl mx-auto p-6">
-          <AdminFeKioskView />
+          <UsageReportsView />
         </div>
       )}
 

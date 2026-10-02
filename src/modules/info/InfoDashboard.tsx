@@ -158,8 +158,8 @@ export const InfoDashboard: React.FC = () => {
         </div>
         <ol className="list-decimal pl-5 space-y-2 text-sm text-gray-600 leading-relaxed">
           <li><b>Suscripción y vigencia.</b> El servicio se presta bajo una suscripción {cycle || 'periódica'} y permanece activo mientras la cuenta esté al día con el pago.</li>
-          <li><b>Renovación.</b> El plan debe renovarse antes de la fecha de vencimiento para mantener el acceso sin interrupciones. Se le notificará cuando falten pocos días.</li>
-          <li><b>Suspensión por falta de pago.</b> Vencida la fecha, la cuenta entra en un período de gracia; superados los 15 días de mora el sistema queda en <b>solo lectura</b> hasta regularizar el pago.</li>
+          <li><b>Renovación.</b> El plan debe renovarse antes de la fecha de vencimiento para mantener el acceso sin interrupciones. Se le notificará cuando falten pocos días y, vencido el plazo, todos los días mientras corra la gracia.</li>
+          <li><b>Suspensión por falta de pago.</b> Vencida la fecha, la cuenta entra en un período de gracia de <b>6 días</b>; pasado ese plazo el sistema queda en <b>solo lectura</b> —se puede consultar la información, pero no vender ni facturar— hasta regularizar el pago.</li>
           <li><b>Valor del plan.</b> El precio indicado corresponde al plan contratado y puede ajustarse notificándolo con anticipación. Los pagos realizados no son reembolsables.</li>
           <li><b>Uso del servicio.</b> La cuenta es de uso exclusivo del negocio contratante. No debe compartir credenciales ni utilizar el sistema para fines ilícitos.</li>
           <li><b>Datos e información.</b> La información registrada es propiedad del negocio. Se realizan respaldos periódicos; usted es responsable de la exactitud de los datos que ingresa.</li>

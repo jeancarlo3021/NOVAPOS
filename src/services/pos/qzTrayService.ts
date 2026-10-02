@@ -46,6 +46,21 @@ export interface PrinterEntry {
    * se rompe apenas alguien la llama «Barra 1» o le corrige una tilde.
    */
   stations?: string[];
+  /**
+   * Comanda: GRUPOS de categorías asignados a esta impresora (ids de
+   * `comandaGroups`).
+   *
+   * Marcar categoría por categoría en cada impresora se vuelve inmanejable: un
+   * restaurante con cuarenta categorías y tres estaciones obliga a repetir el
+   * mismo trabajo tres veces, y al crear una categoría nueva hay que acordarse
+   * de ir a marcarla en la impresora que le toca —si no, el plato no se imprime
+   * en ninguna parte—. Con grupos se arma «Cocina caliente» una vez y se le
+   * asigna a la impresora.
+   *
+   * Las categorías sueltas (`categories`) siguen valiendo y se SUMAN a las del
+   * grupo, para no romper lo que ya está configurado.
+   */
+  groups?: string[];
   printer_name?: string;   // USB: nombre en el SO
   ip?: string;             // Network: dirección IP
   port?: number;           // Network: puerto (default 9100)

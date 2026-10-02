@@ -237,6 +237,7 @@ export const FeposMain: React.FC = () => {
           time: now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
           customerName: customer?.name ?? undefined,
           customerEmail: (customer as any)?.email ?? undefined,
+          customerTaxId: (customer as any)?.identification ?? undefined,
           items: lines.map((l, i) => ({
             name: l.name, quantity: l.quantity,
             unitPrice: l.unit_price,

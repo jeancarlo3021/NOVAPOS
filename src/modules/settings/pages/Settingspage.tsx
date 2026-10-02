@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   MonitorSmartphone,
   Monitor,
+  ChefHat,
   FileText,
   ShieldCheck,
   Tag,
@@ -26,10 +27,11 @@ import { ElectronicInvoiceSettings } from '../components/ElectronicInvoice/Elect
 import { LabelPrinterSettings } from '../components/LabelPrinter/LabelPrinterSettings';
 import { DeliverySettings } from '../components/Delivery/DeliverySettings';
 import { CustomerDisplaySettings } from '../components/CustomerDisplay/CustomerDisplaySettings';
+import { ComandasSettings } from '../components/Comandas/ComandasSettings';
 import { useAuth } from '@/context/AuthContext';
 import { MANAGER_ROLES } from '@/types/Types_Users';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'customer_display' | 'account';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'customer_display' | 'comandas' | 'account';
 
 const SETTINGS_TABS = [
   {
@@ -55,6 +57,12 @@ const SETTINGS_TABS = [
     label: 'Facturación Electrónica',
     icon: FileText,
     description: 'Hacienda CR, certificado, ATV',
+  },
+  {
+    id: 'comandas' as SettingTab,
+    label: 'Comandas',
+    icon: ChefHat,
+    description: 'Grupos de categorías por impresora',
   },
   {
     id: 'labels' as SettingTab,
@@ -101,7 +109,8 @@ export const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingTab>(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     const valid: SettingTab[] = ['general', 'products', 'payments', 'users', 'notifications',
-      'receipt', 'pos_view', 'electronic_invoice', 'labels', 'delivery', 'customer_display', 'account'];
+      'receipt', 'pos_view', 'electronic_invoice', 'labels', 'delivery', 'customer_display',
+      'comandas', 'account'];
     return (valid as string[]).includes(String(t)) ? (t as SettingTab) : 'general';
   });
   /**
@@ -131,6 +140,16 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
     }
     // Etiquetadora: solo si el plan tiene el módulo de etiquetas.
     if (tab.id === 'labels' && !planFeatures?.labels) return false;
+    /**
+     * Comandas: solo donde hay cocina.
+     *
+     * Una tienda de repuestos no tiene estaciones ni platos: la pestaña solo
+     * sería una más donde perderse. Se muestra con el módulo de restaurante o
+     * con el de comandas por mesa, que es quien las imprime.
+     */
+    if (tab.id === 'comandas'
+        && !(planFeatures as any)?.restaurant
+        && !(planFeatures as any)?.table_orders) return false;
     // Pantalla del cliente: solo si el plan trae el segundo monitor.
     if (tab.id === 'customer_display' && !(planFeatures as any)?.pos_customer_screen) return false;
     // Delivery: solo si el plan tiene la función de delivery.
@@ -167,6 +186,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
         return <DeliverySettings />;
       case 'customer_display':
         return <CustomerDisplaySettings />;
+      case 'comandas':
+        return <ComandasSettings />;
       case 'account':
         return <AccountSettings />;
       default:

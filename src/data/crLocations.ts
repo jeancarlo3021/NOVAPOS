@@ -120,3 +120,23 @@ export function districtsOf(provinceCode: string, cantonCode: string): CRDistric
   const canton = province?.cantons.find(c => c.code === cantonCode);
   return canton?.districts ?? [];
 }
+
+/**
+ * «Distrito, Cantón, Provincia» a partir de los códigos de Hacienda.
+ *
+ * Los datos de facturación electrónica guardan la ubicación en CÓDIGOS ('1',
+ * '01', '03'), que es lo que pide Hacienda. En el tiquete esos números no le
+ * dicen nada a nadie: el cliente necesita el nombre. Se omite en silencio lo
+ * que no esté puesto, así que una ubicación a medias igual imprime lo que hay.
+ */
+export function nombreUbicacion(
+  provinceCode?: string | null,
+  cantonCode?: string | null,
+  districtCode?: string | null,
+): string {
+  const prov = CR_PROVINCES.find(p => p.code === String(provinceCode ?? ''));
+  if (!prov) return '';
+  const cant = prov.cantons.find(c => c.code === String(cantonCode ?? ''));
+  const dist = cant?.districts.find(d => d.code === String(districtCode ?? ''));
+  return [dist?.name, cant?.name, prov.name].filter(Boolean).join(', ');
+}

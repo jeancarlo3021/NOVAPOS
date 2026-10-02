@@ -432,6 +432,7 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
         payments,
         customerName: order.customer?.name ?? order.customer_name,
         customerEmail: (feEnabled && documentType === 'factura_electronica') ? (order.customer?.email ?? order.customer_email ?? undefined) : undefined,
+        customerTaxId: (order.customer as any)?.identification ?? undefined,
         hideThanks: true,
         ...feFields,
       };
