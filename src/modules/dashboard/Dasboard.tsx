@@ -14,6 +14,7 @@ import { useRolePermissions } from '@/hooks/useRolePermissions';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { qzConnect, qzIsConnected } from '@/services/pos/qzTrayService';
 import { GroupBranchesPanel } from './components/GroupBranchesPanel';
+import { NotificationsMenu, avisoDeSuscripcion, type Aviso } from './components/NotificationsMenu';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -282,34 +283,61 @@ export const Dashboard = () => {
     tiles.sort((a, b) => Number(isDist(b)) - Number(isDist(a)));
   }
 
-  // Alertas compactas (chips inline en la cabecera, no banner gigante)
-  const alertChips: Array<{ icon: any; text: string; path: string; color: string }> = [];
+  /**
+   * AVISOS para el menú flotante de notificaciones.
+   *
+   * Antes esto eran tres chips sueltos en el tablero y un banner aparte para la
+   * impresora. Cada uno se veía solo si uno estaba mirando esa parte de la
+   * pantalla, y los avisos que no tenían chip —ventas sin subir, apartados por
+   * vencer, cuota de comprobantes— no se veían en ninguna parte.
+   *
+   * Acá se arman los que salen de datos que el tablero YA cargó; el menú agrega
+   * los que hay que ir a consultar.
+   */
+  const avisosBase: Aviso[] = [];
   if (stats) {
     if (hasFullInventory && stats.lowStockCount > 0) {
-      alertChips.push({
-        icon: AlertTriangle,
-        text: `${stats.lowStockCount} con poco stock`,
+      avisosBase.push({
+        id: 'poco-stock',
+        nivel: 'aviso',
+        icono: AlertTriangle,
+        texto: `${stats.lowStockCount} producto${stats.lowStockCount !== 1 ? 's' : ''} con poco stock`,
+        detalle: 'Están por debajo del mínimo que les pusiste.',
         path: '/inventory',
-        color: 'bg-amber-100 text-amber-800 border-amber-200',
       });
     }
     if (pf.accounts_payable && stats.overdueAP > 0) {
-      alertChips.push({
-        icon: Wallet,
-        text: `${stats.overdueAP} cuenta${stats.overdueAP !== 1 ? 's' : ''} vencida${stats.overdueAP !== 1 ? 's' : ''}`,
+      avisosBase.push({
+        id: 'cxp-vencidas',
+        nivel: 'urgente',
+        icono: Wallet,
+        texto: `${stats.overdueAP} cuenta${stats.overdueAP !== 1 ? 's' : ''} por pagar vencida${stats.overdueAP !== 1 ? 's' : ''}`,
         path: '/accounts-payable',
-        color: 'bg-red-100 text-red-800 border-red-200',
       });
     }
     if (pf.purchases && stats.pendingPurchases > 0) {
-      alertChips.push({
-        icon: ClipboardList,
-        text: `${stats.pendingPurchases} compra${stats.pendingPurchases !== 1 ? 's' : ''} pendiente${stats.pendingPurchases !== 1 ? 's' : ''}`,
+      avisosBase.push({
+        id: 'compras-pendientes',
+        nivel: 'info',
+        icono: ClipboardList,
+        texto: `${stats.pendingPurchases} compra${stats.pendingPurchases !== 1 ? 's' : ''} pendiente${stats.pendingPurchases !== 1 ? 's' : ''}`,
+        detalle: 'Pedidos hechos que todavía no se recibieron en inventario.',
         path: '/purchases',
-        color: 'bg-blue-100 text-blue-800 border-blue-200',
       });
     }
   }
+  if (!qzConnected) {
+    avisosBase.push({
+      id: 'impresora-qz',
+      nivel: 'aviso',
+      icono: WifiOff,
+      texto: 'Impresora térmica desconectada',
+      detalle: 'Las ventas se pueden cobrar igual, pero el tiquete no va a salir.',
+      path: '/settings',
+    });
+  }
+  const avisoSub = avisoDeSuscripcion(subEndsAt);
+  if (avisoSub) avisosBase.push(avisoSub);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -377,39 +405,12 @@ export const Dashboard = () => {
           </p>
         </div>
       )}
-      {!qzConnected && (
-        <button
-          onClick={() => navigate('/settings')}
-          className="w-full flex items-center gap-3 rounded-2xl px-5 py-3 border bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 transition text-left"
-        >
-          <WifiOff size={18} className="shrink-0" />
-          <p className="text-sm font-semibold flex-1">
-            Impresora térmica desconectada — Toca para configurar
-          </p>
-        </button>
-      )}
 
       {/* ── Panel multi-empresa: stats por sucursal del grupo ────────────── */}
       <GroupBranchesPanel />
 
-      {/* ── Alertas en chips inline ──────────────────────────────────────── */}
-      {alertChips.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {alertChips.map((a, i) => {
-            const Icon = a.icon;
-            return (
-              <button
-                key={i}
-                onClick={() => navigate(a.path)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border font-bold text-xs hover:opacity-80 transition ${a.color}`}
-              >
-                <Icon size={13} />
-                {a.text}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* Los avisos que antes eran chips acá ahora están todos juntos en el
+          menú flotante de notificaciones (abajo a la derecha). */}
 
       {/* ── Botones gigantes estilo Eleventa ─────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
@@ -437,6 +438,10 @@ export const Dashboard = () => {
           );
         })}
       </div>
+
+      {/* Notificaciones: flotante, para que siga a la vista mientras se baja
+          por el tablero. Si no hay nada pendiente, es un botón discreto. */}
+      <NotificationsMenu base={avisosBase} />
     </div>
   );
 };
