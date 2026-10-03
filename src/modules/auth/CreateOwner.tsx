@@ -15,6 +15,7 @@ import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import { TenantUsersModal } from './components/TenantUsersModal';
 import { TenantModulesModal } from './components/TenantModulesModal';
+import { PurgeProductsModal } from './components/PurgeProductsModal';
 import { TenantAccountantsModal } from './components/TenantAccountantsModal';
 import { TenantFeDataModal } from './components/TenantFeDataModal';
 import type { OwnerData } from './components/RenewModal';
@@ -86,6 +87,8 @@ export const CreateOwner: React.FC = () => {
   const [invoiceFor, setInvoiceFor] = useState<OwnerData | null>(null);
   const [manageUsersFor, setManageUsersFor] = useState<OwnerData | null>(null);
   const [manageModulesFor, setManageModulesFor] = useState<OwnerData | null>(null);
+  /** Borrado masivo del catálogo (va con su propia confirmación y avance). */
+  const [purgeProductsFor, setPurgeProductsFor] = useState<OwnerData | null>(null);
   const [importProductsFor, setImportProductsFor] = useState<OwnerData | null>(null);
   const [previewProductsFor, setPreviewProductsFor] = useState<OwnerData | null>(null);
   const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
@@ -1497,6 +1500,14 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
                                     <Package size={13} /> Ver productos cargados
                                   </button>
+                                  {/* Va junto a importar: el caso típico es
+                                      «entró mal el Excel, hay que dejarlo
+                                      limpio y volver a subirlo». */}
+                                  <button onClick={() => { setOpenMenuId(null); setPurgeProductsFor(o); }}
+                                    title="Borra todo el catálogo de este negocio, por tandas y con avance"
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50">
+                                    <Trash2 size={13} /> Borrar todos los productos
+                                  </button>
                                   <div className="my-1 border-t border-gray-100" />
                                   <button onClick={() => { setOpenMenuId(null); sendAdminEmail(o, 'new-business'); }} disabled={emailingId === o.id}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40">
@@ -1793,6 +1804,14 @@ export const CreateOwner: React.FC = () => {
         <TenantUsersModal
           owner={manageUsersFor}
           onClose={() => setManageUsersFor(null)}
+          onToast={showToast}
+        />
+      )}
+
+      {purgeProductsFor && (
+        <PurgeProductsModal
+          owner={purgeProductsFor}
+          onClose={() => setPurgeProductsFor(null)}
           onToast={showToast}
         />
       )}
