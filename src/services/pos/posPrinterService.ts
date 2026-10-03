@@ -426,7 +426,20 @@ export class POSPrinterService {
     try {
       const cached = localStorage.getItem(`receipt_cfg_${tenantId}`);
       if (cached) {
-        const parsed = this.applyLocalPrinter(JSON.parse(cached), tenantId);
+        /**
+         * La copia guardada se MEZCLA con los valores por omisión.
+         *
+         * Se usaba tal cual, y a una copia vieja le faltan las opciones que no
+         * existían cuando se guardó. Esos campos quedaban en `undefined` y cada
+         * uno hacía lo que le tocara por defecto —casi siempre MOSTRARSE—, así
+         * que el negocio apagaba algo, la base lo guardaba apagado, y el tiquete
+         * lo seguía imprimiendo hasta que al navegador le tocaba refrescar.
+         *
+         * El valor guardado manda sobre el por omisión: mezclar no revive nada
+         * que el negocio haya apagado.
+         */
+        const parsed = this.applyLocalPrinter(
+          { ...this.getDefaultConfig(), ...JSON.parse(cached) }, tenantId);
         this.cachedConfig = parsed;
         this.cachedConfigTenantId = tenantId;
         // Refrescar en background (no bloquear)
@@ -467,6 +480,7 @@ export class POSPrinterService {
       showLogo: false,
       showCommercialName: false,
       showStoreName: true,
+      showLegalName: true,
       showStoreAddress: true,
       showStorePhone: true,
       showCashierName: false,
