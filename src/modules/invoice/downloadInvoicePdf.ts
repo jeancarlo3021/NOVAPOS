@@ -68,10 +68,15 @@ export async function downloadInvoicePdf(d: InvoicePdfData, tenantId?: string | 
   // Facturación Electrónica y, lo que falte, de Configuración → General.
   let logoUrl = ''; let storeName = ''; let commercialName = '';
   let storeId = ''; let storeAddress = ''; let storePhone = ''; let storeEmail = '';
+  /** Razón social, solo cuando no es el nombre con el que trabaja el negocio. */
+  let legalName = '';
+  /** Respeta el interruptor «Razón Social» de Configuración → Factura. */
+  let verRazonSocial = true;
   if (tenantId) {
     try {
       const cfg: any = await posPrinterService.loadReceiptConfig(tenantId);
       if (cfg?.showLogo && cfg?.logoUrl) logoUrl = cfg.logoUrl;
+      verRazonSocial = cfg?.showLegalName !== false;
     } catch { /* sin logo */ }
 
     const readSetting = async (type: string, cacheKey: string) => {
@@ -94,6 +99,21 @@ export async function downloadInvoicePdf(d: InvoicePdfData, tenantId?: string | 
     }
     const general: any = await readSetting('general', 'general');
     if (general) {
+      /**
+       * EL TÍTULO ES EL NOMBRE DEL NEGOCIO, igual que en el tiquete.
+       *
+       * Acá el título era la razón social del emisor —«Inversiones JMR S.A.»—
+       * porque es lo que están los datos de FE, y el cliente que compró en
+       * «Pollos del Valle» no reconocía la factura. El tiquete ya se había
+       * arreglado; este PDF se había quedado atrás, así que el mismo negocio
+       * entregaba dos papeles con encabezados distintos.
+       */
+      const comercial = String(general.businessName ?? '').trim();
+      if (comercial) {
+        const fiscal = storeName.trim();
+        if (fiscal && fiscal.toLowerCase() !== comercial.toLowerCase()) legalName = fiscal;
+        storeName = comercial;
+      }
       storeName ||= general.businessName ?? '';
       storeId ||= general.ruc ?? general.cedula ?? '';
       storeAddress ||= [general.address, general.city].filter(Boolean).join(', ');
@@ -123,6 +143,12 @@ export async function downloadInvoicePdf(d: InvoicePdfData, tenantId?: string | 
     if (commercialName && commercialName !== storeName) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(75, 85, 99);
       doc.text(commercialName, M, y); y += 15;
+    }
+    // La razón social, chiquita y debajo: el documento tiene que decir a nombre
+    // de quién se emite, pero no es el nombre que el cliente reconoce.
+    if (verRazonSocial && legalName && legalName !== commercialName) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(107, 114, 128);
+      doc.text(legalName, M, y); y += 13;
     }
   }
   if (storeInfo.length) {
