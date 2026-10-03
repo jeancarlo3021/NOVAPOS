@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Building2, Check, ChevronDown, Crown, AlertTriangle, Clock } from 'lucide-react';
+import { Building2, Check, ChevronDown, Crown, AlertTriangle, Clock, Briefcase } from 'lucide-react';
 import type { Tenant } from '@/context/AuthContext';
 
 const fmtDate = (s?: string) =>
@@ -52,10 +52,46 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ tenant }) => {
   );
 };
 
+interface ActividadDeNegocio {
+  tenant_id: string;
+  code: string;
+  concepto: string | null;
+  sucursal: string | null;
+}
+
 export const TenantSwitcher: React.FC = () => {
   const { tenant, tenants, switchTenant, user, planFeatures } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  /**
+   * La ACTIVIDAD de cada negocio.
+   *
+   * Una sociedad con varias actividades se lleva como varios negocios: la misma
+   * cédula, pero una es la soda y otra el alquiler del salón. Acá aparecían solo
+   * con el nombre que les pusieron —y suelen llamarse parecido, «La Central» y
+   * «La Central · 4711.2»—, así que no se sabía en cuál se estaba entrando.
+   * Facturar en la actividad equivocada no se arregla después: el comprobante ya
+   * declaró una actividad que no corresponde.
+   */
+  const [actividades, setActividades] = useState<Record<string, ActividadDeNegocio>>({});
+  useEffect(() => {
+    if (tenants.length <= 1) return;   // sin varios perfiles no hay nada que distinguir
+    void import('@/lib/api')
+      .then(({ apiFetch }) => apiFetch<ActividadDeNegocio[]>('/tenant-groups/my/activities', {}, 8000))
+      .then(list => {
+        const mapa: Record<string, ActividadDeNegocio> = {};
+        for (const a of list ?? []) mapa[a.tenant_id] = a;
+        setActividades(mapa);
+      })
+      .catch(() => { /* sin FE o sin conexión: se muestran solo los nombres */ });
+  }, [tenants.length]);
+
+  /** «4711.2 · Pulpería», o solo el código si todavía no le pusieron concepto. */
+  const etiquetaActividad = (tenantId?: string): string | null => {
+    const a = tenantId ? actividades[tenantId] : null;
+    if (!a?.code) return null;
+    return a.concepto ? `${a.code} · ${a.concepto}` : a.code;
+  };
 
   // Cerrar al clic fuera
   useEffect(() => {
@@ -107,6 +143,11 @@ export const TenantSwitcher: React.FC = () => {
         <span className="font-bold text-gray-800 truncate max-w-32">
           {tenant?.name ?? 'Seleccionar negocio'}
         </span>
+        {etiquetaActividad(tenant?.id) && (
+          <span className="hidden sm:inline text-[11px] font-bold text-indigo-600 truncate max-w-28">
+            {etiquetaActividad(tenant?.id)}
+          </span>
+        )}
         {tenant && <StatusBadge tenant={tenant} />}
         <ChevronDown size={13} className={`text-gray-400 transition ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -159,6 +200,12 @@ export const TenantSwitcher: React.FC = () => {
                       )}
                       <StatusBadge tenant={t} />
                     </div>
+                    {etiquetaActividad(t.id) && (
+                      <p className="flex items-center gap-1 mt-0.5 text-[11px] font-bold text-indigo-600 truncate">
+                        <Briefcase size={10} className="shrink-0" />
+                        {etiquetaActividad(t.id)}
+                      </p>
+                    )}
                     <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-500">
                       {sub?.plan?.name && (
                         <span className="truncate">{sub.plan.name}</span>

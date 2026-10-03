@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState, type ComponentType } 
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, X, ChevronRight, BellOff, CheckCircle2, RefreshCw,
-  CalendarClock, CloudUpload, FileWarning, HandCoins, PackageCheck,
+  CalendarClock, CloudUpload, FileWarning, HandCoins, PackageCheck, BriefcaseBusiness,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -191,10 +191,66 @@ export const NotificationsMenu: React.FC<{
       } catch { /* sin crédito */ }
     })();
 
-    await Promise.allSettled([pendientesOffline, cuotaFe, apartados, porCobrar]);
+    /**
+     * RECURSOS HUMANOS: el carné de salud y el contrato que se vencen.
+     *
+     * Son dos cosas que se descubren tarde y caro: el carné vencido es una multa
+     * en la primera inspección, y el contrato a plazo que se venció sin avisar se
+     * convierte en indefinido. Nadie entra a RRHH a revisar fechas todos los días.
+     */
+    const personal = (async () => {
+      if (!pf?.hr || !navigator.onLine) return;
+      try {
+        const { hrAlerts } = await import('@/services/hr/hrService');
+        const a = await hrAlerts.get();
+        if (a.carne_vencido.length > 0) {
+          encontrados.push({
+            id: 'hr-carne-vencido',
+            nivel: 'urgente',
+            icono: BriefcaseBusiness,
+            texto: `${a.carne_vencido.length} empleado(s) con carné de salud VENCIDO`,
+            detalle: `${a.carne_vencido.slice(0, 3).join(', ')}`
+              + (a.carne_vencido.length > 3 ? ` y ${a.carne_vencido.length - 3} más` : '')
+              + '. En una inspección es multa.',
+            path: '/hr',
+          });
+        }
+        if (a.carne_por_vencer.length > 0) {
+          encontrados.push({
+            id: 'hr-carne-por-vencer',
+            nivel: 'aviso',
+            icono: BriefcaseBusiness,
+            texto: `${a.carne_por_vencer.length} carné(s) de salud vencen este mes`,
+            detalle: a.carne_por_vencer.slice(0, 3).join(', '),
+            path: '/hr',
+          });
+        }
+        if (a.contrato_por_vencer.length > 0) {
+          encontrados.push({
+            id: 'hr-contrato',
+            nivel: 'aviso',
+            icono: BriefcaseBusiness,
+            texto: `${a.contrato_por_vencer.length} contrato(s) vencen este mes`,
+            detalle: 'Un contrato a plazo que se vence sin avisar pasa a ser indefinido.',
+            path: '/hr',
+          });
+        }
+        if (a.ausencias_pendientes > 0) {
+          encontrados.push({
+            id: 'hr-ausencias',
+            nivel: 'info',
+            icono: BriefcaseBusiness,
+            texto: `${a.ausencias_pendientes} solicitud(es) de ausencia sin responder`,
+            path: '/hr',
+          });
+        }
+      } catch { /* sin módulo de RRHH o sin permiso */ }
+    })();
+
+    await Promise.allSettled([pendientesOffline, cuotaFe, apartados, porCobrar, personal]);
     setExtra(encontrados);
     setCargando(false);
-  }, [tenantId, pf?.electronic_invoice, pf?.reservations, pf?.accounts_receivable]);
+  }, [tenantId, pf?.electronic_invoice, pf?.reservations, pf?.accounts_receivable, pf?.hr]);
 
   useEffect(() => { void cargarExtra(); }, [cargarExtra]);
 

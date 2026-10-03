@@ -24,6 +24,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'pos_kiosk', label: 'Modo Kiosk (PIN)' },
     { key: 'pos_customer_display', label: 'Visor de cliente por USB (2 líneas)' },
     { key: 'pos_customer_screen', label: 'Pantalla del cliente (segundo monitor)' },
+    { key: 'manual_sales', label: 'Ventas sin sistema (cargar días sin POS)' },
   ]},
   { group: 'Facturación electrónica', items: [
     { key: 'electronic_invoice', label: 'Factura Electrónica (Hacienda)' },

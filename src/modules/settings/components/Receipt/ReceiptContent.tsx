@@ -5,6 +5,7 @@ import React from 'react';
 interface ReceiptConfig {
   showStoreName: boolean;
   showCommercialName?: boolean;
+  showLegalName?: boolean;
   showStoreAddress: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
@@ -50,9 +51,15 @@ export const ReceiptContent: React.FC<Props> = ({ config, setConfig }) => {
       description: 'Mostrar el nombre comercial (de Datos de FE)',
     },
     {
+      key: 'showLegalName' as const,
+      label: 'Razón Social',
+      description: 'Mostrar la razón social cuando es distinta del nombre del negocio. '
+        + 'Apagarla no afecta la factura electrónica: el comprobante que vale es el XML.',
+    },
+    {
       key: 'showStoreAddress' as const,
       label: 'Dirección',
-      description: 'Mostrar dirección del negocio',
+      description: 'Dirección exacta y la provincia / cantón / distrito',
     },
     {
       key: 'showStorePhone' as const,

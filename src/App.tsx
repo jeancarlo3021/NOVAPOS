@@ -246,7 +246,7 @@ function AppContent() {
               } />
               {/* VENTAS SIN SISTEMA: cargar a mano el total de un día que se vendió sin el POS. */}
               <Route path="/ventas-sin-sistema" element={
-                <PlanGuard feature="reports"><ManualSalesDashboard /></PlanGuard>
+                <PlanGuard feature="manual_sales"><ManualSalesDashboard /></PlanGuard>
               } />
               <Route path="/equipo-en-vivo" element={
                 <PlanGuard feature="live_team" anyOf={['tracking']}><LiveTeamMap /></PlanGuard>

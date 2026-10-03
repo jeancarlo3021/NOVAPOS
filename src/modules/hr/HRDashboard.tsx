@@ -29,7 +29,7 @@ const MODULES: ModuleDef[] = [
   { id: 'employees',  icon: Users,      title: 'Empleados',  desc: 'Expedientes y datos personales',     color: 'bg-blue-100 text-blue-600'    },
   { id: 'attendance', icon: Clock,      title: 'Asistencia', desc: 'Reloj marcador y horas trabajadas', color: 'bg-violet-100 text-violet-600' },
   { id: 'leave',      icon: Calendar,   title: 'Ausencias',  desc: 'Vacaciones, incapacidades y permisos', color: 'bg-emerald-100 text-emerald-600' },
-  { id: 'payroll',    icon: DollarSign, title: 'Nómina',     desc: 'Salarios, comisiones y deducciones', color: 'bg-amber-100 text-amber-600'  },
+  { id: 'payroll',    icon: DollarSign, title: 'Planilla',   desc: 'Salarios, comisiones de ventas y cargas sociales', color: 'bg-amber-100 text-amber-600'  },
 ];
 
 const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;

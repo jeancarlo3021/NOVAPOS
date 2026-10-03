@@ -197,6 +197,14 @@ export interface PlanFeatures {
   pos_search_tabs?: boolean;         // Tabs separados código/nombre en escritorio
   pos_usd?: boolean;                 // Cobro en dólares (efectivo) con tipo de cambio BCCR
   pos_delivery?: boolean;             // Ventas por delivery (mesa/delivery, plataformas, reporte)
+  /**
+   * Ventas sin sistema: cargar el total de un día que se vendió sin el POS.
+   *
+   * Iba colgada de `reports`, y son cosas distintas: ver reportes es mirar; esto
+   * ESCRIBE facturas con fecha pasada. Un negocio puede necesitar los reportes y
+   * no querer que nadie invente ventas de días anteriores.
+   */
+  manual_sales?: boolean;
   pos_bipper?: boolean;               // Bipper/localizador: nº o nombre que sale en el ticket
   // ── Inventario ─────────────────────────────────────────────────────────────
   inventory_products_only: boolean;
@@ -354,6 +362,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   pos_search_tabs: false,
   pos_usd: false,
   pos_delivery: false,
+  manual_sales: false,
   inventory_products_only: false,
   // Por defecto, todos los planes permiten mezclar productos con stock
   // tracked + stock infinito. Si algún plan futuro quiere bloquearlo, basta
@@ -453,6 +462,7 @@ export const FULL_FEATURES: PlanFeatures = {
   pos_search_tabs: true,
   pos_usd: true,
   pos_delivery: true,
+  manual_sales: true,
   inventory_products_only: false,
   inventory_mixed_stock: true,
   inventory_categories: true,

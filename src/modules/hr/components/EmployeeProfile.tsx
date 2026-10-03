@@ -5,8 +5,11 @@ import { Plus, Edit2, Trash2, Mail, Phone, Briefcase, Calendar, X, Search, Alert
 import { useAuth } from '@/context/AuthContext';
 import { employeesService } from '@/services/hr/hrService';
 import { formatCedula, cleanCedula } from '@/utils/cedula';
-import type { Employee, EmployeeStatus } from '../types/HR.types';
-import { DEPARTMENTS, STATUS_LABELS, STATUS_COLORS } from '../types/HR.types';
+import { apiFetch } from '@/lib/api';
+import type { Employee, EmployeeStatus, SalaryType, CommissionBase } from '../types/HR.types';
+import {
+  DEPARTMENTS, STATUS_LABELS, STATUS_COLORS, SALARY_TYPE_LABELS, CONTRACT_TYPES,
+} from '../types/HR.types';
 
 interface FormData {
   full_name: string; identification: string; email: string; phone: string;
@@ -14,6 +17,15 @@ interface FormData {
   hourly_rate: string; monthly_salary: string; commission_pct: string;
   hire_date: string; status: EmployeeStatus;
   health_cert_expires_at: string; notes: string;
+  // ── Campos de la migración 115 ──
+  user_id: string;
+  salary_type: SalaryType;
+  commission_base: CommissionBase;
+  payment_method: string; bank_account: string;
+  birth_date: string;
+  emergency_contact: string; emergency_phone: string;
+  contract_type: string; contract_end_date: string;
+  vacation_days_per_year: string;
 }
 
 const EMPTY: FormData = {
@@ -22,6 +34,11 @@ const EMPTY: FormData = {
   hourly_rate: '', monthly_salary: '', commission_pct: '',
   hire_date: new Date().toISOString().slice(0, 10),
   status: 'active', health_cert_expires_at: '', notes: '',
+  user_id: '', salary_type: 'monthly', commission_base: 'sales',
+  payment_method: 'transfer', bank_account: '', birth_date: '',
+  emergency_contact: '', emergency_phone: '',
+  contract_type: 'Indefinido', contract_end_date: '',
+  vacation_days_per_year: '12',
 };
 
 export const EmployeeProfile: React.FC = () => {
@@ -33,6 +50,22 @@ export const EmployeeProfile: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY);
   const [error, setError] = useState('');
+  /**
+   * Usuarios del sistema, para VINCULAR al empleado.
+   *
+   * Es el enganche con el resto: vinculado, el empleado puede marcar entrada y
+   * salida desde su propia cuenta, ver su información, y —lo más importante— la
+   * planilla puede saber cuánto vendió para calcularle la comisión. Sin vínculo,
+   * el expediente es solo una ficha de papel.
+   */
+  const [usuarios, setUsuarios] = useState<Array<{ id: string; email: string; full_name?: string }>>([]);
+  useEffect(() => {
+    void apiFetch<any[]>('/users')
+      .then(us => setUsuarios((us ?? []).map(u => ({
+        id: String(u.id), email: String(u.email ?? ''), full_name: u.full_name ?? undefined,
+      }))))
+      .catch(() => { /* sin permiso de usuarios: el selector no aparece */ });
+  }, []);
 
   const reload = async () => setEmployees(await employeesService.list().catch(() => []));
   useEffect(() => { if (tenantId) reload(); }, [tenantId]);
@@ -55,6 +88,17 @@ export const EmployeeProfile: React.FC = () => {
       hire_date: e.hire_date, status: e.status,
       health_cert_expires_at: e.health_cert_expires_at ?? '',
       notes: e.notes ?? '',
+      user_id: e.user_id ?? '',
+      salary_type: (e.salary_type ?? 'monthly') as SalaryType,
+      commission_base: (e.commission_base ?? 'sales') as CommissionBase,
+      payment_method: e.payment_method ?? 'transfer',
+      bank_account: e.bank_account ?? '',
+      birth_date: e.birth_date ?? '',
+      emergency_contact: e.emergency_contact ?? '',
+      emergency_phone: e.emergency_phone ?? '',
+      contract_type: e.contract_type ?? 'Indefinido',
+      contract_end_date: e.contract_end_date ?? '',
+      vacation_days_per_year: e.vacation_days_per_year?.toString() ?? '12',
     });
     setEditingId(e.id); setShowForm(true); setError('');
   };
@@ -76,8 +120,20 @@ export const EmployeeProfile: React.FC = () => {
       commission_pct: form.commission_pct ? parseFloat(form.commission_pct) : undefined,
       hire_date: form.hire_date,
       status: form.status,
-      health_cert_expires_at: form.health_cert_expires_at || undefined,
+      health_cert_expires_at: form.health_cert_expires_at || null,
       notes: form.notes.trim() || undefined,
+      user_id: form.user_id || null,
+      salary_type: form.salary_type,
+      commission_base: form.commission_base,
+      payment_method: form.payment_method || null,
+      bank_account: form.bank_account.trim() || null,
+      birth_date: form.birth_date || null,
+      emergency_contact: form.emergency_contact.trim() || null,
+      emergency_phone: form.emergency_phone.trim() || null,
+      contract_type: form.contract_type || null,
+      contract_end_date: form.contract_end_date || null,
+      vacation_days_per_year: form.vacation_days_per_year
+        ? parseFloat(form.vacation_days_per_year) : null,
     };
     try {
       if (editingId) await employeesService.update(editingId, payload);
@@ -195,10 +251,67 @@ export const EmployeeProfile: React.FC = () => {
                   </select>
                 </div>
               </div>
+              {/* ── Usuario del sistema ───────────────────────────────────── */}
+              {usuarios.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+                    Usuario del sistema
+                  </label>
+                  <select value={form.user_id} onChange={e => setForm({ ...form, user_id: e.target.value })}
+                    className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400">
+                    <option value="">— Sin vincular —</option>
+                    {usuarios.map(u => (
+                      <option key={u.id} value={u.id}>{u.full_name ? `${u.full_name} · ` : ''}{u.email}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Vinculado, el empleado marca entrada y salida desde su cuenta y la planilla puede
+                    calcularle la comisión con <b>las ventas que él facturó</b>. Sin vínculo, la
+                    comisión por ventas queda en cero.
+                  </p>
+                </div>
+              )}
+
+              {/* ── Cómo se le paga ───────────────────────────────────────── */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Tipo de salario</label>
+                  <select value={form.salary_type}
+                    onChange={e => setForm({ ...form, salary_type: e.target.value as SalaryType })}
+                    className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400">
+                    {(Object.keys(SALARY_TYPE_LABELS) as SalaryType[]).map(t => (
+                      <option key={t} value={t}>{SALARY_TYPE_LABELS[t]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">La comisión se calcula sobre</label>
+                  <select value={form.commission_base}
+                    onChange={e => setForm({ ...form, commission_base: e.target.value as CommissionBase })}
+                    className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400">
+                    <option value="sales">Las ventas que hizo</option>
+                    <option value="salary">Su propio salario</option>
+                  </select>
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Field label="Salario mensual ₡" type="number" value={form.monthly_salary} onChange={v => setForm({...form, monthly_salary: v})} />
                 <Field label="Salario hora ₡" type="number" value={form.hourly_rate} onChange={v => setForm({...form, hourly_rate: v})} />
                 <Field label="Comisión %" type="number" value={form.commission_pct} onChange={v => setForm({...form, commission_pct: v})} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Forma de pago</label>
+                  <select value={form.payment_method} onChange={e => setForm({ ...form, payment_method: e.target.value })}
+                    className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400">
+                    <option value="transfer">Transferencia</option>
+                    <option value="sinpe">SINPE Móvil</option>
+                    <option value="cash">Efectivo</option>
+                    <option value="check">Cheque</option>
+                  </select>
+                </div>
+                <Field label="Cuenta / IBAN / SINPE" value={form.bank_account}
+                  onChange={v => setForm({ ...form, bank_account: v })} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Field label="Fecha de ingreso" type="date" value={form.hire_date} onChange={v => setForm({...form, hire_date: v})} />
@@ -213,6 +326,31 @@ export const EmployeeProfile: React.FC = () => {
                 </div>
                 <Field label="Vencimiento carnet sanidad" type="date" value={form.health_cert_expires_at} onChange={v => setForm({...form, health_cert_expires_at: v})} />
               </div>
+              {/* ── Contrato y vacaciones ─────────────────────────────────── */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Tipo de contrato</label>
+                  <select value={form.contract_type} onChange={e => setForm({ ...form, contract_type: e.target.value })}
+                    className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400">
+                    {CONTRACT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <Field label="Vence el contrato" type="date" value={form.contract_end_date}
+                  onChange={v => setForm({ ...form, contract_end_date: v })} />
+                <Field label="Días de vacaciones al año" type="number" value={form.vacation_days_per_year}
+                  onChange={v => setForm({ ...form, vacation_days_per_year: v })} />
+              </div>
+
+              {/* ── Datos personales y emergencia ─────────────────────────── */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Field label="Fecha de nacimiento" type="date" value={form.birth_date}
+                  onChange={v => setForm({ ...form, birth_date: v })} />
+                <Field label="Contacto de emergencia" value={form.emergency_contact}
+                  onChange={v => setForm({ ...form, emergency_contact: v })} />
+                <Field label="Teléfono de emergencia" type="tel" value={form.emergency_phone}
+                  onChange={v => setForm({ ...form, emergency_phone: v })} />
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Notas</label>
                 <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} rows={2}

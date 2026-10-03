@@ -810,6 +810,24 @@ export const CreateOwner: React.FC = () => {
     const d = daysUntil(effectiveEndsAt(o).date);
     return d !== null && d >= 0 && d <= 7 && o.status === 'active';
   });
+
+  /**
+   * «Requieren atención» es la lista de a quién llamar HOY.
+   *
+   * Un vencido de hace ocho meses no es una llamada pendiente: es un cliente que
+   * ya se fue, o una cuenta que hay que cerrar de otra manera. Quedándose ahí
+   * para siempre, el panel se llenaba de casos muertos y los vencidos de esta
+   * semana —los que todavía se recuperan— se perdían entre ellos.
+   *
+   * Pasados estos días, sale del panel. NO desaparece del sistema: la tarjeta
+   * «Vencidos» los sigue contando y la lista de negocios los sigue mostrando.
+   */
+  const DIAS_EN_ATENCION = 10;
+  const overdueToAttend = overdueOwners.filter(o => {
+    const d = daysUntil(effectiveEndsAt(o).date);
+    return d !== null && d >= -DIAS_EN_ATENCION;
+  });
+  const overdueViejos = overdueOwners.length - overdueToAttend.length;
   const monthlyRevenue = activeOwners.reduce((s, o) => s + (o.plan_price ?? 0), 0);
   const totalMonthlyInvoices = visibleOwners.reduce((s, o) => s + (o.monthly_invoices ?? 0), 0);
   const totalMonthlyElectronic = visibleOwners.reduce((s, o) => s + (o.monthly_electronic ?? 0), 0);
@@ -1020,13 +1038,13 @@ export const CreateOwner: React.FC = () => {
         {success && <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-emerald-700 text-sm"><CheckCircle size={16} /><span>{success}</span></div>}
 
         {/* Due/overdue alert strip */}
-        {(overdueOwners.length > 0 || dueSoonOwners.length > 0) && (
+        {(overdueToAttend.length > 0 || dueSoonOwners.length > 0) && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
             <p className="text-sm font-bold text-amber-800 mb-3 flex items-center gap-2">
               <AlertTriangle size={15} /> Requieren atención
             </p>
             <div className="space-y-2">
-              {overdueOwners.map(o => (
+              {overdueToAttend.map(o => (
                 <div key={o.id} className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
                   <div className="flex items-center gap-3">
                     <span className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
@@ -1071,6 +1089,13 @@ export const CreateOwner: React.FC = () => {
                 </div>
               ))}
             </div>
+            {overdueViejos > 0 && (
+              <p className="mt-3 text-[11px] font-semibold text-amber-700">
+                {overdueViejos} negocio(s) vencidos hace más de {DIAS_EN_ATENCION} días no se
+                muestran acá — ya no son una llamada de hoy. Siguen contados en «Vencidos» y en la
+                lista de abajo.
+              </p>
+            )}
           </div>
         )}
 

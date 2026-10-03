@@ -11,6 +11,7 @@ interface ReceiptConfig {
   showLogo: boolean;
   logoUrl?: string;
   showStoreName: boolean;
+  showLegalName?: boolean;
   showStoreAddress: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
@@ -28,6 +29,15 @@ interface Props {
 export const ReceiptPreview: React.FC<Props> = ({ config }) => {
   const { user } = useAuth();
   const { settings: general } = useSettings('general');
+  /**
+   * La vista previa tiene que mostrar lo MISMO que se imprime.
+   *
+   * Leía solo la configuración general, así que la razón social —que sale del
+   * emisor de facturación electrónica— no aparecía acá y sí en el papel. Alguien
+   * apagaba cosas en esta pantalla, veía la vista previa «limpia», y el tiquete
+   * seguía saliendo con un dato que no podía ver de dónde venía.
+   */
+  const { settings: fe } = useSettings('electronic-invoice');
   const [printing, setPrinting] = useState(false);
   const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -36,7 +46,16 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
   const storeRuc = general?.ruc;
   const storeCedula = general?.cedula;
   const storeAddress = general?.address;
+  // Con FE, la ubicación del tiquete sale de la provincia/cantón/distrito del
+  // emisor; sin FE, de la ciudad de la configuración general.
   const storeCity = general?.city;
+  /** Razón social, solo si es distinta del nombre con el que trabaja el negocio. */
+  const razonSocial = (() => {
+    const fiscal = String((fe as any)?.emisor_name ?? '').trim();
+    const comercial = String(general?.businessName ?? '').trim();
+    if (!fiscal || !comercial) return '';
+    return fiscal.toLowerCase() === comercial.toLowerCase() ? '' : fiscal;
+  })();
   const storePhone = general?.phone;
   const taxEnabled = general?.taxEnabled !== false;
   const taxPct = general?.taxPercentage ?? 13;
@@ -117,6 +136,9 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
               {(general as any)?.commercial_name || (general as any)?.emisor_commercial_name || 'Nombre Comercial'}
             </div>
           )}
+          {config.showLegalName !== false && razonSocial && (
+            <div className="text-center text-xs mb-1">{razonSocial}</div>
+          )}
           {storeRuc && (
             <div className="text-center text-xs mb-1">
               <strong>Céd. Jurídica:</strong> {storeRuc}
@@ -130,7 +152,7 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
           {config.showStoreAddress && storeAddress && (
             <div className="text-center text-xs mb-1">{storeAddress}</div>
           )}
-          {storeCity && (
+          {config.showStoreAddress && storeCity && (
             <div className="text-center text-xs mb-1">{storeCity}</div>
           )}
           {config.showStorePhone && storePhone && (

@@ -197,6 +197,50 @@ export interface ReceiptData {
   feQrContent?: string;
 }
 
+/**
+ * QUÉ SE VE EN EL TIQUETE: un solo criterio para los tres formatos.
+ *
+ * ── Qué pasaba ─────────────────────────────────────────────────────────────
+ * Cada formato —térmica ESC/POS, tiquete por navegador y hoja A4— decidía por
+ * su cuenta, y con reglas distintas para el MISMO interruptor:
+ *
+ *   · La dirección y el teléfono: la térmica pedía `=== true` y la hoja A4
+ *     `!== false`. Una configuración vieja sin ese campo guardado salía CON
+ *     dirección en la hoja y SIN dirección en el tiquete, sin que nadie hubiera
+ *     apagado nada. El negocio ve que «se desactivó solo».
+ *   · El logo tenía tres criterios diferentes en tres lugares.
+ *   · El nombre comercial y el nombre del cajero NO ESTABAN en la hoja A4: el
+ *     interruptor encendido y el dato igual no salía.
+ *
+ * ── La regla ───────────────────────────────────────────────────────────────
+ * Lo que el negocio apagó a propósito (false) se respeta siempre y en todos los
+ * formatos. Lo que nunca se configuró (undefined, de planes y filas viejas) se
+ * resuelve según qué tan esencial es:
+ *
+ *   · Se MUESTRA: nombre del negocio, dirección, teléfono, datos del cliente,
+ *     número y fecha. Son lo que hace que el papel sirva como comprobante; un
+ *     tiquete sin encabezado es peor que uno con un dato de más.
+ *   · Se OCULTA: logo, nombre comercial y nombre del cajero. Los tres necesitan
+ *     que alguien suba o llene algo primero, así que apagados por omisión no
+ *     sorprenden a nadie.
+ */
+export function verEnTicket(cfg: Partial<ReceiptConfig>) {
+  const siSalvoQueNo = (v: unknown) => v !== false;   // esencial: opt-out
+  const soloSiLoPidio = (v: unknown) => v === true;   // extra: opt-in
+  return {
+    nombre:     siSalvoQueNo(cfg.showStoreName),
+    razonSocial: siSalvoQueNo(cfg.showLegalName),
+    direccion:  siSalvoQueNo(cfg.showStoreAddress),
+    telefono:   siSalvoQueNo(cfg.showStorePhone),
+    cliente:    siSalvoQueNo(cfg.showCustomerInfo),
+    numero:     siSalvoQueNo(cfg.showInvoiceNumber),
+    fecha:      siSalvoQueNo(cfg.showDateTime),
+    comercial:  soloSiLoPidio(cfg.showCommercialName),
+    cajero:     soloSiLoPidio(cfg.showCashierName),
+    logo:       soloSiLoPidio(cfg.showLogo),
+  };
+}
+
 /** Leyenda obligatoria al pie del comprobante electrónico (resolución DGT 4.4). */
 export const FE_RESOLUTION_FOOTER =
   'Autorizada mediante resolución MH-DGT-RES-0027-2024 del 13 de noviembre del 2024 de la DGTD. Version 4.4';
@@ -208,6 +252,16 @@ export interface ReceiptConfig {
   showCommercialName?: boolean;
   logoUrl?: string;
   showStoreName: boolean;
+  /**
+   * Imprimir la RAZÓN SOCIAL cuando no es el nombre con el que trabaja el
+   * negocio.
+   *
+   * Hay negocios que no la quieren en el papel: el cliente compró en «Burgosa»
+   * y ver «Inversiones JMR S.A.» en el tiquete no le aporta nada. El comprobante
+   * que vale ante Hacienda es el XML, no el papel, así que apagarla acá no afecta
+   * la factura electrónica.
+   */
+  showLegalName?: boolean;
   showStoreAddress: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
@@ -2126,7 +2180,8 @@ export class POSPrinterService {
      * encendido. Los otros formatos sí caen a la configuración; este se había
      * quedado atrás.
      */
-    const logo = cfg.showLogo ? (r.logoUrl || cfg.logoUrl || '') : '';
+    const ver = verEnTicket(cfg);
+    const logo = ver.logo ? (r.logoUrl || cfg.logoUrl || '') : '';
     const tipoLabel = r.feTipoLabel ?? (r.feClave ? 'COMPROBANTE ELECTRÓNICO' : 'FACTURA');
     // La hoja A4 respeta los interruptores de dirección, teléfono y cliente.
     // El NÚMERO y la FECHA van siempre: son parte de lo que hace válido al
@@ -2170,10 +2225,14 @@ export class POSPrinterService {
   .foot { margin-top: 20px; text-align: center; font-size: 11px; color: #6b7280; }
 </style></head><body>
   <div class="head">
-    <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : `<div class="brand">${esc(r.storeName ?? '')}</div>`}
+    <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : ''}${
+      ver.nombre && r.storeName ? `<div class="brand">${esc(r.storeName)}</div>` : ''}${
+      // El nombre comercial y el cajero NO se imprimían en la hoja: el
+      // interruptor estaba encendido y el dato igual no salía.
+      ver.comercial && r.commercialName ? `<div style="font-size:12px;color:#374151">${esc(r.commercialName)}</div>` : ''}
       <div style="font-size:11px;color:#6b7280;margin-top:4px">
-        ${r.storeLegalName ? esc(r.storeLegalName) + '<br>' : ''}${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
-        ${(cfg.showStoreAddress !== false && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${r.storeCity ? esc(r.storeCity) + '<br>' : ''}${(cfg.showStorePhone !== false && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}${r.storeEmail ? '<br>' + esc(r.storeEmail) : ''}
+        ${ver.razonSocial && r.storeLegalName ? esc(r.storeLegalName) + '<br>' : ''}${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
+        ${(ver.direccion && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${(ver.direccion && r.storeCity) ? esc(r.storeCity) + '<br>' : ''}${(ver.telefono && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}${r.storeEmail ? '<br>' + esc(r.storeEmail) : ''}
       </div>
     </div>
     <div class="doc">
@@ -2184,7 +2243,7 @@ export class POSPrinterService {
     </div>
   </div>
 
-  ${(cfg.showCustomerInfo !== false && (r.customerName || r.customerEmail || r.customerTaxId)) ? `
+  ${(ver.cliente && (r.customerName || r.customerEmail || r.customerTaxId)) ? `
   <div class="parties"><div class="party">
     <div class="party-title">Cliente</div>
     <div class="party-name">${esc(r.customerName ?? 'Cliente General')}</div>
@@ -2217,6 +2276,7 @@ export class POSPrinterService {
     ${r.feQrDataUrl ? `<div style="text-align:center;margin-top:8px"><img src="${esc(r.feQrDataUrl)}" style="width:120px;height:120px"/></div>` : ''}
   </div>` : ''}
 
+  ${ver.cajero && r.cashierName ? `<div class="foot">Atendido por: ${esc(r.cashierName)}</div>` : ''}
   <div class="foot">${esc(r.footerMessage ?? '¡Gracias por su compra!')}</div>
 </body></html>`;
   }
@@ -2246,26 +2306,27 @@ export class POSPrinterService {
       ${item.notes?.trim() ? `<tr class="item-detail"><td colspan="3"><b>&nbsp;&nbsp;* ${item.notes.trim()}</b></td></tr>` : ''}
     `).join('');
 
+    const ver = verEnTicket(cfg);
     const hasStoreInfo = (
-      (cfg.showStoreName && receiptData.storeName) ||
-      (cfg.showCommercialName && receiptData.commercialName) ||
+      (ver.nombre && receiptData.storeName) ||
+      (ver.comercial && receiptData.commercialName) ||
       receiptData.storeRuc ||
       receiptData.storeCedula ||
-      (cfg.showStoreAddress && receiptData.storeAddress) ||
-      receiptData.storeCity ||
-      (cfg.showStorePhone && receiptData.storePhone) ||
+      (ver.direccion && receiptData.storeAddress) ||
+      (ver.direccion && receiptData.storeCity) ||
+      (ver.telefono && receiptData.storePhone) ||
       receiptData.storeEmail
     );
     const storeBlock = hasStoreInfo ? `
       <div class="store-block">
-        ${cfg.showStoreName && receiptData.storeName ? `<div class="store-name">${receiptData.storeName}</div>` : ''}
-        ${cfg.showCommercialName && receiptData.commercialName ? `<div class="store-commercial">${receiptData.commercialName}</div>` : ''}
-        ${receiptData.storeLegalName ? `<div class="store-line">${receiptData.storeLegalName}</div>` : ''}
+        ${ver.nombre && receiptData.storeName ? `<div class="store-name">${receiptData.storeName}</div>` : ''}
+        ${ver.comercial && receiptData.commercialName ? `<div class="store-commercial">${receiptData.commercialName}</div>` : ''}
+        ${ver.razonSocial && receiptData.storeLegalName ? `<div class="store-line">${receiptData.storeLegalName}</div>` : ''}
         ${receiptData.storeRuc ? `<div class="store-line"><strong>Céd. Jurídica:</strong> ${receiptData.storeRuc}</div>` : ''}
         ${receiptData.storeCedula ? `<div class="store-line"><strong>Cédula:</strong> ${receiptData.storeCedula}</div>` : ''}
-        ${cfg.showStoreAddress && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
-        ${receiptData.storeCity ? `<div class="store-line">${receiptData.storeCity}</div>` : ''}
-        ${cfg.showStorePhone && receiptData.storePhone ? `<div class="store-line"><strong>Tel:</strong> ${[receiptData.storePhone, ...(receiptData.storePhonesExtra ?? [])].join(' · ')}</div>` : ''}
+        ${ver.direccion && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
+        ${ver.direccion && receiptData.storeCity ? `<div class="store-line">${receiptData.storeCity}</div>` : ''}
+        ${ver.telefono && receiptData.storePhone ? `<div class="store-line"><strong>Tel:</strong> ${[receiptData.storePhone, ...(receiptData.storePhonesExtra ?? [])].join(' · ')}</div>` : ''}
         ${receiptData.storeEmail ? `<div class="store-line">${receiptData.storeEmail}</div>` : ''}
       </div>
     ` : '';
@@ -2273,7 +2334,7 @@ export class POSPrinterService {
     // Los datos del cliente salen SOLO si están activados en Personalización.
     // El interruptor existía en la pantalla de ajustes pero no lo miraba nadie:
     // se apagaba y el tiquete seguía saliendo con el nombre del cliente.
-    const mostrarCliente = cfg.showCustomerInfo !== false;
+    const mostrarCliente = ver.cliente;
     const customerBlock = mostrarCliente
       && (receiptData.customerName || receiptData.customerPhone
           || receiptData.customerEmail || receiptData.customerTaxId)
@@ -2406,7 +2467,8 @@ export class POSPrinterService {
       // Respeta el interruptor de Personalización, igual que la hoja A4.
       // Sin esto, apagar «Mostrar logo» no hacía nada en el tiquete: el negocio
       // que lo desactivaba para ahorrar papel y tinta lo seguía imprimiendo.
-      const logo = cfg.showLogo === false ? '' : (receiptData.logoUrl || cfg.logoUrl);
+      // Mismo criterio que los otros formatos: el logo es opt-in.
+      const logo = ver.logo ? (receiptData.logoUrl || cfg.logoUrl) : '';
       if (!logo) return '';
       // Filtro térmico optimizado para impresión 1-bit:
       // - Matriz luminance (Rec. 709): 0.21R + 0.72G + 0.07B (percepción visual real)
@@ -2447,13 +2509,13 @@ export class POSPrinterService {
       `;
     })()}
     <div class="title">TICKET DE VENTA</div>
-    ${cfg.showInvoiceNumber ? `<div class="subtitle">Factura #${receiptData.invoiceNumber}</div>` : ''}
+    ${ver.numero ? `<div class="subtitle">Factura #${receiptData.invoiceNumber}</div>` : ''}
     ${receiptData.feClave ? `
       <div class="subtitle" style="font-weight:900;">${receiptData.feTipoLabel ?? 'COMPROBANTE ELECTR&Oacute;NICO'}</div>
       ${receiptData.feConsecutivo ? `<div style="font-size:10px;">Consecutivo: <span style="font-family:monospace;font-weight:bold;">${receiptData.feConsecutivo}</span></div>` : ''}
       <div style="font-size:9px;font-family:monospace;word-break:break-all;line-height:1.2;">Clave: ${receiptData.feClave}</div>
     ` : ''}
-    ${cfg.showDateTime ? `<div class="subtitle">${receiptData.date} ${receiptData.time}</div>` : ''}
+    ${ver.fecha ? `<div class="subtitle">${receiptData.date} ${receiptData.time}</div>` : ''}
   </div>
 
   ${storeBlock}
@@ -2530,7 +2592,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
   </div>
   ` : ''}
 
-  ${cfg.showCashierName && receiptData.cashierName ? `<div class="cashier">Atendido por: ${receiptData.cashierName}</div>` : ''}
+  ${ver.cajero && receiptData.cashierName ? `<div class="cashier">Atendido por: ${receiptData.cashierName}</div>` : ''}
 
   <hr class="divider">
 
@@ -2618,7 +2680,8 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       centerText(`** ${receiptData.copyLabel} **`);
       push(0x1B, 0x21, 0x00);
     }
-    if (cfg.showInvoiceNumber) { centerText(`#${receiptData.invoiceNumber}`); }
+    const ver = verEnTicket(cfg);
+    if (ver.numero) { centerText(`#${receiptData.invoiceNumber}`); }
     // Comprobante electrónico: tipo + consecutivo + clave, junto al nº de factura.
     if (receiptData.feClave) {
       push(0x1B, 0x45, 0x01);        // negrita ON
@@ -2627,18 +2690,19 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       if (receiptData.feConsecutivo) centerText(`Consecutivo: ${receiptData.feConsecutivo}`);
       text('Clave:'); nl(); text(receiptData.feClave); nl();
     }
-    if (cfg.showDateTime) { centerText(`${receiptData.date} ${receiptData.time}`); }
+    if (ver.fecha) { centerText(`${receiptData.date} ${receiptData.time}`); }
     sep();
 
     // Store
-    if (cfg.showStoreName && receiptData.storeName) { centerText(receiptData.storeName); }
-    if (cfg.showCommercialName && receiptData.commercialName) { centerText(receiptData.commercialName); }
-    if (receiptData.storeLegalName) { centerText(receiptData.storeLegalName); }
+    if (ver.nombre && receiptData.storeName) { centerText(receiptData.storeName); }
+    if (ver.comercial && receiptData.commercialName) { centerText(receiptData.commercialName); }
+    if (ver.razonSocial && receiptData.storeLegalName) { centerText(receiptData.storeLegalName); }
     if (receiptData.storeRuc) { centerText(`Ced. Juridica: ${receiptData.storeRuc}`); }
     if (receiptData.storeCedula) { centerText(`Cedula: ${receiptData.storeCedula}`); }
-    if (cfg.showStoreAddress && receiptData.storeAddress) { centerText(receiptData.storeAddress); }
-    if (receiptData.storeCity) { centerText(receiptData.storeCity); }
-    if (cfg.showStorePhone && receiptData.storePhone) {
+    if (ver.direccion && receiptData.storeAddress) { centerText(receiptData.storeAddress); }
+    // La ubicación es parte de la dirección: va con el mismo interruptor.
+    if (ver.direccion && receiptData.storeCity) { centerText(receiptData.storeCity); }
+    if (ver.telefono && receiptData.storePhone) {
       centerText(`Tel: ${receiptData.storePhone}`);
       // En papel angosto cada teléfono va en su renglón: juntos se cortan.
       for (const t of (receiptData.storePhonesExtra ?? [])) centerText(t);
@@ -2647,7 +2711,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     if (receiptData.storeEmail) { centerText(receiptData.storeEmail); }
 
     // Customer
-    if (cfg.showCustomerInfo !== false
+    if (ver.cliente
         && (receiptData.customerName || receiptData.customerPhone
             || receiptData.customerEmail || receiptData.customerTaxId)) {
       sep();
@@ -2778,7 +2842,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       center(false);
       sep();
     }
-    if (cfg.showCashierName && receiptData.cashierName) {
+    if (ver.cajero && receiptData.cashierName) {
       centerText(`Atendido por: ${receiptData.cashierName}`);
     }
 

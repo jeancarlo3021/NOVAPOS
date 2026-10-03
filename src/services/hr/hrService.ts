@@ -2,6 +2,7 @@
 import { apiFetch } from '@/lib/api';
 import type {
   Employee, AttendanceRecord, LeaveRequest, EmployeeStatus, LeaveStatus,
+  PayrollRun, PayrollItem,
 } from '@/modules/hr/types/HR.types';
 
 // ─── EMPLOYEES ───────────────────────────────────────────────────────────────
@@ -94,6 +95,60 @@ export const leaveService = {
   },
 };
 
+// ─── PLANILLA ────────────────────────────────────────────────────────────────
+
+export interface PlanillaPreview {
+  from: string;
+  to: string;
+  branch_id: string | null;
+  lineas: PayrollItem[];
+  totales: {
+    gross: number; employee_charges: number; other_deductions: number;
+    employer_charges: number; net: number; total_cost: number;
+    employees_count: number; sales_total: number;
+  };
+  cargas: { obrero: number; patronal: number };
+  /** Si el período ya tiene planilla guardada, para no pagar dos veces. */
+  existente: { id: string; status: string; paid_at: string | null } | null;
+}
+
+export const payrollService = {
+  /** Calcula la planilla del período con los datos reales (no guarda nada). */
+  preview: (from: string, to: string, branchId?: string | null) => {
+    const q = new URLSearchParams({ from, to });
+    if (branchId) q.set('branch_id', branchId);
+    return apiFetch<PlanillaPreview>(`/hr/payroll/preview?${q.toString()}`, {}, 25_000);
+  },
+
+  list: () => apiFetch<PayrollRun[]>('/hr/payroll'),
+
+  get: (id: string) => apiFetch<PayrollRun>(`/hr/payroll/${id}`),
+
+  save: (payload: {
+    period_start: string; period_end: string;
+    branch_id?: string | null; notes?: string | null; items: PayrollItem[];
+  }) => apiFetch<PayrollRun>('/hr/payroll', { method: 'POST', body: JSON.stringify(payload) }),
+
+  /** La marca como pagada y registra el GASTO (así entra a la utilidad). */
+  pay: (id: string, opts?: { payment_method?: string; register_expense?: boolean }) =>
+    apiFetch<PayrollRun>(`/hr/payroll/${id}/pay`, {
+      method: 'POST', body: JSON.stringify(opts ?? {}),
+    }),
+
+  remove: (id: string) => apiFetch(`/hr/payroll/${id}`, { method: 'DELETE' }),
+};
+
+/** Lo de RRHH que necesita atención (lo usa el menú de notificaciones). */
+export const hrAlerts = {
+  get: () => apiFetch<{
+    empleados_activos: number;
+    carne_vencido: string[];
+    carne_por_vencer: string[];
+    contrato_por_vencer: string[];
+    ausencias_pendientes: number;
+  }>('/hr/alerts'),
+};
+
 // ─── STATS HELPERS ───────────────────────────────────────────────────────────
 export const hrStats = {
   async dashboard(): Promise<{
@@ -128,12 +183,27 @@ export const hrStats = {
       return exp <= limit;
     });
 
-    const activeEmps = employees.filter(e => e.status === 'active');
-    const base = activeEmps.reduce((s, e) => s + (Number(e.monthly_salary) || 0), 0);
-    const commission = activeEmps.reduce(
-      (s, e) => s + ((Number(e.monthly_salary) || 0) * ((Number(e.commission_pct) || 0) / 100)),
-      0,
-    );
+    /**
+     * La nómina del tablero sale del MISMO cálculo que la planilla.
+     *
+     * Antes se calculaba acá aparte, y la comisión era un porcentaje del propio
+     * salario: el tablero mostraba un número y la pantalla de planilla otro, sin
+     * forma de saber cuál creer. Ahora los dos preguntan lo mismo al servidor.
+     */
+    let base = 0, commission = 0;
+    try {
+      const hoy = new Date();
+      const desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().slice(0, 10);
+      const hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).toISOString().slice(0, 10);
+      const p = await payrollService.preview(desde, hasta);
+      base = p.lineas.reduce((t, l) => t + l.base_amount, 0);
+      commission = p.lineas.reduce((t, l) => t + l.commission_amount, 0);
+    } catch {
+      // Si el cálculo no responde, se cae al salario del expediente: es mejor un
+      // número aproximado que un cero que parece «no hay planilla».
+      const activos = employees.filter(e => e.status === 'active');
+      base = activos.reduce((s, e) => s + (Number(e.monthly_salary) || 0), 0);
+    }
 
     return {
       counts,

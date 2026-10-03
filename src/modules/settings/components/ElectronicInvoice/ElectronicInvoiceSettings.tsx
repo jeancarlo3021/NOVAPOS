@@ -31,6 +31,17 @@ interface FESettings {
   emisor_email:               string;
   /** Correos ADICIONALES: reciben copia de los comprobantes emitidos. */
   emisor_emails:              string[];
+  /**
+   * CONCEPTO de cada actividad: «4711.2» → «Pulpería».
+   *
+   * El código es lo que pide Hacienda, pero no le dice nada a nadie. Con varias
+   * actividades en la misma cédula —la soda y el alquiler del salón— los
+   * perfiles se llaman parecido y el cajero no sabe en cuál está entrando.
+   * Facturar en la actividad equivocada no se arregla después.
+   *
+   * Lo pone el negocio, con sus palabras: es quien sabe qué es cada una.
+   */
+  economic_activity_names?:   Record<string, string>;
   // Actividad económica
   economic_activity_code:     string;
   /** Actividades ADICIONALES inscritas ante Hacienda. */
@@ -136,6 +147,18 @@ export const ElectronicInvoiceSettings: React.FC = () => {
   const set = <K extends keyof FESettings>(k: K, v: FESettings[K]) =>
     setSettings(prev => ({ ...prev, [k]: v }));
 
+  /** El concepto guardado para un código de actividad. */
+  const conceptoDe = (code?: string) =>
+    String((settings.economic_activity_names ?? {})[String(code ?? '').trim()] ?? '');
+  const setConcepto = (code: string | undefined, valor: string) => {
+    const k = String(code ?? '').trim();
+    if (!k) return;   // sin código no hay dónde guardarlo
+    setSettings(prev => ({
+      ...prev,
+      economic_activity_names: { ...(prev.economic_activity_names ?? {}), [k]: valor },
+    }));
+  };
+
   const handleSave = async () => {
     setSaving(true); setError(''); setSuccess('');
     try {
@@ -168,6 +191,21 @@ export const ElectronicInvoiceSettings: React.FC = () => {
           economic_activity_code: String(settings.economic_activity_code ?? '').trim(),
           economic_activities: (settings.economic_activities ?? [])
             .map(a => String(a).trim()).filter(Boolean),
+          /**
+           * Los conceptos, solo de los códigos que siguen existiendo.
+           *
+           * Si se quita una actividad, su concepto se va con ella: dejarlo
+           * acumulado haría que un código reutilizado después heredara el
+           * nombre de la actividad vieja.
+           */
+          economic_activity_names: Object.fromEntries(
+            Object.entries(settings.economic_activity_names ?? {})
+              .map(([k, v]) => [String(k).trim(), String(v ?? '').trim()])
+              .filter(([k, v]) => !!v && [
+                String(settings.economic_activity_code ?? '').trim(),
+                ...(settings.economic_activities ?? []).map(a => String(a).trim()),
+              ].includes(k)),
+          ),
           emisor_email: settings.emisor_email,
         }),
       }, 60_000);   // además de guardar, actualiza la empresa en Hacienda y puede crear negocios
@@ -290,10 +328,21 @@ export const ElectronicInvoiceSettings: React.FC = () => {
             valor,
           )}
         />
-        <Campo etiqueta={settings.fe_shared_from ? 'Actividad de este negocio' : 'Actividad económica principal'}
-          valor={settings.economic_activity_code}
-          onChange={v => set('economic_activity_code', v)}
-          placeholder="Ej. 4752.1 o 475201 (como aparece en el ATV)" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Campo etiqueta={settings.fe_shared_from ? 'Actividad de este negocio' : 'Actividad económica principal'}
+            valor={settings.economic_activity_code}
+            onChange={v => set('economic_activity_code', v)}
+            placeholder="Ej. 4752.1 o 475201 (como aparece en el ATV)" />
+          <Campo etiqueta="¿Qué es esta actividad?"
+            valor={conceptoDe(settings.economic_activity_code)}
+            onChange={v => setConcepto(settings.economic_activity_code, v)}
+            placeholder="Ej. Ferretería, Soda, Alquiler de salón" />
+        </div>
+        <p className="text-[11px] text-gray-400">
+          El código es lo que pide Hacienda; el concepto es para ustedes: aparece en el selector de
+          negocios para saber en cuál se está facturando. Con dos actividades en la misma cédula, los
+          perfiles se llaman parecido y facturar en la equivocada no se arregla después.
+        </p>
 
         {/* Un contribuyente puede tener varias inscritas: una soda que alquila
             salón, una ferretería que además da servicio. En una actividad de otra
@@ -304,8 +353,25 @@ export const ElectronicInvoiceSettings: React.FC = () => {
             {(settings.economic_activities ?? []).map((act, i) => (
               <div key={i} className="flex gap-2">
                 <input value={act} placeholder="Código de actividad"
-                  onChange={e => set('economic_activities',
-                    (settings.economic_activities ?? []).map((x, j) => j === i ? e.target.value : x))}
+                  onChange={e => {
+                    // Al corregir el código hay que mover su concepto, si no el
+                    // nombre se queda pegado al código viejo y se pierde.
+                    const antes = String(act).trim();
+                    const ahora = e.target.value.trim();
+                    const nombre = conceptoDe(antes);
+                    set('economic_activities',
+                      (settings.economic_activities ?? []).map((x, j) => j === i ? e.target.value : x));
+                    if (nombre && antes !== ahora) {
+                      const mapa = { ...(settings.economic_activities ? settings.economic_activity_names ?? {} : {}) };
+                      delete mapa[antes];
+                      if (ahora) mapa[ahora] = nombre;
+                      set('economic_activity_names', mapa);
+                    }
+                  }}
+                  className="w-36 shrink-0 px-3 py-2 rounded-lg border border-gray-200 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
+                <input value={conceptoDe(act)} placeholder="¿Qué es? (ej. Taller)"
+                  onChange={e => setConcepto(act, e.target.value)}
                   className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm
                              focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
                 <button type="button"
