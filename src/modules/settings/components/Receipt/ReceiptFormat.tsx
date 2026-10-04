@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Upload, Loader, Trash2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Upload, Loader, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { storageService } from '@/services/storage/storageService';
 import { useAuth } from '@/context/AuthContext';
 
@@ -21,6 +21,51 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * ¿El logo SE PUEDE imprimir en la impresora térmica?
+   *
+   * Una térmica no entiende PNG: la imagen hay que convertirla a puntos. Si esa
+   * conversión falla —o sale casi sin tinta porque el logo es muy claro— el
+   * tiquete salía sin logo y no quedaba rastro de por qué. Acá se prueba la
+   * conversión de verdad y se dice el resultado, con las medidas en milímetros
+   * que va a ocupar en el papel.
+   */
+  const [logoInfo, setLogoInfo] = useState<
+    { ok: boolean; texto: string } | null>(null);
+
+  useEffect(() => {
+    const url = config.logoUrl;
+    if (!config.showLogo || !url) { setLogoInfo(null); return; }
+    let vivo = true;
+    setLogoInfo({ ok: true, texto: 'Probando la conversión para la impresora térmica…' });
+    void (async () => {
+      try {
+        const [{ logoEscPosDetallado }, { anchoEnCaracteres }] = await Promise.all([
+          import('@/services/pos/escposImage'),
+          import('@/services/pos/posPrinterService'),
+        ]);
+        const chars = anchoEnCaracteres((config as any).paperWidth);
+        const r = await logoEscPosDetallado(String(url), chars);
+        if (!vivo) return;
+        if (!r.bytes) { setLogoInfo({ ok: false, texto: r.motivo ?? 'No se pudo convertir.' }); return; }
+        // 203 dpi = 8 puntos por milímetro.
+        const mm = (p?: number) => p ? Math.round(p / 8) : 0;
+        const medidas = r.ancho ? ` · ${r.ancho}×${r.alto} puntos (${mm(r.ancho)}×${mm(r.alto)} mm)` : '';
+        if ((r.tinta ?? 100) < 1) {
+          setLogoInfo({
+            ok: false,
+            texto: `La imagen se convierte, pero queda casi sin tinta (${r.tinta}%): el papel va a `
+              + `salir en blanco. Subí un logo con más contraste (negro sobre blanco funciona mejor).${medidas}`,
+          });
+          return;
+        }
+        setLogoInfo({ ok: true, texto: `Listo para la impresora térmica${medidas}.` });
+      } catch (e: any) {
+        if (vivo) setLogoInfo({ ok: false, texto: e?.message ?? 'No se pudo probar la conversión.' });
+      }
+    })();
+    return () => { vivo = false; };
+  }, [config.showLogo, config.logoUrl, (config as any).paperWidth]);
 
   const paperWidths: { value: 32 | 48 | 'a4'; label: string }[] = [
     { value: 32, label: '58 mm' },
@@ -138,13 +183,24 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
                     className="w-full h-full object-contain p-2"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={handleRemoveLogo}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm font-semibold rounded-lg transition"
-                >
-                  <Trash2 size={14} /> Eliminar
-                </button>
+                <div className="flex-1 space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleRemoveLogo}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm font-semibold rounded-lg transition"
+                  >
+                    <Trash2 size={14} /> Eliminar
+                  </button>
+                  {logoInfo && (
+                    <p className={`flex items-start gap-1.5 text-[11px] font-semibold ${
+                      logoInfo.ok ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {logoInfo.ok
+                        ? <CheckCircle2 size={12} className="mt-0.5 shrink-0" />
+                        : <AlertTriangle size={12} className="mt-0.5 shrink-0" />}
+                      <span>{logoInfo.texto}</span>
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

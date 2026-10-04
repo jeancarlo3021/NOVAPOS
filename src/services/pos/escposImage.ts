@@ -24,8 +24,12 @@ const PUNTOS_POR_MM = 8;
  *
  * Sin tope, un logo cuadrado en papel de 80 mm ocupa 7 cm de papel en cada
  * tiquete. Se paga en rollo y en tiempo de impresión.
+ *
+ * Estaba en 160 (2 cm): un logo cuadrado en papel de 58 mm quedaba de 21 mm de
+ * ancho, menos de la mitad del área imprimible, y con un logo de trazo claro
+ * pasaba por casi invisible. Con 240 (3 cm) se ve y sigue siendo barato.
  */
-const ALTO_MAX = 160;
+const ALTO_MAX = 240;
 const CACHE_PREFIX = 'novapos_logo_escpos_';
 
 const enMemoria = new Map<string, Uint8Array>();
@@ -101,11 +105,31 @@ function cargarImagen(url: string): Promise<HTMLImageElement> {
  * deja leer la imagen, o no hay red y tampoco copia guardada. El tiquete se
  * imprime igual sin logo; nunca se pierde una venta por una imagen.
  */
-export async function logoEscPos(url: string, anchoCaracteres: number): Promise<Uint8Array | null> {
-  if (!url) return null;
+export interface LogoConvertido {
+  bytes: Uint8Array | null;
+  /** Medidas con las que va a salir impreso, en puntos. */
+  ancho?: number;
+  alto?: number;
+  /** Por qué no se pudo, para poder decirlo en vez de no imprimir en silencio. */
+  motivo?: string;
+  /** Porcentaje de puntos con tinta: si es casi 0, el papel sale en blanco. */
+  tinta?: number;
+}
+
+/**
+ * Igual que `logoEscPos` pero contando QUÉ PASÓ.
+ *
+ * El silencio era el problema: si la conversión fallaba, el tiquete salía sin
+ * logo y no quedaba rastro de por qué. Con esto la pantalla de configuración
+ * puede decir «se convirtió, 168×160 puntos» o el motivo exacto del fallo.
+ */
+export async function logoEscPosDetallado(
+  url: string, anchoCaracteres: number,
+): Promise<LogoConvertido> {
+  if (!url) return { bytes: null, motivo: 'No hay ninguna imagen subida.' };
   const anchoMax = puntosImprimibles(anchoCaracteres);
   const ya = guardado(url, anchoMax);
-  if (ya) return ya;
+  if (ya) return { bytes: ya, motivo: undefined };
 
   try {
     const img = await cargarImagen(url);
@@ -122,7 +146,7 @@ export async function logoEscPos(url: string, anchoCaracteres: number): Promise<
     const canvas = document.createElement('canvas');
     canvas.width = ancho; canvas.height = alto;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+    if (!ctx) return { bytes: null, motivo: 'El navegador no deja dibujar la imagen.' };
     // Fondo blanco: un PNG transparente, sin esto, da negro y sale un borrón.
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, ancho, alto);
@@ -137,7 +161,9 @@ export async function logoEscPos(url: string, anchoCaracteres: number): Promise<
         // Luminancia percibida. El umbral alto conviene: en térmica un gris
         // claro que no se imprime se ve mejor que un logo embarrado.
         const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-        if (lum < 160) datos[y * bytesPorFila + (x >> 3)] |= 0x80 >> (x & 7);
+        // Umbral 200 (antes 160): en térmica lo primero que se pierde es el
+        // trazo fino, y un logo de colores claros se quedaba casi sin puntos.
+        if (lum < 200) datos[y * bytesPorFila + (x >> 3)] |= 0x80 >> (x & 7);
       }
     }
 
@@ -157,8 +183,30 @@ export async function logoEscPos(url: string, anchoCaracteres: number): Promise<
     salida.set(datos, cabecera.length);
     salida.set(pie, cabecera.length + datos.length);
     guardar(url, anchoMax, salida);
-    return salida;
-  } catch {
-    return null;
+
+    /**
+     * Cuántos puntos quedaron con tinta.
+     *
+     * Un logo de colores muy claros se convierte «bien» y sale un papel en
+     * blanco. Es la diferencia entre «no se pudo» y «se pudo pero no se ve», y
+     * sin medirlo las dos cosas se veían iguales desde afuera.
+     */
+    let conTinta = 0;
+    for (const b of datos) {
+      for (let k = 0; k < 8; k++) if (b & (1 << k)) conTinta++;
+    }
+    const tinta = Math.round((conTinta / (ancho * alto)) * 1000) / 10;
+    return { bytes: salida, ancho, alto, tinta };
+  } catch (e: any) {
+    const motivo = e?.message === 'no se pudo cargar el logo'
+      ? 'No se pudo descargar la imagen (sin internet, o el archivo ya no existe).'
+      : `No se pudo convertir la imagen: ${e?.message ?? 'error desconocido'}`;
+    console.warn('[logo térmico]', motivo, url);
+    return { bytes: null, motivo };
   }
+}
+
+/** Solo los bytes, para quien no necesita el detalle. */
+export async function logoEscPos(url: string, anchoCaracteres: number): Promise<Uint8Array | null> {
+  return (await logoEscPosDetallado(url, anchoCaracteres)).bytes;
 }

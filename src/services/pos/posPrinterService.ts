@@ -2646,9 +2646,24 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       if (!cfg.showLogo) return null;
       const url = receiptData.logoUrl || cfg.logoUrl;
       if (!url) return null;
-      const { logoEscPos } = await import('./escposImage');
-      return await logoEscPos(String(url), anchoEnCaracteres(cfg.paperWidth));
-    } catch { return null; }
+      const { logoEscPosDetallado } = await import('./escposImage');
+      const r = await logoEscPosDetallado(String(url), anchoEnCaracteres(cfg.paperWidth));
+      /**
+       * Si no se pudo, QUEDA DICHO.
+       *
+       * Antes se devolvía null y el tiquete salía sin logo sin dejar rastro: el
+       * negocio reportaba «no sale el logo» y no había por dónde empezar.
+       */
+      if (!r.bytes) console.warn('[ticket] el logo no se imprimió:', r.motivo);
+      else if ((r.tinta ?? 0) < 1) {
+        console.warn('[ticket] el logo se convirtió pero casi no tiene tinta '
+          + `(${r.tinta}%): va a salir casi en blanco. Conviene una imagen con más contraste.`);
+      }
+      return r.bytes;
+    } catch (e: any) {
+      console.warn('[ticket] el logo no se imprimió:', e?.message ?? e);
+      return null;
+    }
   }
 
   private generateESCPOS(receiptData: ReceiptData, cfg: ReceiptConfig, logo?: Uint8Array | null): Uint8Array {
