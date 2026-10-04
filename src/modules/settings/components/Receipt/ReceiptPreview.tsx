@@ -13,6 +13,7 @@ interface ReceiptConfig {
   showStoreName: boolean;
   showLegalName?: boolean;
   showStoreAddress: boolean;
+  showStoreEmail?: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
   showInvoiceNumber: boolean;
@@ -57,6 +58,14 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
     return fiscal.toLowerCase() === comercial.toLowerCase() ? '' : fiscal;
   })();
   const storePhone = general?.phone;
+  /**
+   * El correo que de verdad sale impreso es el del emisor de FE.
+   *
+   * La vista previa no lo mostraba —decía «sin email»— mientras el tiquete sí lo
+   * imprimía. Ahora se ve, y con su interruptor, para poder decidir con el dato
+   * a la vista en vez de descubrirlo en el papel.
+   */
+  const storeEmail = String((fe as any)?.emisor_email ?? general?.email ?? '').trim();
   const taxEnabled = general?.taxEnabled !== false;
   const taxPct = general?.taxPercentage ?? 13;
 
@@ -159,6 +168,9 @@ export const ReceiptPreview: React.FC<Props> = ({ config }) => {
             <div className="text-center text-xs mb-2">
               <strong>Tel:</strong> {storePhone}
             </div>
+          )}
+          {config.showStoreEmail !== false && storeEmail && (
+            <div className="text-center text-xs mb-2">{storeEmail}</div>
           )}
 
           <div className="border-b border-gray-300 mb-2" />

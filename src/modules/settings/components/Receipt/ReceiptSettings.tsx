@@ -24,6 +24,8 @@ interface ReceiptConfig {
   /** Razón social (solo si difiere del nombre del negocio). */
   showLegalName?: boolean;
   showStoreAddress: boolean;
+  /** Correo del negocio en el tiquete. */
+  showStoreEmail?: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
   showInvoiceNumber: boolean;
@@ -56,6 +58,7 @@ export const ReceiptSettings: React.FC = () => {
     showCommercialName: false,
     showLegalName: true,
     showStoreAddress: true,
+    showStoreEmail: true,
     showStorePhone: true,
     showCashierName: false,
     showInvoiceNumber: true,

@@ -7,6 +7,7 @@ interface ReceiptConfig {
   showCommercialName?: boolean;
   showLegalName?: boolean;
   showStoreAddress: boolean;
+  showStoreEmail?: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
   showInvoiceNumber: boolean;
@@ -65,6 +66,12 @@ export const ReceiptContent: React.FC<Props> = ({ config, setConfig }) => {
       key: 'showStorePhone' as const,
       label: 'Teléfono',
       description: 'Mostrar teléfono del negocio',
+    },
+    {
+      key: 'showStoreEmail' as const,
+      label: 'Correo del Negocio',
+      description: 'Mostrar el correo en el tiquete. Apagarlo no afecta el envío '
+        + 'del comprobante electrónico: ese sigue saliendo del mismo correo.',
     },
     {
       key: 'showCustomerInfo' as const,

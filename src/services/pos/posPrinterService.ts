@@ -231,6 +231,7 @@ export function verEnTicket(cfg: Partial<ReceiptConfig>) {
     nombre:     siSalvoQueNo(cfg.showStoreName),
     razonSocial: siSalvoQueNo(cfg.showLegalName),
     direccion:  siSalvoQueNo(cfg.showStoreAddress),
+    correo:     siSalvoQueNo(cfg.showStoreEmail),
     telefono:   siSalvoQueNo(cfg.showStorePhone),
     cliente:    siSalvoQueNo(cfg.showCustomerInfo),
     numero:     siSalvoQueNo(cfg.showInvoiceNumber),
@@ -263,6 +264,14 @@ export interface ReceiptConfig {
    */
   showLegalName?: boolean;
   showStoreAddress: boolean;
+  /**
+   * Imprimir el correo del negocio en el tiquete.
+   *
+   * El correo de los datos de FE suele ser el del contador o uno personal, y no
+   * todos lo quieren repartido en cada tiquete. Apagarlo acá NO afecta el envío
+   * del comprobante electrónico: ese sigue saliendo del mismo correo.
+   */
+  showStoreEmail?: boolean;
   showStorePhone: boolean;
   showCashierName: boolean;
   showInvoiceNumber: boolean;
@@ -482,6 +491,7 @@ export class POSPrinterService {
       showStoreName: true,
       showLegalName: true,
       showStoreAddress: true,
+      showStoreEmail: true,
       showStorePhone: true,
       showCashierName: false,
       showInvoiceNumber: true,
@@ -2246,7 +2256,7 @@ export class POSPrinterService {
       ver.comercial && r.commercialName ? `<div style="font-size:12px;color:#374151">${esc(r.commercialName)}</div>` : ''}
       <div style="font-size:11px;color:#6b7280;margin-top:4px">
         ${ver.razonSocial && r.storeLegalName ? esc(r.storeLegalName) + '<br>' : ''}${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
-        ${(ver.direccion && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${(ver.direccion && r.storeCity) ? esc(r.storeCity) + '<br>' : ''}${(ver.telefono && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}${r.storeEmail ? '<br>' + esc(r.storeEmail) : ''}
+        ${(ver.direccion && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${(ver.direccion && r.storeCity) ? esc(r.storeCity) + '<br>' : ''}${(ver.telefono && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}${(ver.correo && r.storeEmail) ? '<br>' + esc(r.storeEmail) : ''}
       </div>
     </div>
     <div class="doc">
@@ -2329,7 +2339,7 @@ export class POSPrinterService {
       (ver.direccion && receiptData.storeAddress) ||
       (ver.direccion && receiptData.storeCity) ||
       (ver.telefono && receiptData.storePhone) ||
-      receiptData.storeEmail
+      (ver.correo && receiptData.storeEmail)
     );
     const storeBlock = hasStoreInfo ? `
       <div class="store-block">
@@ -2341,7 +2351,7 @@ export class POSPrinterService {
         ${ver.direccion && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
         ${ver.direccion && receiptData.storeCity ? `<div class="store-line">${receiptData.storeCity}</div>` : ''}
         ${ver.telefono && receiptData.storePhone ? `<div class="store-line"><strong>Tel:</strong> ${[receiptData.storePhone, ...(receiptData.storePhonesExtra ?? [])].join(' · ')}</div>` : ''}
-        ${receiptData.storeEmail ? `<div class="store-line">${receiptData.storeEmail}</div>` : ''}
+        ${ver.correo && receiptData.storeEmail ? `<div class="store-line">${receiptData.storeEmail}</div>` : ''}
       </div>
     ` : '';
 
@@ -2722,7 +2732,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       for (const t of (receiptData.storePhonesExtra ?? [])) centerText(t);
     }
     // El correo del negocio: con él el cliente pide después su comprobante.
-    if (receiptData.storeEmail) { centerText(receiptData.storeEmail); }
+    if (ver.correo && receiptData.storeEmail) { centerText(receiptData.storeEmail); }
 
     // Customer
     if (ver.cliente
