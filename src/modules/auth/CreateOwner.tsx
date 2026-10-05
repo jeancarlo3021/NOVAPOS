@@ -6,7 +6,7 @@ import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
 import { Link } from 'react-router-dom';
 import {
-  Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock,
+  Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup,
   Building2, Calendar, RefreshCw, Power,
   Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone,
 } from 'lucide-react';
@@ -16,6 +16,7 @@ import { RenewModal } from './components/RenewModal';
 import { TenantUsersModal } from './components/TenantUsersModal';
 import { TenantModulesModal } from './components/TenantModulesModal';
 import { PurgeProductsModal } from './components/PurgeProductsModal';
+import { TenantBackupsModal } from './components/TenantBackupsModal';
 import { TenantAccountantsModal } from './components/TenantAccountantsModal';
 import { TenantFeDataModal } from './components/TenantFeDataModal';
 import type { OwnerData } from './components/RenewModal';
@@ -89,6 +90,8 @@ export const CreateOwner: React.FC = () => {
   const [manageModulesFor, setManageModulesFor] = useState<OwnerData | null>(null);
   /** Borrado masivo del catálogo (va con su propia confirmación y avance). */
   const [purgeProductsFor, setPurgeProductsFor] = useState<OwnerData | null>(null);
+  /** Respaldos diarios del negocio: ver, bajar y forzar uno. */
+  const [backupsFor, setBackupsFor] = useState<OwnerData | null>(null);
   const [importProductsFor, setImportProductsFor] = useState<OwnerData | null>(null);
   const [previewProductsFor, setPreviewProductsFor] = useState<OwnerData | null>(null);
   const [manageFeFor, setManageFeFor] = useState<OwnerData | null>(null);
@@ -1500,6 +1503,14 @@ export const CreateOwner: React.FC = () => {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50">
                                     <Package size={13} /> Ver productos cargados
                                   </button>
+                                  {/* Los respaldos van PEGADOS al borrado masivo: es
+                                      justo antes de borrar cuando uno se acuerda de
+                                      que quería tener una copia. */}
+                                  <button onClick={() => { setOpenMenuId(null); setBackupsFor(o); }}
+                                    title="Respaldos diarios: ver, bajar o hacer uno ahora"
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                                    <DatabaseBackup size={13} /> Respaldos
+                                  </button>
                                   {/* Va junto a importar: el caso típico es
                                       «entró mal el Excel, hay que dejarlo
                                       limpio y volver a subirlo». */}
@@ -1804,6 +1815,14 @@ export const CreateOwner: React.FC = () => {
         <TenantUsersModal
           owner={manageUsersFor}
           onClose={() => setManageUsersFor(null)}
+          onToast={showToast}
+        />
+      )}
+
+      {backupsFor && (
+        <TenantBackupsModal
+          owner={backupsFor}
+          onClose={() => setBackupsFor(null)}
           onToast={showToast}
         />
       )}
