@@ -340,11 +340,39 @@ async function qzConnectOnce(certificate?: string): Promise<void> {
    */
   const hosts = ['localhost.qz.io', 'localhost'];
 
+  /**
+   * Un intento que quedó COLGADO bloqueaba todos los siguientes.
+   *
+   * Si el handshake no termina —el caso típico cuando el navegador no confía en
+   * el certificado: el socket se queda en CONNECTING en vez de fallar rápido— el
+   * cliente de QZ rechaza cualquier `connect()` posterior con «An open connection
+   * already exists» o «The current connection attempt has not returned yet». A
+   * partir de ahí no vuelve a conectar por más que se reinicie QZ Tray, porque el
+   * estado trabado está en la PÁGINA, no en QZ. Solo se arreglaba recargando.
+   *
+   * Cuando aparece uno de esos mensajes se fuerza el cierre y se reintenta una
+   * vez, que es lo que antes había que hacer a mano con F5.
+   */
+  const estadoTrabado = (e: unknown) =>
+    /already exists|has not returned|still closing/i.test(
+      e instanceof Error ? e.message : String(e ?? ''));
+
+  const intentar = async (usingSecure: boolean) => {
+    try {
+      await q.websocket.connect({ host: hosts, usingSecure, retries: 2, delay: 1 });
+    } catch (e) {
+      if (!estadoTrabado(e)) throw e;
+      try { await q.websocket.disconnect(); } catch { /* ya estaba cerrado */ }
+      await new Promise(r => setTimeout(r, 300));
+      await q.websocket.connect({ host: hosts, usingSecure, retries: 1, delay: 1 });
+    }
+  };
+
   let lastError: unknown;
   for (const attempt of attempts) {
     try {
       // Más reintentos internos: Edge tarda más en el handshake del cert localhost.
-      await q.websocket.connect({ host: hosts, usingSecure: attempt.usingSecure, retries: 2, delay: 1 });
+      await intentar(attempt.usingSecure);
       connected = true;
       qzEnableAutoReconnect();
       emitStatus('connected');

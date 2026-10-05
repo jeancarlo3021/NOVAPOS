@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * @version 2.2.6
+ * @version 2.3.0
  * @overview QZ Tray Connector
  * @license LGPL-2.1-only
  * <p/>
@@ -889,8 +889,7 @@ var qz = (function() {
 
             isActive: function() {
                 return !_qz.websocket.shutdown && _qz.websocket.connection != null
-                    && (_qz.websocket.connection.readyState === _qz.tools.ws.OPEN
-                        || _qz.websocket.connection.readyState === _qz.tools.ws.CONNECTING);
+                    && _qz.websocket.connection.readyState === _qz.tools.ws.OPEN;
             },
 
             assertActive: function() {
@@ -1380,7 +1379,7 @@ var qz = (function() {
             disconnect: function() {
                 return _qz.tools.promise(function(resolve, reject) {
                     if (_qz.websocket.connection != null) {
-                        if (_qz.tools.isActive()) {
+                        if (_qz.tools.isActive() || _qz.websocket.connection.readyState === _qz.tools.ws.CONNECTING) {
                             // handles closing both 'connecting' and 'connected' states
                             _qz.websocket.shutdown = true;
                             _qz.websocket.connection.promise = { resolve: resolve, reject: reject };
@@ -2900,12 +2899,14 @@ var qz = (function() {
             /**
              * Get version of connected QZ Tray application.
              *
+             * @param {Object} [options] Version options
+             *  @param {boolean} [options.details=false] Returns additional details such as <code>title</code>, <code>vendor</code>, <code>url</code> and <code>email</code>.
              * @returns {Promise<string|Error>} Version number of QZ Tray.
              *
              * @memberof qz.api
              */
-            getVersion: function() {
-                return _qz.websocket.dataPromise('getVersion');
+            getVersion: function(options) {
+                return _qz.websocket.dataPromise('getVersion', options);
             },
 
             /**
