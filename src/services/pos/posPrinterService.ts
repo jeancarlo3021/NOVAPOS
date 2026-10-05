@@ -2321,6 +2321,24 @@ export class POSPrinterService {
     if (isA4) return this.generateA4HTML(receiptData, cfg);
     const widthMM = papelMM(cfg);
     const areaMM = imprimibleMM(cfg);
+    /**
+     * EL ANCHO EN COLUMNAS MANDA, igual que en la térmica.
+     *
+     * QZ imprime texto de ancho fijo: 32 columnas en papel de 58 mm y 48 en el de
+     * 80. Acá el tamaño de letra era 13px fijos —en Courier, unos 2,06 mm por
+     * carácter—, así que entraban 23 columnas en vez de 32: todo se partía donde
+     * no debía, los totales no quedaban alineados, y el tiquete del navegador no
+     * se parecía al de QZ.
+     *
+     * Courier avanza 0,6 em por carácter, así que para que entren exactamente las
+     * columnas que tocan, el tamaño es (área imprimible / columnas) / 0,6. En
+     * MILÍMETROS, no en píxeles: así no depende de la resolución con la que el
+     * navegador arme la página.
+     */
+    const charWidth = anchoEnCaracteres(cfg.paperWidth);
+    const fontMM = (parseFloat(areaMM) / charWidth) / 0.6;
+    /** Separador de guiones, idéntico al de la térmica. */
+    const sepLinea = '-'.repeat(charWidth);
 
     const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -2377,7 +2395,7 @@ export class POSPrinterService {
            ${receiptData.customerPhone ? `<br>Tel: ${receiptData.customerPhone}` : ''}
            ${receiptData.customerEmail ? `<br>Correo: ${receiptData.customerEmail}` : ''}
          </div>
-         <hr class="divider">`
+         <div class="divider">${sepLinea}</div>`
       : '';
 
     const bipperBlock = receiptData.bipper
@@ -2419,8 +2437,9 @@ export class POSPrinterService {
     }
     body {
       font-family: 'Courier New', Courier, monospace;
-      font-size: 13px;
-      line-height: 1.7;
+      /* Ver fontMM arriba: lo que manda es el número de columnas, no un px fijo. */
+      font-size: ${fontMM.toFixed(3)}mm;
+      line-height: 1.45;
       color: #000;
       background: #fff;
       width: ${areaMM};   /* lo que imprime el cabezal, no el ancho del rollo */
@@ -2445,36 +2464,43 @@ export class POSPrinterService {
     }
     .center { text-align: center; }
     .bold { font-weight: 900; }
-    .large { font-size: 18px; font-weight: 900; text-align: center; }
+    .large { font-size: 2em; font-weight: 900; text-align: center; }   /* doble, como el doble-alto de la térmica */
     .divider {
+      /* Guiones, como el separador de la térmica: una línea CSS se ve como una
+         barra negra que el tiquete de QZ no tiene. */
       border: none;
-      border-top: 1px solid #000;
-      margin: 4px 0;
+      margin: 0;
+      white-space: pre;
+      overflow: hidden;
+      font-weight: 700;
+      letter-spacing: 0;
     }
     .header { text-align: center; margin-bottom: 5px; }
     .title { font-size: 16px; font-weight: 900; letter-spacing: 1px; }
-    .subtitle { font-size: 13px; color: #000; font-weight: 900; margin: 2px 0; }
+    .subtitle { color: #000; font-weight: 900; margin: 0; }
     .store-block { text-align: center; margin: 4px 0; }
-    .store-name { font-size: 16px; font-weight: 900; letter-spacing: 1px; margin-bottom: 2px; }
-    .store-commercial { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
-    .store-line { font-size: 12px; font-weight: 700; margin: 1px 0; }
-    .customer-block { font-size: 12px; margin: 3px 0 5px; font-weight: 800; }
+    .store-name { font-weight: 900; margin: 0; }
+    .store-commercial { font-weight: 700; margin: 0; }
+    .store-line { font-weight: 700; margin: 0; }
+    .customer-block { margin: 0; font-weight: 800; }
     .section-label {
+      /* «ARTICULOS:», «PAGO:», «CLIENTE:»: la térmica los imprime pegados a la
+         izquierda, en tamaño normal y sin recuadro. Acá tenían bordes arriba y
+         abajo que en el tiquete de QZ no existen. */
       font-weight: 900;
-      font-size: 13px;
-      border-top: 1px solid #000;
-      border-bottom: 1px solid #000;
-      margin: 5px 0 3px;
-      padding: 2px 0;
-      letter-spacing: 1px;
+      text-align: left;
+      border: none;
+      margin: 0;
+      padding: 0;
+      letter-spacing: 0;
     }
     table { width: 100%; border-collapse: collapse; }
-    .item-name { width: 55%; font-weight: 800; font-size: 13px; }
-    .item-qty { width: 10%; text-align: right; font-weight: 900; font-size: 13px; }
-    .item-price { width: 35%; text-align: right; font-weight: 900; font-size: 13px; }
-    .item-detail { font-size: 12px; color: #000; font-weight: 700; margin: 1px 0; }
-    .totals { font-size: 13px; font-weight: 800; }
-    .totals tr { border-bottom: 1px solid #000; }
+    .item-name { font-weight: 800; }
+    .item-qty { text-align: right; font-weight: 900; white-space: nowrap; }
+    .item-price { text-align: right; font-weight: 900; white-space: nowrap; }
+    .item-detail { color: #000; font-weight: 700; margin: 0; }
+    .totals { font-weight: 800; }
+    .totals tr { border: none; }   /* la térmica no dibuja líneas entre totales */
     .totals td { padding: 2px 0; }
     .totals td:last-child { text-align: right; }
     .total-line {
@@ -2487,7 +2513,7 @@ export class POSPrinterService {
       border-bottom: 1px solid #000;
       letter-spacing: 2px;
     }
-    .payment-block { font-size: 14px; margin: 4px 0; font-weight: 900; }
+    .payment-block { margin: 0; font-weight: 900; }
     .footer { text-align: center; font-size: 14px; font-weight: 900; margin-top: 8px; letter-spacing: 0.5px; }
     .cashier { text-align: center; font-size: 12px; color: #000; margin: 3px 0; font-weight: 800; }
   </style>
@@ -2553,7 +2579,7 @@ export class POSPrinterService {
 
   ${storeBlock}
 
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
 
   ${customerBlock}
   ${bipperBlock}
@@ -2563,7 +2589,7 @@ export class POSPrinterService {
     ${itemsHTML}
   </table>
 
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
 
   ${(receiptData.tax > 0 || Number(receiptData.discount) || Number(receiptData.rounding)) ? `
   <table class="totals">
@@ -2572,17 +2598,17 @@ export class POSPrinterService {
     ${Number(receiptData.rounding) ? `<tr><td>Redondeo:</td><td>${Number(receiptData.rounding) >= 0 ? '+' : '-'}₡${fmt(Math.abs(Number(receiptData.rounding)))}</td></tr>` : ''}
   </table>
 
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
   ` : ''}
 
-  <div class="total-line">TOTAL: ₡${fmt(receiptData.total)}</div>
+  <div class="total-line">*** TOTAL: ₡${fmt(receiptData.total)} ***</div>
 
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
 
   ${receiptData.notes?.trim() ? `
   <div class="section-label">NOTA</div>
   <div class="payment-block" style="white-space:pre-wrap">${receiptData.notes.trim()}</div>
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
   ` : ''}
 
   <div class="section-label">MÉTODO DE PAGO</div>
@@ -2594,7 +2620,7 @@ export class POSPrinterService {
        }).join('<br>')}</div>`
     : `<div class="payment-block">${receiptData.paymentMethod}</div>`}
 ${receiptData.isDelivery ? `
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
   <div class="section-label">DELIVERY</div>
   <div class="payment-block">
     Venta por delivery (no se cobra en caja)<br>
@@ -2603,7 +2629,7 @@ ${receiptData.isDelivery ? `
     ${Number(receiptData.deliveryCommissionPct) > 0 ? `<br>Comisión: ${receiptData.deliveryCommissionPct}%<br>Neto: &#8353;${fmt(Number(receiptData.deliveryNet ?? 0))}` : ''}
   </div>` : ''}
 ${receiptData.currency === 'USD' && receiptData.exchangeRate ? `
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
   <div class="section-label">PAGO EN DÓLARES</div>
   <div class="payment-block">
     Tipo de cambio: &#8353;${fmt(receiptData.exchangeRate)} / $1<br>
@@ -2612,13 +2638,13 @@ ${receiptData.currency === 'USD' && receiptData.exchangeRate ? `
     ${Number(receiptData.change) > 0 ? `<br>Vuelto: ${receiptData.changeCurrency === 'USD' ? `$${(Number(receiptData.change) / receiptData.exchangeRate).toFixed(2)}` : `&#8353;${fmt(Number(receiptData.change))}`}` : ''}
   </div>` : ''}
 ${receiptData.simplificadoFooter && !receiptData.feClave ? `
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
   <div style="text-align:center;font-size:11px;font-weight:bold;margin-top:4px;">
     Autorizado mediante oficio 1197<br>r&eacute;gimen simplificado
   </div>` : ''}
 
   ${receiptData.feClave ? `
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
   <div style="text-align:center;font-size:11px;">
     ${receiptData.feQrDataUrl ? `<div style="margin-bottom:6px;"><img src="${receiptData.feQrDataUrl}" style="width:130px;height:130px;" alt="QR"/></div>` : ''}
     <div style="font-weight:bold;">${FE_RESOLUTION_FOOTER}</div>
@@ -2627,7 +2653,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
 
   ${ver.cajero && receiptData.cashierName ? `<div class="cashier">Atendido por: ${receiptData.cashierName}</div>` : ''}
 
-  <hr class="divider">
+  <div class="divider">${sepLinea}</div>
 
   <div class="footer">
     ${receiptData.footerMessage ?? cfg.footerMessage}<br>
