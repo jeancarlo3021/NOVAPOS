@@ -339,12 +339,33 @@ async function qzConnectOnce(_certificate?: string): Promise<void> {
     }
   }
 
+  /**
+   * EL MOTIVO REAL VA EN EL MENSAJE.
+   *
+   * Acá se lanzaba un texto escrito a mano —«aceptá el certificado»— y se tiraba
+   * a la basura el error que devuelve el cliente de QZ. Con eso, todas las fallas
+   * se veían iguales y había que adivinar: el certificado, Chrome bloqueando el
+   * acceso a la red local, una versión vieja de QZ, el socket ocupado. Tres
+   * intentos de arreglo a ciegas después, el motivo seguía escondido.
+   *
+   * Los mensajes del cliente de QZ que importan:
+   *   · «denied by Local Network Access restrictions» → Chrome bloqueó el acceso
+   *     a localhost. Se destraba en el candado de la barra de direcciones.
+   *   · «Unable to establish connection» → no hubo handshake: certificado no
+   *     aceptado, QZ cerrado, o puerto ocupado.
+   */
+  const detalle = lastError instanceof Error ? lastError.message : String(lastError ?? 'sin detalle');
+  const esLna = /local network|denied/i.test(detalle);
   if (pageIsHttps) {
     throw new Error(
-      'No se pudo conectar a QZ Tray. Para imprimir YA, cambiá a «Imprimir por el navegador» '
-      + 'en Configuración → Factura: no necesita QZ ni certificado. Si querés seguir con QZ '
-      + '(imprime sin diálogo), abrí https://localhost:8181 en una pestaña y aceptá el '
-      + 'certificado (Avanzado → Continuar).',
+      esLna
+        ? 'Chrome bloqueó el acceso a la red local (QZ Tray corre en esta misma computadora). '
+          + 'Tocá el candado en la barra de direcciones → Permisos → permitir el acceso a '
+          + 'dispositivos de la red local, y reintentá. '
+          + `[detalle: ${detalle}]`
+        : 'No se pudo conectar a QZ Tray. Para imprimir YA, cambiá a «Imprimir por el navegador» '
+          + 'en Configuración → Factura: no necesita QZ ni certificado. '
+          + `[detalle: ${detalle}]`,
     );
   }
   throw lastError instanceof Error

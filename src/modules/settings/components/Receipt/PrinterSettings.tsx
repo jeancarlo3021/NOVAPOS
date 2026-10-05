@@ -511,6 +511,26 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
                       {diag.recomendacion}
                     </p>
                   )}
+                  {/* Para poder MANDARLO: el soporte se hace por WhatsApp, y
+                      transcribir a mano lo que dice la pantalla se pierde justo
+                      el detalle técnico que sirve. */}
+                  <button
+                    onClick={() => {
+                      const texto = [
+                        `Navegador: ${navigator.userAgent}`,
+                        `Página: ${location.origin}`,
+                        ...diag.pasos.map(p => `${p.ok ? 'OK' : 'FALLA'} · ${p.nombre}${p.detalle ? ` — ${p.detalle}` : ''}`),
+                        diag.version ? `QZ Tray ${diag.version}` : '',
+                        diag.recomendacion ?? 'Todo en orden',
+                      ].filter(Boolean).join('\n');
+                      void navigator.clipboard?.writeText(texto)
+                        .then(() => log('📋 Diagnóstico copiado — pegalo en el chat de soporte'))
+                        .catch(() => log('No se pudo copiar; sacá una foto de la pantalla'));
+                    }}
+                    className="w-full px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-[11px] font-bold hover:bg-slate-50"
+                  >
+                    Copiar el diagnóstico para soporte
+                  </button>
                   {!diag.recomendacion && (
                     <p className="text-emerald-800 font-bold border-t border-emerald-200 pt-2">
                       Todo en orden{diag.version ? ` · QZ Tray ${diag.version}` : ''}.
