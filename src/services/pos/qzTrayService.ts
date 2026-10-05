@@ -453,8 +453,37 @@ async function puertoResponde(puerto: number, host = 'localhost'): Promise<boole
   } catch { return false; }
 }
 
+/** ¿Estamos en la app INSTALADA (PWA), sin barra de direcciones ni candado? */
+export function enAppInstalada(): boolean {
+  try {
+    return window.matchMedia?.('(display-mode: standalone)').matches === true
+      || (navigator as any).standalone === true;
+  } catch { return false; }
+}
+
 export async function qzDiagnostico(): Promise<DiagnosticoQz> {
   const pasos: DiagnosticoQz['pasos'] = [];
+
+  /**
+   * LA APP INSTALADA NO PUEDE ACEPTAR PERMISOS NI CERTIFICADOS.
+   *
+   * En la ventana del PWA no hay barra de direcciones ni candado: no se puede
+   * abrir https://localhost:8181 para aceptar el certificado, ni tocar el candado
+   * para darle permiso de red local al sitio. Las dos cosas se piden UNA VEZ en
+   * Chrome normal y quedan guardadas para el origen, así que después la app
+   * instalada ya conecta.
+   *
+   * Sin decir esto, alguien puede pasar horas probando dentro del PWA: los
+   * botones están, pero los diálogos que hacen falta no pueden aparecer ahí.
+   */
+  const pwa = enAppInstalada();
+  if (pwa) {
+    pasos.push({
+      nombre: 'Estás en la app instalada (PWA)',
+      ok: false,
+      detalle: 'Acá no se pueden aceptar permisos ni certificados: no hay barra de direcciones',
+    });
+  }
 
   // 1. El componente del navegador (lo sirve la propia app).
   let scriptOk = !!(window as any).qz;
@@ -508,6 +537,12 @@ export async function qzDiagnostico(): Promise<DiagnosticoQz> {
     };
   }
 
+  const enChrome = (texto: string) => pwa
+    ? 'Esto hay que hacerlo UNA VEZ en Chrome normal, no en la app instalada: abrí '
+      + `${location.origin} en una pestaña de Chrome y ahí ${texto} Después volvé a la app: `
+      + 'el permiso queda guardado para el sitio.'
+    : texto;
+
   // 3. La conexión de verdad.
   try {
     await qzConnect();
@@ -528,7 +563,10 @@ export async function qzDiagnostico(): Promise<DiagnosticoQz> {
     const porQzIo = vivo?.host.endsWith('qz.io');
     return {
       pasos,
-      recomendacion: porQzIo
+      recomendacion: pwa
+        ? enChrome('tocá «Conectar QZ Tray» y aceptá lo que pida (el permiso de red local, '
+          + 'y la ventana de QZ marcando «Remember»).')
+        : porQzIo
         ? 'QZ Tray responde pero RECHAZA la conexión. La causa más común: este sitio quedó en '
           + 'la lista de BLOQUEADOS de QZ. Esa lista se guarda en disco, así que cerrar y volver '
           + 'a abrir QZ no la limpia. Clic derecho en el icono de QZ (junto al reloj) → Advanced '

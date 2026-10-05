@@ -11,7 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import {
   qzIsAvailable, qzConnect, qzGetPrinters, qzIsConnected,
-  qzEnableAutoReconnect, qzDisableAutoReconnect, onQzStatus, qzDiagnostico,
+  qzEnableAutoReconnect, qzDisableAutoReconnect, onQzStatus, qzDiagnostico, enAppInstalada,
 } from '@/services/pos/qzTrayService';
 import type { PrinterEntry } from '@/services/pos/qzTrayService';
 import { nativeBtAvailable } from '@/services/pos/nativeBluetoothPrinter';
@@ -441,6 +441,35 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
                   : <><WifiOff size={17} /> Conectar QZ Tray</>
                 }
               </button>
+
+              {/**
+                * EN LA APP INSTALADA no hay dónde aceptar los permisos.
+                *
+                * El PWA no tiene barra de direcciones ni candado, así que el
+                * permiso de red local y el certificado —que se piden una vez por
+                * sitio— no se pueden aceptar ahí. Hay que hacerlo en Chrome
+                * normal; después la app instalada ya conecta. Sin decirlo, se
+                * pueden perder horas probando botones que no pueden funcionar.
+                */}
+              {qzStatus !== 'connected' && enAppInstalada() && (
+                <div className="rounded-xl border-2 border-sky-200 bg-sky-50 px-3 py-2.5 space-y-2">
+                  <p className="text-xs font-black text-sky-900">Estás en la app instalada</p>
+                  <p className="text-[11px] text-sky-800 leading-snug">
+                    Acá no se pueden aceptar los permisos que QZ necesita: esta ventana no tiene
+                    barra de direcciones ni candado. Hacelo <b>una vez en Chrome normal</b> y la app
+                    instalada queda conectando sola — el permiso se guarda para el sitio.
+                  </p>
+                  <button
+                    onClick={() => {
+                      window.open(location.origin + '/settings?tab=receipt', '_blank', 'noopener');
+                      log('🌐 Abriendo el sitio en Chrome: conectá QZ ahí una vez y volvé.');
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-black"
+                  >
+                    Abrir en Chrome para dar el permiso
+                  </button>
+                </div>
+              )}
 
               {/**
                 * SALIDA SIN QZ TRAY.
