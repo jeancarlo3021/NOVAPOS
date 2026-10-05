@@ -333,6 +333,100 @@ async function qzConnectOnce(_certificate?: string): Promise<void> {
     : new Error('No se pudo conectar a QZ Tray (wss ni ws)');
 }
 
+/**
+ * DIAGNÓSTICO de por qué no conecta QZ Tray.
+ *
+ * «No se conecta» puede ser cuatro cosas muy distintas y hasta ahora todas se
+ * veían iguales: el componente del navegador que no carga, QZ Tray que no está
+ * abierto, el certificado de localhost sin aceptar, o el socket rechazando la
+ * conexión por otra razón. Sin distinguirlas, el soporte es adivinar por
+ * teléfono.
+ *
+ * Se prueba en orden y se devuelve el primer motivo real, con el paso concreto
+ * que lo arregla.
+ */
+export interface DiagnosticoQz {
+  pasos: Array<{ nombre: string; ok: boolean; detalle?: string }>;
+  /** Qué hacer, en una frase, si algo falló. */
+  recomendacion: string | null;
+  version?: string | null;
+}
+
+/** ¿Responde algo en ese puerto con TLS aceptado por el navegador? */
+async function puertoResponde(puerto: number): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    // `no-cors`: no se puede leer la respuesta, pero si el handshake TLS falla
+    // —o no hay nadie escuchando— la promesa se rechaza, que es justo el dato.
+    await fetch(`https://localhost:${puerto}`, {
+      mode: 'no-cors', cache: 'no-store', signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    return true;
+  } catch { return false; }
+}
+
+export async function qzDiagnostico(): Promise<DiagnosticoQz> {
+  const pasos: DiagnosticoQz['pasos'] = [];
+
+  // 1. El componente del navegador (lo sirve la propia app).
+  let scriptOk = !!(window as any).qz;
+  if (!scriptOk) {
+    try { await loadQZTrayScript(); scriptOk = !!(window as any).qz; } catch { scriptOk = false; }
+  }
+  pasos.push({
+    nombre: 'Componente de impresión del navegador',
+    ok: scriptOk,
+    detalle: scriptOk ? undefined : 'No se pudo cargar /qz-tray.js',
+  });
+  if (!scriptOk) {
+    return {
+      pasos,
+      recomendacion: 'Recargá la página (Ctrl+F5). Si sigue, la app quedó a medio '
+        + 'actualizar: cerrá y volvé a abrir el navegador.',
+    };
+  }
+
+  // 2. ¿Hay algo escuchando, con el certificado aceptado?
+  const puertos = [8181, 8282];
+  let puertoVivo: number | null = null;
+  for (const p of puertos) {
+    if (await puertoResponde(p)) { puertoVivo = p; break; }
+  }
+  pasos.push({
+    nombre: 'QZ Tray escuchando en la computadora',
+    ok: puertoVivo !== null,
+    detalle: puertoVivo !== null ? `Responde en el puerto ${puertoVivo}` : 'No responde en 8181 ni 8282',
+  });
+  if (puertoVivo === null) {
+    return {
+      pasos,
+      recomendacion: 'Dos causas posibles, en este orden: (1) QZ Tray no está abierto — '
+        + 'buscalo en la bandeja del reloj, y si no está, abrilo desde el menú de inicio; '
+        + '(2) falta aceptar su certificado — abrí https://localhost:8181 en una pestaña, '
+        + 'tocá «Avanzado» y «Continuar», y volvé a intentar.',
+    };
+  }
+
+  // 3. La conexión de verdad.
+  try {
+    await qzConnect();
+    let version: string | null = null;
+    try { version = await getQZ().api.getVersion(); } catch { /* opcional */ }
+    pasos.push({ nombre: 'Conexión establecida', ok: true, detalle: version ? `QZ Tray ${version}` : undefined });
+    return { pasos, recomendacion: null, version };
+  } catch (e: any) {
+    pasos.push({ nombre: 'Conexión establecida', ok: false, detalle: e?.message ?? 'rechazada' });
+    return {
+      pasos,
+      recomendacion: 'QZ Tray está abierto y responde, pero rechazó la conexión. '
+        + 'Cerralo del todo (clic derecho en el icono del reloj → Exit) y volvé a abrirlo. '
+        + 'Si aparece una ventana pidiendo permiso para el sitio, aceptá y marcá «Remember».',
+    };
+  }
+}
+
 export async function qzDisconnect(): Promise<void> {
   qzDisableAutoReconnect();   // no reintentar tras una desconexión manual
   connected = false;

@@ -11,7 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import {
   qzIsAvailable, qzConnect, qzGetPrinters, qzIsConnected,
-  qzEnableAutoReconnect, qzDisableAutoReconnect, onQzStatus,
+  qzEnableAutoReconnect, qzDisableAutoReconnect, onQzStatus, qzDiagnostico,
 } from '@/services/pos/qzTrayService';
 import type { PrinterEntry } from '@/services/pos/qzTrayService';
 import { nativeBtAvailable } from '@/services/pos/nativeBluetoothPrinter';
@@ -65,6 +65,30 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
   const [showCertPanel, setShowCertPanel] = useState(false);
 
   const [testLoading, setTestLoading] = useState<string | null>(null);
+  /** Resultado del diagnóstico: qué falla exactamente y qué hacer. */
+  const [diag, setDiag] = useState<Awaited<ReturnType<typeof qzDiagnostico>> | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+
+  /**
+   * Revisar por qué no conecta.
+   *
+   * «No se conecta» son cuatro problemas distintos —el componente del navegador,
+   * QZ Tray cerrado, el certificado sin aceptar, o el socket rechazando— y todos
+   * se veían iguales. Esto los separa y dice el paso que lo arregla, que es lo
+   * que hace falta para resolverlo por teléfono.
+   */
+  const diagnosticar = async () => {
+    setDiagLoading(true); setDiag(null);
+    log('🔎 Revisando QZ Tray paso por paso…');
+    try {
+      const r = await qzDiagnostico();
+      setDiag(r);
+      for (const p of r.pasos) log(`${p.ok ? '✅' : '❌'} ${p.nombre}${p.detalle ? ` — ${p.detalle}` : ''}`);
+      if (!r.recomendacion) { setQZStatus('connected'); qzGetPrinters().then(setQZPrinters).catch(() => {}); }
+    } catch (e) {
+      log(`❌ No se pudo revisar: ${e instanceof Error ? e.message : 'error'}`);
+    } finally { setDiagLoading(false); }
+  };
 
   const printers: PrinterEntry[] = config.printers ?? [];
 
@@ -417,6 +441,44 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
                   : <><WifiOff size={17} /> Conectar QZ Tray</>
                 }
               </button>
+
+              {/* Revisar por qué no conecta — aparece cuando hace falta. */}
+              {qzStatus !== 'connected' && (
+                <button
+                  onClick={() => void diagnosticar()}
+                  disabled={diagLoading}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border-2 border-slate-200 bg-white text-slate-600 font-bold text-xs hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {diagLoading
+                    ? <><RefreshCw size={14} className="animate-spin" /> Revisando…</>
+                    : <><Info size={14} /> ¿Por qué no conecta?</>}
+                </button>
+              )}
+
+              {diag && (
+                <div className={`rounded-xl border px-3 py-2.5 text-xs space-y-2 ${
+                  diag.recomendacion ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                  <div className="space-y-1">
+                    {diag.pasos.map((p, i) => (
+                      <p key={i} className={`flex items-start gap-1.5 font-semibold ${
+                        p.ok ? 'text-emerald-700' : 'text-red-700'}`}>
+                        <span>{p.ok ? '✅' : '❌'}</span>
+                        <span>{p.nombre}{p.detalle ? ` — ${p.detalle}` : ''}</span>
+                      </p>
+                    ))}
+                  </div>
+                  {diag.recomendacion && (
+                    <p className="text-amber-900 font-semibold leading-snug border-t border-amber-200 pt-2">
+                      {diag.recomendacion}
+                    </p>
+                  )}
+                  {!diag.recomendacion && (
+                    <p className="text-emerald-800 font-bold border-t border-emerald-200 pt-2">
+                      Todo en orden{diag.version ? ` · QZ Tray ${diag.version}` : ''}.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Console */}
               <div className="bg-slate-900 rounded-2xl p-5 text-slate-300 shadow-lg">
