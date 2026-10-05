@@ -324,8 +324,10 @@ async function qzConnectOnce(_certificate?: string): Promise<void> {
 
   if (pageIsHttps) {
     throw new Error(
-      'No se pudo conectar a QZ Tray. En Edge/Chrome abrí https://localhost:8181 ' +
-      'en una pestaña y aceptá el certificado (Avanzado → Continuar), luego reintentá.',
+      'No se pudo conectar a QZ Tray. Para imprimir YA, cambiá a «Imprimir por el navegador» '
+      + 'en Configuración → Factura: no necesita QZ ni certificado. Si querés seguir con QZ '
+      + '(imprime sin diálogo), abrí https://localhost:8181 en una pestaña y aceptá el '
+      + 'certificado (Avanzado → Continuar).',
     );
   }
   throw lastError instanceof Error
@@ -402,10 +404,13 @@ export async function qzDiagnostico(): Promise<DiagnosticoQz> {
   if (puertoVivo === null) {
     return {
       pasos,
-      recomendacion: 'Dos causas posibles, en este orden: (1) QZ Tray no está abierto — '
-        + 'buscalo en la bandeja del reloj, y si no está, abrilo desde el menú de inicio; '
-        + '(2) falta aceptar su certificado — abrí https://localhost:8181 en una pestaña, '
-        + 'tocá «Avanzado» y «Continuar», y volvé a intentar.',
+      recomendacion: 'Dos causas posibles: (1) QZ Tray no está abierto — buscalo en la '
+        + 'bandeja del reloj, y si no está, abrilo desde el menú de inicio; (2) el navegador '
+        + 'todavía no confía en su certificado de localhost. '
+        + 'SI NECESITÁS IMPRIMIR YA, no hace falta resolver nada de esto: cambiá a '
+        + '«Imprimir por el navegador» y se imprime con la impresora que Windows ya tiene. '
+        + 'El certificado (abrir https://localhost:8181 y aceptar) solo hace falta si querés '
+        + 'que imprima sin diálogo por QZ.',
     };
   }
 

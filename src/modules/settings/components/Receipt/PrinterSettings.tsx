@@ -442,6 +442,45 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
                 }
               </button>
 
+              {/**
+                * SALIDA SIN QZ TRAY.
+                *
+                * QZ Tray imprime directo, sin diálogo, pero depende de que el
+                * navegador confíe en su certificado de localhost — y eso puede
+                * trabar un local entero el día que se instala. Imprimir por el
+                * navegador no necesita certificado ni nada instalado: usa la
+                * impresora que Windows ya tiene. Sale el diálogo de impresión,
+                * que es un botón más por venta, y eso se quita con el acceso
+                * directo en modo kiosco.
+                *
+                * Se ofrece ACÁ, donde la persona está trabada, en vez de
+                * obligarla a adivinar que existe otro camino.
+                */}
+              {qzStatus !== 'connected' && config.printerType !== 'browser' && (
+                <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2.5 space-y-2">
+                  <p className="text-xs font-black text-emerald-900">¿Urge imprimir?</p>
+                  <p className="text-[11px] text-emerald-800 leading-snug">
+                    Pasá a <b>imprimir por el navegador</b>: no necesita QZ Tray ni certificado,
+                    usa la impresora que Windows ya tiene instalada. Sale el diálogo de impresión
+                    en cada venta.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setConfig({ ...config, printerType: 'browser' });
+                      log('🖨️ Cambiado a impresión por NAVEGADOR — no requiere QZ Tray.');
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black"
+                  >
+                    Imprimir por el navegador
+                  </button>
+                  <p className="text-[10px] text-emerald-700 leading-snug">
+                    Para que NO salga el diálogo: crear un acceso directo de Chrome con
+                    <code className="mx-1 px-1 bg-white/70 rounded">--kiosk-printing</code>
+                    y dejar la POS-58 como impresora predeterminada de Windows.
+                  </p>
+                </div>
+              )}
+
               {/* Revisar por qué no conecta — aparece cuando hace falta. */}
               {qzStatus !== 'connected' && (
                 <button
