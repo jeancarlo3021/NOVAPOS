@@ -305,11 +305,28 @@ async function qzConnectOnce(_certificate?: string): Promise<void> {
     ? [{ usingSecure: true, label: 'wss' }]
     : [{ usingSecure: true, label: 'wss' }, { usingSecure: false, label: 'ws' }];
 
+  /**
+   * PRIMERO `localhost.qz.io`, DESPUÉS `localhost`.
+   *
+   * Ese nombre es un registro público de QZ que apunta a 127.0.0.1, y QZ Tray
+   * trae para él un certificado firmado por una autoridad en la que el navegador
+   * YA confía. Conectando por ahí no aparece ninguna advertencia y no hay que
+   * aceptar nada: es el camino por el que QZ resolvió justamente este problema.
+   *
+   * El cliente de QZ ya traía los dos nombres, pero en este orden: `localhost`
+   * primero —el del certificado autofirmado, el que dispara la advertencia— y
+   * recién después el confiable. Invertirlo es todo lo que hacía falta.
+   *
+   * Se deja `localhost` como respaldo porque `localhost.qz.io` necesita resolver
+   * por DNS: en una red que lo bloquee, o sin internet, el respaldo salva.
+   */
+  const hosts = ['localhost.qz.io', 'localhost'];
+
   let lastError: unknown;
   for (const attempt of attempts) {
     try {
       // Más reintentos internos: Edge tarda más en el handshake del cert localhost.
-      await q.websocket.connect({ usingSecure: attempt.usingSecure, retries: 2, delay: 1 });
+      await q.websocket.connect({ host: hosts, usingSecure: attempt.usingSecure, retries: 2, delay: 1 });
       connected = true;
       qzEnableAutoReconnect();
       emitStatus('connected');
@@ -355,13 +372,13 @@ export interface DiagnosticoQz {
 }
 
 /** ¿Responde algo en ese puerto con TLS aceptado por el navegador? */
-async function puertoResponde(puerto: number): Promise<boolean> {
+async function puertoResponde(puerto: number, host = 'localhost'): Promise<boolean> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 2500);
     // `no-cors`: no se puede leer la respuesta, pero si el handshake TLS falla
     // —o no hay nadie escuchando— la promesa se rechaza, que es justo el dato.
-    await fetch(`https://localhost:${puerto}`, {
+    await fetch(`https://${host}:${puerto}`, {
       mode: 'no-cors', cache: 'no-store', signal: ctrl.signal,
     });
     clearTimeout(t);
@@ -390,27 +407,37 @@ export async function qzDiagnostico(): Promise<DiagnosticoQz> {
     };
   }
 
-  // 2. ¿Hay algo escuchando, con el certificado aceptado?
-  const puertos = [8181, 8282];
-  let puertoVivo: number | null = null;
-  for (const p of puertos) {
-    if (await puertoResponde(p)) { puertoVivo = p; break; }
+  /**
+   * 2. ¿Hay algo escuchando, y por cuál nombre?
+   *
+   * Importa CUÁL de los dos responde: por `localhost.qz.io` el certificado ya es
+   * confiable y no hay que aceptar nada; por `localhost` el navegador va a pedir
+   * aceptar el autofirmado.
+   */
+  const combinaciones: Array<{ host: string; puerto: number }> = [];
+  for (const h of ['localhost.qz.io', 'localhost']) {
+    for (const p of [8181, 8282]) combinaciones.push({ host: h, puerto: p });
+  }
+  let vivo: { host: string; puerto: number } | null = null;
+  for (const c of combinaciones) {
+    if (await puertoResponde(c.puerto, c.host)) { vivo = c; break; }
   }
   pasos.push({
     nombre: 'QZ Tray escuchando en la computadora',
-    ok: puertoVivo !== null,
-    detalle: puertoVivo !== null ? `Responde en el puerto ${puertoVivo}` : 'No responde en 8181 ni 8282',
+    ok: vivo !== null,
+    detalle: vivo
+      ? `Responde en ${vivo.host}:${vivo.puerto}`
+        + (vivo.host.endsWith('qz.io') ? ' — certificado ya confiable, no hay que aceptar nada' : '')
+      : 'No responde en 8181 ni 8282',
   });
+  const puertoVivo = vivo?.puerto ?? null;
   if (puertoVivo === null) {
     return {
       pasos,
-      recomendacion: 'Dos causas posibles: (1) QZ Tray no está abierto — buscalo en la '
-        + 'bandeja del reloj, y si no está, abrilo desde el menú de inicio; (2) el navegador '
-        + 'todavía no confía en su certificado de localhost. '
-        + 'SI NECESITÁS IMPRIMIR YA, no hace falta resolver nada de esto: cambiá a '
-        + '«Imprimir por el navegador» y se imprime con la impresora que Windows ya tiene. '
-        + 'El certificado (abrir https://localhost:8181 y aceptar) solo hace falta si querés '
-        + 'que imprima sin diálogo por QZ.',
+      recomendacion: 'QZ Tray no responde por ninguno de los dos nombres. Revisá que esté '
+        + 'abierto (icono en la bandeja del reloj). Si está abierto y sigue sin responder, la red '
+        + 'de esta computadora está bloqueando el acceso a localhost. '
+        + 'Mientras tanto se puede imprimir con «Imprimir por el navegador», que no necesita QZ.',
     };
   }
 
@@ -423,11 +450,25 @@ export async function qzDiagnostico(): Promise<DiagnosticoQz> {
     return { pasos, recomendacion: null, version };
   } catch (e: any) {
     pasos.push({ nombre: 'Conexión establecida', ok: false, detalle: e?.message ?? 'rechazada' });
+    /**
+     * Responde pero rechaza: lo más probable es la VERSIÓN de QZ Tray.
+     *
+     * El certificado confiable de `localhost.qz.io` lo traen las versiones 2.1 y
+     * posteriores. En una más vieja, ese nombre no tiene certificado válido y el
+     * navegador lo rechaza igual que el autofirmado — ahí sí no queda más que
+     * actualizar QZ o aceptar el certificado a mano.
+     */
+    const porQzIo = vivo?.host.endsWith('qz.io');
     return {
       pasos,
-      recomendacion: 'QZ Tray está abierto y responde, pero rechazó la conexión. '
-        + 'Cerralo del todo (clic derecho en el icono del reloj → Exit) y volvé a abrirlo. '
-        + 'Si aparece una ventana pidiendo permiso para el sitio, aceptá y marcá «Remember».',
+      recomendacion: porQzIo
+        ? 'QZ Tray responde pero rechazó la conexión. Cerralo del todo (clic derecho en el '
+          + 'icono del reloj → Exit) y volvé a abrirlo; si pide permiso para el sitio, aceptá y '
+          + 'marcá «Remember». Si sigue, actualizá QZ Tray a la última versión: el certificado '
+          + 'que evita la advertencia viene desde la 2.1.'
+        : 'QZ Tray responde solo por «localhost», no por «localhost.qz.io» — eso pasa en '
+          + 'versiones viejas de QZ. Actualizá QZ Tray a la última versión y vas a poder '
+          + 'conectar SIN aceptar ningún certificado. Mientras tanto, imprimí por el navegador.',
     };
   }
 }
