@@ -283,6 +283,13 @@ export interface ReceiptConfig {
   autoprint: boolean;
   printers?: PrinterEntry[];
   /**
+   * Certificado del sitio para firmar los trabajos de QZ Tray.
+   *
+   * Va en el tipo porque la conexión lo necesita: una firma sin certificado hace
+   * que QZ rechace el handshake (ver qzConnectOnce). Vacío = modo comunidad.
+   */
+  qz_certificate?: string;
+  /**
    * GRUPOS DE CATEGORÍAS para las comandas.
    *
    * Un grupo junta las categorías que salen del mismo lugar («Cocina caliente»
@@ -804,7 +811,9 @@ export class POSPrinterService {
     const config = cfg ?? this.getDefaultConfig();
     if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
 
-    await qzConnect();
+    // El certificado va SIEMPRE que se conoce: sin él, QZ no puede verificar la
+    // firma y rechaza el handshake (ver qzConnectOnce).
+    await qzConnect(config.qz_certificate);
 
     // ── Modo RAW ESC/POS para Xprinter (Cancela GB18030 + CP437) ──────────
     // Antes mandábamos HTML, que requería que la impresora tuviera un driver
@@ -1022,7 +1031,7 @@ export class POSPrinterService {
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       const escposBytes = this.generateCashCloseESCPOS(report, cfg, general);
       if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
-      await qzConnect();
+      await qzConnect(cfg.qz_certificate);
       const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
       if (receiptPrinters.length > 0) {
         for (const printer of receiptPrinters) await qzPrintToPrinter(printer, escposBytes);
@@ -1123,7 +1132,7 @@ export class POSPrinterService {
     }
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
-      await qzConnect();
+      await qzConnect(cfg.qz_certificate);
       const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
       if (receiptPrinters.length > 0) { for (const printer of receiptPrinters) await qzPrintToPrinter(printer, bytes); }
       else await qzPrintDefault(bytes);
@@ -1152,7 +1161,7 @@ export class POSPrinterService {
     }
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
-      await qzConnect();
+      await qzConnect(cfg.qz_certificate);
       const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
       if (receiptPrinters.length > 0) { for (const printer of receiptPrinters) await qzPrintToPrinter(printer, bytes); }
       else await qzPrintDefault(bytes);
@@ -1670,7 +1679,7 @@ export class POSPrinterService {
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       try {
         if (!(await qzIsAvailable())) throw new Error('QZ Tray no disponible');
-        await qzConnect();
+        await qzConnect(cfg.qz_certificate);
         const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
         if (receiptPrinters.length > 0) {
           const escposBytes = this.generatePurchaseOrderESCPOS(order, cfg, general);
@@ -2121,7 +2130,7 @@ export class POSPrinterService {
         + 'Abrilo (o instalalo) y volvé a intentar. Si la cocina imprime por Bluetooth, '
         + 'cambiá el envío en Configuración → Comandas.');
     }
-    await qzConnect();
+    await qzConnect(cfg.qz_certificate);
     const resultados = await Promise.allSettled(
       jobs.map(({ printer, its }) => qzPrintToPrinter(printer, buildData(printer, its))));
     const malas = resultados
@@ -3033,7 +3042,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     }
     if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
       if (!(await qzIsAvailable())) throw new Error('QZ Tray no está instalado o no está corriendo');
-      await qzConnect();
+      await qzConnect(cfg.qz_certificate);
       const receiptPrinters = (cfg.printers ?? []).filter(p2 => p2.type === 'receipt' && p2.is_active);
       if (receiptPrinters.length > 0) for (const p2 of receiptPrinters) await qzPrintToPrinter(p2, bytes);
       else await qzPrintDefault(bytes);
@@ -3087,7 +3096,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       // QZ Tray / térmica: por el mismo canal crudo del recibo.
       if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
         if (!(await qzIsAvailable())) return false;
-        await qzConnect();
+        await qzConnect(cfg.qz_certificate);
         const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
         if (receiptPrinters.length > 0) {
           for (const printer of receiptPrinters) await qzPrintToPrinter(printer, bytes);

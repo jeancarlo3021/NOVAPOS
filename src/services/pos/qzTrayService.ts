@@ -264,8 +264,7 @@ export function qzConnect(certificate?: string): Promise<void> {
   return connectInFlight;
 }
 
-async function qzConnectOnce(_certificate?: string): Promise<void> {
-  void _certificate; // firma compat: el firmado usa la private key de localStorage
+async function qzConnectOnce(certificate?: string): Promise<void> {
   // Try to load script if not already loaded
   if (!(window as any).qz) {
     await loadQZTrayScript();
@@ -279,20 +278,39 @@ async function qzConnectOnce(_certificate?: string): Promise<void> {
     try { await q.websocket.disconnect(); } catch { /* noop */ }
   }
 
-  // Only configure signing if a private key is available and valid.
-  // Without signing, QZ Tray uses community mode (user approves once, then remembers).
+  /**
+   * FIRMAR SOLO SI HAY CERTIFICADO *Y* LLAVE. Si falta uno, modo comunidad.
+   *
+   * Acá se configuraba la firma con solo encontrar una llave privada guardada en
+   * el navegador, y NUNCA se configuraba el certificado del sitio
+   * (`setCertificatePromise`). Eso le deja a QZ Tray una firma que no puede
+   * verificar, porque no sabe con qué certificado comprobarla: el handshake se
+   * rechaza. Desde afuera se ve exactamente como lo que estaba pasando — los
+   * puertos responden, QZ está abierto, y la conexión no entra.
+   *
+   * Peor: una llave vieja que quedó de una prueba basta para romper la conexión
+   * de un negocio que nunca quiso firmar nada.
+   *
+   * Sin firma, QZ usa el modo comunidad: muestra una vez su ventana de permiso y
+   * la recuerda. Es lo que corresponde cuando no hay certificado.
+   */
   const privPem = localStorage.getItem(PRIVATE_KEY_LS);
-  if (privPem) {
+  const certPem = (certificate ?? '').trim();
+  if (privPem && certPem) {
     try {
+      q.security.setCertificatePromise((resolve: any) => resolve(certPem));
       q.security.setSignatureAlgorithm('SHA512');
       q.security.setSignaturePromise((toSign: string) => (resolve: any, reject: any) => {
         signMessage(toSign)
           .then(resolve)
-          .catch(() => reject(new Error('Signing failed, using community mode')));
+          .catch(() => reject(new Error('Signing failed')));
       });
     } catch {
-      // Silently fall back to community mode if signing setup fails
+      // Si no se puede configurar, se sigue en modo comunidad.
     }
+  } else if (privPem && !certPem) {
+    console.warn('[QZ] Hay una llave privada guardada pero NO hay certificado: '
+      + 'se conecta en modo comunidad. Una firma sin certificado hace que QZ rechace la conexión.');
   }
 
   // Si la página corre en HTTPS, el navegador BLOQUEA ws:// (sin TLS) por
@@ -483,10 +501,11 @@ export async function qzDiagnostico(): Promise<DiagnosticoQz> {
     return {
       pasos,
       recomendacion: porQzIo
-        ? 'QZ Tray responde pero rechazó la conexión. Cerralo del todo (clic derecho en el '
-          + 'icono del reloj → Exit) y volvé a abrirlo; si pide permiso para el sitio, aceptá y '
-          + 'marcá «Remember». Si sigue, actualizá QZ Tray a la última versión: el certificado '
-          + 'que evita la advertencia viene desde la 2.1.'
+        ? 'QZ Tray responde pero RECHAZA la conexión. La causa más común: este sitio quedó en '
+          + 'la lista de BLOQUEADOS de QZ. Esa lista se guarda en disco, así que cerrar y volver '
+          + 'a abrir QZ no la limpia. Clic derecho en el icono de QZ (junto al reloj) → Advanced '
+          + '→ Site Manager: si aparece el sitio en «Blocked», quitalo y reintentá. '
+          + 'Si no está, actualizá QZ Tray a la última versión.'
         : 'QZ Tray responde solo por «localhost», no por «localhost.qz.io» — eso pasa en '
           + 'versiones viejas de QZ. Actualizá QZ Tray a la última versión y vas a poder '
           + 'conectar SIN aceptar ningún certificado. Mientras tanto, imprimí por el navegador.',
