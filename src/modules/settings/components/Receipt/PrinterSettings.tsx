@@ -81,7 +81,7 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
     setDiagLoading(true); setDiag(null);
     log('🔎 Revisando QZ Tray paso por paso…');
     try {
-      const r = await qzDiagnostico();
+      const r = await qzDiagnostico(config.qz_certificate);
       setDiag(r);
       for (const p of r.pasos) log(`${p.ok ? '✅' : '❌'} ${p.nombre}${p.detalle ? ` — ${p.detalle}` : ''}`);
       if (!r.recomendacion) { setQZStatus('connected'); qzGetPrinters().then(setQZPrinters).catch(() => {}); }
@@ -441,6 +441,47 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
                   : <><WifiOff size={17} /> Conectar QZ Tray</>
                 }
               </button>
+
+              {/**
+                * VOLVER A MODO COMUNIDAD en un clic.
+                *
+                * Media configuración de firma —una llave sin certificado, o un
+                * certificado sin su llave— hace que QZ rechace la conexión, y es
+                * invisible: la llave vive en el navegador de cada equipo. Pasa al
+                * probar un certificado de demostración «para ver si era eso».
+                *
+                * Sin certificado ni llave, QZ anda en modo comunidad: pide permiso
+                * una vez y lo recuerda. No hace falta comprar nada para imprimir.
+                */}
+              {qzStatus !== 'connected' && (!!config.qz_certificate || !!privateKey) && (
+                <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2.5 space-y-2">
+                  <p className="text-xs font-black text-amber-900">
+                    {config.qz_certificate && privateKey
+                      ? 'Estás usando conexión firmada'
+                      : 'Configuración de firma incompleta'}
+                  </p>
+                  <p className="text-[11px] text-amber-800 leading-snug">
+                    {config.qz_certificate && privateKey
+                      ? 'Si el certificado no es uno que QZ reconozca, rechaza la conexión.'
+                      : 'Hay solo una de las dos partes (certificado o llave). Así QZ RECHAZA la '
+                        + 'conexión: recibe una firma que no puede verificar.'}
+                    {' '}Sin certificado ni llave, QZ pide permiso una vez y queda andando — no
+                    hace falta comprar ningún certificado para imprimir.
+                  </p>
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem(PRIVATE_KEY_LS);
+                      setPrivateKey('');
+                      setConfig({ ...config, qz_certificate: '' });
+                      setDiag(null);
+                      log('🧹 Certificado y llave borrados — ahora conecta en modo comunidad.');
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-black"
+                  >
+                    Usar modo comunidad (borrar certificado y llave)
+                  </button>
+                </div>
+              )}
 
               {/**
                 * EN LA APP INSTALADA no hay dónde aceptar los permisos.

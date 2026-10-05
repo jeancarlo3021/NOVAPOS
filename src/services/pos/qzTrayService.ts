@@ -461,7 +461,7 @@ export function enAppInstalada(): boolean {
   } catch { return false; }
 }
 
-export async function qzDiagnostico(): Promise<DiagnosticoQz> {
+export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz> {
   const pasos: DiagnosticoQz['pasos'] = [];
 
   /**
@@ -476,6 +476,37 @@ export async function qzDiagnostico(): Promise<DiagnosticoQz> {
    * Sin decir esto, alguien puede pasar horas probando dentro del PWA: los
    * botones están, pero los diálogos que hacen falta no pueden aparecer ahí.
    */
+  /**
+   * EL ESTADO DE LA FIRMA, que es invisible y puede trabar todo.
+   *
+   * La llave privada vive en el navegador de cada equipo y el certificado en la
+   * configuración del negocio. Si queda UNA de las dos —una llave de alguna
+   * prueba, o un certificado pegado sin su llave— el handshake se rechaza: QZ
+   * recibe una firma que no puede verificar, o un certificado sin firmas.
+   *
+   * Sin certificado y sin llave, QZ funciona en MODO COMUNIDAD: pide permiso una
+   * vez y lo recuerda. No hace falta comprar ningún certificado para imprimir —
+   * el certificado pago solo sirve para que no pregunte nunca.
+   */
+  const hayLlave = !!localStorage.getItem(PRIVATE_KEY_LS);
+  const hayCert = !!(certificado ?? '').trim();
+  pasos.push({
+    nombre: 'Modo de conexión',
+    ok: !(hayLlave !== hayCert),
+    detalle: hayLlave && hayCert ? 'Firmado (certificado + llave)'
+      : !hayLlave && !hayCert ? 'Comunidad — QZ pide permiso una vez y lo recuerda'
+      : hayLlave ? 'HAY UNA LLAVE PRIVADA SIN CERTIFICADO: así QZ rechaza la conexión'
+      : 'HAY UN CERTIFICADO SIN LLAVE PRIVADA: así QZ rechaza la conexión',
+  });
+  if (hayLlave !== hayCert) {
+    return {
+      pasos,
+      recomendacion: 'Borrá el certificado y la llave privada (botón «Usar modo comunidad» '
+        + 'en esta misma pantalla) y reintentá. Con los dos campos vacíos, QZ pide permiso una '
+        + 'vez y queda andando: NO hace falta comprar ningún certificado para imprimir.',
+    };
+  }
+
   const pwa = enAppInstalada();
   if (pwa) {
     pasos.push({
