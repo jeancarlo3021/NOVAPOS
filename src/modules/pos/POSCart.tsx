@@ -167,6 +167,18 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   // o quiten líneas. NO actúa mientras se escribe en un input (el campo de
   // captura del POS usa las mismas flechas para elegir coincidencias).
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * Línea bajo el mouse: se ABRE para mostrar el nombre completo.
+   *
+   * El carrito es angosto y los nombres largos salían cortados («Coca Cola 2.5
+   * L Retorn…»), que es justo lo que hay que leer para confirmar que se marcó
+   * el producto correcto. Al pasar el mouse la línea se expande y se ve entero,
+   * con sus extras y su nota, sin tener que agrandar el panel ni cambiar de
+   * formato. Se abre TAMBIÉN la línea seleccionada: en pantalla táctil no hay
+   * mouse, y ahí se elige con el dedo o con las flechas.
+   */
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const lineaAbierta = (id: string) => hoverId === id || selectedId === id;
   // Línea cuya nota se está escribiendo (product_id) + texto en edición.
   const [notingId, setNotingId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
@@ -336,14 +348,18 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                 return (
                   <tr key={item.product_id}
                     onClick={() => setSelectedId(item.product_id)}
+                    onMouseEnter={() => setHoverId(item.product_id)}
+                    onMouseLeave={() => setHoverId(h => (h === item.product_id ? null : h))}
                     className={`border-b border-gray-100 cursor-pointer ${
                       selectedId === item.product_id
                         ? 'bg-emerald-100/70 outline outline-2 -outline-offset-2 outline-emerald-500'
                         : 'hover:bg-emerald-50/40'
                     }`}>
                     <td className="px-3 py-1.5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-bold text-gray-900 truncate">{item.product.name}</span>
+                      <div className="flex items-start gap-2 min-w-0">
+                        <span className={`font-bold text-gray-900 text-base ${
+                          lineaAbierta(item.product_id) ? 'whitespace-normal break-words' : 'truncate'
+                        }`}>{item.product.name}</span>
                         {hasPromo && (
                           <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] bg-violet-100 text-violet-700 font-bold px-1.5 py-0.5 rounded">
                             <Tag size={9} />
@@ -366,13 +382,15 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                       </div>
                       {/* Extras elegidos (ya incluidos en el precio unitario). */}
                       {item.modifiers && item.modifiers.length > 0 && (
-                        <p className="text-[11px] text-violet-700 font-semibold truncate pl-0.5">
+                        <p className={`text-xs text-violet-700 font-semibold pl-0.5 ${
+                          lineaAbierta(item.product_id) ? 'whitespace-normal break-words' : 'truncate'}`}>
                           + {item.modifiers.map(m => m.name).join(', ')}
                         </p>
                       )}
                       {/* Nota guardada, visible bajo el nombre. */}
                       {item.notes && !item.modifiers?.length && notingId !== item.product_id && (
-                        <p className="text-[11px] text-amber-700 font-semibold truncate pl-0.5">↳ {item.notes}</p>
+                        <p className={`text-xs text-amber-700 font-semibold pl-0.5 ${
+                          lineaAbierta(item.product_id) ? 'whitespace-normal break-words' : 'truncate'}`}>↳ {item.notes}</p>
                       )}
                       {notingId === item.product_id && (
                         <input
@@ -481,23 +499,29 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               return (
               <li key={item.product_id}
                 onClick={() => setSelectedId(item.product_id)}
-                className={`py-1.5 px-1.5 -mx-1.5 rounded-lg cursor-pointer ${
-                  selectedId === item.product_id ? 'bg-emerald-100/70 ring-2 ring-emerald-500' : ''
+                onMouseEnter={() => setHoverId(item.product_id)}
+                onMouseLeave={() => setHoverId(h => (h === item.product_id ? null : h))}
+                className={`py-1.5 px-1.5 -mx-1.5 rounded-lg cursor-pointer transition-colors ${
+                  selectedId === item.product_id
+                    ? 'bg-emerald-100/70 ring-2 ring-emerald-500'
+                    : hoverId === item.product_id ? 'bg-emerald-50/60' : ''
                 }`}>
                 {/* Fila 1: nombre + subtotal + eliminar */}
-                <div className="flex items-center gap-2">
-                  <span className="flex-1 min-w-0 text-gray-900 text-sm font-bold leading-tight truncate">
+                <div className="flex items-start gap-2">
+                  <span className={`flex-1 min-w-0 text-gray-900 text-base font-bold leading-snug ${
+                    lineaAbierta(item.product_id) ? 'whitespace-normal break-words' : 'truncate'
+                  }`}>
                     {item.product.name}
                     {hasPromo && (
-                      <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] bg-violet-100 text-violet-700 font-bold px-1 py-0.5 rounded align-middle">
-                        <Tag size={9} /> {item.promo!.type === '2x1' ? '2×1' : item.promo!.type === 'percentage' ? `${item.promo!.value}%` : `-₡${item.promo!.value}`}
+                      <span className="ml-1 inline-flex items-center gap-0.5 text-[11px] bg-violet-100 text-violet-700 font-bold px-1 py-0.5 rounded align-middle">
+                        <Tag size={10} /> {item.promo!.type === '2x1' ? '2×1' : item.promo!.type === 'percentage' ? `${item.promo!.value}%` : `-₡${item.promo!.value}`}
                       </span>
                     )}
                   </span>
                   {showOriginal && (
-                    <span className="text-gray-300 text-[11px] line-through shrink-0">₡{money(showAmount(item, originalSubtotal))}</span>
+                    <span className="text-gray-300 text-xs line-through shrink-0">₡{money(showAmount(item, originalSubtotal))}</span>
                   )}
-                  <span className={`font-black text-sm shrink-0 tabular-nums ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
+                  <span className={`font-black text-base shrink-0 tabular-nums ${showOriginal ? 'text-violet-600' : 'text-emerald-600'}`}>
                     ₡{money(showLine(item))}
                   </span>
                   <button
@@ -515,12 +539,12 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                     trunca a una línea: un plato puede llevar varios extras y
                     cortarlos escondería justo lo que hay que revisar. */}
                 {item.modifiers && item.modifiers.length > 0 && (
-                  <p className="text-[11px] text-violet-700 font-semibold leading-snug mt-0.5">
+                  <p className="text-xs text-violet-700 font-semibold leading-snug mt-0.5">
                     + {item.modifiers.map(m => m.name).join(', ')}
                   </p>
                 )}
                 {item.notes && !item.modifiers?.length && (
-                  <p className="text-[11px] text-amber-700 font-semibold leading-snug mt-0.5">
+                  <p className="text-xs text-amber-700 font-semibold leading-snug mt-0.5">
                     ↳ {item.notes}
                   </p>
                 )}
@@ -544,7 +568,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                   >
                     <Plus size={14} />
                   </button>
-                  <span className="text-gray-400 text-[11px] font-medium ml-1 truncate">₡{money(showUnit(item))} c/u</span>
+                  <span className="text-gray-500 text-xs font-medium ml-1 truncate">₡{money(showUnit(item))} c/u</span>
 
                   {canDiscount && !hasPromo && (
                     <span className="ml-auto flex items-center gap-1 shrink-0">
