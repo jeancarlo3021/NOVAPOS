@@ -126,7 +126,17 @@ export async function openFeInvoicePdf(invoiceId: string, opts: { creditNote?: b
   @media print { body { padding: 0; } }
 </style></head><body>
   <div class="head">
-    <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : `<div style="font-weight:900;font-size:20px;color:#2563eb">ColónClick</div>`}</div>
+    <div>${logo
+      ? `<img class="logo" src="${esc(logo)}" alt="logo"/>`
+      /**
+       * Sin logo va el NOMBRE DEL NEGOCIO, no el nuestro.
+       *
+       * Acá decía «ColónClick» en azul: nuestra marca impresa en el comprobante
+       * fiscal del cliente del cliente, en lugar del negocio que vendió. El que
+       * recibe la factura no nos conoce ni tiene por qué.
+       */
+      : `<div style="font-weight:900;font-size:20px;color:#111827">${
+        esc(emisor?.emisor_commercial_name || emisor?.emisor_name || '')}</div>`}</div>
     <div class="doc">
       <h1>${tipoLabel}</h1>
       <div class="num">N° ${esc(inv.invoice_number)}</div>

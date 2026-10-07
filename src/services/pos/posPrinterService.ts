@@ -1227,6 +1227,15 @@ export class POSPrinterService {
   }
 
   /** Imprime un documento genérico (comprobantes de CxC, históricos, listas). */
+  /**
+   * Documento genérico por líneas: apartados, abonos de crédito, cierres.
+   *
+   * ── El logo faltaba ───────────────────────────────────────────────────────
+   * Esto imprime DOS comprobantes que recibe el cliente —el del apartado y el
+   * recibo de abono de una cuenta por cobrar— y no llevaba logo por ningún lado,
+   * mientras el tiquete de venta sí. El mismo negocio entregaba papeles con marca
+   * y sin marca según lo que estuviera cobrando.
+   */
   async printDoc(lines: Array<{ t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string }>, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
     const w = anchoEnCaracteres(cfg.paperWidth);
@@ -1254,11 +1263,20 @@ export class POSPrinterService {
         if (ln.t === 'row') return `<div style="display:flex;justify-content:space-between;gap:8px"><span>${esc(ln.a ?? '')}</span><span>${esc(ln.b ?? '')}</span></div>`;
         return `<div>${esc(ln.a ?? '')}</div>`;
       }).join('');
-      await this.printHTMLContent(`<div style="font-family:monospace;font-size:12px;width:280px;margin:0 auto">${body}</div>`);
+      const verLogo = verEnTicket(cfg).logo ? (cfg.logoUrl ?? '') : '';
+      const cabecera = verLogo
+        ? `<div style="text-align:center;margin-bottom:4px"><img src="${esc(verLogo)}" `
+          + 'style="max-height:70px;max-width:200px;object-fit:contain" alt=""/></div>'
+        : '';
+      await this.printHTMLContent(
+        `<div style="font-family:monospace;font-size:12px;width:280px;margin:0 auto">${cabecera}${body}</div>`);
       return;
     }
 
     push(0x1B, 0x40); push(0x1C, 0x2E); push(0x1B, 0x52, 0x00); push(0x1B, 0x74, 0x00); push(0x1B, 0x21, 0x00);
+    // El logo va primero, convertido a puntos (igual que el tiquete de venta).
+    const logoDoc = await this.logoTermico({} as ReceiptData, cfg);
+    if (logoDoc && logoDoc.length > 0) { for (const b of logoDoc) cmds.push(b); }
     for (const ln of lines) {
       if (ln.t === 'sep') sep();
       else if (ln.t === 'title') { push(0x1B, 0x21, 0x08); center(ln.a ?? ''); push(0x1B, 0x21, 0x00); }
