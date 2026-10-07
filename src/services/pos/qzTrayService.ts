@@ -257,6 +257,9 @@ export async function attemptReconnect(): Promise<boolean> {
 // ambas comparten la misma promesa en vez de crear dos WebSockets que se pisan
 // (causa típica del error "connection.sendData is not a function").
 let connectInFlight: Promise<void> | null = null;
+/** Último nombre por el que se logró conectar (para soporte). */
+let ultimoHost = '';
+export function qzUltimoHost(): string { return ultimoHost; }
 
 export function qzConnect(certificate?: string): Promise<void> {
   if (connectInFlight) return connectInFlight;
@@ -324,21 +327,30 @@ async function qzConnectOnce(certificate?: string): Promise<void> {
     : [{ usingSecure: true, label: 'wss' }, { usingSecure: false, label: 'ws' }];
 
   /**
-   * PRIMERO `localhost.qz.io`, DESPUÉS `localhost`.
+   * `localhost` PRIMERO. `localhost.qz.io` es el respaldo.
    *
-   * Ese nombre es un registro público de QZ que apunta a 127.0.0.1, y QZ Tray
-   * trae para él un certificado firmado por una autoridad en la que el navegador
-   * YA confía. Conectando por ahí no aparece ninguna advertencia y no hay que
-   * aceptar nada: es el camino por el que QZ resolvió justamente este problema.
+   * ── El error que esto corrige ──────────────────────────────────────────────
+   * Yo había invertido este orden para que una instalación nueva no tuviera que
+   * aceptar el certificado autofirmado de `localhost`: por `localhost.qz.io` —un
+   * registro público de QZ que apunta a 127.0.0.1— el certificado ya es confiable.
    *
-   * El cliente de QZ ya traía los dos nombres, pero en este orden: `localhost`
-   * primero —el del certificado autofirmado, el que dispara la advertencia— y
-   * recién después el confiable. Invertirlo es todo lo que hacía falta.
+   * Pero ese nombre NECESITA RESOLVER POR DNS. Y este sistema está hecho para
+   * trabajar sin internet: un punto de venta offline no puede resolverlo, así que
+   * cada intento se iba a esperar el tiempo del DNS antes de pasar al siguiente
+   * puerto. Con dos nombres, cuatro puertos y reintentos, eso son más de diez
+   * esperas largas antes de probar `localhost` — que es el que SÍ funciona en las
+   * trece instalaciones que ya estaban andando. Desde el mostrador se ve como «no
+   * conecta».
    *
-   * Se deja `localhost` como respaldo porque `localhost.qz.io` necesita resolver
-   * por DNS: en una red que lo bloquee, o sin internet, el respaldo salva.
+   * Es decir: para ahorrarle un paso de instalación a uno, le rompí la impresión a
+   * los trece que ya funcionaban, y justo cuando se les cae el internet.
+   *
+   * Ahora `localhost` va primero —es local, resuelve siempre, sin red— y
+   * `localhost.qz.io` queda de respaldo, que es además el orden que trae el
+   * cliente de QZ por omisión. Una instalación nueva igual llega al nombre
+   * confiable; solo le cuesta un intento más.
    */
-  const hosts = ['localhost.qz.io', 'localhost'];
+  const hosts = ['localhost', 'localhost.qz.io'];
 
   /**
    * Un intento que quedó COLGADO bloqueaba todos los siguientes.
@@ -359,7 +371,9 @@ async function qzConnectOnce(certificate?: string): Promise<void> {
 
   const intentar = async (usingSecure: boolean) => {
     try {
-      await q.websocket.connect({ host: hosts, usingSecure, retries: 2, delay: 1 });
+      // `retries: 1`: con dos nombres y cuatro puertos cada reintento multiplica
+      // la espera. El que no conecta al segundo intento no conecta al tercero.
+      await q.websocket.connect({ host: hosts, usingSecure, retries: 1, delay: 1 });
     } catch (e) {
       if (!estadoTrabado(e)) throw e;
       try { await q.websocket.disconnect(); } catch { /* ya estaba cerrado */ }
@@ -374,6 +388,17 @@ async function qzConnectOnce(certificate?: string): Promise<void> {
       // Más reintentos internos: Edge tarda más en el handshake del cert localhost.
       await intentar(attempt.usingSecure);
       connected = true;
+      /**
+       * Queda anotado por dónde entró.
+       *
+       * Cuando varios clientes reportan «no conecta» a la vez, lo primero que hay
+       * que saber es por qué nombre y puerto entraban antes y por cuál ahora. Sin
+       * eso se adivina, y adivinar en producción cuesta caro.
+       */
+      try {
+        const url = String((getQZ().websocket as any).getConnectionInfo?.()?.host ?? '');
+        if (url) ultimoHost = url;
+      } catch { /* la versión del cliente puede no exponerlo */ }
       qzEnableAutoReconnect();
       emitStatus('connected');
       return;
@@ -579,7 +604,12 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
     await qzConnect();
     let version: string | null = null;
     try { version = await getQZ().api.getVersion(); } catch { /* opcional */ }
-    pasos.push({ nombre: 'Conexión establecida', ok: true, detalle: version ? `QZ Tray ${version}` : undefined });
+    pasos.push({
+      nombre: 'Conexión establecida',
+      ok: true,
+      detalle: [version ? `QZ Tray ${version}` : null, ultimoHost ? `por ${ultimoHost}` : null]
+        .filter(Boolean).join(' · ') || undefined,
+    });
     return { pasos, recomendacion: null, version };
   } catch (e: any) {
     pasos.push({ nombre: 'Conexión establecida', ok: false, detalle: e?.message ?? 'rechazada' });
