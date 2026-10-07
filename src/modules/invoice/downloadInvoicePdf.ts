@@ -205,6 +205,27 @@ export async function downloadInvoicePdf(d: InvoicePdfData, tenantId?: string | 
     doc.text(String(it.quantity), xQty, y, { align: 'right' });
     doc.text(money(it.unit_price), xPrice, y, { align: 'right' });
     doc.text(money(it.subtotal), xTot - 4, y, { align: 'right' });
+
+    /**
+     * LO REBAJADO EN LA LÍNEA, debajo del nombre.
+     *
+     * El precio unitario de la hoja es el de LISTA y el subtotal el cobrado. Con
+     * un descuento de línea los dos números no cuadran y el PDF no daba ninguna
+     * explicación — y el descuento existe justamente para quedar probado. El dato
+     * ya viene (es la diferencia): solo había que escribirlo.
+     */
+    const bruto = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
+    const rebaja = Math.round((bruto - (Number(it.subtotal) || 0)) * 100) / 100;
+    // Menos de un colón es redondeo, no descuento: no se escribe.
+    const pctRebaja = bruto > 0 ? Math.round((rebaja / bruto) * 1000) / 10 : 0;
+    if (bruto > 0 && rebaja >= 1 && pctRebaja >= 0.1) {
+      const pct = pctRebaja;
+      doc.setFontSize(8); doc.setTextColor(107, 114, 128);
+      doc.text(`Descuento ${pct}% · −${money(rebaja)}`, M + 4, y + 10);
+      doc.setFontSize(10); doc.setTextColor(31, 41, 55);
+      y += 11;
+    }
+
     doc.setDrawColor(243, 244, 246); doc.line(M, y + 5, W - M, y + 5);
     y += 20;
   }

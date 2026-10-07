@@ -224,6 +224,38 @@ export interface ReceiptData {
  *     que alguien suba o llene algo primero, así que apagados por omisión no
  *     sorprenden a nadie.
  */
+/**
+ * EL DESCUENTO DE UNA LÍNEA, deducido de lo que ya viene.
+ *
+ * El punto de venta electrónico deja poner un descuento por línea y en pantalla
+ * se ve («Desc. 10%», en verde). En el papel y en el PDF no aparecía por ningún
+ * lado: se imprimía el precio de lista y, al lado, un total de línea más bajo. Los
+ * números no cerraban y el cliente no tenía cómo saber por qué — que es justo el
+ * dato que el descuento tiene que dejar probado.
+ *
+ * No hace falta que cada pantalla lo mande: ya está implícito en los datos que
+ * todas pasan. `unitPrice` es el precio de lista y `subtotal` lo que de verdad se
+ * cobra por la línea; la diferencia ES el descuento. Si la pantalla manda el
+ * precio ya rebajado, la diferencia da cero y no se imprime nada — que es lo
+ * correcto.
+ */
+export function descuentoDeLinea(it: { quantity: number; unitPrice: number; subtotal: number }) {
+  const bruto = (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+  const neto = Number(it.subtotal) || 0;
+  const monto = Math.round((bruto - neto) * 100) / 100;
+  /**
+   * Menos de un colón no es un descuento: es redondeo.
+   *
+   * Con el umbral en un céntimo, una diferencia de ₡0,01 imprimía «Desc. 0%» —una
+   * línea de basura en el tiquete por una migaja de redondeo—. En Costa Rica los
+   * precios son colones enteros, así que un descuento de verdad es ₡1 o más.
+   */
+  if (bruto <= 0 || monto < 1) return null;
+  const pct = Math.round((monto / bruto) * 1000) / 10;
+  if (pct < 0.1) return null;
+  return { monto, pct };
+}
+
 export function verEnTicket(cfg: Partial<ReceiptConfig>) {
   const siSalvoQueNo = (v: unknown) => v !== false;   // esencial: opt-out
   const soloSiLoPidio = (v: unknown) => v === true;   // extra: opt-in
@@ -2220,14 +2252,22 @@ export class POSPrinterService {
     // El NÚMERO y la FECHA van siempre: son parte de lo que hace válido al
     // documento, no un adorno que se pueda apagar.
 
-    const rows = r.items.map((it, i) => `
+    const rows = r.items.map((it, i) => {
+      // Lo rebajado en la línea, debajo de la descripción: en la hoja el precio
+      // unitario es el de lista y el subtotal el cobrado, así que sin esta línea
+      // la resta no se explica (ver descuentoDeLinea).
+      const d = descuentoDeLinea(it);
+      return `
       <tr>
         <td class="c">${i + 1}</td>
-        <td>${esc(it.name)}</td>
+        <td>${esc(it.name)}${d
+          ? `<div style="font-size:10px;color:#6b7280">Descuento ${d.pct}% · −${money(d.monto)}</div>`
+          : ''}</td>
         <td class="r">${Number(it.quantity)}</td>
         <td class="r">${money(it.unitPrice)}</td>
         <td class="r">${money(it.subtotal)}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
 
     return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
 <title>${esc(tipoLabel)} ${esc(r.invoiceNumber)}</title>
@@ -2354,6 +2394,14 @@ export class POSPrinterService {
       <tr class="item-detail">
         <td colspan="3">&nbsp;&nbsp;${item.quantity} × ₡${fmt(wTax(item.unitPrice))}</td>
       </tr>
+      ${(() => {
+        // Lo rebajado en esta línea (ver descuentoDeLinea).
+        const d = descuentoDeLinea(item);
+        return d
+          ? `<tr class="item-detail"><td colspan="2">&nbsp;&nbsp;Desc. ${d.pct}%</td>`
+            + `<td class="item-price">-₡${fmt(wTax(d.monto))}</td></tr>`
+          : '';
+      })()}
       ${item.notes?.trim() ? `<tr class="item-detail"><td colspan="3"><b>&nbsp;&nbsp;* ${item.notes.trim()}</b></td></tr>` : ''}
     `).join('');
 
@@ -2817,6 +2865,12 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       const spaces = charWidth - name.length - price.length;
       text(name + ' '.repeat(Math.max(1, spaces)) + price); nl();
       text(`  ${item.quantity} x ${withTax(item.unitPrice).toLocaleString('es-CR')}`); nl();
+      // Lo rebajado en ESTA línea: sin esto, el precio de arriba y el total de la
+      // línea no cuadran y no hay forma de explicarlo.
+      const desc = descuentoDeLinea(item);
+      if (desc) {
+        rightAlign(`  Desc. ${desc.pct}%`, `-${withTax(desc.monto).toLocaleString('es-CR')}`);
+      }
       // Nota de la línea (cocina): se parte a lo ancho del papel.
       if (item.notes?.trim()) {
         const note = `  * ${item.notes.trim()}`;
