@@ -62,6 +62,20 @@ function effectiveEndsAt(o: {
   created_at?: string;
   plan_billing_cycle?: string;
 }): { date: string | null; computed: boolean } {
+  /**
+   * Plan VITALICIO: no vence, y el ciclo manda sobre la fecha guardada.
+   *
+   * Dos cosas le inventaban vencimiento a un plan vitalicio —«Fe solo», por
+   * ejemplo—. Cuando la suscripción no traía fecha, acá se estimaba
+   * «activación + 30 días». Y cuando sí la traía —quedaron fechas viejas, de
+   * cuando se calculaban sin mirar el ciclo— se mostraba esa. En los dos casos
+   * el panel ponía la cuenta por vencer o vencida, la metía en «requieren
+   * atención» y le mandaba aviso de cobro a quien no debe nada. El servidor ya
+   * trata estas cuentas como sin vencimiento (middleware/tenantStatus y los
+   * avisos); acá se muestra lo mismo.
+   */
+  if ((o.plan_billing_cycle ?? '').trim().toLowerCase() === 'lifetime')
+    return { date: null, computed: false };
   if (o.ends_at) return { date: o.ends_at, computed: false };
   const base = o.started_at ?? o.created_at;
   if (!base) return { date: null, computed: false };

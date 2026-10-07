@@ -3,6 +3,7 @@ import {
   BarChart3, RefreshCw, Search, Download, AlertTriangle, Loader2, ArrowUpDown, Settings2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { FeUsageReport } from './FeUsageReport';
 
 interface FilaUso {
   tenant_id: string;
@@ -48,7 +49,7 @@ const hace = (dias: number | null) =>
  *   que se va: se va callado, y cuando le llega la factura la cancela. Con la
  *   última venta y el último ingreso a la vista se lo puede llamar antes.
  */
-export const UsageReportsView: React.FC = () => {
+const UsoGeneral: React.FC = () => {
   const [dias, setDias] = useState<number>(30);
   const [filas, setFilas] = useState<FilaUso[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -131,9 +132,9 @@ export const UsageReportsView: React.FC = () => {
     <div className="space-y-4">
       <div className="flex items-start gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
-          <h2 className="text-lg font-black text-gray-900 flex items-center gap-2">
-            <BarChart3 size={18} className="text-emerald-600" /> Uso por negocio
-          </h2>
+          <h3 className="text-base font-black text-gray-900 flex items-center gap-2">
+            <BarChart3 size={17} className="text-emerald-600" /> Ventas y actividad
+          </h3>
           <p className="text-sm text-gray-500">
             Cuánto usa el sistema cada negocio en los últimos {dias} días: ventas, monto facturado,
             comprobantes electrónicos y cuándo fue la última vez que vendieron o entraron.
@@ -281,6 +282,39 @@ export const UsageReportsView: React.FC = () => {
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+/**
+ * USO POR NEGOCIO — dos miradas del mismo cliente.
+ *
+ * «Ventas y actividad» dice cuánto trabaja con el sistema. «Facturación
+ * electrónica» dice cuánto le cabe en la bolsa que paga y cuánto gasta: es la
+ * que sirve para cobrar el excedente, ofrecer el plan de arriba y detectar al
+ * que paga FE y dejó de emitir. Cada una carga sus datos cuando se abre: el
+ * reporte de FE recorre todos los comprobantes y no tiene por qué pesar sobre
+ * quien solo venía a ver las ventas.
+ */
+export const UsageReportsView: React.FC = () => {
+  const [vista, setVista] = useState<'uso' | 'fe'>('uso');
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-black text-gray-900 flex items-center gap-2">
+          <BarChart3 size={18} className="text-emerald-600" /> Uso por negocio
+        </h2>
+        <div className="flex items-center gap-1 mt-3 bg-gray-100 rounded-xl p-1 w-fit">
+          {([['uso', 'Ventas y actividad'], ['fe', 'Facturación electrónica']] as const).map(([v, t]) => (
+            <button key={v} onClick={() => setVista(v)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${
+                vista === v ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+      {vista === 'uso' ? <UsoGeneral /> : <FeUsageReport />}
     </div>
   );
 };
