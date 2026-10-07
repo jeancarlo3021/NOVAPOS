@@ -59,14 +59,44 @@ export async function openFeInvoicePdf(invoiceId: string, opts: { creditNote?: b
       ${receptor?.email ? `<div>${esc(receptor.email)}</div>` : ''}
     </div>`;
 
-  const rowsHtml = items.map((it, i) => `
+  const rowsHtml = items.map((it, i) => {
+    /**
+     * Lo rebajado en la línea.
+     *
+     * El precio unitario de la tabla es el de LISTA y el subtotal el cobrado: con
+     * un descuento de línea los dos números no cuadran y el documento no daba
+     * ninguna explicación. El monto viene guardado, y si faltara se deduce de la
+     * diferencia. Menos de ₡1 es redondeo, no descuento.
+     */
+    const bruto = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
+    const rebaja = Math.round((Number(it.discount_amount) || (bruto - (Number(it.subtotal) || 0))) * 100) / 100;
+    const pct = bruto > 0 ? Math.round((rebaja / bruto) * 1000) / 10 : 0;
+    const conDesc = rebaja >= 1 && pct >= 0.1;
+    return `
     <tr>
       <td>${i + 1}</td>
-      <td>${esc(it.product_name ?? 'Producto')}</td>
+      <td>${esc(it.product_name ?? 'Producto')}${conDesc
+        ? `<div style="font-size:10px;color:#6b7280">Descuento ${pct}% · −${money(rebaja)}</div>`
+        : ''}</td>
       <td class="r">${Number(it.quantity)}</td>
       <td class="r">${money(Number(it.unit_price))}</td>
       <td class="r">${money(Number(it.subtotal))}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+
+  /**
+   * LAS NOTAS DE LA FACTURA.
+   *
+   * Es lo que el cajero escribe al cobrar —«Del 04 al 06 de Octubre», el número de
+   * comprobante de la transferencia, la orden de compra del cliente— y es el dato
+   * por el que después se identifica esa venta. Se guardaba (1.851 facturas lo
+   * tienen) y el tiquete térmico lo imprimía, pero ESTE documento —el PDF del
+   * comprobante electrónico, justo el que se le manda al cliente— no lo mostraba.
+   */
+  const nota = String(inv.notes ?? '').trim();
+  const notasBlock = nota
+    ? `<div class="fe" style="white-space:pre-wrap"><div><b>Notas:</b></div><div>${esc(nota)}</div></div>`
+    : '';
 
   const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
 <title>${tipoLabel} ${esc(inv.invoice_number)}</title>
@@ -117,6 +147,8 @@ export async function openFeInvoicePdf(invoiceId: string, opts: { creditNote?: b
     ${Number(inv.tax_amount) > 0 ? `<div><span>Impuesto (IVA)</span><span>${money(Number(inv.tax_amount))}</span></div>` : ''}
     <div class="grand"><span>TOTAL</span><span>${money(Number(inv.total))}</span></div>
   </div>
+
+  ${notasBlock}
 
   ${clave ? `<div class="fe">
     <div><b>Clave numérica:</b></div>
