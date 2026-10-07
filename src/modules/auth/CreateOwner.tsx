@@ -261,7 +261,12 @@ export const CreateOwner: React.FC = () => {
       `Escribí el nombre EXACTO del negocio para confirmar:`
     );
     if (typed == null) return;
-    if (typed.trim().toLowerCase() !== String(o.name ?? '').trim().toLowerCase()) {
+    // Mismo criterio que al eliminar: el «·» y los espacios dobles de los nombres
+    // de actividad hacían imposible acertar.
+    const normal = (v: string) => String(v ?? '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[·.]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (normal(typed) !== normal(o.name)) {
       showToast('El nombre no coincide. Cancelado.', 'error');
       return;
     }
@@ -684,9 +689,30 @@ export const CreateOwner: React.FC = () => {
       `· Facturas, productos, gastos, compras, sesiones de caja, usuarios.\n\n` +
       `Esta acción NO se puede deshacer.\n\n¿Continuar?`,
     )) return;
-    const typed = prompt(`Para confirmar, escribí el nombre exacto del negocio:\n\n"${businessName}"`);
+    /**
+     * La confirmación compara el nombre NORMALIZADO.
+     *
+     * Antes exigía el nombre carácter por carácter, y hay nombres que nadie puede
+     * escribir: las actividades se crean como «Vanury's  Dulce Atelier · 4922.2»,
+     * con DOS espacios —invisibles al leer— y un «·» que no está en el teclado.
+     * El resultado era que esos negocios no se podían borrar nunca: el panel
+     * decía «el nombre no coincide» y no había forma de acertar.
+     *
+     * Se siguen pidiendo las dos confirmaciones; lo que se afloja es la
+     * tipografía, no el gesto: espacios de más, mayúsculas, tildes y el punto
+     * medio dejan de importar. Lo que hay que escribir sigue siendo el nombre.
+     */
+    const normalizar = (v: string) => v
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // tildes
+      .replace(/[·.]/g, ' ')                               // punto medio y puntos
+      .replace(/\s+/g, ' ')                                // espacios repetidos
+      .trim().toLowerCase();
+
+    const typed = prompt(
+      `Para confirmar, escribí el nombre del negocio:\n\n"${businessName}"\n\n`
+      + '(no importan las mayúsculas, las tildes ni los espacios de más)');
     if (typed === null) return;
-    if (typed.trim() !== businessName.trim()) {
+    if (normalizar(typed) !== normalizar(businessName)) {
       setError(`El nombre no coincide. Esperaba: "${businessName}". Recibí: "${typed}"`);
       return;
     }
