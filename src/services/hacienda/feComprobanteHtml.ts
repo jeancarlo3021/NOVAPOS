@@ -9,22 +9,22 @@
  */
 import { nombreUbicacion } from '@/data/crLocations';
 
-const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
 
-const FE_RESOLUTION = 'Autorizada mediante resolución MH-DGT-RES-0027-2024 del 13 de noviembre del 2024 de la DGTD. Version 4.4';
+export const FE_RESOLUTION = 'Autorizada mediante resolución MH-DGT-RES-0027-2024 del 13 de noviembre del 2024 de la DGTD. Version 4.4';
 
 /**
  * Genera y abre (para imprimir / Guardar como PDF) el comprobante electrónico en
  * formato A4 con logo y todos los detalles. Sirve para factura/tiquete y su NC.
  */
 /** Etiqueta del tipo de identificación de Hacienda. */
-const TIPO_ID: Record<string, string> = {
+export const TIPO_ID: Record<string, string> = {
   '01': 'Cédula física', '02': 'Cédula jurídica', '03': 'DIMEX', '04': 'NITE', '05': 'Extranjero',
 };
 
 /** Condición de venta de Hacienda (las que usa el sistema). */
-const CONDICION_VENTA: Record<string, string> = {
+export const CONDICION_VENTA: Record<string, string> = {
   '01': 'Contado', '02': 'Crédito', '03': 'Consignación', '04': 'Apartado',
   '05': 'Arrendamiento con opción de compra', '06': 'Arrendamiento en función financiera',
   '07': 'Cobro a favor de un tercero', '08': 'Servicios prestados al Estado',
@@ -33,13 +33,13 @@ const CONDICION_VENTA: Record<string, string> = {
 };
 
 /** Medio de pago de Hacienda. */
-const MEDIO_PAGO: Record<string, string> = {
+export const MEDIO_PAGO: Record<string, string> = {
   '01': 'Efectivo', '02': 'Tarjeta', '03': 'Cheque', '04': 'Transferencia / depósito',
   '05': 'Recaudado por terceros', '06': 'SINPE Móvil', '07': 'Plataforma digital', '99': 'Otros',
 };
 
 /** Fecha y hora como la muestra Hacienda: 07-10-2026 22:41:31. */
-const fechaHoraCR = (iso?: string): string => {
+export const fechaHoraCR = (iso?: string): string => {
   if (!iso) return '';
   const m = String(iso).match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (!m) return String(iso);
@@ -65,7 +65,7 @@ const numero = (v: any) => Number(String(v ?? '0').replace(/,/g, '')) || 0;
  * Las facturas viejas (antes de que se guardara el documento) caen a los datos
  * de la venta: muestran menos, pero muestran.
  */
-function datosDelDocumento(inv: any) {
+export function datosDelDocumento(inv: any) {
   const req = inv?.fe_request && typeof inv.fe_request === 'object' ? inv.fe_request : null;
   const idDoc = req?.header?.idDoc ?? {};
   const lineasReq = Array.isArray(req?.itemDetails) ? req.itemDetails : null;

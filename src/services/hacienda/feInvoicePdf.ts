@@ -3,16 +3,29 @@ import { invoicesService } from '@/services/invoice/invoiceService';
 import { customersService } from '@/services/customers/customersService';
 import { feComprobanteHtml } from './feComprobanteHtml';
 
-export async function openFeInvoicePdf(invoiceId: string, opts: { creditNote?: boolean } = {}) {
+/**
+ * Carga todo lo que necesita el comprobante: la venta con sus líneas, el emisor
+ * de FE, la configuración del tiquete (logo) y el cliente.
+ *
+ * Lo usan los dos caminos —ver/imprimir y descargar— para que el documento sea
+ * el mismo mire por donde se mire.
+ */
+export async function cargarDatosComprobante(invoiceId: string): Promise<{
+  inv: any; emisor: any; receptor: any; receiptCfg: any;
+}> {
   const [inv, emisor, receiptCfg] = await Promise.all([
     invoicesService.getInvoiceById(invoiceId) as any,
     apiFetch<any>('/settings/electronic-invoice').catch(() => ({})),
     apiFetch<any>('/settings/receipt').catch(() => ({})),
   ]);
   if (!inv) throw new Error('Factura no encontrada');
-
   let receptor: any = null;
   if (inv.customer_id) receptor = await customersService.get(inv.customer_id).catch(() => null);
+  return { inv, emisor, receptor, receiptCfg };
+}
+
+export async function openFeInvoicePdf(invoiceId: string, opts: { creditNote?: boolean } = {}) {
+  const { inv, emisor, receptor, receiptCfg } = await cargarDatosComprobante(invoiceId);
 
   const html = feComprobanteHtml({ inv, emisor, receptor, receiptCfg, creditNote: !!opts.creditNote });
 

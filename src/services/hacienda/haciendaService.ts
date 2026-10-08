@@ -395,6 +395,8 @@ export const haciendaService = {
     extra_fee: number; months_elapsed: number; quota_start?: string;
     used: number; used_docs: number; used_nc: number;
     available: number | null; overage: number; extra_charge: number;
+    /** Negocio de demostración: los comprobantes son ficticios e ilimitados. */
+    demo?: boolean;
   }>('/hacienda/quota'),
 
   /**

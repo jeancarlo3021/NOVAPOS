@@ -2,8 +2,10 @@ import { jsPDF } from 'jspdf';
 import type { Proforma } from '@/services/proformas/proformasService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { savePdf } from '@/utils/savePdf';
+import { montoPdf } from '@/utils/montoPdf';
 
-const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// El colón NO existe en las fuentes estándar del PDF: se imprimía «¡». Ver `montoPdf`.
+const money = montoPdf;
 
 // Carga una imagen (logo) a data URL para poder incrustarla en el PDF.
 async function urlToDataUrl(url: string): Promise<{ data: string; w: number; h: number } | null> {

@@ -67,6 +67,16 @@ export const DEMO_GROUPS: Array<{ group: string; modules: DemoModule[] }> = [
     group: 'Administración',
     modules: [
       { key: 'electronic_invoice', label: 'Facturación electrónica' },
+      /**
+       * El POS ELECTRÓNICO es una pantalla aparte, con su propio interruptor.
+       *
+       * Faltaba en esta lista: se podía marcar «Facturación electrónica» y la
+       * demo igual no mostraba el POS electrónico, porque esa pantalla la
+       * habilita `fe_pos`. El vendedor terminaba enseñando la función estrella…
+       * que no estaba. En una demo los comprobantes son ficticios e ilimitados
+       * (ver `services/feDemo.ts` del backend): no se envía nada a Hacienda.
+       */
+      { key: 'fe_pos', label: 'POS Electrónico' },
       { key: 'reports', label: 'Reportes' },
       { key: 'expenses', label: 'Gastos' },
       { key: 'accounts_payable', label: 'Cuentas por pagar' },
@@ -99,7 +109,7 @@ export const DEMO_PRESETS: Array<{ label: string; modules: string[] }> = [
   },
   {
     label: 'Con factura electrónica',
-    modules: ['pos', 'inventory', 'customers', 'electronic_invoice', 'reports'],
+    modules: ['pos', 'inventory', 'customers', 'electronic_invoice', 'fe_pos', 'reports'],
   },
 ];
 

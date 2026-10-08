@@ -1,10 +1,10 @@
 import { jsPDF } from 'jspdf';
 import { savePdf } from '@/utils/savePdf';
+import { montoPdf } from '@/utils/montoPdf';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 
-const money = (n: number) =>
-  `\u00A2${Number(n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = montoPdf;
 
 export interface InvoicePdfLine {
   name: string;

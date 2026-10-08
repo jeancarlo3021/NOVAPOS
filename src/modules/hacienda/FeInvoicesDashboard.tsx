@@ -3,6 +3,7 @@ import { FileText, RefreshCw, Send, Mail, AlertTriangle, CheckCircle2, Clock, Lo
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { openFeInvoicePdf } from '@/services/hacienda/feInvoicePdf';
+import { descargarFeComprobantePdf } from '@/services/hacienda/feComprobantePdf';
 import { formatWallClock } from '@/utils/datetime';
 import { useAuth } from '@/context/AuthContext';
 import { downloadXlsx } from '@/utils/xlsx';
@@ -175,6 +176,23 @@ export const FeInvoicesDashboard: React.FC = () => {
       await openFeInvoicePdf(row.id, { creditNote });
     }
     catch (e) { alert(e instanceof Error ? e.message : 'No se pudo generar el PDF'); }
+    finally { setBusyId(null); }
+  };
+
+  /**
+   * BAJAR el comprobante como archivo.
+   *
+   * «Ver PDF» abre la ventana de impresión: sirve para imprimir, pero para
+   * guardarlo hay que entrar al diálogo y elegir «Guardar como PDF», y dentro de
+   * la app de Android esa ventana no existe. Quien tiene que mandarle el
+   * comprobante al contador necesita el archivo, no la vista previa.
+   */
+  const bajarPdf = async (row: FeRow, creditNote = false) => {
+    setBusyId(row.id);
+    try {
+      await descargarFeComprobantePdf(row.id, { creditNote });
+    }
+    catch (e) { alert(e instanceof Error ? e.message : 'No se pudo descargar el PDF'); }
     finally { setBusyId(null); }
   };
 
@@ -584,6 +602,11 @@ export const FeInvoicesDashboard: React.FC = () => {
                               title="Ver / guardar PDF del comprobante"
                               className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-gray-700 border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50">
                               <FileDown size={12} /> PDF
+                            </button>
+                            <button onClick={() => bajarPdf(r, false)} disabled={busyId === r.id}
+                              title="Descargar el PDF del comprobante como archivo"
+                              className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg text-emerald-700 border border-emerald-300 bg-white hover:bg-emerald-50 disabled:opacity-50">
+                              <Download size={12} /> Bajar
                             </button>
                             <button onClick={() => downloadXml(r)} disabled={busyId === r.id || !r.fe_clave}
                               title="Descargar XML firmado y respuesta de Hacienda"

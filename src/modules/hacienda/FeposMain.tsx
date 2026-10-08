@@ -278,7 +278,7 @@ export const FeposMain: React.FC = () => {
       setMsg({ ok: false, text: 'La factura electrónica requiere un cliente con nombre, tipo y número de identificación. Completá los datos del cliente o emití un tiquete.' }); return;
     }
     // Aviso de cuota agotada: cobro por comprobante extra.
-    if (quota && quota.available !== null && quota.available <= 0 && quota.extra_fee > 0) {
+    if (!quota?.demo && quota && quota.available !== null && quota.available <= 0 && quota.extra_fee > 0) {
       const cont = window.confirm(
         `⚠ Se acabaron las facturas incluidas de tu plan.\n\n` +
         `Cada comprobante adicional se cobra ₡${Number(quota.extra_fee).toLocaleString('es-CR')}.\n` +
@@ -298,7 +298,11 @@ export const FeposMain: React.FC = () => {
         lines: lineasParaEnviar(),
       });
       const tipo = res.tipo === '01' ? 'Factura' : 'Tiquete';
-      setMsg({ ok: true, text: `${tipo} ${res.invoice_number} emitido ✓${res.consecutivo ? ` · ${res.consecutivo}` : ''}` });
+      setMsg({ ok: true, text: (res as any).demo
+        // En la demo se dice SIEMPRE: un comprobante de mentira que se anuncia
+        // como emitido es exactamente lo que no debe pasar en una demostración.
+        ? `${tipo} ${res.invoice_number} emitido ✓ · DEMOSTRACIÓN: no se envió a Hacienda`
+        : `${tipo} ${res.invoice_number} emitido ✓${res.consecutivo ? ` · ${res.consecutivo}` : ''}` });
       if (proformaToConvert.current) {
         proformasService.convert(proformaToConvert.current, res.invoice_number).catch(() => {});
         proformaToConvert.current = null;
@@ -363,7 +367,13 @@ export const FeposMain: React.FC = () => {
             {testing ? <Loader2 size={11} className="animate-spin" /> : <FlaskConical size={11} />}
             Probar
           </button>
-          {quota && quota.available !== null && (
+          {/* En una DEMO no hay cupo que mostrar: no hay bolsa, y los
+              comprobantes son simulados. Lo que importa decir es eso. */}
+          {quota?.demo ? (
+            <span className="ml-auto text-xs font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-800">
+              Demostración · comprobantes ficticios
+            </span>
+          ) : quota && quota.available !== null && (
             <span className={`ml-auto text-xs font-bold px-2 py-1 rounded-full ${quota.available <= 0 ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
               {quota.available <= 0 ? `Sin cupo · ₡${Number(quota.extra_fee).toLocaleString('es-CR')} c/u` : `${quota.available} disponibles`}
             </span>
