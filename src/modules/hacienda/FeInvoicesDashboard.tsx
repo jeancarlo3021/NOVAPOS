@@ -156,22 +156,22 @@ export const FeInvoicesDashboard: React.FC = () => {
     finally { setBusyId(null); }
   };
 
+  /**
+   * EL PDF LO HACEMOS NOSOTROS.
+   *
+   * Antes, si el comprobante era de Alanube, se abría el PDF de ellos y el
+   * nuestro quedaba de respaldo. Su plantilla no muestra la NOTA de la factura
+   * —lo que el negocio le escribe al cliente— y no se puede cambiar, porque es
+   * de ellos. El nuestro se arma con `fe_request`, el documento exacto que se
+   * envió, así que lleva la misma información (CABYS, unidad, impuesto por
+   * línea, sucursal, terminal, actividad económica) más la nota.
+   *
+   * El PDF de Alanube sigue disponible por su API; simplemente dejó de ser el
+   * que se abre desde acá.
+   */
   const pdf = async (row: FeRow, creditNote = false) => {
     setBusyId(row.id);
     try {
-      // Para comprobantes de Alanube (y no NC), abrimos el PDF que genera Alanube.
-      if (isAlanube && !creditNote && providerOf(row) === 'alanube') {
-        try {
-          const { pdf: b64, filename } = await haciendaService.alanubePdf(row.id);
-          const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-          const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-          const a = document.createElement('a');
-          a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.download = filename || `${row.invoice_number}.pdf`;
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 30000);
-          return;
-        } catch { /* si Alanube no tiene el PDF aún, caemos al PDF local */ }
-      }
       await openFeInvoicePdf(row.id, { creditNote });
     }
     catch (e) { alert(e instanceof Error ? e.message : 'No se pudo generar el PDF'); }
