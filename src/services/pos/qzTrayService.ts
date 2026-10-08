@@ -7,6 +7,60 @@ declare const qz: any;
 const PRIVATE_KEY_LS = 'qz_private_key';
 const QZ_SCRIPT_URL = '/qz-tray.js';
 
+/**
+ * ACCESO A LA RED LOCAL (Local Network Access) — por esto dejó de conectar.
+ *
+ * Desde Chrome 147 (abril 2026) un sitio HTTPS no puede abrir un WebSocket a
+ * `localhost` sin permiso: Chrome lo trata como «acceso a la red local» y lo
+ * bloquea hasta que el usuario lo autoriza. QZ Tray corre justamente en
+ * `localhost`, así que de un día para otro dejó de conectar en varios negocios
+ * a la vez, sin que nadie hubiera cambiado nada: lo que cambió fue el navegador.
+ *
+ * Visto desde el mostrador es idéntico a los otros problemas de QZ —los puertos
+ * responden, QZ Tray está abierto, y la conexión no entra—, y ahí se nos fue
+ * tiempo buscando del lado del certificado.
+ *
+ * El cliente de QZ 2.3.0 sabe distinguir este caso, pero solo si encuentra el
+ * ayudante `qz-lna` en `window.lna`; sin él informa un error genérico («Unable
+ * to establish connection») y el motivo real queda escondido. Se carga ANTES de
+ * la primera conexión a propósito: el cliente consulta una sola vez si el
+ * ayudante existe y recuerda la respuesta para toda la vida de la página.
+ */
+let lnaListo = false;
+async function cargarLna(): Promise<void> {
+  if (lnaListo) return;
+  if ((window as any).lna?.detectLna) { lnaListo = true; return; }
+  try {
+    (window as any).lna = await import('qz-lna');
+    lnaListo = true;
+  } catch (e) {
+    // Sin el ayudante igual se intenta conectar: solo se pierde el diagnóstico.
+    console.warn('[QZ] no se pudo cargar el ayudante de red local (qz-lna)', e);
+  }
+}
+
+/**
+ * ¿Chrome nos deja hablar con `localhost`?
+ *
+ * `loopback-network` es el permiso de la especificación para 127.0.0.1;
+ * `local-network-access` es el nombre viejo que Chromium todavía acepta, y
+ * `local-network` es el de la red local a secas. Se prueban los tres porque
+ * cada versión del navegador conoce unos y no otros, y preguntar por un nombre
+ * desconocido tira excepción en vez de devolver «no sé».
+ *
+ * Devuelve 'granted' | 'prompt' | 'denied' | null (no se pudo averiguar).
+ */
+export async function qzPermisoRedLocal(): Promise<PermissionState | null> {
+  const nombres = ['loopback-network', 'local-network-access', 'local-network'];
+  for (const name of nombres) {
+    try {
+      const st = await (navigator as any).permissions?.query({ name });
+      if (st?.state) return st.state as PermissionState;
+    } catch { /* ese nombre no existe en este navegador: probamos el siguiente */ }
+  }
+  return null;
+}
+
 // Load QZ Tray script dynamically
 function loadQZTrayScript(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -268,6 +322,8 @@ export function qzConnect(certificate?: string): Promise<void> {
 }
 
 async function qzConnectOnce(certificate?: string): Promise<void> {
+  // El ayudante de red local va PRIMERO: el cliente de QZ lo busca una sola vez.
+  await cargarLna();
   // Try to load script if not already loaded
   if (!(window as any).qz) {
     await loadQZTrayScript();
@@ -426,14 +482,34 @@ async function qzConnectOnce(certificate?: string): Promise<void> {
    *     aceptado, QZ cerrado, o puerto ocupado.
    */
   const detalle = lastError instanceof Error ? lastError.message : String(lastError ?? 'sin detalle');
-  const esLna = /local network|denied/i.test(detalle);
+  /**
+   * ¿Fue el permiso de red local?
+   *
+   * Tres señales, de la más confiable a la menos: la bandera `denied` que pone
+   * el ayudante `qz-lna`, el texto del error del cliente de QZ, y —cuando no hay
+   * ninguna de las dos— el estado del permiso en el navegador. La última hace
+   * falta porque Chrome puede negar el acceso sin decir por qué: el socket
+   * simplemente no abre, y el error que llega es el genérico.
+   */
+  const negadoPorLna = (lastError as any)?.denied === true;
+  const permiso = await qzPermisoRedLocal();
+  const esLna = negadoPorLna
+    || /local network|address space|denied/i.test(detalle)
+    || permiso === 'denied'
+    || permiso === 'prompt';
   if (pageIsHttps) {
+    const comoPermitir = permiso === 'prompt'
+      ? 'Chrome te va a preguntar si este sitio puede usar los dispositivos de tu red local: '
+        + 'tocá «Permitir». Si no aparece el aviso, entrá a Configuración del sitio y permitilo a mano.'
+      : 'Permitilo así: candado (o ⋮ si usás la app instalada) → Configuración del sitio → '
+        + '«Dispositivos de la red local» / «Apps on this device» → Permitir. Después recargá.';
     throw new Error(
       esLna
-        ? 'Chrome bloqueó el acceso a la red local (QZ Tray corre en esta misma computadora). '
-          + 'Tocá el candado en la barra de direcciones → Permisos → permitir el acceso a '
-          + 'dispositivos de la red local, y reintentá. '
-          + `[detalle: ${detalle}]`
+        ? 'Chrome está bloqueando el acceso a la red local, y QZ Tray corre en esta misma '
+          + 'computadora. No es el certificado ni la impresora: es un permiso del navegador, '
+          + 'nuevo desde abril de 2026. '
+          + comoPermitir
+          + ` [permiso: ${permiso ?? 'desconocido'} · detalle: ${detalle}]`
         : 'No se pudo conectar a QZ Tray. Para imprimir YA, cambiá a «Imprimir por el navegador» '
           + 'en Configuración → Factura: no necesita QZ ni certificado. '
           + `[detalle: ${detalle}]`,
@@ -541,7 +617,45 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
     });
   }
 
-  // 1. El componente del navegador (lo sirve la propia app).
+  const enChrome = (texto: string) => pwa
+    ? 'Esto hay que hacerlo UNA VEZ en Chrome normal, no en la app instalada: abrí '
+      + `${location.origin} en una pestaña de Chrome y ahí ${texto} Después volvé a la app: `
+      + 'el permiso queda guardado para el sitio.'
+    : texto;
+
+
+  /**
+   * 1. EL PERMISO DE RED LOCAL, antes que cualquier otra cosa.
+   *
+   * Va primero porque si Chrome lo tiene negado, TODO lo que sigue miente: la
+   * sonda de puertos de acá abajo usa `fetch` a localhost, y ese mismo permiso
+   * la bloquea. El diagnóstico concluía «QZ Tray no responde, revisá que esté
+   * abierto» con QZ Tray abierto y escuchando, y el soporte se iba detrás de la
+   * impresora cuando el problema era un permiso del navegador.
+   */
+  const permiso = await qzPermisoRedLocal();
+  if (permiso !== null) {
+    pasos.push({
+      nombre: 'Permiso de red local (Chrome)',
+      ok: permiso === 'granted',
+      detalle: permiso === 'granted' ? 'Concedido'
+        : permiso === 'denied' ? 'BLOQUEADO para este sitio — es la causa más probable'
+        : 'Sin conceder todavía: Chrome lo va a preguntar al conectar',
+    });
+  }
+  if (permiso === 'denied') {
+    return {
+      pasos,
+      recomendacion: enChrome(
+        'Chrome tiene BLOQUEADO el acceso a la red local para este sitio, y QZ Tray corre '
+        + 'justamente acá en la computadora. Es un permiso nuevo del navegador (abril 2026), '
+        + 'no tiene nada que ver con el certificado ni con la impresora. '
+        + 'Candado en la barra de direcciones → Configuración del sitio → «Dispositivos de la '
+        + 'red local» (en inglés «Apps on this device») → Permitir. Después recargá la página.'),
+    };
+  }
+
+  // 2. El componente del navegador (lo sirve la propia app).
   let scriptOk = !!(window as any).qz;
   if (!scriptOk) {
     try { await loadQZTrayScript(); scriptOk = !!(window as any).qz; } catch { scriptOk = false; }
@@ -560,7 +674,7 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
   }
 
   /**
-   * 2. ¿Hay algo escuchando, y por cuál nombre?
+   * 3. ¿Hay algo escuchando, y por cuál nombre?
    *
    * Importa CUÁL de los dos responde: por `localhost.qz.io` el certificado ya es
    * confiable y no hay que aceptar nada; por `localhost` el navegador va a pedir
@@ -586,20 +700,16 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
   if (puertoVivo === null) {
     return {
       pasos,
-      recomendacion: 'QZ Tray no responde por ninguno de los dos nombres. Revisá que esté '
-        + 'abierto (icono en la bandeja del reloj). Si está abierto y sigue sin responder, la red '
-        + 'de esta computadora está bloqueando el acceso a localhost. '
+      recomendacion: 'QZ Tray no responde por ninguno de los dos nombres. Dos causas posibles, '
+        + 'en este orden: (1) Chrome no nos deja llegar a localhost — esta misma prueba usa la '
+        + 'red local, así que un permiso sin conceder la hace fallar aunque QZ esté perfecto: '
+        + 'tocá «Conectar QZ Tray» y aceptá el aviso de red local que aparezca; '
+        + '(2) QZ Tray no está abierto (revisá el icono en la bandeja del reloj). '
         + 'Mientras tanto se puede imprimir con «Imprimir por el navegador», que no necesita QZ.',
     };
   }
 
-  const enChrome = (texto: string) => pwa
-    ? 'Esto hay que hacerlo UNA VEZ en Chrome normal, no en la app instalada: abrí '
-      + `${location.origin} en una pestaña de Chrome y ahí ${texto} Después volvé a la app: `
-      + 'el permiso queda guardado para el sitio.'
-    : texto;
-
-  // 3. La conexión de verdad.
+  // 4. La conexión de verdad.
   try {
     await qzConnect();
     let version: string | null = null;
@@ -622,6 +732,18 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
      * actualizar QZ o aceptar el certificado a mano.
      */
     const porQzIo = vivo?.host.endsWith('qz.io');
+    // El permiso se vuelve a leer: puede haber cambiado durante el intento, que
+    // es justo cuando Chrome lo pregunta.
+    const permisoAhora = await qzPermisoRedLocal();
+    if (permisoAhora === 'denied' || (permisoAhora === 'prompt' && /local network|denied|address space/i.test(String(e?.message ?? '')))) {
+      return {
+        pasos,
+        recomendacion: enChrome(
+          'Chrome bloqueó el acceso a la red local durante el intento. Es el permiso nuevo del '
+          + 'navegador (abril 2026), no el certificado: candado → Configuración del sitio → '
+          + '«Dispositivos de la red local» → Permitir, y recargá.'),
+      };
+    }
     return {
       pasos,
       recomendacion: pwa

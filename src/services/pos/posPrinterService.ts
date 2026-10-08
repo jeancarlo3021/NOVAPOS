@@ -2237,7 +2237,12 @@ export class POSPrinterService {
     const qz = (window as any).qz;
     if (!qz) return [];
     try {
-      if (!qz.websocket.isActive()) await qz.websocket.connect();
+      // Por `qzConnect`, NO por `qz.websocket.connect()` directo: ahí están el
+      // orden de los nombres, el rescate del socket trabado y la carga del
+      // ayudante de red local, que el cliente de QZ busca UNA sola vez por
+      // página. Conectando por el camino corto, el primer intento quedaba sin
+      // ayudante y el motivo real de la falla se perdía para toda la sesión.
+      if (!qz.websocket.isActive()) await qzConnect();
       const printers: string[] = await qz.printers.find();
       return Array.isArray(printers) ? printers : [];
     } catch {
