@@ -1,13 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users,
-  TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins,
-  Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone,
-  UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay,
-  Bookmark, User2,
-} from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, Sparkles } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { AsistenteIA } from '@/modules/ia/AsistenteIA';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
@@ -109,6 +104,8 @@ const ALL_TILES: Tile[] = [
 ];
 
 export const Dashboard = () => {
+  /** Asistente de preguntas sobre el negocio (hoy en modo demostración). */
+  const [asistente, setAsistente] = useState(false);
   const { user, planFeatures, tenant } = useAuth();
   const { tenantId } = useTenantId();
   const navigate = useNavigate();
@@ -342,6 +339,15 @@ export const Dashboard = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+      {/* ASISTENTE. Botón flotante: se consulta desde cualquier pantalla del
+          panel sin perder lo que se estaba mirando. */}
+      <button type="button" onClick={() => setAsistente(true)}
+        title="Preguntale a tu negocio"
+        className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 px-4 py-3 rounded-full shadow-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black text-sm hover:shadow-xl transition">
+        <Sparkles size={16} /> Preguntar
+      </button>
+      {asistente && <AsistenteIA onClose={() => setAsistente(false)} />}
 
       {/* ── Panel Admin — primero, porque es donde entra el administrador ──
           Estaba solo al final de la barra lateral, dentro de «Sistema»: quien

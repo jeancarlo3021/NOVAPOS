@@ -188,6 +188,43 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
 
   const t = themeOf(menu.theme);
   const lienzo = (menu.config as any).lienzo as Lienzo | undefined;
+
+  /**
+   * DESCRIPCIONES PARA LOS PRODUCTOS SIN DESCRIPCIÓN.
+   *
+   * La página publicada muestra nombre y precio, y casi nada más: escribir
+   * doscientas descripciones a mano no lo hace nadie. Esto las propone a
+   * partir de lo que el producto YA tiene (categoría, presentación), y
+   * NUNCA se guardan solas — se revisan y se aplican una por una o todas de
+   * golpe. Una descripción inventada la publica el negocio, no nosotros.
+   */
+  const [descripciones, setDescripciones] = useState<Array<{ id: string; name: string; propuesta: string }> | null>(null);
+  const [buscandoDesc, setBuscandoDesc] = useState(false);
+  const proponerDescripciones = async () => {
+    setBuscandoDesc(true); setErr('');
+    try {
+      const ids = menu.sections.flatMap(x => x.product_ids);
+      const r = await apiFetch<{ modo: string; datos: { propuestas: any[]; sin_datos: number } }>(
+        '/ia/descripciones', { method: 'POST', body: JSON.stringify({ ids, solo_vacias: true }) }, 30000);
+      setDescripciones(r?.datos?.propuestas ?? []);
+      if ((r?.datos?.propuestas ?? []).length === 0) {
+        setMsg('No hay descripciones que proponer: o ya las tienen todas, o a los productos les faltan datos (categoría, presentación).');
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudieron proponer descripciones');
+    } finally { setBuscandoDesc(false); }
+  };
+
+  /** Guarda una descripción propuesta en el producto. */
+  const aplicarDescripcion = async (id: string, texto: string) => {
+    try {
+      await apiFetch(`/products/${id}`, { method: 'PUT', body: JSON.stringify({ description: texto }) });
+      setProducts(ps => ps.map(p => (p.id === id ? { ...p, description: texto } as any : p)));
+      setDescripciones(d => (d ?? []).filter(x => x.id !== id));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo guardar la descripción');
+    }
+  };
   const inSomeSection = new Set(menu.sections.flatMap(s => s.product_ids));
 
   return (
@@ -311,6 +348,51 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
                 </label>
               ))}
             </div>
+          </section>
+
+          {/* DESCRIPCIONES. Va junto a la portada porque es lo otro que hace
+              que la página publicada se vea terminada. */}
+          <section className="bg-white rounded-2xl border border-gray-100 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-black text-gray-800">Descripciones</h2>
+              <button onClick={() => void proponerDescripciones()} disabled={buscandoDesc}
+                className="text-[11px] font-black text-violet-700 hover:text-violet-900 disabled:opacity-40">
+                {buscandoDesc ? 'Buscando…' : 'Proponer para los que no tienen'}
+              </button>
+            </div>
+            {descripciones && descripciones.length > 0 ? (
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] text-gray-500">{descripciones.length} propuesta(s). Revisá antes de aplicar.</p>
+                  <button
+                    onClick={() => { for (const d of descripciones) void aplicarDescripcion(d.id, d.propuesta); }}
+                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900">
+                    Aplicar todas
+                  </button>
+                </div>
+                {descripciones.map(d => (
+                  <div key={d.id} className="flex items-start gap-2 border border-gray-100 rounded-lg px-2 py-1.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-gray-800 truncate">{d.name}</p>
+                      <p className="text-[11px] text-gray-600">{d.propuesta}</p>
+                    </div>
+                    <button onClick={() => void aplicarDescripcion(d.id, d.propuesta)}
+                      className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-black hover:bg-emerald-100">
+                      Aplicar
+                    </button>
+                    <button onClick={() => setDescripciones(x => (x ?? []).filter(y => y.id !== d.id))}
+                      className="px-2 py-1 rounded-lg text-gray-400 text-[11px] font-bold hover:text-gray-700">
+                      Descartar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-500">
+                Se arman con los datos que el producto ya tiene —categoría y presentación— y se revisan
+                antes de guardar. Nada se publica sin que lo aceptes.
+              </p>
+            )}
           </section>
 
           {/* PORTADA A MEDIDA.
