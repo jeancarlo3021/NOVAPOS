@@ -7,6 +7,8 @@ import {
   Upload, Image as ImageIcon,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { LienzoEditor } from './LienzoEditor';
+import { lienzoInicial, type Lienzo } from './lienzo';
 import { useTenantId } from '@/hooks/useTenant';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
 import { storageService } from '@/services/storage/storageService';
@@ -131,9 +133,21 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
       items: s.product_ids.map(id => {
         const p = byId.get(id);
         if (!p) return null;
+        /**
+         * La vista previa calcula el precio IGUAL que la página pública.
+         *
+         * Si acá se viera el neto y allá el final, el negocio armaría su carta
+         * con un número y el cliente leería otro — y eso se descubre con el QR
+         * ya pegado en las mesas.
+         */
+        const conIva = (menu.config as any).precios_con_iva !== false;
+        const base = Number(p.unit_price) || 0;
+        const pct = (p as any).iva_rate != null && (p as any).iva_rate !== ''
+          ? Number((p as any).iva_rate) : 13;
         return {
           id: p.id, name: p.name, description: p.description ?? null,
-          price: Number(p.unit_price) || 0, image_url: p.image_url ?? null,
+          price: conIva ? Math.round((base + base * (pct / 100)) * 100) / 100 : base,
+          image_url: p.image_url ?? null,
           allergens: (p as any).allergens ?? null, diet_tags: (p as any).diet_tags ?? null,
         } as MenuItem;
       }).filter(Boolean) as MenuItem[],
@@ -173,6 +187,7 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
   }
 
   const t = themeOf(menu.theme);
+  const lienzo = (menu.config as any).lienzo as Lienzo | undefined;
   const inSomeSection = new Set(menu.sections.flatMap(s => s.product_ids));
 
   return (
@@ -282,7 +297,11 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
               {([
                 ['show_photos', 'Fotos'],
                 ['show_prices', 'Precios'],
-                ['show_allergens', 'Alérgenos y dietas'],
+                // El precio que ve un cliente desde la calle debe incluir el
+                // impuesto. Se deja apagar para el que le vende a otros
+                // negocios y muestra el precio sin IVA a propósito.
+                ['precios_con_iva', 'Precios con impuesto incluido'],
+                ...(esCatalogo ? [] : [['show_allergens', 'Alérgenos y dietas'] as const]),
               ] as const).map(([k, label]) => (
                 <label key={k} className="flex items-center gap-1.5 text-xs font-bold text-gray-700 cursor-pointer">
                   <input type="checkbox" checked={(menu.config as any)[k] !== false}
@@ -292,6 +311,45 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
                 </label>
               ))}
             </div>
+          </section>
+
+          {/* PORTADA A MEDIDA.
+              Los temas resuelven el caso común; esto deja poner la marca del
+              negocio donde el dueño la quiere. Se arranca de la portada del
+              tema ya volcada al lienzo: una hoja en blanco es la forma más
+              seguridad de que nadie la termine. */}
+          <section className="bg-white rounded-2xl border border-gray-100 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-black text-gray-800">Portada a medida</h2>
+              {lienzo ? (
+                <button onClick={() => patchConfig({ lienzo: undefined })}
+                  className="text-[11px] font-bold text-gray-500 hover:text-red-600">
+                  Volver a la portada del tema
+                </button>
+              ) : (
+                <button onClick={() => patchConfig({ lienzo: lienzoInicial(
+                  menu.header.name ?? '', menu.header.tagline ?? '',
+                  menu.config.accent || '#0F766E', !!menu.header.logo_url) })}
+                  className="text-[11px] font-black text-teal-700 hover:text-teal-900">
+                  Diseñar la portada
+                </button>
+              )}
+            </div>
+            {lienzo ? (
+              <LienzoEditor
+                lienzo={lienzo}
+                logoUrl={menu.header.logo_url}
+                fuenteTitulo={t.titleFont} fuenteCuerpo={t.bodyFont}
+                acento={menu.config.accent || '#0F766E'}
+                onChange={(l) => patchConfig({ lienzo: l })}
+              />
+            ) : (
+              <p className="text-[11px] text-gray-500">
+                Ahora se usa la portada del tema <b>{menu.theme}</b>. Con «Diseñar la portada» se
+                pasa a un lienzo donde se arrastran el logo, los textos y las bandas de color.
+                Se diseña sobre el ancho de un teléfono y se ve igual en cualquier pantalla.
+              </p>
+            )}
           </section>
 
           {/* Identidad */}

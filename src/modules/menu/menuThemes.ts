@@ -198,6 +198,12 @@ export interface MenuConfig {
   show_photos?: boolean;
   show_allergens?: boolean;
   show_prices?: boolean;
+  /** Portada diseñada a mano (ver `lienzo.ts`). Sin ella, manda el tema. */
+  lienzo?: import('./lienzo').Lienzo;
+  /** Publicar el precio CON el impuesto incluido (por omisión, sí). */
+  precios_con_iva?: boolean;
+  /** Lo resuelve el servidor: true con IVA, false sin IVA, null si no cobra. */
+  impuesto_incluido?: boolean | null;
   note?: string;
 }
 

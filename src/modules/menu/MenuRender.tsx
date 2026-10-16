@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { themeOf, money, type MenuSection, type MenuHeader, type MenuConfig } from './menuThemes';
+import { MenuLienzo } from './MenuLienzo';
 
 /**
  * El menú pintado.
@@ -31,6 +32,17 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, c
    * si hay existencias. Un tornillo no tiene alérgenos, y «contiene gluten» en
    * una ferretería se ve como un error del sistema.
    */
+  /**
+   * Qué dice el pie sobre el impuesto.
+   *
+   * Un precio sin aclarar es una discusión en la caja. `null` = el negocio no
+   * cobra impuesto (régimen simplificado): ahí no hay nada que aclarar.
+   */
+  const lienzo = (config as any).lienzo as import('./lienzo').Lienzo | undefined;
+  const impuesto = (config as any).impuesto_incluido;
+  const avisoImpuesto = impuesto === true ? 'Precios con impuesto incluido'
+    : impuesto === false ? 'Los precios no incluyen impuestos'
+    : null;
   const showSku = (config as any).show_sku === true;
   const showStock = (config as any).show_stock === true;
   const s = (n: number) => (compact ? n * 0.82 : n);
@@ -38,8 +50,13 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, c
   return (
     <div style={{ background: t.page, color: t.ink, fontFamily: t.bodyFont, minHeight: '100%' }}>
 
-      {/* Portada */}
-      {header.cover_url ? (
+      {/* PORTADA DISEÑADA A MANO.
+          Si el negocio armó su lienzo, manda sobre la portada del tema: para
+          eso se tomó el trabajo. La lista de platos sigue igual debajo. */}
+      {lienzo && (lienzo.elementos?.length ?? 0) > 0 ? (
+        <MenuLienzo lienzo={lienzo} logoUrl={header.logo_url}
+          fuenteTitulo={t.titleFont} fuenteCuerpo={t.bodyFont} />
+      ) : header.cover_url ? (
         <div style={{ height: s(150), overflow: 'hidden', position: 'relative' }}>
           <img src={header.cover_url} alt=""
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -49,7 +66,8 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, c
 
       <div style={{ padding: `${s(24)}px ${s(20)}px ${s(40)}px`, maxWidth: 680, margin: '0 auto' }}>
 
-        {/* Identidad */}
+        {/* Identidad — la pinta el tema solo si no hay lienzo propio. */}
+        {lienzo && (lienzo.elementos?.length ?? 0) > 0 ? null : (
         <header style={{ textAlign: 'center', marginBottom: s(28) }}>
           {header.logo_url ? (
             <img src={header.logo_url} alt=""
@@ -72,6 +90,7 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, c
             margin: `${s(16)}px auto 0`, borderRadius: 2,
           }} />
         </header>
+        )}
 
         {/* Secciones */}
         {sections.length === 0 ? (
@@ -208,12 +227,17 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, c
         ))}
 
         {/* Pie */}
-        {(config.note || header.phone || header.address || header.hours) ? (
+        {(config.note || header.phone || header.address || header.hours || avisoImpuesto) ? (
           <footer style={{
             marginTop: s(32), paddingTop: s(20), borderTop: `1px solid ${t.rule}`,
             textAlign: 'center', color: t.muted, fontSize: s(12), lineHeight: 1.6,
           }}>
             {config.note ? <p style={{ margin: `0 0 ${s(8)}px` }}>{config.note}</p> : null}
+            {/* Qué incluye el precio: un precio sin aclarar termina en
+                discusión en la caja. */}
+            {avisoImpuesto ? (
+              <p style={{ margin: `0 0 ${s(8)}px`, fontSize: s(11) }}>{avisoImpuesto}</p>
+            ) : null}
             {header.hours ? <p style={{ margin: 0 }}>{header.hours}</p> : null}
             {header.address ? <p style={{ margin: 0 }}>{header.address}</p> : null}
             {header.phone ? <p style={{ margin: 0 }}>{header.phone}</p> : null}
