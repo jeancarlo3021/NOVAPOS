@@ -15,6 +15,14 @@ interface Props {
 }
 
 interface ParsedRow {
+  /** El CABYS no venía en el archivo: se tomó del producto que ya existe. */
+  _cabys_heredado?: boolean;
+  /** Cómo se le puso el CABYS: a mano para todas, o sugerido por el catálogo. */
+  _cabys_asignado?: 'manual' | 'sugerido';
+  /** Descripción del CABYS del catálogo, para poder revisar la sugerencia. */
+  _cabys_desc?: string;
+  /** De dónde salió la sugerencia (otro negocio o el catálogo). */
+  _cabys_origen?: string;
   name: string;
   sku?: string;
   sku2?: string;
@@ -161,6 +169,30 @@ function num(v: string | undefined, def?: number): number | undefined {
 export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onDone, adminMode }) => {
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState('');
+  /**
+   * ¿LOS PRECIOS DEL ARCHIVO YA TRAEN EL IMPUESTO?
+   *
+   * El sistema guarda el precio SIN impuesto y se lo suma al vender. Si el
+   * archivo viene con el precio final —que es como lo tiene la mayoría, porque
+   * es el que se le canta al cliente— importarlo tal cual sube todo el catálogo
+   * un 13%: el negocio empieza a cobrar de más sin que nadie lo note hasta que
+   * un cliente reclama.
+   *
+   * Al revés también: restarle el impuesto a un precio que no lo traía deja
+   * todo un 13% barato y el margen se come la diferencia.
+   *
+   * Como no hay forma de adivinarlo mirando el archivo, SE PREGUNTA, y no se
+   * deja importar hasta que esté contestado. `null` = sin contestar.
+   */
+  const [impuestoEnPrecio, setImpuestoEnPrecio] = useState<'incluido' | 'aparte' | null>(null);
+  /** Cuántas filas recibieron el CABYS de un producto que ya existe. */
+  const [cabysPorNombre, setCabysPorNombre] = useState(0);
+  // ── Asignar CABYS a las filas que no lo traen ──
+  const [cabysQuery, setCabysQuery] = useState('');
+  const [cabysResultados, setCabysResultados] = useState<Array<{ code: string; description: string; iva_rate: number | null }>>([]);
+  const [buscandoCabys, setBuscandoCabys] = useState(false);
+  const [sugeridas, setSugeridas] = useState(0);
+  const [sugiriendo, setSugiriendo] = useState(false);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, errors: 0 });
   const [error, setError] = useState('');
@@ -327,12 +359,170 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         return row;
       });
       setRows(parsed);
+      void completarCabysPorNombre(parsed);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al leer archivo');
     }
   };
 
   const validRows = rows.filter(r => !r._error);
+  /**
+   * EL CABYS QUE FALTA SE TOMA DEL PRODUCTO QUE YA EXISTE.
+   *
+   * Un archivo armado a mano casi nunca trae el CABYS, pero el producto que ya
+   * está en el sistema sí lo tiene. Importar sin él lo borraba, y el día que el
+   * negocio emitía un comprobante electrónico aparecía «Estos productos no
+   * tienen código CABYS» sin ninguna relación visible con la importación de la
+   * semana pasada.
+   *
+   * Se empareja por NOMBRE, que es el único dato que esos archivos sí traen
+   * siempre. Se hace antes de importar y queda a la vista en la tabla, porque
+   * un emparejamiento por nombre puede equivocarse y hay que poder revisarlo.
+   */
+  const completarCabysPorNombre = async (parsed: ParsedRow[]) => {
+    const faltan = parsed.filter(r => !r.cabys_code && r.name);
+    if (faltan.length === 0) { setCabysPorNombre(0); return; }
+    try {
+      const names = [...new Set(faltan.map(r => r.name))];
+      const mapa = await apiFetch<Record<string, string>>(
+        `/admin/tenants/${tenantId}/cabys-por-nombre`,
+        { method: 'POST', body: JSON.stringify({ names }) },
+        30000,
+      );
+      if (!mapa || Object.keys(mapa).length === 0) { setCabysPorNombre(0); return; }
+      const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
+      let n = 0;
+      const conCabys = parsed.map(r => {
+        if (r.cabys_code || !r.name) return r;
+        const cab = mapa[norm(r.name)];
+        if (!cab) return r;
+        n++;
+        return {
+          ...r,
+          cabys_code: cab,
+          _cabys_heredado: true,
+          _warn: (r._warn ? r._warn + ' ' : '') + 'CABYS tomado del producto que ya existe.',
+        };
+      });
+      setCabysPorNombre(n);
+      if (n > 0) setRows(conCabys);
+    } catch {
+      // Sin la consulta se importa igual: solo se pierde el relleno del CABYS.
+      setCabysPorNombre(0);
+    }
+  };
+
+  /**
+   * El precio que se va a guardar, según lo contestado sobre el impuesto.
+   *
+   * «Incluido» significa que el número del archivo ya trae el IVA adentro, así
+   * que hay que sacárselo para guardar la base —que es lo que el sistema suma
+   * al vender—. Se redondea a dos decimales: un precio con más decimales se
+   * arrastra a cada línea de cada factura.
+   */
+  const precioNeto = (valor: number | undefined, ivaPct: number | undefined): number => {
+    const v = Number(valor ?? 0);
+    if (impuestoEnPrecio !== 'incluido') return v;
+    const tasa = Number(ivaPct ?? 13);
+    if (!(tasa > 0)) return v;
+    return Math.round((v / (1 + tasa / 100)) * 100) / 100;
+  };
+
+  /** ¿El archivo trae columna de IVA? Decide si el CABYS puede fijar la tarifa. */
+  const archivoTraeIva = mapping.reconocidas.includes('iva_rate');
+
+  const buscarCabys = async (q: string) => {
+    setCabysQuery(q);
+    if (q.trim().length < 2) { setCabysResultados([]); return; }
+    setBuscandoCabys(true);
+    try {
+      const r = await apiFetch<Array<{ code: string; description: string; iva_rate: number | null }>>(
+        `/cabys/search?q=${encodeURIComponent(q.trim())}`);
+      setCabysResultados(Array.isArray(r) ? r.slice(0, 12) : []);
+    } catch { setCabysResultados([]); }
+    finally { setBuscandoCabys(false); }
+  };
+
+  /**
+   * UN CÓDIGO PARA TODAS LAS FILAS QUE NO LO TIENEN.
+   *
+   * Es la forma más rápida y la que calza con cómo se usa de verdad: un
+   * restaurante tiene sus 133 productos con UN solo CABYS, y una ferretería
+   * mete el 74% de su catálogo en un mismo código. Buscar uno por uno entre
+   * 20.506 códigos es lo que hace que nadie le ponga CABYS a nada.
+   *
+   * La tarifa del CABYS solo se copia si el archivo NO traía columna de IVA:
+   * si el negocio escribió una tarifa, manda la suya.
+   */
+  const aplicarCabysATodas = (code: string, ivaDelCatalogo: number | null) => {
+    setRows(prev => prev.map(r => r.cabys_code ? r : {
+      ...r,
+      cabys_code: code,
+      iva_rate: (!archivoTraeIva && ivaDelCatalogo != null) ? ivaDelCatalogo : r.iva_rate,
+      _cabys_asignado: 'manual' as const,
+    }));
+    setCabysQuery(''); setCabysResultados([]);
+  };
+
+  /**
+   * SUGERENCIAS: se piden con un botón, nunca solas.
+   *
+   * El emparejamiento por nombre contra el catálogo acierta a veces y se
+   * equivoca a veces, y de maneras que no se notan: «Empanada Carne» cae en
+   * «Carne de cabra», «Arroz 1 kg» en «Harina de arroz», «Jugo de naranja» en
+   * el congelado. Peor todavía, varias de esas equivocaciones traen IVA del 1%
+   * para productos que son del 13%, así que aplicarlas en silencio le cambiaría
+   * al cliente el impuesto que cobra.
+   *
+   * Por eso NO se aplican al cargar el archivo: se piden, quedan todas marcadas
+   * y con la descripción del catálogo a la vista para poder revisarlas.
+   */
+  const traerSugerencias = async () => {
+    const faltan = rows.filter(r => !r.cabys_code && r.name);
+    if (faltan.length === 0) return;
+    setSugiriendo(true);
+    try {
+      const names = [...new Set(faltan.map(r => r.name))];
+      const sug = await apiFetch<Array<{
+        name: string; code: string | null; description: string | null; iva_rate: number | null;
+        confianza: string; fuente?: string | null; exacto?: boolean; parecido?: number;
+      }>>('/cabys/sugerir', { method: 'POST', body: JSON.stringify({ names }) }, 90000);
+      const porNombre = new Map((sug ?? []).filter(x => x.code).map(x => [x.name, x]));
+      let n = 0;
+      setRows(prev => prev.map(r => {
+        if (r.cabys_code || !r.name) return r;
+        const x = porNombre.get(r.name);
+        if (!x?.code) return r;
+        n++;
+        return {
+          ...r,
+          cabys_code: x.code,
+          iva_rate: (!archivoTraeIva && x.iva_rate != null) ? x.iva_rate : r.iva_rate,
+          _cabys_asignado: 'sugerido' as const,
+          _cabys_desc: x.description ?? undefined,
+          // De dónde salió: un producto igual de otro negocio es mucho más
+          // confiable que un parecido de palabras contra el catálogo.
+          _cabys_origen: x.fuente === 'otros_negocios'
+            ? (x.exacto ? 'otro negocio, producto igual' : `otro negocio, parecido ${x.parecido ?? '?'}%`)
+            : 'catálogo de Hacienda',
+        };
+      }));
+      setSugeridas(n);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron traer las sugerencias');
+    } finally { setSugiriendo(false); }
+  };
+
+  /** Deshace las sugerencias (no lo asignado a mano ni lo que vino en el archivo). */
+  const quitarSugerencias = () => {
+    setRows(prev => prev.map(r => r._cabys_asignado === 'sugerido'
+      ? { ...r, cabys_code: undefined, _cabys_asignado: undefined, _cabys_desc: undefined }
+      : r));
+    setSugeridas(0);
+  };
+
+  const sinCabys = rows.filter(r => !r.cabys_code && !r._error).length;
+
   const errorRows = rows.filter(r => r._error);
 
   const doImport = async () => {
@@ -348,7 +538,9 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         const payload = validRows.map(r => ({
           name: r.name, sku: r.sku ?? '', sku2: r.sku2 ?? null, description: r.description,
           supplier: r.supplier ?? null,
-          unit_price: r.unit_price, cost_price: r.cost_price,
+          // El impuesto, según lo contestado arriba (ver `precioNeto`).
+          unit_price: precioNeto(r.unit_price, r.iva_rate),
+          cost_price: r.cost_price == null ? r.cost_price : precioNeto(r.cost_price, r.iva_rate),
           stock_quantity: r.stock_quantity ?? 0, min_stock_level: r.min_stock_level ?? 0,
           max_stock_level: r.max_stock_level ?? 100, tracks_stock: r.tracks_stock !== false,
           category: r.category ?? null, unit_type: r.unit_type ?? null,
@@ -535,8 +727,9 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
             sku:             r.sku ?? '',
             sku2:            r.sku2 ?? null,
             description:     r.description,
-            unit_price:      r.unit_price,
-            cost_price:      r.cost_price,
+            // El impuesto, según lo contestado en la pantalla (ver `precioNeto`).
+            unit_price:      precioNeto(r.unit_price, r.iva_rate),
+            cost_price:      r.cost_price == null ? r.cost_price : precioNeto(r.cost_price, r.iva_rate),
             stock_quantity:  r.stock_quantity ?? 0,
             min_stock_level: r.min_stock_level ?? 0,
             max_stock_level: r.max_stock_level ?? 100,
@@ -648,6 +841,116 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                 )}
               </div>
 
+              {/* LA PREGUNTA DEL IMPUESTO.
+                  No se puede adivinar mirando el archivo y equivocarse mueve
+                  todo el catálogo un 13%, así que no se importa sin contestarla. */}
+              <div className={`rounded-xl border-2 px-3 py-2.5 ${
+                impuestoEnPrecio ? 'border-gray-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
+                <p className="text-xs font-black text-gray-800">
+                  Los precios del archivo ¿ya incluyen el impuesto?
+                  {!impuestoEnPrecio && <span className="ml-2 text-amber-700">· hay que contestar para importar</span>}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                  <button type="button" onClick={() => setImpuestoEnPrecio('aparte')} disabled={importing}
+                    className={`text-left px-3 py-2 rounded-lg border-2 transition ${
+                      impuestoEnPrecio === 'aparte' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
+                    <span className="block text-xs font-black text-gray-900">No, el impuesto se añade</span>
+                    <span className="block text-[11px] text-gray-500">
+                      El precio del archivo es la base y el sistema le suma el IVA al vender. Se guardan tal cual.
+                    </span>
+                  </button>
+                  <button type="button" onClick={() => setImpuestoEnPrecio('incluido')} disabled={importing}
+                    className={`text-left px-3 py-2 rounded-lg border-2 transition ${
+                      impuestoEnPrecio === 'incluido' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
+                    <span className="block text-xs font-black text-gray-900">Sí, ya está incluido</span>
+                    <span className="block text-[11px] text-gray-500">
+                      El precio del archivo es el final que paga el cliente. Se le resta el IVA de cada fila para
+                      guardar la base, y al vender vuelve a quedar en el mismo precio.
+                    </span>
+                  </button>
+                </div>
+                {impuestoEnPrecio === 'incluido' && rows[0] && (
+                  <p className="text-[11px] text-emerald-700 font-bold mt-1.5">
+                    Ejemplo con la primera fila: ₡{Number(rows[0].unit_price ?? 0).toLocaleString('es-CR')} del archivo
+                    {' '}→ ₡{precioNeto(rows[0].unit_price, rows[0].iva_rate).toLocaleString('es-CR')} de base
+                    {' '}(IVA {rows[0].iva_rate ?? 13}%), y se vende otra vez a ₡{Number(rows[0].unit_price ?? 0).toLocaleString('es-CR')}.
+                  </p>
+                )}
+              </div>
+
+              {/* ASIGNAR CABYS a lo que no lo trae. Sin esto, el cliente nuevo
+                  queda sin poder emitir comprobantes electrónicos y el problema
+                  aparece semanas después, sin relación visible con el alta. */}
+              {sinCabys > 0 && (
+                <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 space-y-2">
+                  <p className="text-xs font-black text-gray-800">
+                    {sinCabys} fila(s) sin CABYS — sin él, el negocio no va a poder facturar electrónicamente.
+                  </p>
+
+                  <div className="relative">
+                    <input value={cabysQuery} onChange={e => void buscarCabys(e.target.value)}
+                      placeholder="Buscar un CABYS por descripción o código (ej. «comida preparada», «tornillo»)…"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-amber-500" />
+                    {buscandoCabys && <span className="absolute right-3 top-2.5 text-[10px] text-gray-400">buscando…</span>}
+                  </div>
+
+                  {cabysResultados.length > 0 && (
+                    <div className="max-h-44 overflow-y-auto border border-amber-200 rounded-lg bg-white divide-y divide-gray-100">
+                      {cabysResultados.map(c => (
+                        <button key={c.code} type="button"
+                          onClick={() => aplicarCabysATodas(c.code, c.iva_rate)}
+                          className="w-full text-left px-3 py-2 hover:bg-amber-50">
+                          <span className="font-mono text-[11px] font-bold text-gray-800">{c.code}</span>
+                          {c.iva_rate != null && (
+                            <span className="ml-2 text-[10px] font-bold text-gray-500">IVA {c.iva_rate}%</span>
+                          )}
+                          <span className="block text-[11px] text-gray-600">{c.description}</span>
+                          <span className="block text-[10px] font-bold text-amber-700 mt-0.5">
+                            Aplicar a las {sinCabys} filas sin CABYS
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button type="button" onClick={() => void traerSugerencias()} disabled={sugiriendo || importing}
+                      className="px-3 py-1.5 rounded-lg border-2 border-gray-300 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+                      {sugiriendo ? 'Buscando…' : `Sugerir por nombre (${sinCabys})`}
+                    </button>
+                    {sugeridas > 0 && (
+                      <button type="button" onClick={quitarSugerencias} disabled={importing}
+                        className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-500 hover:bg-white">
+                        Quitar las {sugeridas} sugerencias
+                      </button>
+                    )}
+                    <span className="text-[11px] text-gray-600">
+                      Lo más rápido es elegir un código arriba y aplicarlo a todas: un restaurante suele usar uno
+                      solo para todo el menú.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {sugeridas > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-[11px] text-gray-700">
+                  <b className="text-amber-700">Revisá las {sugeridas} sugerencias.</b> Primero se busca entre los
+                  productos que OTROS negocios ya clasificaron —ahí están los platos, que el catálogo de Hacienda no
+                  tiene: «Casado con pollo» sale de otro restaurante, no de una descripción de aduana— y si no hay
+                  parecido se cae al catálogo. Igual se equivocan: en la tabla va de dónde salió cada una y la
+                  descripción del código
+                  {!archivoTraeIva && <> y, como el archivo no trae columna de IVA, <b>la tarifa también sale del
+                  catálogo</b>: un código equivocado le cambia el impuesto que cobra el negocio</>}.
+                </div>
+              )}
+
+              {cabysPorNombre > 0 && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800">
+                  <b>{cabysPorNombre} fila(s) sin CABYS</b> tomaron el del producto que ya existe, emparejando por
+                  nombre. Van marcadas en la tabla: si alguna no corresponde, corregila en el archivo antes de importar.
+                </div>
+              )}
+
               {/* Qué columna se reconoció como qué. Se muestra ANTES de importar
                   porque descubrir que el costo entró en la columna equivocada
                   después de crear 300 productos es mucho más caro que revisarlo acá. */}
@@ -695,13 +998,38 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                         <td className="px-3 py-1.5 font-semibold text-gray-800 truncate max-w-48">{r.name || '—'}</td>
                         <td className="px-3 py-1.5 font-mono text-gray-500">{r.sku || '—'}</td>
                         <td className="px-3 py-1.5 font-mono text-gray-500">{r.sku2 || '—'}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">₡{r.unit_price?.toLocaleString('es-CR')}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          ₡{precioNeto(r.unit_price, r.iva_rate).toLocaleString('es-CR')}
+                          {impuestoEnPrecio === 'incluido' && (
+                            <span className="block text-[10px] text-gray-400">
+                              archivo: ₡{Number(r.unit_price ?? 0).toLocaleString('es-CR')}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">{r.cost_price != null ? `₡${r.cost_price.toLocaleString('es-CR')}` : '—'}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{r.tracks_stock === false ? '∞' : (r.stock_quantity ?? 0)}</td>
                         <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.supplier ?? '—'}</td>
                         <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.category ?? '—'}</td>
                         <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.unit_type ?? '—'}</td>
-                        <td className="px-3 py-1.5 font-mono text-gray-500">{r.cabys_code || '—'}</td>
+                        <td className="px-3 py-1.5 font-mono text-gray-500">
+                          {r.cabys_code || <span className="text-amber-600">sin CABYS</span>}
+                          {r._cabys_heredado && (
+                            <span className="block text-[10px] font-sans text-blue-600" title="No venía en el archivo: se tomó del producto que ya existe, emparejando por nombre">
+                              del producto existente
+                            </span>
+                          )}
+                          {r._cabys_asignado === 'manual' && (
+                            <span className="block text-[10px] font-sans text-gray-500">aplicado a todas</span>
+                          )}
+                          {r._cabys_asignado === 'sugerido' && (
+                            <span className="block text-[10px] font-sans text-amber-700" title={r._cabys_desc}>
+                              {String(r._cabys_desc ?? '').slice(0, 38)}
+                              {r._cabys_origen && (
+                                <span className="block text-gray-500">{r._cabys_origen}</span>
+                              )}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{r.iva_rate ?? 13}%</td>
                         <td className="px-3 py-1.5">
                           {r._error ? (
@@ -764,7 +1092,8 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
             {importing ? 'Cancelar' : 'Cerrar'}
           </button>
           <button onClick={doImport}
-            disabled={validRows.length === 0 || importing}
+            disabled={validRows.length === 0 || importing || !impuestoEnPrecio}
+            title={!impuestoEnPrecio ? 'Primero contestá si los precios ya incluyen el impuesto' : undefined}
             className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50 flex items-center gap-1.5">
             {importing ? (<><Loader2 size={14} className="animate-spin" /> Importando…</>) :
                          (<><Upload size={14} /> Importar {validRows.length} producto{validRows.length !== 1 ? 's' : ''}</>)}

@@ -25,6 +25,8 @@ export interface PendingPurchaseCreate {
     expected_delivery_date: string | null;
     total_amount: number;
     notes: string | null;
+    /** La compra ya llegó: al sincronizar entra recibida, no como pedido. */
+    receive_now?: boolean;
   };
   items: Array<{
     product_id: string;
@@ -347,6 +349,8 @@ export const purchasesOfflineService = {
           expected_delivery_date: c.purchaseData.expected_delivery_date,
           actual_delivery_date:   null,
           status:                 'pending',
+          // La compra que ya había llegado entra recibida al sincronizar.
+          receive_now:            (c.purchaseData as any).receive_now === true,
           total_amount:           c.purchaseData.total_amount,
           notes:                  c.purchaseData.notes,
           purchase_items:         c.items.map(i => ({

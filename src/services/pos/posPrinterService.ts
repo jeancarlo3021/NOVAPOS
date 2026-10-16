@@ -1284,7 +1284,11 @@ export class POSPrinterService {
       else if (ln.t === 'row') row(ln.a ?? '', ln.b ?? '');
       else text((ln.a ?? '')), nl();
     }
-    nl(); nl(); push(0x1D, 0x56, 0x00);
+    // Mismo aire que el tiquete de venta antes del corte: con dos renglones, la
+    // cuchilla —que corta a unos centímetros del cabezal— dejaba la última
+    // línea pegada al borde o debajo del corte.
+    for (let i = 0; i < 6; i++) nl();
+    push(0x1D, 0x56, 0x00);
     await this.sendBytes(new Uint8Array(cmds), cfg);
   }
 
@@ -1544,8 +1548,11 @@ export class POSPrinterService {
     centerText(`Fecha: ${fmtCRDateTime(report.closed_at)}`);
     nl();
 
-    // Feed + corte (SIN cajón — el cierre no abre caja)
-    nl(); nl();
+    // Feed + corte (SIN cajón — el cierre no abre caja).
+    // Mismo aire que el tiquete de venta antes del corte: con dos renglones, la
+    // cuchilla —que corta a unos centímetros del cabezal— dejaba la última
+    // línea pegada al borde o debajo del corte.
+    for (let i = 0; i < 6; i++) nl();
     push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
 
     return new Uint8Array(cmds);
@@ -1585,7 +1592,12 @@ export class POSPrinterService {
   <meta charset="UTF-8">
   <title>Cierre de Caja</title>
   <style>
-    @page { size: ${widthMM} auto; margin: 0; }
+    /* «size: <medida> auto» es CSS INVÁLIDO: el navegador descarta la regla
+       entera y vuelve a su hoja por omisión, así que esto salía impreso en
+       carta en vez de en el rollo. Misma causa que tenía el tiquete de venta;
+       acá el alto va generoso y fijo porque estos documentos son de largo
+       acotado y no vale la pena medirlos con un guion. */
+    @page { size: ${widthMM} 300mm; margin: 0; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     body { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.7;
@@ -1778,7 +1790,12 @@ export class POSPrinterService {
   <meta charset="UTF-8">
   <title>Orden ${order.purchase_number}</title>
   <style>
-    @page { size: ${widthMM} auto; margin: 0; }
+    /* «size: <medida> auto» es CSS INVÁLIDO: el navegador descarta la regla
+       entera y vuelve a su hoja por omisión, así que esto salía impreso en
+       carta en vez de en el rollo. Misma causa que tenía el tiquete de venta;
+       acá el alto va generoso y fijo porque estos documentos son de largo
+       acotado y no vale la pena medirlos con un guion. */
+    @page { size: ${widthMM} 300mm; margin: 0; }
     *, *::before, *::after {
       box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important;
@@ -2403,7 +2420,49 @@ export class POSPrinterService {
     /** Separador de guiones, idéntico al de la térmica. */
     const sepLinea = '-'.repeat(charWidth);
 
+    /**
+     * Alto de partida del papel, en milímetros.
+     *
+     * Estimación: lo fijo del encabezado y el pie, más lo que ocupa cada línea
+     * de producto con su desglose. Solo se usa si el ajuste fino del final no
+     * corre; con él, el alto termina siendo el exacto.
+     *
+     * Se prefiere quedarse LARGO antes que corto: sobrar papel es molesto, pero
+     * quedarse corto parte el tiquete en dos hojas y la segunda sale con el
+     * total solo, que es peor.
+     */
+    const altoInicialMM = Math.max(
+      120,
+      Math.round(80 + (receiptData.items?.length ?? 0) * 12),
+    );
+
+
     const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    /**
+     * Cuánto puede agrandarse el TOTAL sin partirse.
+     *
+     * Es la línea más grande del tiquete y la que más importa que se lea de un
+     * vistazo. Con un tamaño fijo, en papel de 58 mm —32 columnas— no cabía y
+     * «*** TOTAL: ₡25 481 ***» se partía, dejando los asteriscos solos en el
+     * renglón de abajo. Acá se calcula contra el texto REAL: un total de seis
+     * cifras necesita más espacio que uno de cuatro, así que el tamaño se
+     * adapta al monto en vez de confiar en que siempre quepa.
+     */
+    const textoTotal = `*** TOTAL: ₡${fmt(receiptData.total)} ***`;
+    /**
+     * La cuenta se hace en MILÍMETROS, no en columnas.
+     *
+     * Contar columnas se queda corto por dos cosas que no se ven: el recibo
+     * tiene 1 mm de margen a cada lado —o sea 46 mm útiles en papel de 58, no
+     * 48— y esta línea lleva espaciado entre letras, que suma otros 3 mm. Con
+     * la cuenta por columnas el total «entraba» sobre el papel y se partía en
+     * la pantalla, dejando los asteriscos solos en el renglón de abajo.
+     *
+     * Courier avanza 0,6 em por carácter; el 1,08 es el espaciado entre letras.
+     */
+    const anchoUtilMM = parseFloat(areaMM) - 2;
+    const emTotal = Math.min(1.5, Math.max(0.9,
+      anchoUtilMM / (textoTotal.length * fontMM * 0.6 * 1.08))).toFixed(2);
 
     // Precios CON IMPUESTOS (precio final): línea y unitario con IVA incluido.
     const effRateH = receiptData.subtotal > 0 ? receiptData.tax / receiptData.subtotal : 0;
@@ -2479,8 +2538,22 @@ export class POSPrinterService {
   <meta charset="UTF-8">
   <title>Ticket #${receiptData.invoiceNumber}</title>
   <style>
+    /**
+     * EL TAMAÑO DE PÁGINA, que es por lo que el tiquete salía mal.
+     *
+     * Acá decía «size: 58mm auto», y eso es CSS INVÁLIDO: la propiedad «size»
+     * no admite mezclar una medida con «auto». El navegador descarta la regla y
+     * vuelve a su hoja por omisión —carta o A4—, así que el tiquete se
+     * imprimía chiquito en medio de una hoja grande. En 80 mm disimulaba; en
+     * 58 mm se veía roto.
+     *
+     * Ahora lleva una altura CONCRETA. La de acá es el punto de partida: el
+     * guion del final la ajusta al alto real una vez maquetado el contenido,
+     * que es la única forma de que el rollo no avance de más ni el tiquete se
+     * parta en dos páginas.
+     */
     @page {
-      size: ${isA4 ? 'A4' : `${widthMM} auto`};
+      size: ${isA4 ? 'A4' : `${widthMM} ${altoInicialMM}mm`};
       margin: ${isA4 ? '15mm' : '0'};
     }
     *, *::before, *::after {
@@ -2547,7 +2620,7 @@ export class POSPrinterService {
       letter-spacing: 0;
     }
     .header { text-align: center; margin-bottom: 5px; }
-    .title { font-size: 16px; font-weight: 900; letter-spacing: 1px; }
+    .title { font-size: 1.3em; font-weight: 900; letter-spacing: 0.02em; }
     .subtitle { color: #000; font-weight: 900; margin: 0; }
     .store-block { text-align: center; margin: 4px 0; }
     .store-name { font-weight: 900; margin: 0; }
@@ -2567,26 +2640,31 @@ export class POSPrinterService {
     }
     table { width: 100%; border-collapse: collapse; }
     .item-name { font-weight: 800; }
-    .item-qty { text-align: right; font-weight: 900; white-space: nowrap; }
-    .item-price { text-align: right; font-weight: 900; white-space: nowrap; }
+    /* Sin separación, la cantidad y el importe se pegaban («3₡15 255») cuando
+       el nombre ocupaba todo el ancho, y no se distinguía cuál era cuál. */
+    .item-qty { text-align: right; font-weight: 900; white-space: nowrap; padding: 0 0.4em; }
+    .item-price { text-align: right; font-weight: 900; white-space: nowrap; padding-left: 0.3em; }
     .item-detail { color: #000; font-weight: 700; margin: 0; }
     .totals { font-weight: 800; }
     .totals tr { border: none; }   /* la térmica no dibuja líneas entre totales */
     .totals td { padding: 2px 0; }
     .totals td:last-child { text-align: right; }
+    /* En EM, no en px: el cuerpo mide en milímetros y cambia con el ancho del
+       papel. Con 20px fijos, en 58 mm el total no cabía y «*** TOTAL: ₡25 481
+       ***» se partía en dos renglones. */
     .total-line {
-      font-size: 20px;
+      font-size: 1.5em;
       font-weight: 900;
       text-align: center;
       margin: 6px 0;
       padding: 4px 0;
       border-top: 1px solid #000;
       border-bottom: 1px solid #000;
-      letter-spacing: 2px;
+      letter-spacing: 0.04em;
     }
     .payment-block { margin: 0; font-weight: 900; }
-    .footer { text-align: center; font-size: 14px; font-weight: 900; margin-top: 8px; letter-spacing: 0.5px; }
-    .cashier { text-align: center; font-size: 12px; color: #000; margin: 3px 0; font-weight: 800; }
+    .footer { text-align: center; font-size: 1.05em; font-weight: 900; margin-top: 8px; letter-spacing: 0; }
+    .cashier { text-align: center; font-size: 0.9em; color: #000; margin: 3px 0; font-weight: 800; }
   </style>
 </head>
 <body>
@@ -2672,7 +2750,7 @@ export class POSPrinterService {
   <div class="divider">${sepLinea}</div>
   ` : ''}
 
-  <div class="total-line">*** TOTAL: ₡${fmt(receiptData.total)} ***</div>
+  <div class="total-line" style="font-size:${emTotal}em">*** TOTAL: ₡${fmt(receiptData.total)} ***</div>
 
   <div class="divider">${sepLinea}</div>
 
@@ -2728,10 +2806,42 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
 
   <div class="footer">
     ${receiptData.footerMessage ?? cfg.footerMessage}<br>
-    <span style="font-weight:normal;font-size:10px;">Vuelva pronto</span>
+    <span style="font-weight:normal;font-size:0.8em;">Vuelva pronto</span>
   </div>
 
 </div>
+${isA4 ? '' : `<script>
+/**
+ * EL PAPEL MIDE LO QUE MIDE EL TIQUETE.
+ *
+ * El alto de la página se declara ANTES de maquetar, así que arriba va una
+ * estimación. Acá, con el contenido ya puesto, se mide de verdad y se reescribe
+ * la regla: sin esto, el rollo avanza hasta completar la hoja estimada —medio
+ * metro de papel en blanco cuando el tiquete es corto— o, peor, el tiquete se
+ * parte en dos y la segunda hoja sale con el total solo.
+ *
+ * 1 mm son 96/25.4 px de CSS. Se suman 4 mm de respiro: quedarse corto por un
+ * milímetro cuesta una hoja entera.
+ */
+(function ajustarAlto() {
+  try {
+    /**
+     * Se mide el RECIBO, no el documento.
+     *
+     * El alto del documento nunca baja del alto de la ventana, y acá la ventana
+     * es el marco de impresión —tamaño A4—: midiendo así, todos los tiquetes
+     * salían de 297 mm con medio metro de papel en blanco al final. El borde
+     * inferior del recibo es el alto de verdad.
+     */
+    var recibo = document.querySelector('.receipt');
+    var px = recibo ? recibo.getBoundingClientRect().bottom : document.body.scrollHeight;
+    var mm = Math.ceil(px / (96 / 25.4)) + 4;
+    var estilo = document.createElement('style');
+    estilo.textContent = '@page { size: ${widthMM} ' + mm + 'mm; margin: 0; }';
+    document.head.appendChild(estilo);
+  } catch (e) { /* queda la altura estimada: el tiquete sale igual */ }
+})();
+</script>`}
 </body>
 </html>`;
   }
@@ -2790,6 +2900,55 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       text(label + ' '.repeat(sp) + val); nl();
     };
 
+    /**
+     * UN BLOQUE DE TEXTO CENTRADO DE VERDAD.
+     *
+     * `centerText` centra rellenando con espacios, y eso solo funciona si el
+     * texto entra en una línea. El mensaje de pie suele ser más largo —«Gracias
+     * por su compra, vuelva pronto»— y en 80 mm pasaba de las 48 columnas: la
+     * impresora lo partía donde le tocaba, a mitad de palabra, y el pedazo que
+     * caía abajo quedaba pegado a la izquierda. El tiquete terminaba con dos
+     * renglones desalineados justo donde va el nombre del negocio.
+     *
+     * Acá se parte por PALABRAS y se centra con el comando de la impresora
+     * (ESC a 1), que alinea cada renglón por su cuenta y no depende de que
+     * nuestra cuenta de columnas sea exacta.
+     */
+    const centrarBloque = (texto: string) => {
+      const limpio = String(texto ?? '').trim();
+      if (!limpio) return;
+      const lineas: string[] = [];
+      for (const parrafo of limpio.split(/\r?\n/)) {
+        let actual = '';
+        for (const palabra of parrafo.trim().split(/\s+/).filter(Boolean)) {
+          // Una palabra sola más larga que el papel se parte: no hay otra.
+          if (palabra.length > charWidth) {
+            if (actual) { lineas.push(actual); actual = ''; }
+            for (let i = 0; i < palabra.length; i += charWidth) lineas.push(palabra.slice(i, i + charWidth));
+            continue;
+          }
+          if (!actual) actual = palabra;
+          else if (actual.length + 1 + palabra.length <= charWidth) actual += ` ${palabra}`;
+          else { lineas.push(actual); actual = palabra; }
+        }
+        if (actual) lineas.push(actual);
+      }
+      push(0x1B, 0x61, 0x01);            // ESC a 1 — centrado por la impresora
+      for (const l of lineas) { text(l); nl(); }
+      push(0x1B, 0x61, 0x00);            // ESC a 0 — vuelve a la izquierda
+    };
+
+    /**
+     * Papel que avanza antes del corte.
+     *
+     * Eran tres renglones y quedaba justo: en varias impresoras la cuchilla
+     * corta a unos centímetros del cabezal, así que el último renglón salía
+     * pegado al borde —o directamente debajo del corte— y había que estirar el
+     * papel para leerlo. Con seis hay lugar para despegar el tiquete sin que se
+     * coma el mensaje, y el gasto de papel es despreciable.
+     */
+    const LINEAS_ANTES_DEL_CORTE = 6;
+
     // ── Init: preset "Xprinter chino que cancela GB18030 + CP437" ────────
     push(0x1B, 0x40);               // ESC @ — reset
     push(0x1C, 0x2E);               // FS . — CANCELAR modo chino (Xprinter)
@@ -2808,7 +2967,7 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       push(0x1B, 0x21, 0x10);       // doble alto
       centerText(`TOTAL: ${receiptData.total.toLocaleString('es-CR')}`);
       push(0x1B, 0x21, 0x00);       // normal
-      nl(); nl(); nl();
+      for (let i = 0; i < LINEAS_ANTES_DEL_CORTE; i++) nl();
       push(0x1D, 0x56, 0x00);       // GS V 0 — corte (sin cajón ni "vuelva pronto")
       return new Uint8Array(cmds);
     }
@@ -2998,8 +3157,13 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
     }
 
     sep();
-    if (cfg.footerMessage) centerText(cfg.footerMessage);
-    if (!receiptData.hideThanks) centerText('Vuelva pronto');
+    // El mensaje del negocio es lo último que lee el cliente: va centrado, con
+    // una línea de aire arriba y abajo para que no quede pegado al separador.
+    const pie = String(receiptData.footerMessage ?? cfg.footerMessage ?? '').trim();
+    if (pie || !receiptData.hideThanks) nl();
+    if (pie) centrarBloque(pie);
+    if (!receiptData.hideThanks) centrarBloque('Vuelva pronto');
+    if (pie || !receiptData.hideThanks) nl();
 
     // Abrir cajón de dinero — ANTES del corte. Algunas impresoras descartan los
     // comandos que llegan DESPUÉS de GS V (corte), por eso a veces no abría en
@@ -3010,8 +3174,8 @@ ${receiptData.simplificadoFooter && !receiptData.feClave ? `
       push(0x1B, 0x70, 0x00, 0x19, 0xFA);
     }
 
-    // Feed antes del corte (lo justo para despegar, sin gastar papel).
-    nl(); nl(); nl();
+    // Papel antes del corte: ver LINEAS_ANTES_DEL_CORTE.
+    for (let i = 0; i < LINEAS_ANTES_DEL_CORTE; i++) nl();
     push(0x1D, 0x56, 0x00);         // GS V 0 — full cut
 
     return new Uint8Array(cmds);

@@ -35,7 +35,37 @@ interface Prod { id: string; name: string; sku?: string | null; unit_price: numb
 
 const uid = () => `s${Math.random().toString(36).slice(2, 9)}`;
 
-export const MenuBuilder: React.FC = () => {
+/**
+ * EL MISMO EDITOR, para la carta y para el catálogo.
+ *
+ * Un catálogo digital es la misma mecánica que un menú —secciones, temas,
+ * publicar, QR, visitas— con otro contenido: productos en vez de platos,
+ * código y disponibilidad en vez de alérgenos. Clonar el módulo para cambiar
+ * las etiquetas habría garantizado que dentro de un año uno tuviera los
+ * arreglos y el otro no.
+ */
+export type TipoPagina = 'menu' | 'catalogo';
+
+const TEXTOS = {
+  menu: {
+    titulo: 'Menú digital', guardado: 'Menú guardado', cargando: 'No se pudo cargar el menú',
+    secciones: 'Secciones y platos', items: 'platos', item: 'plato',
+    agregar: 'Agregar platos', buscar: 'Buscar plato…',
+    vacio: 'Agregá una sección (Entradas, Fondos, Bebidas) y metele los platos.',
+    ruta: 'm', archivoQr: 'qr-menu',
+  },
+  catalogo: {
+    titulo: 'Catálogo digital', guardado: 'Catálogo guardado', cargando: 'No se pudo cargar el catálogo',
+    secciones: 'Secciones y productos', items: 'productos', item: 'producto',
+    agregar: 'Agregar productos', buscar: 'Buscar producto…',
+    vacio: 'Agregá una sección (Herramientas, Repuestos, Ofertas) y metele los productos.',
+    ruta: 'c', archivoQr: 'qr-catalogo',
+  },
+} as const;
+
+export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) => {
+  const L = TEXTOS[kind];
+  const esCatalogo = kind === 'catalogo';
   const { tenantId } = useTenantId();
   const [menu, setMenu] = useState<Menu | null>(null);
   const [products, setProducts] = useState<Prod[]>([]);
@@ -47,25 +77,28 @@ export const MenuBuilder: React.FC = () => {
   const [search, setSearch] = useState('');
   const [qr, setQr] = useState<string>('');
 
-  const publicUrl = menu ? `${window.location.origin}/m/${menu.slug}` : '';
+  const publicUrl = menu ? `${window.location.origin}/${L.ruta}/${menu.slug}` : '';
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [m, p] = await Promise.all([
-        apiFetch<Menu>('/digital-menu'),
-        // El MENÚ del restaurante si existe; si no, el catálogo. Un negocio con
-        // recetas no debería tener que buscar sus platos entre los insumos.
-        apiFetch<Prod[]>('/recipes/menu')
-          .then(r => (r?.length ? r : apiFetch<Prod[]>('/products')))
-          .catch(() => apiFetch<Prod[]>('/products')),
+        apiFetch<Menu>(`/digital-menu?kind=${kind}`),
+        // Para la carta, el MENÚ del restaurante si existe (un negocio con
+        // recetas no debería buscar sus platos entre los insumos). Para el
+        // catálogo, siempre el inventario: ahí no hay platos que separar.
+        esCatalogo
+          ? apiFetch<Prod[]>('/products')
+          : apiFetch<Prod[]>('/recipes/menu')
+              .then(r => (r?.length ? r : apiFetch<Prod[]>('/products')))
+              .catch(() => apiFetch<Prod[]>('/products')),
       ]);
       setMenu(m);
       setProducts(p ?? []);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'No se pudo cargar el menú');
+      setErr(e instanceof Error ? e.message : L.cargando);
     } finally { setLoading(false); }
-  }, [tenantId]);
+  }, [tenantId, kind]);
   useEffect(() => { void load(); }, [load]);
 
   // El QR se dibuja del enlace real. Se regenera al cambiar el slug para que
@@ -111,11 +144,11 @@ export const MenuBuilder: React.FC = () => {
     if (!menu) return;
     setSaving(true); setErr(''); setMsg('');
     try {
-      const saved = await apiFetch<Menu>('/digital-menu', {
+      const saved = await apiFetch<Menu>(`/digital-menu?kind=${kind}`, {
         method: 'PUT', body: JSON.stringify(menu),
       });
       setMenu(saved);
-      setMsg('Menú guardado');
+      setMsg(L.guardado);
       setTimeout(() => setMsg(''), 2500);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudo guardar');
@@ -126,7 +159,7 @@ export const MenuBuilder: React.FC = () => {
     if (!qr || !menu) return;
     const a = document.createElement('a');
     a.href = qr;
-    a.download = `qr-menu-${menu.slug}.png`;
+    a.download = `${L.archivoQr}-${menu.slug}.png`;
     a.click();
   };
 
@@ -151,7 +184,7 @@ export const MenuBuilder: React.FC = () => {
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center"><QrCode size={22} /></div>
             <div>
-              <h1 className="text-xl font-black">Menú digital</h1>
+              <h1 className="text-xl font-black">{L.titulo}</h1>
               <p className="text-white/80 text-sm">
                 La carta que el cliente abre escaneando el código de la mesa
               </p>
@@ -284,7 +317,7 @@ export const MenuBuilder: React.FC = () => {
           {/* Secciones y platos */}
           <section className="bg-white rounded-2xl border border-gray-100 p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-black text-gray-800">Secciones y platos</h2>
+              <h2 className="text-sm font-black text-gray-800">{L.secciones}</h2>
               <button onClick={() => setSections(s => [...s, { id: uid(), title: 'Nueva sección', note: '', product_ids: [] }])}
                 className="inline-flex items-center gap-1 text-xs font-black text-teal-700 hover:text-teal-900">
                 <Plus size={13} /> Sección
@@ -293,7 +326,7 @@ export const MenuBuilder: React.FC = () => {
 
             {menu.sections.length === 0 ? (
               <p className="text-center text-xs text-gray-400 py-8">
-                Agregá una sección (Entradas, Fondos, Bebidas) y metele los platos.
+                {L.vacio}
               </p>
             ) : (
               <div className="space-y-3">
@@ -342,7 +375,7 @@ export const MenuBuilder: React.FC = () => {
 
                       <button onClick={() => { setPickFor(pickFor === sec.id ? null : sec.id); setSearch(''); }}
                         className="w-full text-xs font-bold text-teal-700 border border-dashed border-teal-300 rounded-lg py-1.5 hover:bg-teal-50">
-                        <Plus size={12} className="inline" /> Agregar platos
+                        <Plus size={12} className="inline" /> {L.agregar}
                       </button>
 
                       {pickFor === sec.id && (
@@ -350,7 +383,7 @@ export const MenuBuilder: React.FC = () => {
                           <div className="relative mb-1.5">
                             <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
-                              placeholder="Buscar plato…"
+                              placeholder={L.buscar}
                               className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 rounded-md" />
                           </div>
                           <div className="max-h-48 overflow-y-auto space-y-0.5">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff } from 'lucide-react';
+import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff, PackageCheck, ClipboardList } from 'lucide-react';
 import type { InventorySupplier } from '@/services/Inventory/inventorySuppliersService';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
@@ -40,6 +40,19 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
   const [supplierId, setSupplierId]         = useState('');
   const [purchaseDate, setPurchaseDate]     = useState(new Date().toISOString().slice(0, 10));
   const [expectedDelivery, setExpectedDelivery] = useState('');
+  /**
+   * ¿La mercadería YA llegó, o es un pedido que todavía no?
+   *
+   * Antes solo existía el pedido: había que crear la orden y después entrar al
+   * detalle y «recibirla». Ese segundo paso es el que se olvida —hay 48 compras
+   * atascadas en «pendiente», o sea mercadería que entró y un inventario que
+   * nunca se enteró— y encima es puro trámite: de las compras que sí se
+   * recibieron, 23 de 29 se crearon y recibieron el mismo día.
+   *
+   * Por eso el valor por omisión es «ya la recibí», que es lo que pasa casi
+   * siempre: uno registra la compra con la factura del proveedor en la mano.
+   */
+  const [yaRecibida, setYaRecibida] = useState(true);
   const [notes, setNotes]                   = useState('');
   const [items, setItems]                   = useState<LineItem[]>([]);
 
@@ -239,9 +252,11 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             supplier_name:          supplier?.name ?? '—',
             purchase_number:        num,
             purchase_date:          purchaseDate,
-            expected_delivery_date: expectedDelivery || null,
+            expected_delivery_date: yaRecibida ? null : (expectedDelivery || null),
             total_amount:           totalAmount,
             notes:                  notes || null,
+            // Al sincronizar entra recibida, si así se registró.
+            receive_now:            yaRecibida,
           },
           items: items.map(i => ({
             product_id:   i.product_id,
@@ -258,9 +273,10 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             supplier_id:            supplierId,
             purchase_number:        num,
             purchase_date:          purchaseDate,
-            expected_delivery_date: expectedDelivery || null,
+            expected_delivery_date: yaRecibida ? null : (expectedDelivery || null),
             total_amount:           totalAmount,
             notes:                  notes || null,
+            receive_now:            yaRecibida,
             items: items.map(i => ({
               product_id: i.product_id,
               quantity:   i.quantity,
@@ -326,6 +342,35 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             </div>
           )}
 
+          {/* ¿Ya llegó o es un pedido? Lo primero que hay que decidir, porque
+              cambia lo que el sistema hace al guardar. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button type="button" onClick={() => setYaRecibida(true)} disabled={submitting}
+              className={`text-left px-4 py-3 rounded-xl border-2 transition ${
+                yaRecibida ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
+              <span className="flex items-center gap-2 font-black text-gray-900 text-sm">
+                <PackageCheck size={16} className={yaRecibida ? 'text-emerald-600' : 'text-gray-400'} />
+                Ya la recibí
+              </span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">
+                Entra al inventario al guardar: sube el stock, actualiza el costo y, si el proveedor
+                es a crédito, crea la cuenta por pagar.
+              </span>
+            </button>
+            <button type="button" onClick={() => setYaRecibida(false)} disabled={submitting}
+              className={`text-left px-4 py-3 rounded-xl border-2 transition ${
+                !yaRecibida ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}>
+              <span className="flex items-center gap-2 font-black text-gray-900 text-sm">
+                <ClipboardList size={16} className={!yaRecibida ? 'text-blue-600' : 'text-gray-400'} />
+                Es un pedido
+              </span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">
+                Queda pendiente y no toca el inventario. Cuando llegue, se recibe desde el detalle
+                de la compra.
+              </span>
+            </button>
+          </div>
+
           {/* General info */}
           <div>
             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Información General</h3>
@@ -379,16 +424,19 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Entrega Esperada</label>
-                <input
-                  type="date"
-                  value={expectedDelivery}
-                  onChange={e => setExpectedDelivery(e.target.value)}
-                  disabled={submitting}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                />
-              </div>
+              {/* Una compra que ya llegó no tiene «entrega esperada». */}
+              {!yaRecibida && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Entrega Esperada</label>
+                  <input
+                    type="date"
+                    value={expectedDelivery}
+                    onChange={e => setExpectedDelivery(e.target.value)}
+                    disabled={submitting}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -560,7 +608,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
               ? <><Loader size={16} className="animate-spin" /> Guardando...</>
               : isOffline
                 ? <><WifiOff size={16} /> Guardar (offline)</>
-                : '💾 Guardar Compra'
+                : (yaRecibida ? '📦 Guardar y recibir' : '💾 Guardar pedido')
             }
           </button>
         </div>

@@ -47,6 +47,7 @@ export const DEMO_GROUPS: Array<{ group: string; modules: DemoModule[] }> = [
       { key: 'recipes', label: 'Recetas y modificadores' },
       { key: 'restaurant_menu_recipes', label: 'POS por recetas' },
       { key: 'digital_menu', label: 'Menú digital con QR' },
+      { key: 'digital_catalog', label: 'Catálogo digital con QR' },
       { key: 'window_service', label: 'Ventanita' },
     ],
   },

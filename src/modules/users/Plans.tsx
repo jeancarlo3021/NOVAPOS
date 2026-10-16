@@ -1010,6 +1010,10 @@ export default function Plans() {
                     description="Carta pública que el cliente abre escaneando el código de la mesa"
                     checked={(features as any).digital_menu ?? false}
                     onChange={v => set({ digital_menu: v } as any)} />
+                  <FeatureRow icon={QrCode} color="bg-blue-600" title="Catálogo digital con QR"
+                    description="Vitrina pública de productos, con código y disponibilidad — para negocios que no venden comida"
+                    checked={(features as any).digital_catalog ?? false}
+                    onChange={v => set({ digital_catalog: v } as any)} />
                   <FeatureRow icon={UtensilsCrossed} color="bg-emerald-500" title="Menú por recetas"
                     description="En el salón se ofrecen las recetas, no el catálogo completo de inventario"
                     checked={(features as any).restaurant_menu_recipes ?? false}

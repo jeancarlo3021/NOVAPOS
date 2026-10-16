@@ -100,6 +100,9 @@ function AppContent() {
               mesa. Va fuera de ProtectedRoute porque su razón de ser es que no
               haga falta iniciar sesión. */}
           <Route path="/m/:slug" element={<PublicMenu />} />
+          {/* Catálogo digital PÚBLICO: misma página, otra ruta, para que el QR
+              de una ferretería no diga «menú». */}
+          <Route path="/c/:slug" element={<PublicMenu />} />
           {/* PANTALLA DEL CLIENTE (segundo monitor de la caja).
               Va fuera del layout: no lleva menú ni botones —el monitor puede ser
               táctil y lo toca cualquiera— y tiene que ocupar la pantalla entera.
@@ -153,6 +156,11 @@ function AppContent() {
               } />
               <Route path="/menu-digital" element={
                 <PlanGuard feature="digital_menu"><MenuBuilder /></PlanGuard>
+              } />
+              {/* El catálogo digital es el MISMO editor con otro contenido: una
+                  vitrina de productos para los negocios que no venden comida. */}
+              <Route path="/catalogo-digital" element={
+                <PlanGuard feature="digital_catalog"><MenuBuilder kind="catalogo" /></PlanGuard>
               } />
               <Route path="/recipes" element={
                 <PlanGuard feature="recipes"><Recipes /></PlanGuard>

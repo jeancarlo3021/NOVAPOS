@@ -93,7 +93,8 @@ export const PublicMenu: React.FC = () => {
   useEffect(() => {
     if (!data) return;
     const t = themeOf(data.theme);
-    document.title = data.header?.name ? `${data.header.name} · Menú` : 'Menú';
+    const etiqueta = (data as any).kind === 'catalogo' ? 'Catálogo' : 'Menú';
+    document.title = data.header?.name ? `${data.header.name} · ${etiqueta}` : etiqueta;
     let meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) {
       meta = document.createElement('meta');
@@ -121,7 +122,7 @@ export const PublicMenu: React.FC = () => {
       }}>
         <div>
           <p style={{ fontFamily: 'Georgia, serif', fontSize: 22, margin: '0 0 8px' }}>
-            Este menú no está disponible
+            {(data as any)?.kind === 'catalogo' ? 'Este catálogo no está disponible' : 'Este menú no está disponible'}
           </p>
           <p style={{ fontFamily: 'system-ui, sans-serif', fontSize: 14, color: '#7A6E5F', margin: 0 }}>
             {state === 'error'

@@ -20,6 +20,13 @@ export const PurchaseDataSchema = z.object({
   expected_delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido').nullable().optional(),
   total_amount: z.number().positive('El monto total debe ser mayor a 0'),
   notes: z.string().nullable().optional(),
+  /**
+   * La compra YA llegó: al sincronizar entra recibida (sube stock, actualiza
+   * costo y crea la cuenta por pagar). Sin esto, una compra registrada sin
+   * internet se sincronizaba como orden pendiente y el inventario no se movía
+   * nunca —que es justo el problema que esta función viene a resolver—.
+   */
+  receive_now: z.boolean().optional(),
 });
 
 export const PendingPurchaseCreateSchema = z.object({

@@ -264,6 +264,8 @@ export interface PlanFeatures {
   restaurant_menu_recipes?: boolean;
   /** Menú digital con QR: página pública que el cliente abre desde la mesa. */
   digital_menu?: boolean;
+  /** Catálogo digital con QR: la misma página, para productos corrientes. */
+  digital_catalog?: boolean;
   /** Ventanita: mostrador con número de orden, bipper y fila de despacho. */
   window_service?: boolean;
   /**
@@ -413,6 +415,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   modifiers: false,
   restaurant_menu_recipes: false,
   digital_menu: false,
+  digital_catalog: false,
   window_service: false,
   recipe_inventory: false,
   // Recetas avanzadas: todas apagadas. Encienden inventario y costos, así que
@@ -509,6 +512,7 @@ export const FULL_FEATURES: PlanFeatures = {
   table_orders: true,
   restaurant_menu_recipes: true,
   digital_menu: true,
+  digital_catalog: true,
   window_service: true,
   recipe_inventory: true,
   recipe_units: true,

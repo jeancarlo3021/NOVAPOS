@@ -5,11 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
 import { Link } from 'react-router-dom';
-import {
-  Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup,
-  Building2, Calendar, RefreshCw, Power,
-  Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone,
-} from 'lucide-react';
+import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
@@ -141,7 +137,7 @@ export const CreateOwner: React.FC = () => {
   const [showDemos, setShowDemos] = useState(false);
 
   const [formData, setFormData] = useState({
-    email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '', phone: '',
+    email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '', phone: '', simplificado: false,
   });
   const [formErrors, setFormErrors] = useState({ email: '', password: '', businessName: '' });
 
@@ -156,6 +152,50 @@ export const CreateOwner: React.FC = () => {
   useEffect(() => {
     apiFetch<Record<string, any>>('/admin/fe-quotas').then(q => setFeQuotas(q ?? {})).catch(() => {});
   }, []);
+
+  /**
+   * Régimen tributario de cada negocio (una consulta para todos, como las
+   * cuotas de FE). Sirve para que la acción diga en qué régimen está HOY: un
+   * botón que solo dice «cambiar» obliga a adivinar hacia dónde cambia.
+   */
+  const [regimenes, setRegimenes] = useState<Record<string, { regimen: 'simplificado' | 'tradicional'; impuesto_apagado: boolean }>>({});
+  const cargarRegimenes = useCallback(() => {
+    apiFetch<Record<string, any>>('/admin/tax-regimes').then(r => setRegimenes(r ?? {})).catch(() => {});
+  }, []);
+  useEffect(() => { cargarRegimenes(); }, [cargarRegimenes]);
+
+  /**
+   * Cambia el régimen del negocio.
+   *
+   * Un solo endpoint mueve las tres cosas que tienen que moverse juntas (el
+   * impuesto en las ventas, la facturación electrónica y la leyenda del
+   * tiquete). Acá solo se avisa qué implica, porque es un cambio que el cajero
+   * va a ver en el precio de la próxima venta.
+   */
+  const cambiarRegimen = async (o: OwnerData) => {
+    const actual = regimenes[o.id]?.regimen ?? 'tradicional';
+    const destino = actual === 'simplificado' ? 'tradicional' : 'simplificado';
+    const aviso = destino === 'simplificado'
+      ? `Pasar "${o.name}" a RÉGIMEN SIMPLIFICADO:\n\n`
+        + '• Deja de cobrar IVA en las ventas.\n'
+        + '• Se apaga la facturación electrónica.\n'
+        + '• El tiquete imprime la leyenda del oficio 1197.\n\n'
+        + '¿Continuar?'
+      : `Pasar "${o.name}" a RÉGIMEN TRADICIONAL:\n\n`
+        + '• Vuelve a cobrar IVA en las ventas (13% si no tenía otro).\n'
+        + '• La facturación electrónica NO se enciende sola: eso se activa aparte.\n\n'
+        + '¿Continuar?';
+    if (!window.confirm(aviso)) return;
+    try {
+      await apiFetch(`/admin/tenants/${o.id}/tax-regime`, {
+        method: 'PUT', body: JSON.stringify({ regimen: destino }),
+      });
+      showToast(`${o.name}: régimen ${destino}`, 'success');
+      cargarRegimenes();
+    } catch (err: any) {
+      showToast(err?.message || 'No se pudo cambiar el régimen', 'error');
+    }
+  };
 
   const setEmisorApiKey = async (o: OwnerData) => {
     try {
@@ -807,11 +847,27 @@ export const CreateOwner: React.FC = () => {
           });
         } catch { /* el negocio ya quedó creado: el teléfono se puede cargar después */ }
       }
+
+      /**
+       * El régimen se aplica SOLO si es simplificado.
+       *
+       * Tradicional es lo que ya es un negocio recién creado —cobra IVA y no
+       * tiene FE encendida—, así que llamar al endpoint para eso solo agrega
+       * una escritura y una forma más de fallar.
+       */
+      if (formData.simplificado && tid) {
+        try {
+          await apiFetch(`/admin/tenants/${tid}/tax-regime`, {
+            method: 'PUT', body: JSON.stringify({ regimen: 'simplificado' }),
+          });
+          cargarRegimenes();
+        } catch { /* el negocio ya quedó creado: el régimen se cambia desde Acciones */ }
+      }
       // El negocio nuevo aparece también como CLIENTE en el POS (para facturarle
       // la suscripción). No bloquea la creación si falla.
       try { await apiFetch('/admin/sync-customers', { method: 'POST' }); } catch { /* ignore */ }
       setSuccess(`✅ Negocio creado — Email: ${formData.email}`);
-      setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '', phone: '' });
+      setFormData({ email: '', password: '', businessName: '', planId: '', withDemo: false, fePlanId: '', phone: '', simplificado: false });
       setShowForm(false);
       await new Promise(r => setTimeout(r, 800));
       fetchOwners();
@@ -1241,13 +1297,37 @@ export const CreateOwner: React.FC = () => {
               <div>
                 <label className="block text-xs font-bold text-gray-600 mb-1">Plan Facturación Electrónica</label>
                 <select value={formData.fePlanId} onChange={e => setFormData({ ...formData, fePlanId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
-                  <option value="">Sin FE (dejar vacío)</option>
+                  disabled={formData.simplificado}
+                  title={formData.simplificado ? 'Un negocio en régimen simplificado no emite facturas electrónicas' : undefined}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white disabled:bg-gray-100 disabled:text-gray-400">
+                  <option value="">{formData.simplificado ? 'No aplica (régimen simplificado)' : 'Sin FE (dejar vacío)'}</option>
                   {fePlans.filter(p => p.is_active).map(p => (
                     <option key={p.id} value={p.id}>{p.name}{p.docsPerMonth == null ? ' — ilimitado' : ` — ${p.docsPerMonth}/mes`}</option>
                   ))}
                 </select>
               </div>
+              {/* RÉGIMEN: decide si el negocio cobra IVA. Va en la creación
+                  porque configurarlo después significa que las primeras ventas
+                  salieron con el impuesto equivocado. */}
+              <div className="md:col-span-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <input type="checkbox" id="simplificado" checked={formData.simplificado}
+                  onChange={e => setFormData({
+                    ...formData,
+                    simplificado: e.target.checked,
+                    // Un simplificado no emite comprobantes electrónicos: el
+                    // plan de FE se quita solo para no venderle lo que no puede usar.
+                    fePlanId: e.target.checked ? '' : formData.fePlanId,
+                  })}
+                  className="w-4 h-4 mt-0.5 text-amber-600 rounded" />
+                <label htmlFor="simplificado" className="text-sm text-gray-700 font-medium">
+                  Régimen <strong>simplificado</strong>
+                  <span className="block text-[11px] font-normal text-gray-500 mt-0.5">
+                    No cobra IVA en las ventas y no emite factura electrónica; el tiquete lleva la
+                    leyenda del oficio 1197. Sin marcar, queda en régimen tradicional (cobra 13%).
+                  </span>
+                </label>
+              </div>
+
               <div className="md:col-span-2 flex items-center gap-2 bg-blue-50 rounded-xl p-3">
                 <input type="checkbox" id="withDemo" checked={formData.withDemo}
                   onChange={e => setFormData({ ...formData, withDemo: e.target.checked })}
@@ -1458,6 +1538,19 @@ export const CreateOwner: React.FC = () => {
                                   <button onClick={() => { setOpenMenuId(null); handleEditPrice(o); }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
                                     <Receipt size={13} /> Ajustar monto {o.custom_price != null && '✎'}
+                                  </button>
+                                  {/* Régimen: dice en cuál está y a cuál lo pasa. */}
+                                  <button onClick={() => { setOpenMenuId(null); cambiarRegimen(o); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50">
+                                    <Scale size={13} />
+                                    {(regimenes[o.id]?.regimen ?? 'tradicional') === 'simplificado'
+                                      ? 'Régimen: simplificado → pasar a tradicional'
+                                      : 'Régimen: tradicional → pasar a simplificado'}
+                                    {regimenes[o.id] && regimenes[o.id].regimen === 'tradicional' && regimenes[o.id].impuesto_apagado && (
+                                      <span className="ml-auto text-[10px] font-black text-red-600" title="Tiene el impuesto apagado pero no está marcado como simplificado">
+                                        ⚠ sin IVA
+                                      </span>
+                                    )}
                                   </button>
                                   <div className="px-3 py-1.5">
                                     <select onChange={e => { handleChangePlan(o.id, e.target.value); setOpenMenuId(null); }} defaultValue=""

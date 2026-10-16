@@ -26,6 +26,13 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, c
   const showPrices = config.show_prices !== false;
   const showPhotos = config.show_photos !== false;
   const showAllergens = config.show_allergens !== false;
+  /**
+   * Lo propio del CATÁLOGO: el código con el que el cliente pide el producto y
+   * si hay existencias. Un tornillo no tiene alérgenos, y «contiene gluten» en
+   * una ferretería se ve como un error del sistema.
+   */
+  const showSku = (config as any).show_sku === true;
+  const showStock = (config as any).show_stock === true;
   const s = (n: number) => (compact ? n * 0.82 : n);
 
   return (
@@ -69,7 +76,7 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, c
         {/* Secciones */}
         {sections.length === 0 ? (
           <p style={{ textAlign: 'center', color: t.muted, fontSize: s(13), padding: `${s(40)}px 0` }}>
-            Todavía no hay platos en el menú.
+            {showSku || showStock ? 'Todavía no hay productos en el catálogo.' : 'Todavía no hay platos en el menú.'}
           </p>
         ) : sections.map(sec => (
           <section key={sec.id} style={{ marginBottom: s(32) }}>
@@ -148,6 +155,29 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, c
                         }}>
                           {it.description}
                         </p>
+                      ) : null}
+
+                      {/* Código y disponibilidad: lo que necesita quien mira
+                          una vitrina de productos para poder pedirlo. */}
+                      {(showSku && (it as any).sku) || (showStock && (it as any).disponible !== undefined) ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: s(6), marginTop: s(6), alignItems: 'center' }}>
+                          {showSku && (it as any).sku ? (
+                            <span style={{
+                              fontSize: s(9.5), padding: `${s(2)}px ${s(6)}px`, borderRadius: 4,
+                              border: `1px solid ${t.rule}`, color: t.muted,
+                              fontFamily: 'ui-monospace, Menlo, monospace', letterSpacing: '.02em',
+                            }}>{(it as any).sku}</span>
+                          ) : null}
+                          {showStock && (it as any).disponible !== undefined ? (
+                            <span style={{
+                              fontSize: s(9.5), padding: `${s(2)}px ${s(6)}px`, borderRadius: 99,
+                              background: (it as any).disponible ? accent : 'transparent',
+                              color: (it as any).disponible ? '#fff' : t.muted,
+                              border: (it as any).disponible ? 'none' : `1px solid ${t.rule}`,
+                              fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em',
+                            }}>{(it as any).disponible ? 'disponible' : 'sin existencias'}</span>
+                          ) : null}
+                        </div>
                       ) : null}
 
                       {/* Alérgenos y dietas: es lo que un cliente necesita
