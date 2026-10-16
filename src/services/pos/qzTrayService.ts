@@ -510,9 +510,18 @@ async function qzConnectOnce(certificate?: string): Promise<void> {
           + 'nuevo desde abril de 2026. '
           + comoPermitir
           + ` [permiso: ${permiso ?? 'desconocido'} · detalle: ${detalle}]`
-        : 'No se pudo conectar a QZ Tray. Para imprimir YA, cambiá a «Imprimir por el navegador» '
-          + 'en Configuración → Factura: no necesita QZ ni certificado. '
-          + `[detalle: ${detalle}]`,
+        : /blocked by client|err_blocked/i.test(detalle)
+          // Lo corta algo instalado —una extensión o el antivirus—, no el
+          // sistema. Decirlo acá ahorra la llamada a soporte: el cajero puede
+          // probar en incógnito él mismo, en veinte segundos.
+          ? 'Una extensión del navegador o el antivirus está cortando la conexión con la impresora '
+            + '(el navegador avisa «blocked by client»). Probá en una ventana de incógnito '
+            + '(Ctrl+Mayús+N): si ahí imprime, desactivá el bloqueador de publicidad para este sitio. '
+            + 'Mientras tanto, «Imprimir por el navegador» funciona sin QZ. '
+            + `[detalle: ${detalle}]`
+          : 'No se pudo conectar a QZ Tray. Para imprimir YA, cambiá a «Imprimir por el navegador» '
+            + 'en Configuración → Factura: no necesita QZ ni certificado. '
+            + `[detalle: ${detalle}]`,
     );
   }
   throw lastError instanceof Error
@@ -744,6 +753,39 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
           + '«Dispositivos de la red local» → Permitir, y recargá.'),
       };
     }
+    /**
+     * «Connection blocked by client» — lo bloquea algo INSTALADO, no el sistema.
+     *
+     * Ese texto lo pone el navegador cuando una extensión o un antivirus corta
+     * la conexión antes de que salga: bloqueadores de publicidad (uBlock,
+     * AdBlock, Ghostery) y suites de seguridad (Kaspersky, ESET, Avast) cortan
+     * las conexiones a localhost porque las toman por rastreo.
+     *
+     * Hay que reconocerlo aparte y PRIMERO, porque todo lo demás ya pasó —el
+     * permiso concedido, QZ contestando en el 8181— y sin esta rama el
+     * diagnóstico terminaba recomendando actualizar QZ Tray, que no tiene nada
+     * que ver. Mandar a alguien a reinstalar un programa que funciona bien es
+     * la peor salida posible: pierde la tarde y vuelve con el mismo problema.
+     */
+    const mensajeError = String(e?.message ?? '');
+    if (/blocked by client|err_blocked|blocked_by/i.test(mensajeError)) {
+      return {
+        pasos,
+        recomendacion: 'Algo instalado en esta computadora está cortando la conexión: el navegador '
+          + 'avisa «blocked by client», que es lo que dice cuando la corta una EXTENSIÓN o el '
+          + 'ANTIVIRUS, no el sistema ni QZ Tray (QZ está contestando bien en el puerto 8181 y el '
+          + 'permiso de red local ya está concedido).\n\n'
+          + 'Probá en este orden:\n'
+          + '1. Abrí una ventana de incógnito (Ctrl+Mayús+N) y entrá ahí: en incógnito las '
+          + 'extensiones están apagadas. Si ahí imprime, es una extensión.\n'
+          + '2. Si fue eso, desactivá el bloqueador de publicidad SOLO para este sitio '
+          + '(uBlock, AdBlock, Ghostery y parecidos tienen un interruptor por sitio).\n'
+          + '3. Si en incógnito tampoco conecta, es el antivirus: en Kaspersky, ESET o Avast hay '
+          + 'que permitir las conexiones locales de Chrome, o agregar este sitio a las excepciones.\n\n'
+          + 'Mientras tanto se puede imprimir con «Imprimir por el navegador», que no usa QZ.',
+      };
+    }
+
     return {
       pasos,
       recomendacion: pwa
@@ -755,9 +797,24 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
           + 'a abrir QZ no la limpia. Clic derecho en el icono de QZ (junto al reloj) → Advanced '
           + '→ Site Manager: si aparece el sitio en «Blocked», quitalo y reintentá. '
           + 'Si no está, actualizá QZ Tray a la última versión.'
-        : 'QZ Tray responde solo por «localhost», no por «localhost.qz.io» — eso pasa en '
-          + 'versiones viejas de QZ. Actualizá QZ Tray a la última versión y vas a poder '
-          + 'conectar SIN aceptar ningún certificado. Mientras tanto, imprimí por el navegador.',
+        /**
+         * Último recurso, y se dice COMO TAL.
+         *
+         * Acá se afirmaba que la versión de QZ era vieja solo porque no había
+         * contestado por «localhost.qz.io». Pero ese nombre necesita DNS, y un
+         * punto de venta sin internet nunca lo resuelve: la misma prueba falla
+         * con QZ Tray al día. Afirmarlo mandaba a reinstalar algo que estaba
+         * bien. Ahora se informa el error real y se ofrece lo que sí destraba
+         * el cobro hoy.
+         */
+        : `QZ Tray contesta pero la conexión no entra. El error que devuelve es: «${mensajeError || 'sin detalle'}».\n\n`
+          + 'Qué probar, de lo más rápido a lo más lento:\n'
+          + '1. Cerrá QZ Tray desde el icono junto al reloj (clic derecho → Exit) y volvé a abrirlo.\n'
+          + '2. Recargá esta página con Ctrl+F5.\n'
+          + '3. Clic derecho en el icono de QZ → Advanced → Site Manager: si este sitio aparece '
+          + 'en «Blocked», quitalo (esa lista se guarda en disco y no se limpia al reiniciar).\n'
+          + '4. Si nada de eso lo destraba, actualizá QZ Tray a la última versión.\n\n'
+          + 'Mientras tanto se puede cobrar: «Imprimir por el navegador» no necesita QZ.',
     };
   }
 }
