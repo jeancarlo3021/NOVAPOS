@@ -1,16 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Sparkles, Send, Loader2, X, Info } from 'lucide-react';
+import { Sparkles, Send, Loader2, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
 /**
  * ASISTENTE: preguntas sobre el negocio, en español.
  *
- * Hoy funciona en MODO DEMOSTRACIÓN: las respuestas las arma el servidor
- * consultando la base, sin usar ningún modelo y sin costo. Por eso los números
- * son los de verdad del negocio y no un ejemplo inventado — que es justo lo
- * que sirve para mostrárselo a un cliente.
+ * Las respuestas las arma el servidor consultando la base del negocio, así que
+ * los números son los de verdad y la consulta no tiene costo.
  *
  * Cada respuesta dice DE DÓNDE salió (período y tabla). Un asistente que tira
  * una cifra sin decir sobre qué la calculó no sirve para decidir nada, y el día
@@ -21,7 +19,6 @@ interface Respuesta {
   texto: string;
   detalle?: string | null;
   fuente?: string | null;
-  demo: boolean;
 }
 
 const SUGERENCIAS = [
@@ -49,7 +46,6 @@ export const AsistenteIA: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         texto: r?.datos?.respuesta ?? 'Sin respuesta',
         detalle: r?.datos?.detalle ?? null,
         fuente: r?.datos?.fuente ?? null,
-        demo: r?.modo === 'demo',
       }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo consultar');
@@ -99,16 +95,6 @@ export const AsistenteIA: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           )}
           {error && <p className="text-sm text-red-600 font-semibold">{error}</p>}
         </div>
-
-        {historial.some(h => h.demo) && (
-          <div className="px-4 py-2 bg-amber-50 border-t border-amber-200 flex items-start gap-2">
-            <Info size={13} className="text-amber-700 mt-0.5 shrink-0" />
-            <p className="text-[11px] text-amber-800">
-              <b>Modo demostración:</b> las respuestas las arma el sistema consultando tus datos,
-              sin usar inteligencia artificial y sin costo. Los números son reales.
-            </p>
-          </div>
-        )}
 
         <div className="p-3 border-t border-gray-100 flex gap-2">
           <input value={pregunta} onChange={e => setPregunta(e.target.value)}

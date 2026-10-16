@@ -54,6 +54,7 @@ const TEXTOS = {
     secciones: 'Secciones y platos', items: 'platos', item: 'plato',
     agregar: 'Agregar platos', buscar: 'Buscar plato…',
     vacio: 'Agregá una sección (Entradas, Fondos, Bebidas) y metele los platos.',
+    subtitulo: 'La carta que el cliente abre escaneando el código de la mesa',
     ruta: 'm', archivoQr: 'qr-menu',
   },
   catalogo: {
@@ -61,6 +62,7 @@ const TEXTOS = {
     secciones: 'Secciones y productos', items: 'productos', item: 'producto',
     agregar: 'Agregar productos', buscar: 'Buscar producto…',
     vacio: 'Agregá una sección (Herramientas, Repuestos, Ofertas) y metele los productos.',
+    subtitulo: 'La vitrina de productos que el cliente abre escaneando el código',
     ruta: 'c', archivoQr: 'qr-catalogo',
   },
 } as const;
@@ -78,6 +80,18 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
   const [pickFor, setPickFor] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [qr, setQr] = useState<string>('');
+  /**
+   * Estado de las descripciones propuestas.
+   *
+   * Va ACÁ ARRIBA, con el resto, y no al lado de la función que lo usa: más
+   * abajo hay un `return` temprano mientras el menú carga, y declarar un
+   * `useState` después de ese return hace que React vea una cantidad distinta
+   * de hooks entre un render y el siguiente. Eso no es un detalle de estilo:
+   * revienta el componente entero y la pantalla no abre —ni el menú ni el
+   * catálogo, que usan este mismo editor—.
+   */
+  const [descripciones, setDescripciones] = useState<Array<{ id: string; name: string; propuesta: string }> | null>(null);
+  const [buscandoDesc, setBuscandoDesc] = useState(false);
 
   const publicUrl = menu ? `${window.location.origin}/${L.ruta}/${menu.slug}` : '';
 
@@ -198,8 +212,6 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
    * NUNCA se guardan solas — se revisan y se aplican una por una o todas de
    * golpe. Una descripción inventada la publica el negocio, no nosotros.
    */
-  const [descripciones, setDescripciones] = useState<Array<{ id: string; name: string; propuesta: string }> | null>(null);
-  const [buscandoDesc, setBuscandoDesc] = useState(false);
   const proponerDescripciones = async () => {
     setBuscandoDesc(true); setErr('');
     try {
@@ -238,7 +250,7 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
             <div>
               <h1 className="text-xl font-black">{L.titulo}</h1>
               <p className="text-white/80 text-sm">
-                La carta que el cliente abre escaneando el código de la mesa
+                {L.subtitulo}
               </p>
             </div>
           </div>

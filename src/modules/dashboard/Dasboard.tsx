@@ -340,13 +340,6 @@ export const Dashboard = () => {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-      {/* ASISTENTE. Botón flotante: se consulta desde cualquier pantalla del
-          panel sin perder lo que se estaba mirando. */}
-      <button type="button" onClick={() => setAsistente(true)}
-        title="Preguntale a tu negocio"
-        className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 px-4 py-3 rounded-full shadow-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black text-sm hover:shadow-xl transition">
-        <Sparkles size={16} /> Preguntar
-      </button>
       {asistente && <AsistenteIA onClose={() => setAsistente(false)} />}
 
       {/* ── Panel Admin — primero, porque es donde entra el administrador ──
@@ -368,6 +361,27 @@ export const Dashboard = () => {
           </span>
         </button>
       )}
+
+      {/* ASISTENTE — en el cuerpo del panel, no flotando.
+          La esquina de abajo a la derecha ya tiene las notificaciones y la
+          guía del módulo: un tercer botón flotante ahí se monta encima de los
+          otros dos, y encima de ellos el que pierde es siempre el de más
+          abajo. Acá se ve de entrada y no le tapa nada a nadie. */}
+      <button
+        type="button"
+        onClick={() => setAsistente(true)}
+        className="w-full flex items-center gap-3 rounded-2xl px-5 py-4 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-md transition"
+      >
+        <span className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+          <Sparkles size={22} />
+        </span>
+        <span className="text-left min-w-0">
+          <span className="block font-black text-lg leading-tight">Preguntale a tu negocio</span>
+          <span className="block text-violet-200 text-xs">
+            Cuánto vendiste, qué deja más plata, quién te debe, qué se está acabando
+          </span>
+        </span>
+      </button>
 
       {/* ── Hero compacto: saludo + ventas de hoy ────────────────────────── */}
       <div className="bg-linear-to-br from-emerald-600 via-emerald-600 to-teal-700 rounded-2xl px-5 sm:px-6 py-5 text-white shadow-md flex items-center justify-between gap-4 flex-wrap">
