@@ -569,13 +569,25 @@ async function qzConnectOnce(certificate?: string): Promise<void> {
           + comoPermitir
           + ` [permiso: ${permiso ?? 'desconocido'} · detalle: ${detalle}]`
         : /blocked by client|err_blocked/i.test(detalle)
-          // Lo corta algo instalado —una extensión o el antivirus—, no el
-          // sistema. Decirlo acá ahorra la llamada a soporte: el cajero puede
-          // probar en incógnito él mismo, en veinte segundos.
-          ? 'Una extensión del navegador o el antivirus está cortando la conexión con la impresora '
-            + '(el navegador avisa «blocked by client»). Probá en una ventana de incógnito '
-            + '(Ctrl+Mayús+N): si ahí imprime, desactivá el bloqueador de publicidad para este sitio. '
-            + 'Mientras tanto, «Imprimir por el navegador» funciona sin QZ. '
+          /**
+           * «Connection blocked by client» lo dice QZ TRAY, no el navegador.
+           *
+           * El «client» es el programa de la bandeja: este sitio quedó en su
+           * lista de bloqueados porque alguien tocó «Block» en el aviso, y esa
+           * decisión se guarda para siempre en %APPDATA%\\qz. Se arregla en dos
+           * clics, dentro de QZ Tray.
+           *
+           * Antes este mensaje decía «una extensión o el antivirus» y mandaba a
+           * incógnito. Un cliente real perdió un día con eso: probó incógnito,
+           * desactivó el antivirus, y seguía igual —claro, porque el navegador
+           * nunca tuvo nada que ver—. La sonda de WebSocket de esta misma
+           * pantalla lo prueba: abre normalmente.
+           */
+          ? 'QZ Tray tiene este sitio en su lista de BLOQUEADOS (alguien tocó «Block» en el aviso '
+            + 'de permiso, y eso queda guardado). No es el navegador ni el antivirus. '
+            + 'Se arregla así: clic derecho en el icono de QZ Tray junto al reloj → Advanced → '
+            + 'Site Manager → pestaña «Blocked» → seleccioná este sitio y quitalo. '
+            + 'Después tocá «Conectar QZ Tray» otra vez y elegí «Allow». '
             + `[detalle: ${detalle}]`
           : 'No se pudo conectar a QZ Tray. Para imprimir YA, cambiá a «Imprimir por el navegador» '
             + 'en Configuración → Factura: no necesita QZ ni certificado. '
@@ -862,34 +874,46 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
       };
     }
     /**
-     * «Connection blocked by client» — lo bloquea algo INSTALADO, no el sistema.
+     * «Connection blocked by client» — lo dice QZ TRAY, no el navegador.
      *
-     * Ese texto lo pone el navegador cuando una extensión o un antivirus corta
-     * la conexión antes de que salga: bloqueadores de publicidad (uBlock,
-     * AdBlock, Ghostery) y suites de seguridad (Kaspersky, ESET, Avast) cortan
-     * las conexiones a localhost porque las toman por rastreo.
+     * Costó entenderlo, y vale dejarlo escrito. El texto parece del navegador
+     * («blocked by client» es también un error de red de Chrome), y por eso
+     * esta rama mandaba a descartar extensiones y antivirus. Pero el «client»
+     * de QZ es el programa de la bandeja: lo manda por el WebSocket ya abierto
+     * cuando el sitio está en su lista de bloqueados, que es donde queda si
+     * alguien tocó «Block» en el aviso de permiso (se guarda en
+     * %APPDATA%\\qz\\blocked.dat y sobrevive a reinicios y reinstalaciones del
+     * navegador).
      *
-     * Hay que reconocerlo aparte y PRIMERO, porque todo lo demás ya pasó —el
-     * permiso concedido, QZ contestando en el 8181— y sin esta rama el
-     * diagnóstico terminaba recomendando actualizar QZ Tray, que no tiene nada
-     * que ver. Mandar a alguien a reinstalar un programa que funciona bien es
-     * la peor salida posible: pierde la tarde y vuelve con el mismo problema.
+     * Lo que lo delata es el paso de WebSocket de más arriba: si ABRE y la
+     * conexión igual falla, el navegador ya quedó descartado por medición, no
+     * por suposición. En modo comunidad hay una segunda causa con el mismo
+     * mensaje: la opción «Block anonymous requests» de QZ, porque sin
+     * certificado nuestras peticiones son justamente anónimas.
+     *
+     * Va PRIMERO porque todo lo demás ya pasó, y sin esta rama el diagnóstico
+     * terminaba recomendando actualizar QZ Tray, que no tiene nada que ver.
      */
     const mensajeError = String(e?.message ?? '');
     if (/blocked by client|err_blocked|blocked_by/i.test(mensajeError)) {
       return {
         pasos,
-        recomendacion: 'Algo instalado en esta computadora está cortando la conexión: el navegador '
-          + 'avisa «blocked by client», que es lo que dice cuando la corta una EXTENSIÓN o el '
-          + 'ANTIVIRUS, no el sistema ni QZ Tray (QZ está contestando bien en el puerto 8181 y el '
-          + 'permiso de red local ya está concedido).\n\n'
-          + 'Probá en este orden:\n'
-          + '1. Abrí una ventana de incógnito (Ctrl+Mayús+N) y entrá ahí: en incógnito las '
-          + 'extensiones están apagadas. Si ahí imprime, es una extensión.\n'
-          + '2. Si fue eso, desactivá el bloqueador de publicidad SOLO para este sitio '
-          + '(uBlock, AdBlock, Ghostery y parecidos tienen un interruptor por sitio).\n'
-          + '3. Si en incógnito tampoco conecta, es el antivirus: en Kaspersky, ESET o Avast hay '
-          + 'que permitir las conexiones locales de Chrome, o agregar este sitio a las excepciones.\n\n'
+        recomendacion: 'ES QZ TRAY EL QUE ESTÁ BLOQUEANDO EL SITIO, no el navegador ni el '
+          + 'antivirus. El mensaje «blocked by client» lo manda el programa de la bandeja: el '
+          + '«client» es él. Lo confirma este mismo diagnóstico — el canal de datos abre '
+          + 'normalmente, así que el navegador no está cortando nada.\n\n'
+          + 'Pasa cuando alguien toca «Block» en el aviso que QZ muestra la primera vez: esa '
+          + 'decisión queda guardada en la computadora y no se borra sola.\n\n'
+          + 'Arreglo, en orden:\n'
+          + '1. Clic derecho en el icono de QZ Tray (junto al reloj) → Advanced → Site Manager.\n'
+          + '2. Pestaña «Blocked»: si aparece este sitio, seleccionalo y quitalo con «Delete».\n'
+          + '3. En la misma ventana, Advanced: si está marcada «Block anonymous requests», '
+          + 'desmarcala — en modo comunidad, sin certificado, nuestras peticiones son anónimas y '
+          + 'esa opción las rechaza con este mismo mensaje.\n'
+          + '4. Volvé a tocar «Conectar QZ Tray» y esta vez elegí «Allow» (marcá «Remember» para '
+          + 'que no vuelva a preguntar).\n'
+          + '5. Si la lista «Blocked» está vacía y sigue igual: cerrá QZ Tray, borrá la carpeta '
+          + '%APPDATA%\\qz y volvé a abrirlo. Eso reinicia los permisos guardados.\n\n'
           + 'Mientras tanto se puede imprimir con «Imprimir por el navegador», que no usa QZ.',
       };
     }
