@@ -50,15 +50,73 @@ async function cargarLna(): Promise<void> {
  *
  * Devuelve 'granted' | 'prompt' | 'denied' | null (no se pudo averiguar).
  */
-export async function qzPermisoRedLocal(): Promise<PermissionState | null> {
+export async function qzPermisosRedLocal(): Promise<Record<string, PermissionState | null>> {
   const nombres = ['loopback-network', 'local-network-access', 'local-network'];
+  const salida: Record<string, PermissionState | null> = {};
   for (const name of nombres) {
     try {
       const st = await (navigator as any).permissions?.query({ name });
-      if (st?.state) return st.state as PermissionState;
-    } catch { /* ese nombre no existe en este navegador: probamos el siguiente */ }
+      salida[name] = (st?.state as PermissionState) ?? null;
+    } catch { salida[name] = null; }   // ese nombre no existe en este navegador
   }
-  return null;
+  return salida;
+}
+
+/**
+ * El permiso que MANDA para `localhost`.
+ *
+ * Antes se devolvía el primero que contestara, y eso podía mentir: si el
+ * navegador no conoce `loopback-network` —el que rige para 127.0.0.1— pero sí
+ * el alias viejo, se informaba «Concedido» por un permiso que no es el que se
+ * aplica al WebSocket. El diagnóstico quedaba todo en verde con la conexión
+ * igual de bloqueada, que es el peor resultado posible: manda a buscar la
+ * causa a otro lado.
+ *
+ * Ahora manda el específico de loopback si el navegador lo conoce, y el
+ * detalle completo viaja aparte para poder verlo.
+ */
+export async function qzPermisoRedLocal(): Promise<PermissionState | null> {
+  const todos = await qzPermisosRedLocal();
+  return todos['loopback-network']
+    ?? todos['local-network-access']
+    ?? todos['local-network']
+    ?? null;
+}
+
+/**
+ * ¿Deja el navegador abrir un WEBSOCKET a ese puerto?
+ *
+ * La otra sonda usa `fetch`, y las dos cosas no son lo mismo: Chrome trata el
+ * WebSocket a la red local con reglas más estrictas que una petición común.
+ * Medido en un cliente real: el `fetch` a localhost:8181 pasaba y el WebSocket
+ * no, y con solo la primera sonda el diagnóstico decía «QZ está escuchando» y
+ * mandaba a revisar la versión de QZ, que no tenía nada que ver.
+ *
+ * Devuelve qué pasó, no solo si pudo: el motivo es lo que después distingue un
+ * antivirus de una política del navegador.
+ */
+async function wsResponde(puerto: number, host = 'localhost'): Promise<{ ok: boolean; motivo: string }> {
+  return new Promise((resolve) => {
+    let ws: WebSocket | null = null;
+    const cerrar = (ok: boolean, motivo: string) => {
+      try { ws?.close(); } catch { /* ya estaba cerrado */ }
+      resolve({ ok, motivo });
+    };
+    const t = setTimeout(() => cerrar(false, 'no contestó en 3 segundos'), 3000);
+    try {
+      ws = new WebSocket(`wss://${host}:${puerto}`);
+      ws.onopen = () => { clearTimeout(t); cerrar(true, 'abrió'); };
+      // El navegador NO cuenta por qué falló un WebSocket (es a propósito, para
+      // no filtrar qué hay en la red). Lo que sí distingue: un cierre inmediato
+      // sin abrir es un bloqueo; un rechazo del servidor da código 1006 tras el
+      // intento de TLS.
+      ws.onerror = () => { clearTimeout(t); cerrar(false, 'rechazado o bloqueado antes de abrir'); };
+      ws.onclose = (ev) => { clearTimeout(t); cerrar(false, `cerrado (código ${ev.code})`); };
+    } catch (e: any) {
+      clearTimeout(t);
+      cerrar(false, e?.message ?? 'no se pudo crear');
+    }
+  });
 }
 
 // Load QZ Tray script dynamically
@@ -642,14 +700,27 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
    * abierto» con QZ Tray abierto y escuchando, y el soporte se iba detrás de la
    * impresora cuando el problema era un permiso del navegador.
    */
-  const permiso = await qzPermisoRedLocal();
+  const permisos = await qzPermisosRedLocal();
+  const permiso = permisos['loopback-network'] ?? permisos['local-network-access'] ?? permisos['local-network'] ?? null;
   if (permiso !== null) {
+    /**
+     * Se nombra CUÁL permiso contestó.
+     *
+     * Hay tres nombres y el navegador puede conocer uno y no los otros. Decir
+     * «Concedido» sin decir cuál dejó al soporte con un diagnóstico en verde y
+     * la conexión igual de bloqueada, buscando la causa donde no estaba.
+     */
+    const cuales = Object.entries(permisos)
+      .filter(([, v]) => v !== null)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' · ');
     pasos.push({
       nombre: 'Permiso de red local (Chrome)',
       ok: permiso === 'granted',
-      detalle: permiso === 'granted' ? 'Concedido'
+      detalle: (permiso === 'granted' ? 'Concedido'
         : permiso === 'denied' ? 'BLOQUEADO para este sitio — es la causa más probable'
-        : 'Sin conceder todavía: Chrome lo va a preguntar al conectar',
+        : 'Sin conceder todavía: Chrome lo va a preguntar al conectar')
+        + ` [${cuales}]`,
     });
   }
   if (permiso === 'denied') {
@@ -705,6 +776,43 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
         + (vivo.host.endsWith('qz.io') ? ' — certificado ya confiable, no hay que aceptar nada' : '')
       : 'No responde en 8181 ni 8282',
   });
+  /**
+   * 3b. ¿Y el WEBSOCKET al mismo puerto?
+   *
+   * El paso anterior usa `fetch`; QZ Tray se conecta por WebSocket, y hay
+   * cosas que bloquean lo segundo y no lo primero (antivirus con filtro web,
+   * una política del navegador). Medido en un cliente real: el puerto
+   * respondía, el WebSocket no, y el diagnóstico quedaba todo en verde.
+   * Separarlos es lo que convierte «no conecta» en una causa concreta.
+   */
+  if (vivo) {
+    const ws = await wsResponde(vivo.puerto, vivo.host);
+    pasos.push({
+      nombre: 'Canal de datos (WebSocket) hacia QZ Tray',
+      ok: ws.ok,
+      detalle: ws.ok ? 'Abre normalmente'
+        : `NO abre (${ws.motivo}) aunque el puerto sí responde — lo corta algo entre el `
+          + 'navegador y QZ: antivirus con filtro web, o una política del navegador',
+    });
+    if (!ws.ok) {
+      return {
+        pasos,
+        recomendacion:
+          'QZ Tray está abierto y el puerto responde, pero el navegador no logra abrir el canal '
+          + 'de datos. Eso descarta QZ, la impresora y el permiso de red local: lo corta algo '
+          + 'instalado en la computadora o una política del navegador. Probá en este orden: '
+          + '(1) abrí la página en OTRO navegador (Firefox o Edge) — si ahí imprime, el problema '
+          + 'es de Chrome y no de la computadora; '
+          + '(2) antivirus: desactivá un rato la «protección web» / «filtrado SSL» '
+          + '(Kaspersky, ESET, Avast y Bitdefender cortan este tipo de conexión y siguen '
+          + 'activos en incógnito, por eso incógnito no lo descarta); '
+          + '(3) si la computadora es administrada por una empresa, abrí chrome://policy y '
+          + 'buscá «URLBlocklist» — una regla con ws:// o wss:// lo bloquea todo. '
+          + 'Mientras tanto se puede imprimir con «Imprimir por el navegador», que no necesita QZ.',
+      };
+    }
+  }
+
   const puertoVivo = vivo?.puerto ?? null;
   if (puertoVivo === null) {
     return {
