@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { MenuRender } from './MenuRender';
-import { themeOf, type MenuSection, type MenuHeader, type MenuConfig } from './menuThemes';
+import { themeOf, type MenuSection, type MenuHeader, type MenuConfig, type MenuPromo } from './menuThemes';
 
 /**
  * La carta que abre el cliente al escanear el QR de la mesa.
@@ -17,6 +17,9 @@ import { themeOf, type MenuSection, type MenuHeader, type MenuConfig } from './m
 interface Payload {
   slug: string; theme: string;
   header: MenuHeader; config: MenuConfig; sections: MenuSection[];
+  /** Promos vigentes hoy. Las resuelve el servidor contra el módulo de
+   *  promociones; acá no se calcula ningún descuento. */
+  promos?: MenuPromo[];
 }
 
 /**
@@ -165,6 +168,7 @@ export const PublicMenu: React.FC = () => {
         header={data.header ?? {}}
         config={data.config ?? {}}
         sections={data.sections ?? []}
+        promos={data.promos ?? []}
       />
     </div>
   );

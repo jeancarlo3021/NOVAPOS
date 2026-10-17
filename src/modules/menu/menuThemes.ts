@@ -179,6 +179,35 @@ export interface MenuItem {
   image_url?: string | null;
   allergens?: string | null;
   diet_tags?: string | null;
+  /** Código del producto (solo catálogo). Entra en la búsqueda. */
+  sku?: string | null;
+  /** Hay existencias (solo catálogo). */
+  disponible?: boolean;
+  /** Promo vigente que le toca a este ítem, resuelta por el servidor. */
+  promo_id?: string | null;
+  promo_etiqueta?: string | null;
+  /** El precio de antes, solo si la promo lo bajó. Se muestra tachado. */
+  precio_antes?: number | null;
+}
+
+/**
+ * Una promoción como la ve el cliente.
+ *
+ * La arma el servidor a partir del módulo de promociones: acá no se calcula
+ * nada. Si la vitrina dijera un descuento y la caja otro, la discusión es en el
+ * mostrador y la pierde el negocio.
+ */
+export interface MenuPromo {
+  id: string;
+  nombre: string;
+  descripcion?: string | null;
+  tipo: string;
+  /** «20% desc.», «2×1», «Combo ¢5.000»… el mismo texto que usa el POS. */
+  etiqueta: string;
+  /** Último día, o null si es permanente. */
+  termina?: string | null;
+  /** Los ítems publicados que alcanza. */
+  item_ids: string[];
 }
 
 export interface MenuSection {

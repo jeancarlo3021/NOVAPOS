@@ -13,6 +13,7 @@ import { useTenantId } from '@/hooks/useTenant';
 import { fuzzyMatch } from '@/utils/fuzzySearch';
 import { storageService } from '@/services/storage/storageService';
 import { MenuRender } from './MenuRender';
+import { promotionsService, promoLabel, type Promotion } from '@/services/promotions/promotionsService';
 import {
   THEMES_BY_GROUP, themeOf, money,
   type MenuHeader, type MenuConfig, type MenuItem,
@@ -77,6 +78,16 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  /**
+   * Promos vigentes HOY, solo para informar.
+   *
+   * No se simula el precio con descuento en la vista previa a propósito: el
+   * editor no conoce la categoría de cada producto, y las promos por categoría
+   * se resolverían distinto que en el servidor. Mostrar acá un precio y otro en
+   * la página es peor que no mostrar ninguno — el cálculo vive en un solo
+   * lugar, el servidor, que es el mismo que usa la caja.
+   */
+  const [promosHoy, setPromosHoy] = useState<Promotion[]>([]);
   const [pickFor, setPickFor] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [qr, setQr] = useState<string>('');
@@ -116,6 +127,20 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
     } finally { setLoading(false); }
   }, [tenantId, kind]);
   useEffect(() => { void load(); }, [load]);
+
+  // Las promos vigentes, solo para avisar qué va a ver el cliente. Si falla, la
+  // pantalla sigue andando: es información, no un requisito.
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelado = false;
+    void (async () => {
+      try {
+        const ps = await promotionsService.getActiveToday(tenantId);
+        if (!cancelado) setPromosHoy(Array.isArray(ps) ? ps : []);
+      } catch { /* sin promos el editor funciona igual */ }
+    })();
+    return () => { cancelado = true; };
+  }, [tenantId]);
 
   // El QR se dibuja del enlace real. Se regenera al cambiar el slug para que
   // nunca quede un código apuntando a una dirección vieja.
@@ -286,6 +311,39 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
           «Publicado» y el enlace empieza a funcionar al instante.
         </div>
       )}
+
+      {/* QUÉ PASA CON LAS PROMOCIONES.
+          La página las muestra sola, con su filtro y el precio tachado. Sin
+          este aviso, el negocio no tiene forma de saber que existe esa barra ni
+          de dónde sale, y la primera noticia la tendría por un cliente. */}
+      <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 text-xs text-violet-900">
+        {promosHoy.length === 0 ? (
+          <>
+            <strong>Promociones:</strong> no hay ninguna vigente hoy. Las que creés en
+            {' '}<strong>Promociones</strong> aparecen solas en esta página, con un filtro para que
+            el cliente vea nada más lo que está en oferta y el precio anterior tachado.
+          </>
+        ) : (
+          <>
+            <strong>
+              {promosHoy.length === 1 ? '1 promoción vigente' : promosHoy.length + ' promociones vigentes'}
+            </strong>
+            {' '}— se muestran solas en la página, con filtro y precio anterior tachado:
+            <span className="flex flex-wrap gap-1.5 mt-2">
+              {promosHoy.map(p => (
+                <span key={p.id}
+                  className="bg-violet-600 text-white rounded-full px-2 py-0.5 font-bold">
+                  {promoLabel(p)} · {p.name}
+                </span>
+              ))}
+            </span>
+            <span className="block mt-2 text-violet-700">
+              El precio con descuento lo calcula el servidor con la misma regla que la caja, así que
+              la vista previa de acá lo muestra sin aplicar.
+            </span>
+          </>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-5 items-start">
 
