@@ -55,7 +55,7 @@ const TEXTOS = {
     agregar: 'Agregar platos', buscar: 'Buscar plato…',
     vacio: 'Agregá una sección (Entradas, Fondos, Bebidas) y metele los platos.',
     subtitulo: 'La carta que el cliente abre escaneando el código de la mesa',
-    ruta: 'm', archivoQr: 'qr-menu',
+    ruta: 'm', archivoQr: 'qr-menu', esto: 'la carta',
   },
   catalogo: {
     titulo: 'Catálogo digital', guardado: 'Catálogo guardado', cargando: 'No se pudo cargar el catálogo',
@@ -63,7 +63,7 @@ const TEXTOS = {
     agregar: 'Agregar productos', buscar: 'Buscar producto…',
     vacio: 'Agregá una sección (Herramientas, Repuestos, Ofertas) y metele los productos.',
     subtitulo: 'La vitrina de productos que el cliente abre escaneando el código',
-    ruta: 'c', archivoQr: 'qr-catalogo',
+    ruta: 'c', archivoQr: 'qr-catalogo', esto: 'el catálogo',
   },
 } as const;
 
@@ -272,10 +272,18 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
 
       {err && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{err}</div>}
       {msg && <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-3 text-sm font-bold">{msg}</div>}
+      {/* Aviso de sin publicar.
+          Nombra EL BOTÓN, no solo el estado. Decía «el enlace responde no
+          encontrado» y alguien igual abrió el enlace, vio «no está disponible»
+          y lo tomó por un error del sistema: el aviso describía el síntoma sin
+          decir qué tocar para arreglarlo. */}
       {!menu.published && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 text-xs">
-          Sin publicar, el enlace responde «no encontrado». Es a propósito: se puede armar la carta
-          con calma sin que un QR ya pegado en las mesas muestre algo a medio hacer.
+        <div className="bg-amber-50 border-2 border-amber-300 text-amber-900 rounded-xl px-4 py-3 text-xs">
+          <strong>Todavía no está publicado.</strong> Mientras siga así, quien abra el enlace o
+          escanee el QR va a ver «no está disponible» — es a propósito, para poder armar {L.esto} con
+          calma sin que un QR ya pegado muestre algo a medio hacer.
+          {' '}Para que se vea, tocá el botón <strong>«Sin publicar»</strong> de arriba: queda en
+          «Publicado» y el enlace empieza a funcionar al instante.
         </div>
       )}
 

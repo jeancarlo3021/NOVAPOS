@@ -42,6 +42,16 @@ function apiBase(): string {
 
 export const PublicMenu: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
+  /**
+   * ¿Carta o catálogo? Lo dice la RUTA, no la respuesta del servidor.
+   *
+   * Antes la palabra se sacaba de `data.kind`, y eso estaba mal justo donde más
+   * importa: el mensaje de error se muestra cuando NO hay data, así que un
+   * catálogo que no carga decía «Este menú no está disponible». El dueño de una
+   * ferretería lee eso y cree que abrió el enlace equivocado. La ruta sí está
+   * disponible siempre: /c/… es catálogo y /m/… es carta.
+   */
+  const esCatalogoPorRuta = window.location.pathname.startsWith('/c/');
   const [data, setData] = useState<Payload | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'missing' | 'error'>('loading');
 
@@ -107,7 +117,9 @@ export const PublicMenu: React.FC = () => {
   if (state === 'loading') {
     return (
       <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#FBF9F4', color: '#7A6E5F' }}>
-        <p style={{ fontFamily: 'system-ui, sans-serif', fontSize: 14 }}>Cargando el menú…</p>
+        <p style={{ fontFamily: 'system-ui, sans-serif', fontSize: 14 }}>
+          {esCatalogoPorRuta ? 'Cargando el catálogo…' : 'Cargando el menú…'}
+        </p>
       </div>
     );
   }
@@ -122,7 +134,9 @@ export const PublicMenu: React.FC = () => {
       }}>
         <div>
           <p style={{ fontFamily: 'Georgia, serif', fontSize: 22, margin: '0 0 8px' }}>
-            {(data as any)?.kind === 'catalogo' ? 'Este catálogo no está disponible' : 'Este menú no está disponible'}
+            {((data as any)?.kind ?? (esCatalogoPorRuta ? 'catalogo' : 'menu')) === 'catalogo'
+              ? 'Este catálogo no está disponible'
+              : 'Este menú no está disponible'}
           </p>
           <p style={{ fontFamily: 'system-ui, sans-serif', fontSize: 14, color: '#7A6E5F', margin: 0 }}>
             {state === 'error'

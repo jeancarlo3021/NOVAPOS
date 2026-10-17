@@ -583,11 +583,13 @@ async function qzConnectOnce(certificate?: string): Promise<void> {
            * nunca tuvo nada que ver—. La sonda de WebSocket de esta misma
            * pantalla lo prueba: abre normalmente.
            */
-          ? 'QZ Tray tiene este sitio en su lista de BLOQUEADOS (alguien tocó «Block» en el aviso '
-            + 'de permiso, y eso queda guardado). No es el navegador ni el antivirus. '
+          ? 'QZ Tray está rechazando la conexión: alguien tocó «Block» en el aviso de permiso y '
+            + 'eso quedó guardado en esta computadora. No es el navegador ni el antivirus '
+            + '(si fuera eso, funcionaría en otro navegador — y no funciona en ninguno). '
             + 'Se arregla así: clic derecho en el icono de QZ Tray junto al reloj → Advanced → '
-            + 'Site Manager → pestaña «Blocked» → seleccioná este sitio y quitalo. '
-            + 'Después tocá «Conectar QZ Tray» otra vez y elegí «Allow». '
+            + 'Site Manager → pestaña «Blocked» → borrá lo que haya ahí. OJO: no busques '
+            + '«colonclick.com»; sin certificado la entrada aparece como «Untrusted» o '
+            + '«Unsigned». Después tocá «Conectar QZ Tray» otra vez y elegí «Allow». '
             + `[detalle: ${detalle}]`
           : 'No se pudo conectar a QZ Tray. Para imprimir YA, cambiá a «Imprimir por el navegador» '
             + 'en Configuración → Factura: no necesita QZ ni certificado. '
@@ -885,6 +887,11 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
      * %APPDATA%\\qz\\blocked.dat y sobrevive a reinicios y reinstalaciones del
      * navegador).
      *
+     * Y falla en TODOS los navegadores, que es lo que lo delata del todo:
+     * blocked.dat guarda certificados, no dominios, y como imprimimos sin
+     * certificado la identidad bloqueada es la anónima —«Untrusted»—, una sola
+     * para Chrome, Edge y Firefox. Un cliente lo comprobó probando en Edge.
+     *
      * Lo que lo delata es el paso de WebSocket de más arriba: si ABRE y la
      * conexión igual falla, el navegador ya quedó descartado por medición, no
      * por suposición. En modo comunidad hay una segunda causa con el mismo
@@ -906,7 +913,11 @@ export async function qzDiagnostico(certificado?: string): Promise<DiagnosticoQz
           + 'decisión queda guardada en la computadora y no se borra sola.\n\n'
           + 'Arreglo, en orden:\n'
           + '1. Clic derecho en el icono de QZ Tray (junto al reloj) → Advanced → Site Manager.\n'
-          + '2. Pestaña «Blocked»: si aparece este sitio, seleccionalo y quitalo con «Delete».\n'
+          + '2. Pestaña «Blocked»: borrá TODO lo que haya ahí con «Delete». Importante: la '
+          + 'entrada NO dice «colonclick.com». QZ no guarda dominios, guarda certificados, y '
+          + 'como imprimimos sin certificado la nuestra figura como «Untrusted» o «Unsigned». '
+          + 'Por eso mismo el bloqueo vale para todos los navegadores a la vez: es una sola '
+          + 'identidad, no una por navegador.\n'
           + '3. En la misma ventana, Advanced: si está marcada «Block anonymous requests», '
           + 'desmarcala — en modo comunidad, sin certificado, nuestras peticiones son anónimas y '
           + 'esa opción las rechaza con este mismo mensaje.\n'
