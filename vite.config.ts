@@ -3,8 +3,49 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
+/**
+ * EL REPARTO DE RUTAS, TAMBIÉN EN DESARROLLO.
+ *
+ * `vercel.json` manda «/» a la página pública y todo lo demás a la
+ * aplicación, pero eso solo existe en Vercel. En `npm run dev` y en `vite
+ * preview` el servidor de Vite manda CUALQUIER ruta desconocida a index.html
+ * —que ahora es la página pública—, así que entrar a /login o a /pos dejaba de
+ * funcionar en la máquina de uno. Rompí el desarrollo entero con el cambio de
+ * ruteo y este complemento es lo que lo devuelve.
+ *
+ * Tiene que leerse igual que vercel.json. Si uno cambia, el otro también, o
+ * las cosas andan en producción y no en la máquina (o peor, al revés).
+ */
+function repartirRutas() {
+  const aLaApp = (url: string) => {
+    const ruta = url.split('?')[0];
+    if (ruta === '/' || ruta === '/index.html') return null;   // la página pública
+    if (/\.[a-z0-9]+$/i.test(ruta)) return null;               // un archivo: se sirve tal cual
+    if (ruta.startsWith('/@') || ruta.startsWith('/src/') || ruta.startsWith('/node_modules/')) return null;
+    return '/app.html';                                        // /login, /pos, /m/…, /c/…
+  };
+  return {
+    name: 'reparto-de-rutas',
+    configureServer(servidor: any) {
+      servidor.middlewares.use((req: any, _res: any, next: any) => {
+        const destino = aLaApp(req.url ?? '/');
+        if (destino) req.url = destino;
+        next();
+      });
+    },
+    configurePreviewServer(servidor: any) {
+      servidor.middlewares.use((req: any, _res: any, next: any) => {
+        const destino = aLaApp(req.url ?? '/');
+        if (destino) req.url = destino;
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
+    repartirRutas(),
     react(),
     VitePWA({
       // Auto-update: cuando hay un nuevo SW, se descarga y el banner en
@@ -49,13 +90,22 @@ export default defineConfig({
         // Tamaño máximo por archivo en precache (5 MB).
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
 
-        // SPA: cualquier navegación sin recurso → index.html.
-        navigateFallback: '/index.html',
+        /**
+         * SPA: cualquier navegación sin recurso → app.html.
+         *
+         * Apuntaba a index.html, que AHORA ES LA PÁGINA PÚBLICA. Dejarlo así
+         * habría sido el error silencioso de todo este cambio: quien tiene la
+         * app instalada abre /pos y el service worker le sirve el folleto de
+         * presentación, sin conexión y sin forma de entender por qué.
+         */
+        navigateFallback: '/app.html',
 
-        // No interceptar /api/ ni rutas con extensión (sitemap, manifest, etc.).
+        // No interceptar /api/, rutas con extensión, ni la RAÍZ: «/» es la
+        // página pública y la sirve Vercel, no el service worker.
         navigateFallbackDenylist: [
           /^\/api\//,
           /\.[a-z0-9]+$/i,
+          /^\/$/,
         ],
 
         // Limpia caches viejos de versiones anteriores al activar SW nuevo.
@@ -185,6 +235,22 @@ export default defineConfig({
     sourcemap: 'hidden',
 
     rollupOptions: {
+      /**
+       * DOS PÁGINAS, no una.
+       *
+       *   index.html → la página pública (su propio punto de entrada, liviano)
+       *   app.html   → la aplicación de siempre
+       *
+       * Están separadas para que un visitante no descargue el armazón del ERP
+       * para leer tres párrafos. El reparto de rutas lo hace vercel.json: todo
+       * lo que no sea «/» se sirve con app.html, así que /m/, /c/, /login y el
+       * resto siguen funcionando exactamente igual y ningún QR impreso se
+       * rompe.
+       */
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        app: path.resolve(__dirname, 'app.html'),
+      },
       output: {
         // Chunking manual: separa libs grandes para mejor caching.
         // Rolldown (Vite 8) solo acepta la forma de FUNCIÓN para manualChunks.

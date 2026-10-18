@@ -3,11 +3,24 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/((?!.*\\.).*)",
+      "source": "/",
       "destination": "/index.html"
+    },
+    {
+      "source": "/((?!.*\\.).*)",
+      "destination": "/app.html"
     }
   ],
   "headers": [
+    {
+      "source": "/(app|login)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
     {
       "source": "/sitemap.xml",
       "headers": [

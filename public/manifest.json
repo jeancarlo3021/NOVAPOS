@@ -3,7 +3,7 @@
   "short_name": "ColónClick",
   "description": "Sistema de Punto de Venta y Facturación Electrónica para comercios en Costa Rica.",
   "id": "/",
-  "start_url": "/?source=pwa",
+  "start_url": "/app?source=pwa",
   "scope": "/",
   "display": "standalone",
   "display_override": [

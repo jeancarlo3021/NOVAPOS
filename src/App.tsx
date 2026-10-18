@@ -121,6 +121,16 @@ function AppContent() {
             >
               {/* Always accessible */}
               <Route index element={<Dashboard />} />
+              {/**
+                * /app — LA PUERTA DE LA APLICACIÓN.
+                *
+                * La raíz «/» ahora es la página pública, así que el sistema
+                * necesita una dirección propia. Es la misma pantalla que el
+                * índice: `/` sigue andando para quien ya esté adentro (los
+                * enlaces internos apuntan ahí), y `/app` es a donde llegan la
+                * app instalada y quien vuelve desde la página pública.
+                */}
+              <Route path="/app" element={<Dashboard />} />
               <Route path="/pos" element={
                 <PlanGuard feature="pos"><POSMain /></PlanGuard>
               } />

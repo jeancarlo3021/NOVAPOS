@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale, Server, Globe, Megaphone } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
@@ -28,6 +28,10 @@ import { NotifyPhoneModal } from './components/NotifyPhoneModal';
 import { WaReminderModal } from './components/WaReminderModal';
 import { TenantGroupView } from './components/TenantGroupView';
 import { UsageReportsView } from './components/UsageReportsView';
+import { InfraCostView } from './components/InfraCostView';
+import { LandingEditorView } from './components/LandingEditorView';
+import { AnunciosView } from './components/AnunciosView';
+import { AnalizarPlanChat } from './components/AnalizarPlanChat';
 import { GroupDocCount } from './components/GroupDocCount';
 import { CabysImport } from './components/CabysImport';
 import { BulkProductImportModal } from '@/modules/inventory/products/BulkProductImportModal';
@@ -84,7 +88,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'usage' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp' | 'vendor_payments';
+type AdminTab = 'businesses' | 'groups' | 'usage' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp' | 'vendor_payments' | 'infra' | 'landing' | 'anuncios' | 'analizar_plan';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -1011,9 +1015,17 @@ export const CreateOwner: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 bg-white sticky top-19.5 z-10">
-        <div className="max-w-7xl mx-auto px-6 flex">
+      {/* ── NAVEGACIÓN LATERAL ─────────────────────────────────────────
+          Era una fila horizontal, y con trece secciones ya no entraba: las
+          últimas quedaban cortadas o fuera de la pantalla, así que había
+          pantallas del panel a las que no se llegaba sin saber que existían.
+          En vertical crecen hacia abajo, que es a donde sobra lugar.
+
+          En pantallas chicas se muestran solo los iconos (56 px de ancho):
+          una columna con texto se comería media pantalla de un teléfono. */}
+      <div className="max-w-[1600px] mx-auto px-3 sm:px-5 flex gap-4 items-start">
+        <aside className="sticky top-19.5 shrink-0 w-14 md:w-52 py-4 self-start max-h-[calc(100vh-5rem)] overflow-y-auto">
+          <nav className="flex flex-col gap-0.5">
           {[
             { id: 'businesses' as AdminTab, label: 'Negocios',     icon: Building2 },
             { id: 'groups'     as AdminTab, label: 'Grupos',       icon: Layers },
@@ -1026,20 +1038,31 @@ export const CreateOwner: React.FC = () => {
             { id: 'sandbox'    as AdminTab, label: 'Sandbox',      icon: Sparkles },
             { id: 'whatsapp'   as AdminTab, label: 'WhatsApp',     icon: MessageCircle },
             { id: 'vendor_payments' as AdminTab, label: 'Proveedores', icon: Wallet },
+            { id: 'infra'      as AdminTab, label: 'Infraestructura', icon: Server },
+            { id: 'analizar_plan' as AdminTab, label: 'Analizar plan', icon: Calculator },
+            { id: 'landing'    as AdminTab, label: 'Página pública', icon: Globe },
+            { id: 'anuncios'   as AdminTab, label: 'Anuncios', icon: Megaphone },
           ].map(t => {
             const Icon = t.icon;
             const active = activeTab === t.id;
             return (
-              <button key={t.id} onClick={() => setActiveTab(t.id)}
-                className={`flex items-center gap-2 px-4 py-3 font-bold text-sm transition relative ${
-                  active ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-gray-500 hover:text-gray-900'
+              <button key={t.id} onClick={() => setActiveTab(t.id)} title={t.label}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-bold text-sm transition text-left ${
+                  active
+                    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
                 }`}>
-                <Icon size={15} /> {t.label}
+                <Icon size={16} className="shrink-0" />
+                <span className="hidden md:inline truncate">{t.label}</span>
               </button>
             );
           })}
-        </div>
-      </div>
+          </nav>
+        </aside>
+
+        {/* La columna de contenido. `min-w-0` es lo que evita que una tabla
+            ancha empuje la navegación fuera de la pantalla. */}
+        <div className="flex-1 min-w-0">
 
       {activeTab === 'receipts' && (
         <div className="max-w-7xl mx-auto p-6">
@@ -1103,6 +1126,30 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'groups' && (
         <div className="max-w-7xl mx-auto p-6">
           <TenantGroupView />
+        </div>
+      )}
+
+      {activeTab === 'analizar_plan' && (
+        <div className="max-w-4xl mx-auto p-6">
+          <AnalizarPlanChat />
+        </div>
+      )}
+
+      {activeTab === 'anuncios' && (
+        <div className="max-w-4xl mx-auto p-6">
+          <AnunciosView />
+        </div>
+      )}
+
+      {activeTab === 'landing' && (
+        <div className="max-w-5xl mx-auto p-6">
+          <LandingEditorView />
+        </div>
+      )}
+
+      {activeTab === 'infra' && (
+        <div className="max-w-6xl mx-auto p-6">
+          <InfraCostView />
         </div>
       )}
 
@@ -1863,6 +1910,9 @@ export const CreateOwner: React.FC = () => {
         </div>
       </div>
       )}
+        </div>   {/* fin de la columna de contenido */}
+      </div>   {/* fin de la fila: navegación + contenido */}
+
 
       {accountantsFor && (
         <TenantAccountantsModal

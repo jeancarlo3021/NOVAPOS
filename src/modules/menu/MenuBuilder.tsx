@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   QrCode, Save, Eye, EyeOff, Plus, Trash2, Search, Loader2, Palette,
   Download, ExternalLink, GripVertical, Check, Link2, ChevronUp, ChevronDown,
-  Upload, Image as ImageIcon,
+  Upload, Image as ImageIcon, ImagePlus,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { LienzoEditor } from './LienzoEditor';
@@ -577,6 +577,17 @@ export const MenuBuilder: React.FC<{ kind?: TipoPagina }> = ({ kind = 'menu' }) 
                         const p = byId.get(pid);
                         return (
                           <div key={pid} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white border border-gray-100">
+                            {/* LA FOTO DEL PRODUCTO, desde acá.
+                                Antes solo se podía poner desde Inventario,
+                                producto por producto: armar una vitrina de
+                                cuarenta artículos obligaba a salir de esta
+                                pantalla cuarenta veces, y el resultado era
+                                una vitrina sin fotos. */}
+                            {p && (
+                              <FotoProducto producto={p} tenantId={tenantId ?? ''}
+                                onCambio={url => setProducts(ps => ps.map(x =>
+                                  x.id === p.id ? { ...x, image_url: url } : x))} />
+                            )}
                             <span className="flex-1 min-w-0 text-sm text-gray-800 truncate">
                               {p?.name ?? <span className="text-red-500 italic">Plato eliminado</span>}
                             </span>
@@ -719,6 +730,64 @@ function swap<T>(arr: T[], a: number, b: number): T[] {
   [next[a], next[b]] = [next[b], next[a]];
   return next;
 }
+
+/**
+ * LA FOTO DE UN PRODUCTO, desde el armador del catálogo.
+ *
+ * ── Dónde se guarda, y por qué ahí ───────────────────────────────────────
+ * En el PRODUCTO (`products.image_url`), no en una copia dentro del catálogo.
+ * Es la foto de ese artículo: la misma sirve en la vitrina pública, en la
+ * pantalla de venta y en cualquier otro lado donde aparezca. Guardar una
+ * copia solo para el catálogo significaría que el día que cambien el envase
+ * hay que actualizarla en dos lugares, y en la práctica se actualiza en uno.
+ *
+ * Por eso el aviso dice que es la foto del producto: cambiarla acá se ve en
+ * todas partes, y eso tiene que saberse ANTES de tocarla, no después.
+ */
+const FotoProducto: React.FC<{
+  producto: Prod; tenantId: string; onCambio: (url: string) => void;
+}> = ({ producto, tenantId, onCambio }) => {
+  const [subiendo, setSubiendo] = useState(false);
+  const [error, setError] = useState('');
+
+  const subir = async (file?: File | null) => {
+    if (!file) return;
+    // 5 MB: una foto de teléfono pesa más, y subirla entera hace que la
+    // vitrina cargue lentísimo en el celular del cliente, que es donde importa.
+    if (file.size > 5 * 1024 * 1024) { setError('Pesa más de 5 MB'); return; }
+    setSubiendo(true); setError('');
+    try {
+      const url = await storageService.uploadImage('products', tenantId, file, `prod_${producto.id}`);
+      // Se guarda en el producto, no solo en la pantalla: si solo se viera
+      // acá, al recargar volvería a estar sin foto.
+      await apiFetch(`/products/${producto.id}`, {
+        method: 'PUT', body: JSON.stringify({ image_url: url }),
+      });
+      onCambio(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo subir');
+    } finally { setSubiendo(false); }
+  };
+
+  return (
+    <label title={producto.image_url
+      ? `Cambiar la foto de «${producto.name}». Es la foto del producto: se ve también en el resto del sistema.`
+      : `Poner una foto a «${producto.name}». Queda guardada en el producto.`}
+      className="shrink-0 cursor-pointer">
+      {producto.image_url ? (
+        <img src={producto.image_url} alt=""
+          className="w-9 h-9 rounded-lg object-cover border border-gray-200 hover:opacity-70" />
+      ) : (
+        <span className={`w-9 h-9 rounded-lg border border-dashed flex items-center justify-center
+          ${error ? 'border-red-300 text-red-400' : 'border-gray-300 text-gray-300 hover:border-teal-400 hover:text-teal-500'}`}>
+          {subiendo ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={14} />}
+        </span>
+      )}
+      <input type="file" accept="image/*" className="hidden"
+        onChange={e => void subir(e.target.files?.[0])} />
+    </label>
+  );
+};
 
 /**
  * Campo de imagen: subir un archivo o pegar un enlace.
