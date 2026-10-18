@@ -19,11 +19,15 @@ interface Respuesta {
   texto: string;
   detalle?: string | null;
   fuente?: string | null;
+  /** Cuando no entendió: las preguntas que sí sabe contestar, para un toque. */
+  sugerencias?: string[];
 }
 
 const SUGERENCIAS = [
   '¿Cuánto vendí este mes?',
   '¿Qué producto me deja más plata?',
+  '¿Quién me compra más?',
+  '¿Cuánto gasté este mes?',
   '¿Cuánto me deben?',
   '¿Qué se está acabando?',
 ];
@@ -46,6 +50,7 @@ export const AsistenteIA: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         texto: r?.datos?.respuesta ?? 'Sin respuesta',
         detalle: r?.datos?.detalle ?? null,
         fuente: r?.datos?.fuente ?? null,
+        sugerencias: Array.isArray(r?.datos?.sugerencias) ? r.datos.sugerencias : undefined,
       }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo consultar');
@@ -87,6 +92,18 @@ export const AsistenteIA: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 {h.detalle && <p className="text-[11px] text-gray-600 mt-1">{h.detalle}</p>}
                 {/* De dónde salió el número: sin esto, no se puede verificar. */}
                 {h.fuente && <p className="text-[10px] text-gray-400 mt-1">{h.fuente}</p>}
+                {/* No entendió: en vez de dejar a alguien reescribiendo la
+                    pregunta, se ofrece la más parecida para tocarla. */}
+                {h.sugerencias?.length ? (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {h.sugerencias.map(sg => (
+                      <button key={sg} onClick={() => void preguntar(sg)}
+                        className="px-2.5 py-1 rounded-lg bg-white border border-violet-200 text-[11px] font-bold text-violet-700 hover:bg-violet-50">
+                        {sg}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}

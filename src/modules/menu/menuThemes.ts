@@ -204,6 +204,8 @@ export interface MenuPromo {
   tipo: string;
   /** «20% desc.», «2×1», «Combo ¢5.000»… el mismo texto que usa el POS. */
   etiqueta: string;
+  /** Primer día (YYYY-MM-DD). */
+  empieza?: string | null;
   /** Último día, o null si es permanente. */
   termina?: string | null;
   /** Los ítems publicados que alcanza. */
@@ -235,6 +237,55 @@ export interface MenuConfig {
   impuesto_incluido?: boolean | null;
   note?: string;
 }
+
+/**
+ * «Del 10 al 16 de octubre» — el rango de una promoción, como se dice.
+ *
+ * Repetir el mes cuando es el mismo («del 10 de octubre al 16 de octubre»)
+ * hace que nadie lo lea entero, y es justo el dato que decide si el cliente
+ * viene hoy o la semana que viene. El año solo aparece si no es el actual: en
+ * un cartel de oferta, «2026» es ruido.
+ */
+export const rangoPromo = (empieza?: string | null, termina?: string | null): string | null => {
+  const dia = (iso: string) => new Date(iso + 'T12:00:00');
+  const anioActual = new Date().getFullYear();
+  const conAnio = (d: Date) => (d.getFullYear() !== anioActual ? ` de ${d.getFullYear()}` : '');
+  const nombreMes = (d: Date) => d.toLocaleDateString('es-CR', { month: 'long' });
+
+  // HOY en hora de Costa Rica: a las 7 de la noche de acá ya es el día
+  // siguiente en UTC, y «último día» se adelantaría media tarde.
+  const hoyCR = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+
+  if (empieza && termina) {
+    const a = dia(empieza), b = dia(termina);
+    // Un solo día: «Del 16 al 16 de octubre» se lee como un error.
+    if (empieza === termina) {
+      return empieza === hoyCR
+        ? `Solo hoy, ${a.getDate()} de ${nombreMes(a)}${conAnio(a)}`
+        : `Solo el ${a.getDate()} de ${nombreMes(a)}${conAnio(a)}`;
+    }
+    // Que hoy sea el último día es LA razón por la que alguien viene hoy y no
+    // la semana que viene. Decirlo es más útil que la fecha sola.
+    const cierre = termina === hoyCR ? ' · último día' : '';
+    if (a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()) {
+      return `Del ${a.getDate()} al ${b.getDate()} de ${nombreMes(b)}${conAnio(b)}${cierre}`;
+    }
+    return `Del ${a.getDate()} de ${nombreMes(a)}${conAnio(a)} al ${b.getDate()} de ${nombreMes(b)}${conAnio(b)}${cierre}`;
+  }
+  // Sin fecha de fin es una promo permanente: decir «desde» y nada más deja
+  // la duda de hasta cuándo, que es lo que el cliente quiere saber.
+  if (empieza) {
+    const a = dia(empieza);
+    return `Desde el ${a.getDate()} de ${nombreMes(a)}${conAnio(a)}, sin fecha de fin`;
+  }
+  if (termina) {
+    const b = dia(termina);
+    return termina === hoyCR
+      ? `Último día: hoy, ${b.getDate()} de ${nombreMes(b)}`
+      : `Hasta el ${b.getDate()} de ${nombreMes(b)}${conAnio(b)}`;
+  }
+  return null;
+};
 
 export const money = (n: number) =>
   `₡${Number(n || 0).toLocaleString('es-CR', { maximumFractionDigits: 0 })}`;

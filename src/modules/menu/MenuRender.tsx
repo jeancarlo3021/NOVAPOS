@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { themeOf, money, type MenuSection, type MenuHeader, type MenuConfig, type MenuPromo } from './menuThemes';
+import { themeOf, money, rangoPromo, type MenuSection, type MenuHeader, type MenuConfig, type MenuPromo } from './menuThemes';
 import { MenuLienzo } from './MenuLienzo';
 
 /**
@@ -85,6 +85,16 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, p
 
   const promoActiva = useMemo(
     () => promos.find(p => p.id === promoSel) ?? null, [promos, promoSel]);
+
+  /**
+   * Cuál promo se DESCRIBE, que no es lo mismo que cuál FILTRA.
+   *
+   * Con una sola promoción no hay nada que elegir: obligar a tocar un chip
+   * para enterarse de las fechas es esconder el dato detrás de un gesto que
+   * nadie adivina. Se muestra sola, pero sin filtrar la lista —si filtrara,
+   * el cliente vería tres platos y creería que eso es toda la carta—.
+   */
+  const promoDescrita = promoActiva ?? (promos.length === 1 ? promos[0] : null);
 
   const seccionesVistas = useMemo(() => {
     const texto = sinTildes(q);
@@ -210,7 +220,8 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, p
                   const sel = promoSel === p.id;
                   return (
                     <button key={p.id} onClick={() => setPromoSel(sel ? null : p.id)}
-                      title={p.descripcion ?? p.nombre}
+                      title={[p.nombre, p.descripcion, rangoPromo(p.empieza, p.termina)]
+                        .filter(Boolean).join(' — ')}
                       style={{
                         flexShrink: 0, cursor: 'pointer', fontFamily: t.bodyFont,
                         fontSize: s(11.5), fontWeight: 700, padding: '6px 11px', borderRadius: 99,
@@ -230,23 +241,25 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, p
             {/* Detalle de la promo elegida: el nombre y la etiqueta caben en el
                 chip, pero la condición («en compras de dos o más») no, y es
                 justo lo que evita el reclamo en la caja. */}
-            {promoActiva ? (
+            {promoDescrita ? (
               <div style={{
                 marginTop: s(8), padding: s(9), borderRadius: 10,
                 background: t.surface, border: '1px solid ' + t.rule,
               }}>
                 <p style={{ margin: 0, fontSize: s(12.5), fontWeight: 700 }}>
-                  {promoActiva.nombre}
+                  {promoDescrita.nombre}
                 </p>
-                {promoActiva.descripcion ? (
+                {promoDescrita.descripcion ? (
                   <p style={{ margin: s(3) + 'px 0 0', fontSize: s(11.5), color: t.muted, lineHeight: 1.45 }}>
-                    {promoActiva.descripcion}
+                    {promoDescrita.descripcion}
                   </p>
                 ) : null}
-                {promoActiva.termina ? (
-                  <p style={{ margin: s(4) + 'px 0 0', fontSize: s(10.5), color: t.muted }}>
-                    Hasta el {new Date(promoActiva.termina + 'T12:00:00')
-                      .toLocaleDateString('es-CR', { day: 'numeric', month: 'long' })}
+                {/* Desde cuándo y hasta cuándo. Con solo el «hasta», el
+                    cliente no sabe si ya está corriendo o arranca mañana, y la
+                    pregunta termina en el mostrador. */}
+                {rangoPromo(promoDescrita.empieza, promoDescrita.termina) ? (
+                  <p style={{ margin: s(5) + 'px 0 0', fontSize: s(11), color: t.ink, fontWeight: 600 }}>
+                    {rangoPromo(promoDescrita.empieza, promoDescrita.termina)}
                   </p>
                 ) : null}
               </div>

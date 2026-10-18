@@ -23,6 +23,10 @@ interface ParsedRow {
   _cabys_desc?: string;
   /** De dónde salió la sugerencia (otro negocio o el catálogo). */
   _cabys_origen?: string;
+  /** Por qué se eligió ese código, en una frase revisable de un vistazo. */
+  _cabys_motivo?: string;
+  /** Las otras opciones razonables, para poder corregir sin salir a buscar. */
+  _cabys_alternativas?: Array<{ code: string; description: string; iva_rate: number | null; coincidencia: number }>;
   name: string;
   sku?: string;
   sku2?: string;
@@ -483,16 +487,35 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     setSugiriendo(true);
     try {
       const names = [...new Set(faltan.map(r => r.name))];
-      const sug = await apiFetch<Array<{
+      /**
+       * Se pide por el asistente y no por `/cabys/sugerir` directo.
+       *
+       * Es el mismo motor —el endpoint de IA lo llama por dentro—, pero
+       * devuelve además POR QUÉ eligió cada código y las otras opciones. Eso
+       * es lo que permite revisar: trece dígitos no se revisan, una frase sí.
+       * Y en los que no alcanzó a decidir, las alternativas convierten una
+       * búsqueda a mano entre veinte mil filas en elegir entre tres.
+       */
+      type Sug = {
         name: string; code: string | null; description: string | null; iva_rate: number | null;
         confianza: string; fuente?: string | null; exacto?: boolean; parecido?: number;
-      }>>('/cabys/sugerir', { method: 'POST', body: JSON.stringify({ names }) }, 90000);
-      const porNombre = new Map((sug ?? []).filter(x => x.code).map(x => [x.name, x]));
+        motivo?: string;
+        alternativas?: Array<{ code: string; description: string; iva_rate: number | null; coincidencia: number }>;
+      };
+      const r0 = await apiFetch<{ modo?: string; datos?: { sugerencias?: Sug[] } } | Sug[]>(
+        '/ia/cabys', { method: 'POST', body: JSON.stringify({ nombres: names }) }, 90000);
+      const sug: Sug[] = Array.isArray(r0) ? r0 : (r0?.datos?.sugerencias ?? []);
+      const porNombre = new Map(sug.map(x => [x.name, x]));
       let n = 0;
       setRows(prev => prev.map(r => {
         if (r.cabys_code || !r.name) return r;
         const x = porNombre.get(r.name);
-        if (!x?.code) return r;
+        if (!x) return r;
+        // Sin código: igual se guardan el motivo y las alternativas, que es
+        // justo donde más falta hacen.
+        if (!x.code) {
+          return { ...r, _cabys_motivo: x.motivo, _cabys_alternativas: x.alternativas };
+        }
         n++;
         return {
           ...r,
@@ -500,6 +523,8 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
           iva_rate: (!archivoTraeIva && x.iva_rate != null) ? x.iva_rate : r.iva_rate,
           _cabys_asignado: 'sugerido' as const,
           _cabys_desc: x.description ?? undefined,
+          _cabys_motivo: x.motivo,
+          _cabys_alternativas: x.alternativas,
           // De dónde salió: un producto igual de otro negocio es mucho más
           // confiable que un parecido de palabras contra el catálogo.
           _cabys_origen: x.fuente === 'otros_negocios'
@@ -1022,13 +1047,41 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                             <span className="block text-[10px] font-sans text-gray-500">aplicado a todas</span>
                           )}
                           {r._cabys_asignado === 'sugerido' && (
-                            <span className="block text-[10px] font-sans text-amber-700" title={r._cabys_desc}>
+                            <span className="block text-[10px] font-sans text-amber-700" title={r._cabys_motivo ?? r._cabys_desc}>
                               {String(r._cabys_desc ?? '').slice(0, 38)}
                               {r._cabys_origen && (
                                 <span className="block text-gray-500">{r._cabys_origen}</span>
                               )}
                             </span>
                           )}
+                          {/* LAS OTRAS OPCIONES, donde no alcanzó a decidir.
+                              Sin esto, un producto sin código deja a la
+                              persona buscando a mano entre veinte mil filas;
+                              con esto, es elegir entre tres. No se asigna
+                              nada solo: el código equivocado lo paga el
+                              negocio ante Hacienda, así que lo elige alguien. */}
+                          {!r.cabys_code && r._cabys_alternativas?.length ? (
+                            <span className="block mt-1 font-sans">
+                              {r._cabys_motivo && (
+                                <span className="block text-[9px] text-gray-500 mb-0.5">{r._cabys_motivo}</span>
+                              )}
+                              {r._cabys_alternativas.slice(0, 3).map(a => (
+                                <button key={a.code}
+                                  onClick={() => setRows(prev => prev.map(x => x === r ? {
+                                    ...x, cabys_code: a.code, _cabys_desc: a.description,
+                                    _cabys_asignado: 'manual' as const,
+                                    _cabys_origen: 'elegida de las opciones',
+                                    iva_rate: (!archivoTraeIva && a.iva_rate != null) ? a.iva_rate : x.iva_rate,
+                                  } : x))}
+                                  title={a.description}
+                                  className="block w-full text-left text-[10px] px-1.5 py-0.5 mb-0.5 rounded border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-900">
+                                  <span className="font-mono">{a.code}</span>{' '}
+                                  <span className="text-amber-700">{a.coincidencia}%</span>{' '}
+                                  {String(a.description).slice(0, 30)}
+                                </button>
+                              ))}
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{r.iva_rate ?? 13}%</td>
                         <td className="px-3 py-1.5">

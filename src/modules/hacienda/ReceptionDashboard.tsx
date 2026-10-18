@@ -11,6 +11,27 @@ import { PurchaseMatchModal } from './PurchaseMatchModal';
 import { useAuth } from '@/context/AuthContext';
 
 const fmt = (n: number) => `₡${Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * Un monto EN LA MONEDA DEL COMPROBANTE.
+ *
+ * Los montos del XML vienen como los declaró el emisor, y durante mucho tiempo
+ * la bandeja los mostró todos con el signo de colón: una factura de ALANUBE de
+ * US$56,50 se leía «₡56,50» y pasaba por un gasto insignificante cuando son
+ * veinticinco mil colones. El símbolo tiene que venir del comprobante, no del
+ * país donde corre el sistema.
+ */
+const SIMBOLO: Record<string, string> = { CRC: '₡', USD: '$', EUR: '€', GBP: '£', MXN: '$', USN: '$' };
+const fmtMoneda = (n: number, moneda?: string | null) => {
+  const m = String(moneda ?? 'CRC').toUpperCase();
+  const simbolo = SIMBOLO[m] ?? '';
+  const numero = Number(n ?? 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Las monedas que no conocemos salen con el código delante («CHF 120,00»):
+  // un número pelado no se puede leer, y adivinar el símbolo es peor.
+  return simbolo ? `${simbolo}${numero}` : `${m} ${numero}`;
+};
+/** ¿Hay que aclarar la moneda? Solo cuando NO son colones. */
+const esExtranjera = (moneda?: string | null) => String(moneda ?? 'CRC').toUpperCase() !== 'CRC';
 const docTypeLabel = (t?: string | null) => {
   switch (String(t ?? '')) {
     case '01': return 'Factura';
@@ -400,7 +421,14 @@ export const ReceptionDashboard: React.FC = () => {
         <span className="ml-auto text-xs text-gray-400 self-center">
           {rows.length} comprobante(s)
           {(desde || hasta) ? ' en el período' : ' (últimos 300)'}
-          {' · '}₡{Math.round(rows.reduce((t, r) => t + Number(r.total ?? 0), 0)).toLocaleString('es-CR')}
+          {/* La suma va en colones. Sumar dólares y colones en un mismo
+              total da un número que no significa nada, y era lo que pasaba:
+              US$3.390 entraba al total como si fueran 3.390 colones. Los que
+              no tienen tipo de cambio quedan fuera y se avisa aparte. */}
+          {' · '}₡{Math.round(rows.reduce((t, r) => t + Number((r as any).total_crc ?? ((r as any).currency && (r as any).currency !== 'CRC' ? 0 : r.total ?? 0)), 0)).toLocaleString('es-CR')}
+          {rows.some(r => (r as any).currency && (r as any).currency !== 'CRC' && (r as any).total_crc == null) && (
+            <span className="text-amber-700 font-bold"> · hay comprobantes sin tipo de cambio</span>
+          )}
         </span>
       </div>
 
@@ -464,7 +492,33 @@ export const ReceptionDashboard: React.FC = () => {
                     </td>
                     <td className="px-5 py-4 text-xs">{docTypeLabel(r.document_type)}</td>
                     <td className="px-5 py-4 text-gray-600 text-xs">{r.date ? String(r.date).slice(0, 10) : '—'}</td>
-                    <td className="px-5 py-4 text-right font-bold text-gray-900">{fmt(r.total)}</td>
+                    <td className="px-5 py-4 text-right font-bold text-gray-900">
+                      {/* EN DÓLARES SE VE QUE ESTÁ EN DÓLARES.
+                          El monto se muestra en la moneda del comprobante —es
+                          el que el proveedor va a reclamar— y debajo el
+                          equivalente en colones, que es con el que se registra
+                          la compra. Antes todo salía con «₡» y una factura de
+                          US$3.390 se leía como ₡3.390. */}
+                      {fmtMoneda(r.total, (r as any).currency)}
+                      {esExtranjera((r as any).currency) && (
+                        <span className="block text-[10px] font-semibold mt-0.5">
+                          {(r as any).total_crc != null ? (
+                            <span className="text-gray-500">
+                              ≈ {fmt((r as any).total_crc)}
+                              <span className="block text-gray-400 font-normal">
+                                TC {Number((r as any).exchange_rate ?? 0).toLocaleString('es-CR')}
+                              </span>
+                            </span>
+                          ) : (
+                            // Sin tipo de cambio no se puede convertir, y
+                            // callarlo lo dejaría pasar por colones.
+                            <span className="text-amber-700" title="El comprobante no declara el tipo de cambio: no se puede convertir a colones ni registrar la compra">
+                              ⚠ falta el tipo de cambio
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
                       {/* Sin compras ni gastos en el plan: la bandeja es solo para aceptar/rechazar. */}
                       {!canClassify ? (
@@ -665,10 +719,31 @@ export const ReceptionDashboard: React.FC = () => {
           onSaved={onGastoSaved}
           prefill={{
             description: `Compra a ${gastoFor.issuer_name ?? 'proveedor'}`,
-            amount: String(gastoFor.total ?? ''),
+            /**
+             * El gasto se registra EN COLONES, siempre.
+             *
+             * Toda la contabilidad del sistema está en colones, así que acá va
+             * el equivalente, no el monto del comprobante. Sin esto, una
+             * factura de ALANUBE de US$56,50 entraba como un gasto de ₡56,50.
+             * Si falta el tipo de cambio se deja vacío en vez de poner el
+             * número en dólares: un campo vacío se nota, un monto equivocado
+             * no.
+             */
+            amount: esExtranjera((gastoFor as any).currency)
+              ? String((gastoFor as any).total_crc ?? '')
+              : String(gastoFor.total ?? ''),
             date: gastoFor.date ? String(gastoFor.date).slice(0, 10) : undefined,
             reference: gastoFor.clave ?? '',
-            notes: (gastoFor.items ?? []).map(it => `• ${it.detail} (${it.quantity} x ₡${Number(it.unit_price).toLocaleString('es-CR')})`).join('\n'),
+            notes: [
+              // Queda escrito el monto original: es el que el proveedor tiene
+              // en su papel si algún día hay que discutir una diferencia.
+              esExtranjera((gastoFor as any).currency)
+                ? `Comprobante en ${(gastoFor as any).currency} por `
+                  + `${fmtMoneda(gastoFor.total, (gastoFor as any).currency)} `
+                  + `· tipo de cambio ${Number((gastoFor as any).exchange_rate ?? 0).toLocaleString('es-CR')}`
+                : '',
+              ...(gastoFor.items ?? []).map(it => `• ${it.detail} (${it.quantity} x ₡${Number(it.unit_price).toLocaleString('es-CR')})`),
+            ].filter(Boolean).join('\n'),
           }}
         />
       )}
