@@ -127,10 +127,24 @@ export const PlanEconomicsPanel: React.FC = () => {
             US${inf.costo_usd_hoy}
             {inf.costo_crc_hoy != null && <span className="text-sm text-gray-400"> · {crc(inf.costo_crc_hoy)}</span>}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">
-            {inf.dentro_del_plan_gratis
-              ? 'Todo cabe hoy en los planes gratuitos.'
-              : 'Ya se salió de los planes gratuitos.'}
+          {/* El desglose. «US$56» sin decir de dónde sale no se puede
+              verificar, y es el número que manda en todo el cálculo. */}
+          <p className="text-[11px] text-gray-400 mt-1 leading-snug">
+            {inf.desglose?.facturacion_electronica_usd > 0 && (
+              <>Facturación electrónica US${inf.desglose.facturacion_electronica_usd}
+                {inf.desglose.servidores_usd > 0
+                  ? ` + servidores US$${inf.desglose.servidores_usd}`
+                  : ' · servidores ₡0 (plan gratuito)'}
+                <br /></>
+            )}
+            {inf.fe && (
+              <span className={inf.fe.libres <= 150 ? 'text-amber-700 font-bold' : ''}>
+                {inf.fe.usados} de {inf.fe.incluidos} documentos usados
+                {inf.fe.pasados > 0
+                  ? ` · ${inf.fe.pasados} de más a ₡${inf.fe.extra_crc} c/u`
+                  : ` · quedan ${inf.fe.libres}`}
+              </span>
+            )}
           </p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -197,7 +211,12 @@ export const PlanEconomicsPanel: React.FC = () => {
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-gray-500">{p.peso_pct}%</td>
                   <td className="px-3 py-2 text-right tabular-nums text-gray-600">
-                    {crc(p.costo_por_peso)}
+                    {/* En colones si hay tipo de cambio; si no, en dólares.
+                        Un «—» daba a entender que el costo no se sabe, y sí
+                        se sabe: lo que falta es la conversión. */}
+                    {p.costo_por_peso != null
+                      ? crc(p.costo_por_peso)
+                      : `US$${Number(p.costo_por_peso_usd ?? 0).toFixed(2)}`}
                     {p.costo_parejo != null && p.costo_por_peso != null
                       && Math.abs(p.costo_parejo - p.costo_por_peso) > 1 && (
                       <span className="block text-[10px] text-gray-400" title="Repartiendo la factura por partes iguales entre negocios">

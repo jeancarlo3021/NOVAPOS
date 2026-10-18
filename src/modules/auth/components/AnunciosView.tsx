@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Megaphone, Send, Loader2, AlertTriangle, Users2, Sparkles, CheckCircle2, History,
+  Clock, X,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
@@ -32,6 +33,16 @@ export const AnunciosView: React.FC = () => {
   const [titulo, setTitulo] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [telPrueba, setTelPrueba] = useState('');
+  /**
+   * Cuándo sale. Vacío = ahora.
+   *
+   * El campo da la hora LOCAL del navegador, que para quien usa esto es la
+   * de Costa Rica. Se manda al servidor en UTC: guardar «14:30» sin zona es
+   * el error clásico —el servidor corre en UTC y el aviso saldría a las 8:30
+   * de la mañana—.
+   */
+  const [cuando, setCuando] = useState('');
+  const [pendientes, setPendientes] = useState<any[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState('');
   const [error, setError] = useState('');
@@ -55,11 +66,11 @@ export const AnunciosView: React.FC = () => {
     finally { setCargando(false); }
   };
   useEffect(() => { void cargar(); /* eslint-disable-next-line */ }, [elegidos, estados]);
-  useEffect(() => {
-    void (async () => {
-      try { setHistorial((await apiFetch<any>('/admin/anuncios')).anuncios ?? []); } catch { /* sin bitácora igual funciona */ }
-    })();
-  }, []);
+  const recargarListas = async () => {
+    try { setHistorial((await apiFetch<any>('/admin/anuncios')).anuncios ?? []); } catch { /* sin bitácora igual funciona */ }
+    try { setPendientes((await apiFetch<any>('/admin/anuncios/pendientes')).pendientes ?? []); } catch { /* idem */ }
+  };
+  useEffect(() => { void recargarListas(); }, []);
 
   const verRecomendaciones = async () => {
     setCargandoRecs(true);
@@ -82,19 +93,52 @@ export const AnunciosView: React.FC = () => {
   };
 
   const enviar = async () => {
-    if (!confirm(`Se va a mandar el anuncio a ${alcanzables} negocio(s) por WhatsApp. Esto no se puede deshacer. ¿Seguimos?`)) return;
+    const programado = cuando.trim();
+    const cuandoISO = programado ? new Date(programado).toISOString() : '';
+    const leyenda = programado
+      ? `se va a programar para el ${new Date(programado).toLocaleString('es-CR')}`
+      : 'se va a mandar AHORA';
+    if (!confirm(`El anuncio ${leyenda} a ${alcanzables} negocio(s) por WhatsApp.`
+      + (programado ? ' Podés cancelarlo hasta esa hora.' : ' Esto no se puede deshacer.')
+      + '\n\n¿Seguimos?')) return;
+
     setEnviando(true); setError(''); setAviso('');
     try {
       const r = await apiFetch<any>('/admin/anuncios/enviar', {
         method: 'POST',
-        body: JSON.stringify({ titulo, mensaje, planes: elegidos, estados }),
-      }, 300000);
-      setAviso(`Enviado a ${r.enviados} negocio(s)${r.fallidos ? `, ${r.fallidos} fallaron` : ''}.`);
+        body: JSON.stringify({ titulo, mensaje, planes: elegidos, estados, programar_para: cuandoISO }),
+      }, 120000);
+
+      if (r.programado) {
+        setAviso(`Programado para el ${new Date(r.para).toLocaleString('es-CR')} · `
+          + `${r.destinatarios} negocio(s). Lo podés cancelar hasta esa hora.`);
+      } else {
+        /**
+         * Puede quedar gente pendiente, y hay que decirlo.
+         *
+         * Entre mensaje y mensaje hay una pausa, y no todos entran en el
+         * tiempo que el servidor permite por petición. El resto lo sigue el
+         * trabajo programado. Callarlo haría pensar que llegó a todos.
+         */
+        setAviso(`Enviado a ${r.enviados} negocio(s)${r.fallidos ? `, ${r.fallidos} fallaron` : ''}.`
+          + (r.faltan > 0
+            ? ` Quedan ${r.faltan} en cola: salen solos en los próximos minutos, o tocá enviar otra vez (nadie recibe dos veces).`
+            : ''));
+      }
       if (r.errores?.length) setError(`Algunos no salieron — ${r.errores.join(' · ')}`);
-      setTitulo(''); setMensaje('');
-      setHistorial((await apiFetch<any>('/admin/anuncios')).anuncios ?? []);
+      setTitulo(''); setMensaje(''); setCuando('');
+      await recargarListas();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); }
     finally { setEnviando(false); }
+  };
+
+  const cancelar = async (a: any) => {
+    if (!confirm(`¿Cancelar «${a.titulo}»? No se va a mandar.`)) return;
+    try {
+      await apiFetch(`/admin/anuncios/${a.id}`, { method: 'DELETE' });
+      setAviso(`«${a.titulo}» cancelado.`);
+      await recargarListas();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cancelar'); }
   };
 
   const toggle = (arr: string[], v: string, set: (x: any) => void) =>
@@ -250,11 +294,40 @@ export const AnunciosView: React.FC = () => {
             Un error de redacción visto en tu teléfono cuesta cero; visto por {alcanzables} clientes, no se deshace.
           </span>
         </div>
+        {/* CUÁNDO SALE.
+            Vacío = ahora. Con fecha y hora queda programado y se puede
+            cancelar hasta ese momento, que es la diferencia que importa:
+            un envío inmediato no se deshace. */}
+        <div className="flex items-end gap-2 flex-wrap border-t border-gray-100 pt-3">
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1 flex items-center gap-1.5">
+              <Clock size={12} /> Programar para (opcional)
+            </label>
+            <input type="datetime-local" value={cuando} onChange={e => setCuando(e.target.value)}
+              min={new Date(Date.now() + 120000).toISOString().slice(0, 16)}
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+          </div>
+          {cuando && (
+            <button onClick={() => setCuando('')}
+              className="px-3 py-2 text-xs font-bold text-gray-500 hover:text-gray-800">
+              Mandar ahora
+            </button>
+          )}
+          <span className="text-[11px] text-gray-500 flex-1 min-w-[180px]">
+            {cuando
+              ? `Sale el ${new Date(cuando).toLocaleString('es-CR')}, hora de Costa Rica. Lo podés cancelar hasta entonces.`
+              : 'Sin fecha, sale apenas toques el botón.'}
+          </span>
+        </div>
+
         <button onClick={() => void enviar()}
           disabled={enviando || !mensaje.trim() || !titulo.trim() || alcanzables === 0}
           className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black disabled:bg-gray-300">
-          {enviando ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          Mandar a {alcanzables} negocio(s)
+          {enviando ? <Loader2 size={16} className="animate-spin" />
+            : cuando ? <Clock size={16} /> : <Send size={16} />}
+          {cuando
+            ? `Programar para ${alcanzables} negocio(s)`
+            : `Mandar a ${alcanzables} negocio(s)`}
         </button>
         <p className="text-[11px] text-gray-500 flex items-start gap-1.5">
           <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
@@ -263,6 +336,30 @@ export const AnunciosView: React.FC = () => {
           repetirlo.
         </p>
       </div>
+
+      {/* LO QUE TODAVÍA NO SALIÓ.
+          Programados y los que quedaron a medio mandar van juntos: para
+          quien mira, «sale mañana a las 9» y «faltan ocho» son lo mismo,
+          algo que todavía no terminó. */}
+      {pendientes.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <h3 className="text-sm font-black text-amber-900 flex items-center gap-2 mb-2">
+            <Clock size={15} /> Todavía no salieron
+          </h3>
+          {pendientes.map(a => (
+            <div key={a.id} className="flex items-center justify-between gap-3 text-xs py-1.5 border-b border-amber-100 last:border-0">
+              <span className="font-bold text-amber-900 truncate" title={a.mensaje}>{a.titulo}</span>
+              <span className="text-amber-800 shrink-0 flex items-center gap-2">
+                {a.estado === 'programado' && a.programado_para
+                  ? `sale el ${new Date(a.programado_para).toLocaleString('es-CR')}`
+                  : `enviando… ${a.enviados} de ${a.segmento?.destinatarios ?? '?'}`}
+                <button onClick={() => void cancelar(a)} title="Cancelar"
+                  className="text-amber-500 hover:text-red-600"><X size={13} /></button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {historial.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-4">
