@@ -26,7 +26,6 @@ export const AnunciosView: React.FC = () => {
   const [elegidos, setElegidos] = useState<string[]>([]);
   const [estados, setEstados] = useState<Estado[]>(['al_dia']);
   const [lista, setLista] = useState<any[]>([]);
-  const [alcanzables, setAlcanzables] = useState(0);
   const [sinTelefono, setSinTelefono] = useState(0);
   const [cargando, setCargando] = useState(true);
 
@@ -42,6 +41,14 @@ export const AnunciosView: React.FC = () => {
    * de la mañana—.
    */
   const [cuando, setCuando] = useState('');
+  /**
+   * Los negocios destildados a mano.
+   *
+   * Se guardan los EXCLUIDOS y no los incluidos a propósito: así, cuando
+   * alguien cambia el filtro de plan, los que entran nuevos vienen marcados
+   * —que es lo que uno espera— en vez de aparecer apagados y en silencio.
+   */
+  const [excluidos, setExcluidos] = useState<string[]>([]);
   const [pendientes, setPendientes] = useState<any[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState('');
@@ -60,12 +67,17 @@ export const AnunciosView: React.FC = () => {
       const r = await apiFetch<any>(`/admin/anuncios/destinatarios?${q}`, {}, 60000);
       setPlanes(r.planes ?? []);
       setLista(r.destinatarios ?? []);
-      setAlcanzables(r.alcanzables ?? 0);
       setSinTelefono(r.sin_telefono ?? 0);
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cargar'); }
     finally { setCargando(false); }
   };
-  useEffect(() => { void cargar(); /* eslint-disable-next-line */ }, [elegidos, estados]);
+  useEffect(() => {
+    // Cambió el filtro: la selección manual anterior ya no corresponde a esta
+    // lista. Arrastrarla haría que quedara gente apagada sin motivo visible.
+    setExcluidos([]);
+    void cargar();
+    /* eslint-disable-next-line */
+  }, [elegidos, estados]);
   const recargarListas = async () => {
     try { setHistorial((await apiFetch<any>('/admin/anuncios')).anuncios ?? []); } catch { /* sin bitácora igual funciona */ }
     try { setPendientes((await apiFetch<any>('/admin/anuncios/pendientes')).pendientes ?? []); } catch { /* idem */ }
@@ -98,7 +110,7 @@ export const AnunciosView: React.FC = () => {
     const leyenda = programado
       ? `se va a programar para el ${new Date(programado).toLocaleString('es-CR')}`
       : 'se va a mandar AHORA';
-    if (!confirm(`El anuncio ${leyenda} a ${alcanzables} negocio(s) por WhatsApp.`
+    if (!confirm(`El anuncio ${leyenda} a ${seleccionados.length} negocio(s) por WhatsApp.`
       + (programado ? ' Podés cancelarlo hasta esa hora.' : ' Esto no se puede deshacer.')
       + '\n\n¿Seguimos?')) return;
 
@@ -106,7 +118,13 @@ export const AnunciosView: React.FC = () => {
     try {
       const r = await apiFetch<any>('/admin/anuncios/enviar', {
         method: 'POST',
-        body: JSON.stringify({ titulo, mensaje, planes: elegidos, estados, programar_para: cuandoISO }),
+        body: JSON.stringify({
+          titulo, mensaje, planes: elegidos, estados, programar_para: cuandoISO,
+          // La lista exacta solo viaja si se tocó algo: así, sin tocar nada,
+          // el servidor sigue resolviendo por filtros y el resultado es el
+          // mismo aunque alguien se dé de alta entre que se arma y se manda.
+          tenant_ids: excluidos.length > 0 ? seleccionados.map(d => d.tenant_id) : undefined,
+        }),
       }, 120000);
 
       if (r.programado) {
@@ -140,6 +158,10 @@ export const AnunciosView: React.FC = () => {
       await recargarListas();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cancelar'); }
   };
+
+  /** Los que SÍ se les puede escribir, y los que además quedaron marcados. */
+  const conTelefono = lista.filter(d => d.telefono);
+  const seleccionados = conTelefono.filter(d => !excluidos.includes(d.tenant_id));
 
   const toggle = (arr: string[], v: string, set: (x: any) => void) =>
     set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
@@ -208,27 +230,61 @@ export const AnunciosView: React.FC = () => {
             <span className="text-sm text-gray-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Contando…</span>
           ) : (
             <>
-              <span className="text-sm font-black text-gray-900">{alcanzables} lo van a recibir</span>
+              <span className="text-sm font-black text-gray-900">{seleccionados.length} lo van a recibir</span>
               {sinTelefono > 0 && (
                 <span className="text-xs text-amber-700 font-semibold" title="No tienen teléfono guardado en ningún lado">
                   · {sinTelefono} quedan fuera por no tener teléfono
                 </span>
+              )}
+              {excluidos.length > 0 && (
+                <span className="text-xs text-gray-500">· {excluidos.length} destildados por vos</span>
               )}
             </>
           )}
         </div>
 
         {/* La lista exacta. Sin verla no se manda nada. */}
+        {/* LA LISTA, seleccionable uno por uno.
+            Abierta por omisión: esto le escribe a clientes reales, y una
+            lista escondida detrás de un «ver» es una lista que nadie mira
+            antes de apretar enviar. */}
         {lista.length > 0 && (
-          <details className="text-xs">
-            <summary className="cursor-pointer font-bold text-gray-600">Ver la lista exacta</summary>
-            <div className="mt-2 max-h-48 overflow-y-auto space-y-0.5">
-              {lista.map(d => (
-                <div key={d.tenant_id} className="flex justify-between gap-2 py-0.5 border-b border-gray-50">
-                  <span className={d.telefono ? 'text-gray-700' : 'text-gray-300 line-through'}>{d.negocio}</span>
-                  <span className="text-gray-400 tabular-nums">{d.telefono ?? 'sin teléfono'}</span>
-                </div>
-              ))}
+          <details open className="text-xs">
+            <summary className="cursor-pointer font-bold text-gray-600">
+              Quién lo recibe ({seleccionados.length} de {conTelefono.length})
+            </summary>
+            <div className="flex gap-3 mt-1.5 mb-1">
+              <button onClick={() => setExcluidos([])}
+                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800">
+                Marcar todos
+              </button>
+              <button onClick={() => setExcluidos(conTelefono.map(d => d.tenant_id))}
+                className="text-[11px] font-bold text-gray-500 hover:text-gray-800">
+                Desmarcar todos
+              </button>
+            </div>
+            <div className="max-h-56 overflow-y-auto space-y-0.5 border border-gray-100 rounded-lg p-1.5">
+              {lista.map(d => {
+                const marcado = !!d.telefono && !excluidos.includes(d.tenant_id);
+                return (
+                  <label key={d.tenant_id}
+                    title={d.telefono ? '' : 'Sin teléfono guardado: no se le puede escribir'}
+                    className={`flex items-center gap-2 py-1 px-1 rounded ${
+                      d.telefono ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+                    <input type="checkbox" checked={marcado} disabled={!d.telefono}
+                      onChange={() => setExcluidos(x => x.includes(d.tenant_id)
+                        ? x.filter(y => y !== d.tenant_id)
+                        : [...x, d.tenant_id])} />
+                    <span className={`flex-1 min-w-0 truncate ${marcado ? 'text-gray-800' : 'text-gray-400'}`}>
+                      {d.negocio}
+                    </span>
+                    <span className="text-[10px] text-gray-400 shrink-0">{d.plan}</span>
+                    <span className="text-gray-400 tabular-nums shrink-0">
+                      {d.telefono ?? 'sin teléfono'}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </details>
         )}
@@ -291,7 +347,7 @@ export const AnunciosView: React.FC = () => {
             Enviarme la prueba
           </button>
           <span className="text-[11px] text-gray-500">
-            Un error de redacción visto en tu teléfono cuesta cero; visto por {alcanzables} clientes, no se deshace.
+            Un error de redacción visto en tu teléfono cuesta cero; visto por {seleccionados.length} clientes, no se deshace.
           </span>
         </div>
         {/* CUÁNDO SALE.
@@ -321,13 +377,13 @@ export const AnunciosView: React.FC = () => {
         </div>
 
         <button onClick={() => void enviar()}
-          disabled={enviando || !mensaje.trim() || !titulo.trim() || alcanzables === 0}
+          disabled={enviando || !mensaje.trim() || !titulo.trim() || seleccionados.length === 0}
           className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black disabled:bg-gray-300">
           {enviando ? <Loader2 size={16} className="animate-spin" />
             : cuando ? <Clock size={16} /> : <Send size={16} />}
           {cuando
-            ? `Programar para ${alcanzables} negocio(s)`
-            : `Mandar a ${alcanzables} negocio(s)`}
+            ? `Programar para ${seleccionados.length} negocio(s)`
+            : `Mandar a ${seleccionados.length} negocio(s)`}
         </button>
         <p className="text-[11px] text-gray-500 flex items-start gap-1.5">
           <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
