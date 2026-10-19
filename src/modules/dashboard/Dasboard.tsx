@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, Sparkles } from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, Sparkles , BookOpenCheck, Search, Star} from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { AsistenteIA } from '@/modules/ia/AsistenteIA';
 import { useAuth } from '@/context/AuthContext';
@@ -65,6 +65,9 @@ const ALL_TILES: Tile[] = [
   { feature: 'reports',          label: 'Reportes',        icon: BarChart2,     path: '/reports',          bg: 'from-indigo-500 to-indigo-600'    },
   { feature: 'expenses',         label: 'Gastos',          icon: TrendingDown,  path: '/expenses',         bg: 'from-rose-500 to-pink-600'        },
   { feature: 'accounts_payable', label: 'Cuentas',         icon: Wallet,        path: '/accounts-payable', bg: 'from-orange-500 to-amber-600'     },
+  // Estaba en el menú lateral pero NO acá, así que desde el tablero no había
+  // forma de llegar: para quien entra por el tablero, el módulo no existía.
+  { feature: 'accounting',       label: 'Contabilidad',    icon: BookOpenCheck, path: '/accounting',       bg: 'from-slate-600 to-gray-800'       },
   { feature: 'accounts_receivable', label: 'Por Cobrar',   icon: HandCoins,     path: '/accounts-receivable', bg: 'from-teal-500 to-emerald-600'  },
   { feature: 'purchases',        label: 'Compras',         icon: ClipboardList, path: '/purchases',        bg: 'from-cyan-500 to-sky-600'         },
   { feature: 'promotions',       label: 'Promociones',     icon: Tag,           path: '/promotions',       bg: 'from-violet-500 to-purple-600'    },
@@ -275,6 +278,103 @@ export const Dashboard = () => {
       || (t.alsoIf ?? []).some(f => flagOn(pf, f) && canAccess(f));
   });
 
+  /**
+   * BUSCADOR Y FAVORITOS DEL TABLERO.
+   *
+   * Con treinta y pico de módulos, encontrar uno es bajar por una cuadrícula
+   * leyendo etiqueta por etiqueta. Y los tres o cuatro que cada persona usa
+   * todos los días quedan mezclados con los que abre una vez al mes.
+   *
+   * Los favoritos se guardan en el navegador y por NEGOCIO: el contador que
+   * atiende tres comercios no quiere los mismos atajos en los tres, y es una
+   * preferencia personal, no una configuración del negocio que haya que
+   * sincronizar.
+   */
+  const claveFav = `novapos_tablero_favoritos_${tenantId ?? 'sin-negocio'}`;
+  const [busqueda, setBusqueda] = useState('');
+  const [favoritos, setFavoritos] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(claveFav) ?? '[]'); } catch { return []; }
+  });
+  useEffect(() => {
+    try { setFavoritos(JSON.parse(localStorage.getItem(claveFav) ?? '[]')); } catch { setFavoritos([]); }
+  }, [claveFav]);
+
+  const alternarFavorito = (path: string) => {
+    setFavoritos(prev => {
+      const next = prev.includes(path) ? prev.filter(x => x !== path) : [...prev, path];
+      try { localStorage.setItem(claveFav, JSON.stringify(next)); } catch { /* modo privado */ }
+      return next;
+    });
+  };
+
+  /**
+   * Texto comparable: sin tildes ni mayúsculas.
+   *
+   * Nadie escribe tildes buscando. Sin esto, «facturacion» no encontraba
+   * «Facturación» y el buscador parecía roto justo con la palabra más usada.
+   */
+  const sinTildes = (v: any) =>
+    String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+  /**
+   * CÓMO LO LLAMA LA GENTE, no cómo se llama el botón.
+   *
+   * Probado en un navegador: buscar «facturacion» no encontraba nada, porque
+   * los módulos se llaman «FE Facturas» y «FE Recepción». Quien busca escribe
+   * la palabra que usa todos los días, no la etiqueta que le pusimos — y un
+   * buscador que no encuentra «facturación» en un sistema de facturación se
+   * siente roto a la primera.
+   *
+   * Solo los que hacen falta: agregar sinónimos a todo volvería la lista
+   * imposible de mantener y haría que cualquier búsqueda devuelva de todo.
+   */
+  const SINONIMOS: Record<string, string> = {
+    '/fe-facturas': 'facturacion electronica hacienda comprobantes tiquete',
+    '/fe-recepcion': 'facturacion recepcion compras recibidas proveedores correo xml',
+    '/pos': 'caja cobrar vender punto de venta',
+    '/accounting': 'contabilidad asientos libro diario mayor balance partida doble',
+    '/inventory': 'bodega stock existencias productos articulos',
+    '/accounts-payable': 'cuentas por pagar proveedores deudas',
+    '/accounts-receivable': 'cobrar credito fiado deudores',
+    '/expenses': 'gastos egresos salidas',
+    '/purchases': 'compras ordenes proveedores',
+    '/customers': 'clientes compradores',
+    '/reports': 'reportes informes estadisticas numeros',
+    '/cash-management': 'caja arqueo cierre apertura efectivo',
+    '/settings': 'configuracion ajustes preferencias',
+    '/users': 'usuarios empleados permisos roles',
+    '/menu-digital': 'menu carta qr restaurante',
+    '/catalogo-digital': 'catalogo vitrina qr productos',
+    '/promotions': 'promociones descuentos ofertas 2x1',
+    '/returns': 'devoluciones cambios',
+    '/labels': 'etiquetas codigos de barras precios',
+  };
+
+  const q = sinTildes(busqueda);
+  const tilesFiltrados = q
+    ? tiles.filter(t =>
+        sinTildes(t.label).includes(q)
+        || sinTildes(t.path).includes(q)
+        || sinTildes(SINONIMOS[t.path] ?? '').includes(q))
+    : tiles;
+
+  /**
+   * Los favoritos van primero, en el orden en que se marcaron.
+   *
+   * Mientras se busca NO se reordena: quien escribió «conta» quiere ver lo
+   * que coincide, no sus atajos arriba empujando el resultado hacia abajo.
+   */
+  const tilesOrdenados = q
+    ? tilesFiltrados
+    : [...tilesFiltrados].sort((a, b) => {
+        const ia = favoritos.indexOf(a.path);
+        const ib = favoritos.indexOf(b.path);
+        if (ia === -1 && ib === -1) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+
   // Si el POS está desactivado, Distribución y Repartidor van de primero.
   if (pf.pos === false) {
     const isDist = (t: Tile) => t.path === '/distribution' || t.path === '/driver';
@@ -433,10 +533,45 @@ export const Dashboard = () => {
       {/* Los avisos que antes eran chips acá ahora están todos juntos en el
           menú flotante de notificaciones (abajo a la derecha). */}
 
+      {/* ── Buscador ──────────────────────────────────────────────────────
+          Con más de treinta módulos, encontrar uno es bajar leyendo etiqueta
+          por etiqueta. Acá se escribe y listo. */}
+      <div className="relative">
+        <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <input
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          placeholder="Buscar un módulo… (contabilidad, inventario, caja)"
+          className="w-full pl-11 pr-10 py-3 rounded-2xl border-2 border-gray-200 bg-white text-base focus:outline-none focus:border-emerald-500"
+        />
+        {busqueda && (
+          <button onClick={() => setBusqueda('')} aria-label="Limpiar"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Qué se está viendo. Sin esto, buscar algo que no existe deja una
+          pantalla vacía sin explicación. */}
+      {busqueda.trim() && (
+        <p className="text-sm text-gray-500 -mt-1">
+          {tilesOrdenados.length === 0
+            ? <>No hay ningún módulo que se llame así. Puede que no esté incluido en tu plan.</>
+            : <>{tilesOrdenados.length} módulo(s) encontrados</>}
+        </p>
+      )}
+      {!busqueda.trim() && favoritos.length === 0 && tiles.length > 8 && (
+        <p className="text-xs text-gray-400 -mt-1">
+          Tocá la estrella de un módulo para dejarlo de primero.
+        </p>
+      )}
+
       {/* ── Botones gigantes estilo Eleventa ─────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-        {tiles.map((t) => {
+        {tilesOrdenados.map((t) => {
           const Icon = t.icon;
+          const esFavorito = favoritos.includes(t.path);
           return (
             <button
               key={t.path}
@@ -444,6 +579,24 @@ export const Dashboard = () => {
               onClick={() => navigate(t.path)}
               className={`relative overflow-hidden rounded-3xl p-5 sm:p-6 text-left bg-linear-to-br ${t.bg} text-white shadow-md hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] transition-all duration-150 min-h-40 sm:min-h-48 flex flex-col justify-between`}
             >
+              {/* La estrella. `stopPropagation` para que marcarla no abra el
+                  módulo: tocar «favorito» y que se te vaya la pantalla es
+                  exactamente lo que no se espera. */}
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={esFavorito ? `Quitar ${t.label} de los primeros` : `Poner ${t.label} de primero`}
+                title={esFavorito ? 'Quitar de los primeros' : 'Ponerlo de primero'}
+                onClick={(e) => { e.stopPropagation(); alternarFavorito(t.path); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); alternarFavorito(t.path); }
+                }}
+                className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/20 cursor-pointer"
+              >
+                <Star size={18}
+                  className={esFavorito ? 'text-amber-300' : 'text-white/45'}
+                  fill={esFavorito ? 'currentColor' : 'none'} />
+              </span>
               {/* Decoración suave */}
               <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/10 blur-2xl pointer-events-none" />
               <div className="absolute -bottom-10 -left-10 w-24 h-24 rounded-full bg-white/5 blur-xl pointer-events-none" />

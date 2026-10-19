@@ -559,6 +559,8 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     if (adminMode) {
       // Fuera del try: si un lote falla, hay que poder decir cuántos SÍ entraron.
       let created = 0, errors = 0, updated = 0;
+      /** Productos que traían existencias en el archivo y no se aplicaron. */
+      let stockOmitido = 0;
       try {
         const payload = validRows.map(r => ({
           name: r.name, sku: r.sku ?? '', sku2: r.sku2 ?? null, description: r.description,
@@ -611,7 +613,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
           lotes,
           async (batch) => {
             try {
-              return await apiFetch<{ created: number; updated?: number; errors: number; error_detail?: string | null }>(
+              return await apiFetch<{ created: number; updated?: number; errors: number; error_detail?: string | null; stock_omitido?: number }>(
                 `/admin/tenants/${tenantId}/products-import`,
                 { method: 'POST', body: JSON.stringify({ rows: batch }) },
                 60000,   // un lote de 50 nunca debería acercarse a esto
@@ -629,6 +631,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
             created += res.value?.created ?? 0;
             updated += res.value?.updated ?? 0;
             errors  += res.value?.errors ?? 0;
+            stockOmitido += res.value?.stock_omitido ?? 0;
             if (!detailMsg && res.value?.error_detail) detailMsg = res.value.error_detail;
           } else {
             // El lote entero no llegó: sus filas quedan pendientes.
@@ -662,6 +665,19 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
               `Se procesaron ${created + updated} de ${payload.length}`
               + ` (${created} nuevos, ${updated} actualizados).`
               + ` Quedaron ${res.errors} fila(s) sin subir.${detail}`,
+            );
+          }
+          /**
+           * Si el archivo traía existencias para productos que YA estaban, se
+           * dice. Callarlo haría creer que el inventario quedó como el Excel,
+           * y la próxima vez que alguien mire el stock no va a entender por
+           * qué no coincide.
+           */
+          if (stockOmitido > 0) {
+            setError(
+              `Se actualizaron ${updated} producto(s), pero NO se tocó la existencia de `
+              + `${stockOmitido} que ya estaban. El stock se cambia en Inventario → Stock, `
+              + 'con un ajuste que registra el motivo.',
             );
           }
           onDone(created + updated);

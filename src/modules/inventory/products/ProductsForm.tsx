@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import { X, AlertCircle, TrendingUp, Upload, Loader, Trash2, Image as ImageIcon, ChevronDown, ChevronUp, Plus, Lock } from 'lucide-react';
 import { calcMargin, MARGIN_TEXT, closedPriceBase } from '@/utils/priceUtils';
 import { inventoryProductsService, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
@@ -405,7 +405,17 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         // parseFloat, NO parseInt: un producto por peso tiene 2.5 kg de
         // existencia, y con parseInt se guardaba 2 — media unidad evaporada en
         // cada guardado.
-        productData.stock_quantity = parseFloat(formData.stock_quantity) || 0;
+        /**
+         * El stock solo viaja al CREAR.
+         *
+         * Al editar, el servidor lo ignora igual —es ahí donde está la
+         * protección de verdad—, pero mandarlo haría saltar el aviso de
+         * «no se cambió» en cada guardado aunque nadie lo haya tocado, y un
+         * aviso que aparece siempre deja de leerse.
+         */
+        if (!productId) {
+          productData.stock_quantity = parseFloat(formData.stock_quantity) || 0;
+        }
         productData.min_stock_level = parseFloat(formData.min_stock_level) || 10;
         productData.max_stock_level = parseFloat(formData.max_stock_level) || 100;
       }
@@ -971,7 +981,17 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
               {/* Stock actual — solo si lleva control de stock */}
               {!isProductsOnly && tracksStock && (
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1.5">Stock actual</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                    {productId ? 'Stock actual' : 'Stock inicial'}
+                  </label>
+                  {/* ── LA EXISTENCIA NO SE EDITA DESDE ACÁ ────────────────
+                      Al CREAR sí: es la carga inicial, el punto de partida.
+                      Al EDITAR no: cambiar el número acá dejaría la cantidad
+                      nueva y ningún rastro de por qué cambió —ni quién, ni
+                      cuándo, ni si fue merma, devolución o error de conteo—.
+                      Sin ese rastro no hay costo de ventas ni inventario
+                      valuado que se sostenga. Para eso están los ajustes,
+                      que piden el motivo. */}
                   <input
                     type="number"
                     name="stock_quantity"
@@ -982,9 +1002,32 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     /* Sin `step`, el navegador asume 1 y marca inválido cualquier
                        decimal: por eso no dejaba escribir 2.5 kg. */
                     step="any"
-                    disabled={submitting}
-                    className="w-full px-4 py-2.5 text-lg font-bold border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 tabular-nums"
+                    disabled={submitting || !!productId}
+                    readOnly={!!productId}
+                    title={productId
+                      ? 'La existencia se cambia en Inventario → Stock, donde queda registrado el motivo'
+                      : undefined}
+                    className={`w-full px-4 py-2.5 text-lg font-bold border-2 rounded-xl tabular-nums ${
+                      productId
+                        ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed'
+                        : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100'
+                    }`}
                   />
+                  {productId ? (
+                    <div className="mt-1.5 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                      <Lock size={13} className="text-amber-600 mt-0.5 shrink-0" />
+                      <p className="text-[11px] text-amber-900 leading-snug">
+                        <b>La existencia no se cambia desde acá.</b> Se cambia en{' '}
+                        <a href="/inventory?tab=stock" className="font-black underline">Inventario → Stock</a>,
+                        con un ajuste que registra el motivo y quién lo hizo. Así el inventario tiene
+                        historial y se puede saber cuánto costó lo que se vendió.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-1.5 text-[11px] text-gray-500">
+                      Es la carga inicial. Después se cambia solo con ajustes, para que quede el motivo.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -287,5 +287,13 @@ export const rangoPromo = (empieza?: string | null, termina?: string | null): st
   return null;
 };
 
+/**
+ * El precio, como se escribe un precio en Costa Rica.
+ *
+ * Los miles se separan a mano. `toLocaleString('es-CR')` devuelve un espacio
+ * fino —«₡1 800»— según la tabla CLDR del navegador, y en el teléfono de un
+ * cliente eso se lee como dos números pegados o como un precio mal pintado.
+ * Con punto es como lo escribe el negocio en su rótulo y en la factura.
+ */
 export const money = (n: number) =>
-  `₡${Number(n || 0).toLocaleString('es-CR', { maximumFractionDigits: 0 })}`;
+  `₡${Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;

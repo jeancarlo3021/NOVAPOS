@@ -38,6 +38,7 @@ const TruckTrackingMap         = lazy(() => import('./modules/distribution/Truck
 const TrackingSettings         = lazy(() => import('./modules/distribution/TrackingSettings').then(m => ({ default: m.TrackingSettings })));
 const DriverView               = lazy(() => import('./modules/distribution/DriverView').then(m => ({ default: m.DriverView })));
 const ExpensesDashboard        = lazy(() => import('./modules/expenses/ExpensesDashboard').then(m => ({ default: m.ExpensesDashboard })));
+const AccountingDashboard     = lazy(() => import('./modules/accounting/AccountingDashboard').then(m => ({ default: m.AccountingDashboard })));
 const PurchasesDashboard       = lazy(() => import('./modules/purchases/PurchasesDashboard').then(m => ({ default: m.PurchasesDashboard })));
 const HRDashboard              = lazy(() => import('./modules/hr/HRDashboard').then(m => ({ default: m.HRDashboard })));
 const AccountsPayableDashboard = lazy(() => import('./modules/accountsPayable/AccountsPayableDashboard').then(m => ({ default: m.AccountsPayableDashboard })));
@@ -183,6 +184,11 @@ function AppContent() {
               <Route path="/branch-reports" element={
                 <PlanGuard feature="reports">
                   <BranchReportsDashboard />
+                </PlanGuard>
+              } />
+              <Route path="/accounting" element={
+                <PlanGuard feature="accounting">
+                  <AccountingDashboard />
                 </PlanGuard>
               } />
               <Route path="/expenses" element={

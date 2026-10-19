@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { themeOf, money, rangoPromo, type MenuSection, type MenuHeader, type MenuConfig, type MenuPromo } from './menuThemes';
 import { MenuLienzo } from './MenuLienzo';
 
@@ -69,6 +70,40 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, p
    */
   const [q, setQ] = useState('');
   const [promoSel, setPromoSel] = useState<string | null>(null);
+
+  /**
+   * EL DETALLE DE UN PRODUCTO.
+   *
+   * La lista tiene que ser legible de un barrido: nombre, precio y poco más.
+   * Pero quien ya se detuvo en un producto quiere la foto en grande y lo que
+   * no cabe en la fila —la descripción completa, hasta cuándo dura la promo,
+   * el código con el que pedirlo—. Meter todo eso en cada fila convierte el
+   * catálogo en un muro; esconderlo del todo obliga a preguntar por WhatsApp.
+   *
+   * Se guarda el producto, no su id: la lista se filtra mientras el modal
+   * está abierto (el buscador sigue vivo detrás) y un id podría dejar de
+   * existir en la lista visible con el modal todavía en pantalla.
+   */
+  const [detalle, setDetalle] = useState<any | null>(null);
+
+  /**
+   * Escape cierra, y mientras está abierto la página de atrás no rueda.
+   *
+   * Sin lo segundo, en el teléfono el dedo mueve la carta por debajo del
+   * modal y al cerrarlo el cliente aparece en otra parte de la lista, sin
+   * entender qué pasó.
+   */
+  useEffect(() => {
+    if (!detalle) return;
+    const cerrarConEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setDetalle(null); };
+    document.addEventListener('keydown', cerrarConEsc);
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', cerrarConEsc);
+      document.body.style.overflow = previo;
+    };
+  }, [detalle]);
 
   const totalItems = useMemo(
     () => sections.reduce((n, sec) => n + sec.items.length, 0), [sections]);
@@ -324,8 +359,18 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, p
               {sec.items.map(it => {
                 const withPhoto = showPhotos && !!it.image_url;
                 return (
-                  <article key={it.id} style={{
+                  <article key={it.id}
+                    /* Toda la fila abre el detalle, no un «ver más» chiquito:
+                       en un teléfono el objetivo de toque es la tarjeta. */
+                    role="button" tabIndex={0}
+                    aria-label={`Ver detalles de ${it.name}`}
+                    onClick={() => setDetalle(it)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetalle(it); }
+                    }}
+                    style={{
                     display: 'flex', gap: s(12), alignItems: 'flex-start',
+                    cursor: 'pointer',
                     ...(t.layout === 'cards' ? {
                       background: t.surface, borderRadius: s(12), padding: s(10),
                       border: `1px solid ${t.rule}`,
@@ -474,6 +519,179 @@ export const MenuRender: React.FC<Props> = ({ theme, header, config, sections, p
           </footer>
         ) : null}
       </div>
+
+      {/* ── DETALLE DEL PRODUCTO ────────────────────────────────────────
+          Va en un portal al body a propósito: en la vista previa del editor
+          el menú vive dentro de un teléfono simulado con `overflow` y
+          `transform`, y un modal pintado ahí dentro saldría recortado o
+          anclado al marco en vez de a la pantalla. Así el negocio prueba el
+          mismo modal que verá su cliente. */}
+      {detalle ? createPortal(
+        <div
+          onClick={() => setDetalle(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+            padding: 0,
+          }}>
+          {/* Hoja que sube desde abajo: es el gesto que ya conocen del
+              teléfono, y deja el pulgar cerca del botón de cerrar. */}
+          <div
+            role="dialog" aria-modal="true" aria-label={detalle.name}
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: t.page, color: t.ink, fontFamily: t.bodyFont,
+              width: '100%', maxWidth: 440, maxHeight: '92vh', overflowY: 'auto',
+              borderRadius: '18px 18px 0 0', position: 'relative',
+              boxShadow: '0 -8px 40px rgba(0,0,0,.3)',
+            }}>
+            <button
+              onClick={() => setDetalle(null)}
+              aria-label="Cerrar"
+              style={{
+                position: 'absolute', top: 12, right: 12, zIndex: 2,
+                width: 34, height: 34, borderRadius: 99, border: 'none',
+                background: 'rgba(15,23,42,.55)', color: '#fff',
+                fontSize: 18, lineHeight: 1, cursor: 'pointer', fontFamily: 'inherit',
+              }}>×</button>
+
+            {/* La foto, en grande y completa. En la fila va recortada a un
+                cuadrado de 64px; acá es lo primero que el cliente vino a ver. */}
+            {showPhotos && detalle.image_url ? (
+              <img src={detalle.image_url} alt=""
+                style={{
+                  width: '100%', maxHeight: '46vh', objectFit: 'cover',
+                  display: 'block', background: t.surface,
+                }} />
+            ) : null}
+
+            <div style={{ padding: 18 }}>
+              <h3 style={{
+                fontFamily: t.titleFont, fontSize: 21, fontWeight: 700,
+                margin: 0, lineHeight: 1.25,
+              }}>{detalle.name}</h3>
+
+              {showPrices ? (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
+                  <span style={{
+                    fontSize: 24, fontWeight: 800, color: accent,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>{money(detalle.price)}</span>
+                  {detalle.precio_antes ? (
+                    <span style={{
+                      fontSize: 15, color: t.muted, textDecoration: 'line-through',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}>{money(detalle.precio_antes)}</span>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* LA PROMO, con sus fechas.
+                  Es la razón principal para abrir el detalle: en la fila solo
+                  cabe la etiqueta («-10%»), y «hasta cuándo» es justo lo que
+                  decide si el cliente viene hoy o lo deja para otro día. */}
+              {(() => {
+                const pr = detalle.promo_id
+                  ? promos.find(x => x.id === detalle.promo_id) ?? null : null;
+                if (!detalle.promo_etiqueta && !pr) return null;
+                const rango = pr ? rangoPromo(pr.empieza, pr.termina) : '';
+                return (
+                  <div style={{
+                    marginTop: 12, padding: 12, borderRadius: 10,
+                    background: t.surface, border: `1px solid ${t.rule}`,
+                  }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                      {detalle.promo_etiqueta ? (
+                        <span style={{
+                          fontSize: 11, padding: '3px 9px', borderRadius: 99,
+                          background: accent, color: '#fff', fontWeight: 800,
+                          textTransform: 'uppercase', letterSpacing: '.04em',
+                        }}>{detalle.promo_etiqueta}</span>
+                      ) : null}
+                      {pr?.nombre ? (
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>{pr.nombre}</span>
+                      ) : null}
+                    </div>
+                    {pr?.descripcion ? (
+                      <p style={{ margin: '8px 0 0', fontSize: 13, lineHeight: 1.5, color: t.muted }}>
+                        {pr.descripcion}
+                      </p>
+                    ) : null}
+                    {rango ? (
+                      <p style={{ margin: '6px 0 0', fontSize: 12.5, fontWeight: 700, color: accent }}>
+                        {rango}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })()}
+
+              {detalle.description ? (
+                <p style={{ margin: '14px 0 0', fontSize: 14.5, lineHeight: 1.55, color: t.ink }}>
+                  {detalle.description}
+                </p>
+              ) : null}
+
+              {/* Código y existencias: con esto el cliente puede pedirlo por
+                  teléfono sin describir el producto. */}
+              {(showSku && detalle.sku) || (showStock && detalle.disponible !== undefined) ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14, alignItems: 'center' }}>
+                  {showSku && detalle.sku ? (
+                    <span style={{
+                      fontSize: 12, padding: '4px 8px', borderRadius: 5,
+                      border: `1px solid ${t.rule}`, color: t.muted,
+                      fontFamily: 'ui-monospace, Menlo, monospace',
+                    }}>{detalle.sku}</span>
+                  ) : null}
+                  {showStock && detalle.disponible !== undefined ? (
+                    <span style={{
+                      fontSize: 11.5, padding: '4px 9px', borderRadius: 99,
+                      background: detalle.disponible ? accent : 'transparent',
+                      color: detalle.disponible ? '#fff' : t.muted,
+                      border: detalle.disponible ? 'none' : `1px solid ${t.rule}`,
+                      fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em',
+                    }}>{detalle.disponible ? 'disponible' : 'sin existencias'}</span>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {showAllergens && (detalle.allergens || detalle.diet_tags) ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+                  {String(detalle.diet_tags ?? '').split(',').map((x: string) => x.trim()).filter(Boolean).map((tag: string) => (
+                    <span key={tag} style={{
+                      fontSize: 11, padding: '3px 8px', borderRadius: 99,
+                      background: accent, color: '#fff', fontWeight: 700,
+                      textTransform: 'uppercase', letterSpacing: '.04em',
+                    }}>{tag}</span>
+                  ))}
+                  {String(detalle.allergens ?? '').split(',').map((x: string) => x.trim()).filter(Boolean).map((a: string) => (
+                    <span key={a} style={{
+                      fontSize: 11, padding: '3px 8px', borderRadius: 99,
+                      border: `1px solid ${t.rule}`, color: t.muted, fontWeight: 600,
+                    }}>contiene {a}</span>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* El teléfono del negocio, acá mismo. El cliente que abrió un
+                  producto es el que está a un paso de preguntar por él, y
+                  mandarlo a buscar el número al pie de la carta es perderlo. */}
+              {header.phone ? (
+                <a href={`tel:${String(header.phone).replace(/[^\d+]/g, '')}`}
+                  style={{
+                    display: 'block', marginTop: 18, textAlign: 'center',
+                    background: accent, color: '#fff', textDecoration: 'none',
+                    fontWeight: 700, fontSize: 15, padding: '12px 16px', borderRadius: 10,
+                  }}>
+                  Consultar por este producto
+                </a>
+              ) : null}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 };

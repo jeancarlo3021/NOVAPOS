@@ -106,7 +106,156 @@ export const AnalizarPlanChat: React.FC = () => {
                   </p>
                 )}
 
-                {/* El veredicto arriba: es lo único que mucha gente va a leer. */}
+                {/* ── LA CUENTA ──────────────────────────────────────────
+                    Va antes que todo lo demás: «cuánto cuesta y cuánto queda»
+                    es la pregunta. Estaba desparramada entre los puntos a
+                    favor y en contra, donde se lee como un comentario más. */}
+                {t.analisis?.economia && (
+                  <div className="bg-white border-2 border-violet-200 rounded-xl p-3">
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      {([['Cobrás', t.analisis.economia.precio_mensual, 'text-gray-900'],
+                         ['Te cuesta', t.analisis.economia.costo_por_cliente, 'text-rose-700'],
+                         ['Aporta', t.analisis.economia.ganancia_por_cliente,
+                           Number(t.analisis.economia.ganancia_por_cliente) >= 0
+                             ? 'text-emerald-700' : 'text-red-600']] as const)
+                        .map(([et, v, color]) => (
+                        <div key={et}>
+                          <p className="text-[10px] font-bold text-gray-500 uppercase">{et}</p>
+                          <p className={`text-lg font-black tabular-nums ${color}`}>
+                            ₡{Math.round(Number(v)).toLocaleString('es-CR')}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-center text-gray-500 mt-1">
+                      por cliente, al mes · lo que aporta para cubrir los fijos
+                      {t.analisis.economia.margen_pct != null && (
+                        <> · margen del <b className="text-gray-700">{t.analisis.economia.margen_pct}%</b></>
+                      )}
+                    </p>
+
+                    {/* De qué está hecho el costo. Un «₡166» sin decir de
+                        dónde sale no se puede discutir ni verificar. */}
+                    {t.analisis.economia.costo_detalle?.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
+                        {t.analisis.economia.costo_detalle.map((d: any, j: number) => (
+                          <div key={j} className="flex justify-between gap-2 text-[11px]">
+                            <span className="text-gray-600">{d.concepto}</span>
+                            <span className="text-right">
+                              <b className="tabular-nums text-gray-800">
+                                ₡{Math.round(Number(d.monto)).toLocaleString('es-CR')}
+                              </b>
+                              {d.nota && <span className="block text-gray-400">{d.nota}</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Los escenarios: el costo por cliente no es constante,
+                        porque la bolsa de documentos se va llenando. Mirando
+                        un cliente aislado ese salto no se ve. */}
+                    {t.analisis.economia.escenarios?.length > 0 && (
+                      <table className="w-full text-[11px] mt-2 pt-2 border-t border-gray-100">
+                        <thead className="text-gray-400">
+                          <tr>
+                            <th className="text-left font-bold">Si conseguís</th>
+                            <th className="text-right font-bold">Entra</th>
+                            <th className="text-right font-bold">Cuesta</th>
+                            <th className="text-right font-bold">Queda</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {t.analisis.economia.escenarios.map((x: any) => (
+                            <tr key={x.clientes} className="border-t border-gray-50">
+                              <td className="py-0.5 text-gray-700">
+                                {x.clientes} clientes
+                                {x.nota && <span className="block text-[10px] text-gray-400">{x.nota}</span>}
+                              </td>
+                              <td className="py-0.5 text-right tabular-nums text-gray-700">
+                                ₡{Math.round(x.ingreso).toLocaleString('es-CR')}
+                              </td>
+                              <td className="py-0.5 text-right tabular-nums text-rose-700">
+                                ₡{Math.round(x.costo).toLocaleString('es-CR')}
+                              </td>
+                              {/* En rojo si da negativo. Una pérdida pintada
+                                  de verde se lee como ganancia y es justo el
+                                  renglón que hay que ver. */}
+                              <td className={`py-0.5 text-right tabular-nums font-bold ${
+                                x.ganancia >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                                ₡{Math.round(x.ganancia).toLocaleString('es-CR')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    {/* ── LOS COSTOS FIJOS ───────────────────────────────
+                        Se pagan haya o no un cliente más, así que NO se
+                        reparten entre los clientes: hacerlo daría un «costo
+                        por cliente» que baja solo con crecer, y con eso
+                        cualquier precio parece rentable. Van acá, con cuántos
+                        clientes hacen falta para cubrirlos, que es la pregunta
+                        que decide si el plan se sostiene. */}
+                    {t.analisis.economia.fijos && (
+                      <div className="mt-2 pt-2 border-t-2 border-gray-100">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-[11px] font-black text-gray-700 uppercase">
+                            Costos fijos del mes
+                          </span>
+                          <span className="text-sm font-black tabular-nums text-gray-900">
+                            US${t.analisis.economia.fijos.total_usd}
+                            {t.analisis.economia.fijos.total_crc != null && (
+                              <span className="text-gray-500 font-bold">
+                                {' '}· ₡{Number(t.analisis.economia.fijos.total_crc).toLocaleString('es-CR')}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="mt-1 space-y-0.5">
+                          {t.analisis.economia.fijos.conceptos.map((c: any, j: number) => (
+                            <div key={j} className="flex justify-between gap-2 text-[11px]">
+                              <span className={c.usd > 0 ? 'text-gray-700' : 'text-gray-400'}>
+                                {c.concepto}
+                                <span className="block text-[10px] text-gray-400">{c.nota}</span>
+                              </span>
+                              <span className={`tabular-nums shrink-0 ${c.usd > 0 ? 'font-bold text-gray-800' : 'text-gray-400'}`}>
+                                US${c.usd}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        {t.analisis.economia.fijos.clientes_para_cubrirlos != null && (
+                          <p className="mt-1.5 text-[11px] font-bold text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-2 py-1.5">
+                            Hacen falta <b>{t.analisis.economia.fijos.clientes_para_cubrirlos} clientes</b> de
+                            este plan para pagar todos los costos fijos del mes. A partir de ahí, lo que
+                            entre es ganancia.
+                          </p>
+                        )}
+                        {t.analisis.economia.fijos.tipo_cambio != null && (
+                          <p className="mt-1 text-[10px] text-gray-400">
+                            Convertido a ₡{t.analisis.economia.fijos.tipo_cambio} por dólar —{' '}
+                            {t.analisis.economia.fijos.tipo_cambio_fuente}.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* El caso que más engaña: por cliente da ganancia, pero
+                        al crecer da pérdida porque la bolsa se llena. Sin
+                        decirlo, alguien lanza el plan mirando el primer
+                        número y se entera cuando ya tiene clientes. */}
+                    {t.analisis.economia.ganancia_por_cliente > 0
+                      && t.analisis.economia.escenarios?.some((x: any) => x.ganancia < 0) && (
+                      <p className="mt-2 text-[11px] text-red-800 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">
+                        <b>Ojo:</b> con un cliente deja plata, pero al crecer da pérdida. La bolsa de
+                        documentos se llena y a partir de ahí cada factura se paga aparte.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* El veredicto: es lo único que mucha gente va a leer. */}
                 {t.analisis?.veredicto && (
                   <p className="text-sm text-gray-900 font-semibold flex items-start gap-2">
                     <Target size={15} className="text-violet-600 mt-0.5 shrink-0" />

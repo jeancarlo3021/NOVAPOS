@@ -4,6 +4,7 @@ import { prefetchCommonRoutes } from '@/utils/prefetchRoutes';
 import { ModuleGuideButton } from '@/components/ModuleGuideButton';
 import { GuideHighlight } from '@/components/GuideHighlight';
 import { ShareLocationToggle } from '@/components/ShareLocationToggle';
+import { PaymentReminderModal } from '@/components/PaymentReminderModal';
 import { Lock, LogOut, Menu as MenuIcon, RefreshCw, Settings } from 'lucide-react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -103,6 +104,10 @@ export const MainLayout = () => {
     return (
       <div className="h-screen overflow-hidden">
         <Outlet />
+        {/* También en la caja: es la pantalla donde el dueño pasa el día, y
+            enterarse del vencimiento solo si entra al tablero es no
+            enterarse. */}
+        <PaymentReminderModal />
         <ModuleGuideButton />
         <GuideHighlight />
         <ShareLocationToggle />
@@ -112,6 +117,9 @@ export const MainLayout = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans">
+      {/* Va en el layout, no en cada pantalla: aparece entre al sistema por
+          donde entre —el tablero, la caja o un enlace directo—. */}
+      <PaymentReminderModal />
       {isReadOnly && <ReadOnlyBanner />}
       <div className="flex flex-1 overflow-hidden">
         <Sidebar

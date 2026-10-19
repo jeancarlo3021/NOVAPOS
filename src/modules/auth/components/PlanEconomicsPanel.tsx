@@ -51,6 +51,36 @@ export const PlanEconomicsPanel: React.FC = () => {
     })();
   }, []);
 
+  /**
+   * Corregir lo que se paga.
+   *
+   * El sistema mide el CONSUMO pero no puede saber qué plan está contratado
+   * ni cuánto cuesta. Deducirlo del consumo era el error que tenía esto
+   * antes: calculaba Supabase en cero porque el uso cabía en el plan
+   * gratuito, cuando en realidad se pagaba Pro.
+   */
+  const editarCostos = async () => {
+    const fe = prompt('¿Cuánto pagás al mes por el proveedor de facturación electrónica? (en dólares)',
+      String(d?.infraestructura?.desglose?.facturacion_electronica_usd ?? 56));
+    if (fe === null) return;
+    const vercel = prompt('¿Y por Vercel? (en dólares, 0 si no pagás)', '20');
+    if (vercel === null) return;
+    const supabase = prompt('¿Y por Supabase? (en dólares, 0 si no pagás)', '25');
+    if (supabase === null) return;
+    try {
+      await apiFetch('/admin/costos-fijos', {
+        method: 'PUT',
+        body: JSON.stringify({
+          fe_usd: Number(String(fe).replace(/[^\d.]/g, '')),
+          vercel_usd: Number(String(vercel).replace(/[^\d.]/g, '')),
+          supabase_usd: Number(String(supabase).replace(/[^\d.]/g, '')),
+        }),
+      });
+      setD(await apiFetch<any>('/admin/planes-costos?refresh=1', {}, 120000));
+      setAviso('Listo: los costos quedaron corregidos y el cálculo se rehízo.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); }
+  };
+
   const declarar = async (plan: any) => {
     const actual = plan.ingreso_declarado ?? '';
     const txt = prompt(
@@ -127,14 +157,19 @@ export const PlanEconomicsPanel: React.FC = () => {
             US${inf.costo_usd_hoy}
             {inf.costo_crc_hoy != null && <span className="text-sm text-gray-400"> · {crc(inf.costo_crc_hoy)}</span>}
           </p>
-          {/* El desglose. «US$56» sin decir de dónde sale no se puede
+          {/* El desglose. «US$101» sin decir de dónde sale no se puede
               verificar, y es el número que manda en todo el cálculo. */}
           <p className="text-[11px] text-gray-400 mt-1 leading-snug">
             {inf.desglose?.facturacion_electronica_usd > 0 && (
               <>Facturación electrónica US${inf.desglose.facturacion_electronica_usd}
                 {inf.desglose.servidores_usd > 0
                   ? ` + servidores US$${inf.desglose.servidores_usd}`
-                  : ' · servidores ₡0 (plan gratuito)'}
+                  : ''}
+                {' '}
+                <button onClick={() => void editarCostos()}
+                  className="font-bold text-indigo-600 hover:text-indigo-800 underline">
+                  corregir
+                </button>
                 <br /></>
             )}
             {inf.fe && (

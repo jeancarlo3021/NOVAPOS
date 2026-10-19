@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Globe, Save, Send, Plus, Trash2, Loader2, ExternalLink,
   Inbox, BarChart3, FileText, CheckCircle2, Star, ImagePlus, X, Sparkles,
+  ChevronUp, ChevronDown,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
@@ -122,6 +123,31 @@ export const LandingEditorView: React.FC = () => {
   useEffect(() => { void cargar(); }, []);
 
   const set = (parche: any) => { setB((x: any) => ({ ...x, ...parche })); setSinPublicar(true); };
+
+  /**
+   * Traer los paquetes de los planes FE configurados.
+   *
+   * No pisa lo que ya esté escrito: si hay paquetes cargados pregunta antes.
+   * Reemplazar sin avisar borraría una descripción que alguien escribió a
+   * mano, y eso no se puede deshacer desde la pantalla.
+   */
+  const traerPaquetesFE = async () => {
+    setError(''); setAviso('');
+    try {
+      const r = await apiFetch<any>('/admin/landing/paquetes-fe');
+      const traidos = r?.paquetes ?? [];
+      if (traidos.length === 0) {
+        setError('No hay planes FE activos configurados.');
+        return;
+      }
+      const actuales = b.paquetes ?? [];
+      if (actuales.length > 0
+        && !confirm(`Ya tenés ${actuales.length} paquete(s) cargados. ¿Reemplazarlos por los `
+          + `${traidos.length} de los planes FE? Se pierde lo que hayas escrito a mano.`)) return;
+      set({ paquetes: traidos });
+      setAviso(`Traje ${traidos.length} paquete(s). Revisalos y publicá cuando estén listos.`);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron traer'); }
+  };
 
   const guardar = async () => {
     setGuardando(true); setError(''); setAviso('');
@@ -248,6 +274,8 @@ export const LandingEditorView: React.FC = () => {
                 <input className={campo} value={b.productos_bajada ?? ''} placeholder="Pagás por mes, sin contrato."
                   onChange={e => set({ productos_bajada: e.target.value })} /></div>
             </div>
+            <SelectorOrden valor={b.productos_orden ?? 'manual'} por="precio"
+              onChange={v => set({ productos_orden: v })} />
           </div>
 
           <Lista titulo="Productos y planes" items={b.productos ?? []}
@@ -287,6 +315,76 @@ export const LandingEditorView: React.FC = () => {
                     <Star size={12} className="text-amber-500" /> Marcarlo como «más pedido»
                   </label>
                 </div>
+              </>
+            )} />
+
+          {/* PAQUETES DE FACTURAS. */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-black text-gray-900">Paquetes de facturas</h3>
+              <button onClick={() => void traerPaquetesFE()}
+                className="flex items-center gap-1.5 text-xs font-bold text-teal-700 hover:text-teal-900">
+                <Sparkles size={13} /> Traer de los planes FE
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Las bolsas de comprobantes electrónicos. El botón los trae de los planes FE que ya
+              tenés configurados, con sus cantidades y precios: copiarlos a mano garantiza que algún
+              día la página diga un precio y el sistema cobre otro.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className={etiqueta}>Título</label>
+                <input className={campo} value={b.paquetes_titulo ?? ''} placeholder="Paquetes de facturas"
+                  onChange={e => set({ paquetes_titulo: e.target.value })} /></div>
+              <div><label className={etiqueta}>Texto debajo</label>
+                <input className={campo} value={b.paquetes_bajada ?? ''}
+                  placeholder="Elegí según cuánto facturás."
+                  onChange={e => set({ paquetes_bajada: e.target.value })} /></div>
+            </div>
+            <SelectorOrden valor={b.paquetes_orden ?? 'manual'} por="cantidad"
+              onChange={v => set({ paquetes_orden: v })} />
+          </div>
+
+          <Lista titulo="Paquetes" items={b.paquetes ?? []}
+            onChange={(v) => set({ paquetes: v })}
+            vacio={{ nombre: '', cantidad: '', periodo_cantidad: 'anio', precio: '', precio_anual: '', ahorro: '', descripcion: '', destacado: false }}
+            render={(it, cambiar) => (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <input className={campo} placeholder="Nombre (FE Pequeño)" value={it.nombre ?? ''}
+                    onChange={e => cambiar({ ...it, nombre: e.target.value })} />
+                  <input className={campo} placeholder="Cantidad (100 comprobantes)" value={it.cantidad ?? ''}
+                    onChange={e => cambiar({ ...it, cantidad: e.target.value })} />
+                  <input className={campo} placeholder="Precio mensual (₡9.000 +IVA)" value={it.precio ?? ''}
+                    onChange={e => cambiar({ ...it, precio: e.target.value })} />
+                </div>
+                {/* El anual es OPCIONAL, igual que en los planes. Un paquete
+                    sin él le dice al visitante «solo por mes» en vez de
+                    repetirle el mensual con otra etiqueta. */}
+                <div className="grid grid-cols-3 gap-2">
+                  <input className={campo} placeholder="Precio anual (₡90.000 +IVA) — opcional"
+                    value={it.precio_anual ?? ''}
+                    onChange={e => cambiar({ ...it, precio_anual: e.target.value })} />
+                  <input className={campo} placeholder="Ahorro (Ahorrás ₡18.000)"
+                    value={it.ahorro ?? ''}
+                    onChange={e => cambiar({ ...it, ahorro: e.target.value })} />
+                  {/* Cada cuánto son esos comprobantes. No lo decide el
+                      conmutador de la página: una bolsa de 100 al año son 100
+                      al año aunque el visitante esté viendo precios anuales,
+                      y en la misma lista puede haber una mensual. */}
+                  <select className={campo} value={it.periodo_cantidad ?? 'anio'}
+                    onChange={e => cambiar({ ...it, periodo_cantidad: e.target.value })}>
+                    <option value="anio">comprobantes al año</option>
+                    <option value="mes">comprobantes al mes</option>
+                  </select>
+                </div>
+                <input className={campo} placeholder="Para quién es (opcional)" value={it.descripcion ?? ''}
+                  onChange={e => cambiar({ ...it, descripcion: e.target.value })} />
+                <label className="flex items-center gap-2 text-xs font-bold text-gray-600">
+                  <input type="checkbox" checked={!!it.destacado}
+                    onChange={e => cambiar({ ...it, destacado: e.target.checked })} />
+                  <Star size={12} className="text-amber-500" /> Marcarlo como «el más pedido»
+                </label>
               </>
             )} />
 
@@ -512,7 +610,54 @@ const LogosClientes: React.FC<{
   );
 };
 
-/** Una lista editable de cosas: agregar, quitar, reordenar por orden de carga. */
+/**
+ * EN QUÉ ORDEN SE MUESTRAN.
+ *
+ * No es un detalle estético. De menor a mayor, el visitante empieza por el
+ * más barato y decide desde ahí; de mayor a menor, el primero que ve es el
+ * grande y el resto le parecen baratos en comparación. Las dos formas sirven
+ * para cosas distintas, así que se elige.
+ *
+ * «Como los ordené» respeta la lista tal cual quedó en el panel: pisarla con
+ * un criterio automático sería deshacer el trabajo de quien la acomodó.
+ */
+const SelectorOrden: React.FC<{
+  valor: string; onChange: (v: string) => void; por: string;
+}> = ({ valor, onChange, por }) => (
+  <div>
+    <label className="block text-xs font-bold text-gray-600 mb-1">Orden en la página</label>
+    <div className="flex gap-1.5 flex-wrap">
+      {([['manual', 'Como los ordené'],
+         ['menor', `De menor a mayor ${por}`],
+         ['mayor', `De mayor a menor ${por}`]] as const).map(([v, t]) => (
+        <button key={v} onClick={() => onChange(v)}
+          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border ${
+            (valor || 'manual') === v
+              ? 'bg-teal-600 text-white border-teal-600'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300'}`}>
+          {t}
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
+/**
+ * Cambia un elemento de lugar. Devuelve una lista nueva.
+ *
+ * Devuelve la MISMA si el destino cae fuera, en vez de recortar al borde: un
+ * botón deshabilitado que igual hiciera algo al pulsarlo —aunque fuera
+ * nada— es peor que uno que no hace nada.
+ */
+function mover<T>(items: T[], desde: number, hasta: number): T[] {
+  if (hasta < 0 || hasta >= items.length) return items;
+  const copia = [...items];
+  const [sacado] = copia.splice(desde, 1);
+  copia.splice(hasta, 0, sacado);
+  return copia;
+}
+
+/** Una lista editable: agregar, quitar y mover de lugar. */
 function Lista<T>({ titulo, items, onChange, vacio, render }: {
   titulo: string; items: T[]; onChange: (v: T[]) => void; vacio: T;
   render: (it: any, cambiar: (nuevo: T) => void, indice: number) => React.ReactNode;
@@ -529,10 +674,31 @@ function Lista<T>({ titulo, items, onChange, vacio, render }: {
       {items.length === 0 && <p className="text-xs text-gray-400">Nada todavía. Esta sección no aparece en la página si queda vacía.</p>}
       {items.map((it, i) => (
         <div key={i} className="border border-gray-100 rounded-lg p-3 space-y-2 relative bg-gray-50/50">
-          <button onClick={() => onChange(items.filter((_, j) => j !== i))}
-            className="absolute top-2 right-2 text-gray-300 hover:text-red-500" title="Quitar">
-            <Trash2 size={14} />
-          </button>
+          {/* ── MOVER Y QUITAR ────────────────────────────────────────────
+              Con flechas y no arrastrando, igual que el armador del menú: en
+              una tablet, arrastrar entre tarjetas altas falla más de lo que
+              ayuda, y acá cada tarjeta ocupa media pantalla.
+
+              El número a la izquierda es el que importa: dice en qué lugar va
+              a salir, que es lo que no se ve mirando una lista de tarjetas
+              largas donde la primera y la tercera no entran juntas. */}
+          <div className="absolute top-2 right-2 flex items-center gap-0.5">
+            <span className="text-[10px] font-black text-gray-300 tabular-nums mr-1">{i + 1}</span>
+            <button onClick={() => onChange(mover(items, i, i - 1))} disabled={i === 0}
+              title="Subir"
+              className="text-gray-300 hover:text-gray-700 disabled:opacity-20 disabled:hover:text-gray-300">
+              <ChevronUp size={15} />
+            </button>
+            <button onClick={() => onChange(mover(items, i, i + 1))} disabled={i === items.length - 1}
+              title="Bajar"
+              className="text-gray-300 hover:text-gray-700 disabled:opacity-20 disabled:hover:text-gray-300">
+              <ChevronDown size={15} />
+            </button>
+            <button onClick={() => onChange(items.filter((_, j) => j !== i))}
+              className="text-gray-300 hover:text-red-500 ml-1" title="Quitar">
+              <Trash2 size={14} />
+            </button>
+          </div>
           {render(it, (nuevo) => onChange(items.map((x, j) => (j === i ? nuevo : x))), i)}
         </div>
       ))}
