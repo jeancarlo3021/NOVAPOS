@@ -37,6 +37,14 @@ export interface Expense {
   notes?: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * De dónde salió la fila. `'caja'` = es una SALIDA DE CAJA leída de los
+   * movimientos del cajón, no un gasto guardado en la tabla de gastos: se
+   * muestra y se suma, pero no se edita ni se borra desde acá.
+   */
+  origen?: 'caja';
+  /** El movimiento de caja original, cuando `origen` es `'caja'`. */
+  cash_movement_id?: string;
 }
 
 export interface ExpenseFormData {
@@ -56,7 +64,12 @@ export interface ExpenseFilters {
   category_id?: string;
   type?: ExpenseType | '';
   search?: string;
+  /** Incluir las salidas de caja. Por omisión sí: es plata que salió. */
+  sin_caja?: boolean;
 }
+
+/** La categoría con la que llegan las salidas de caja (no existe en la base). */
+export const CATEGORIA_CAJA_ID = 'caja';
 
 export interface ExpenseSummary {
   total: number;

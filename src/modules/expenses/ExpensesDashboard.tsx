@@ -48,8 +48,15 @@ function removePendingExpense(tid: string, localId: string) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Los montos, con PUNTO de miles.
+ *
+ * `toLocaleString('es-CR')` devuelve un espacio fino según la tabla del
+ * navegador —«₡45 000»—, que no es como se escribe un monto en el país ni como
+ * lo escribe el resto del sistema.
+ */
 const fmt = (n: number) =>
-  `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
+  `₡${Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
@@ -364,6 +371,10 @@ export const ExpensesDashboard: React.FC = () => {
                 className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               >
                 <option value="">Todas las categorías</option>
+                {/* Las salidas de caja no tienen categoría propia —el cajero
+                    escribe un motivo, no elige de la lista—, así que entran
+                    como una opción más para poder verlas solas. */}
+                <option value="caja">💵 Salidas de caja</option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
                 ))}
@@ -378,6 +389,17 @@ export const ExpensesDashboard: React.FC = () => {
                   <option key={k} value={k}>{v}</option>
                 ))}
               </select>
+              {/* Poder apagarlas importa: para cuadrar contra un recibo el
+                  dueño necesita ver solo lo que él registró. */}
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!filters.sin_caja}
+                  onChange={(e) => setFilters((f) => ({ ...f, sin_caja: e.target.checked ? undefined : true }))}
+                  className="rounded border-gray-300 text-emerald-500 focus:ring-emerald-400"
+                />
+                Incluir salidas de caja
+              </label>
               <button
                 onClick={loadExpenses}
                 className="p-2 rounded-xl border border-gray-200 hover:border-emerald-300 text-gray-500 hover:text-emerald-600 transition"
@@ -423,6 +445,14 @@ export const ExpensesDashboard: React.FC = () => {
                             {exp.reference && (
                               <span className="ml-2 text-xs text-gray-400">#{exp.reference}</span>
                             )}
+                            {/* De dónde viene. Sin esto, el dueño ve un gasto
+                                que no recuerda haber anotado y no tiene cómo
+                                saber que salió de la caja. */}
+                            {exp.origen === 'caja' && (
+                              <span className="ml-2 align-middle px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold uppercase tracking-wide">
+                                Caja
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <CategoryBadge category={exp.category} />
@@ -446,6 +476,17 @@ export const ExpensesDashboard: React.FC = () => {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1 justify-end">
+                              {/* Una salida de caja no se edita ni se borra
+                                  desde Gastos: el monto es parte de un arqueo
+                                  que ya cuadró, y cambiarlo acá descuadraría
+                                  la caja de ese día. Se corrige en el reporte
+                                  de movimientos de caja. */}
+                              {exp.origen === 'caja' ? (
+                                <span className="text-[11px] text-gray-400 pr-1" title="Viene de un movimiento de caja: se corrige desde el reporte de caja">
+                                  desde caja
+                                </span>
+                              ) : (
+                              <>
                               {canEdit && (
                                 <button
                                   onClick={() => { setEditingExpense(exp); setShowExpenseModal(true); }}
@@ -462,6 +503,8 @@ export const ExpensesDashboard: React.FC = () => {
                                 >
                                   <Trash2 size={14} />
                                 </button>
+                              )}
+                              </>
                               )}
                             </div>
                           </td>

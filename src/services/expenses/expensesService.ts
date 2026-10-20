@@ -65,6 +65,8 @@ export const expensesService = {
     if (filters.category_id) params.set('category', filters.category_id);
     if (filters.type)        params.set('type', filters.type);
     if (filters.search)      params.set('search', filters.search);
+    // Las salidas de caja vienen incluidas salvo que se pidan fuera.
+    if (filters.sin_caja)    params.set('caja', '0');
     const qs = params.toString();
     return apiFetch<Expense[]>('/expenses' + (qs ? '?' + qs : ''));
   },
