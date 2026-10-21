@@ -59,11 +59,11 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
     const desc = lineaDesc(it);
     return `
     <tr>
-      <td>${esc(it.name)}</td>
-      <td style="text-align:center">${it.quantity}</td>
-      <td style="text-align:right">${fmt(it.unit_price)}</td>
-      ${hayDescLinea ? `<td style="text-align:right;color:#b45309">${desc > 0.004 ? `-${fmt(desc)}` : '—'}</td>` : ''}
-      <td style="text-align:right">${fmt(bruto - desc)}</td>
+      <td class="producto">${esc(it.name)}</td>
+      <td class="num" style="text-align:center">${it.quantity}</td>
+      <td class="num" style="text-align:right">${fmt(it.unit_price)}</td>
+      ${hayDescLinea ? `<td class="num" style="text-align:right;color:#b45309">${desc > 0.004 ? `-${fmt(desc)}` : '—'}</td>` : ''}
+      <td class="num" style="text-align:right">${fmt(bruto - desc)}</td>
     </tr>`;
   }).join('');
 
@@ -71,14 +71,31 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.number ?? 'Proforma')}</title>
   <style>
-    * { font-family: system-ui, -apple-system, Arial, sans-serif; }
-    body { margin: 32px; color: #111827; }
+    * { font-family: system-ui, -apple-system, Arial, sans-serif; box-sizing: border-box; }
+    /* El margen lo pone la hoja, no el cuerpo: con margin en el body el
+       navegador le suma el suyo y el contenido terminaba pasándose del área
+       imprimible por la derecha. */
+    @page { size: A4; margin: 14mm; }
+    body { margin: 0; color: #111827; }
+    /* Nada puede ser más ancho que la hoja, venga de donde venga. */
+    body, table, img, div { max-width: 100%; }
     h1 { font-size: 22px; margin: 14px 0 16px; }
     .meta { color: #6b7280; font-size: 12.5px; margin: 6px 0; }
     .muted { color: #6b7280; font-size: 12px; }
     .badge { display:inline-block; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:4px 12px; border-radius:999px; font-size:11px; font-weight:800; margin-bottom: 6px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 30px; font-size: 13px; }
-    th, td { padding: 10px 6px; border-bottom: 1px solid #f3f4f6; }
+    /* table-layout fijo con anchos declarados: con el automático, un nombre largo
+       —hay cotizaciones con nombres de 134 caracteres— estiraba la columna
+       del producto y empujaba precio y total fuera del papel. */
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 30px; font-size: 13px; }
+    col.producto { width: auto; }
+    col.cant  { width: 58px; }
+    col.monto { width: 92px; }
+    th, td { padding: 10px 6px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+    /* El nombre baja de línea, y una palabra larguísima se parte antes que
+       salirse. */
+    td.producto { overflow-wrap: anywhere; word-break: break-word; }
+    /* Los montos NO se parten: «₡1.250» cortado en dos renglones es ilegible. */
+    td.num, th.num { white-space: nowrap; }
     th { text-align: left; color:#6b7280; font-size:11px; text-transform:uppercase; }
     .tot { margin-top: 26px; text-align: right; font-size: 13px; }
     .tot .row { margin: 7px 0; color:#4b5563; }
@@ -86,7 +103,12 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
                   background:#f3f4f6; border:1px solid #e5e7eb; border-radius: 10px; padding: 12px 20px; }
     .foot { margin-top: 36px; color:#9ca3af; font-size: 11px; }
     .logo { max-height: 80px; max-width: 240px; object-fit: contain; display:block; margin-bottom: 14px; }
-    .store { font-weight: 800; font-size: 17px; margin-bottom: 14px; }
+    .store { font-weight: 800; font-size: 17px; margin-bottom: 14px; overflow-wrap: anywhere; }
+    /* Nombre del cliente, notas y pie: textos escritos a mano, de largo
+       impredecible. Bajan de línea en vez de salirse. */
+    .meta, .muted, .foot { overflow-wrap: anywhere; }
+    /* Una fila no se parte entre dos hojas. */
+    tr { break-inside: avoid; }
   </style></head><body>
     ${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : ''}
     ${storeName ? `<div class="store">${esc(storeName)}</div>` : ''}
@@ -98,7 +120,8 @@ export async function printProforma(p: Proforma, tenantId?: string | null): Prom
     <div class="meta">Fecha: ${new Date(p.created_at).toLocaleDateString('es-CR')}${p.valid_until ? ` &nbsp;·&nbsp; Vigencia: ${new Date(p.valid_until + 'T00:00:00').toLocaleDateString('es-CR')}` : ''}</div>
     <div class="meta">Cliente: ${esc(p.customer_name || 'Cliente de contado')}${p.customer_identification ? ` &nbsp;·&nbsp; ${esc(p.customer_identification)}` : ''}</div>
     <table>
-      <thead><tr><th>Producto</th><th style="text-align:center">Cant.</th><th style="text-align:right">Precio</th>${hayDescLinea ? '<th style="text-align:right">Desc.</th>' : ''}<th style="text-align:right">Total</th></tr></thead>
+      <colgroup><col class="producto"><col class="cant"><col class="monto">${hayDescLinea ? '<col class="monto">' : ''}<col class="monto"></colgroup>
+      <thead><tr><th class="producto">Producto</th><th class="num" style="text-align:center">Cant.</th><th class="num" style="text-align:right">Precio</th>${hayDescLinea ? '<th class="num" style="text-align:right">Desc.</th>' : ''}<th class="num" style="text-align:right">Total</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="tot">

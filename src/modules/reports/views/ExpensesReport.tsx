@@ -9,8 +9,14 @@ import type { ExpenseSummary } from '@/types/Types_Expenses';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Miles con PUNTO, igual que la pantalla de Gastos.
+ *
+ * `toLocaleString('es-CR')` devuelve un espacio fino —«₡45 000»— y el mismo
+ * monto se veía distinto en el módulo y en su reporte.
+ */
 const fmt = (n: number) =>
-  `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
+  `₡${Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 
 function shortDate(iso: string) {
   const [, m, d] = iso.split('-');
