@@ -417,6 +417,26 @@ export class POSPrinterService {
     'printers', 'printerType', 'printerName', 'autoprint', 'paperWidth', 'printCopies',
   ];
 
+  /**
+   * Lo único que se hereda de OTRO negocio: el aparato.
+   *
+   * La impresora es del equipo —si en esta caja hay una térmica conectada por
+   * QZ, lo sigue siendo se abra el negocio que se abra—. El ANCHO DEL PAPEL no:
+   * es parte del diseño del tiquete de cada negocio, y vive guardado en su
+   * configuración.
+   *
+   * Mezclarlos tenía una consecuencia fea y silenciosa: alcanzaba con que en
+   * ese equipo alguien hubiera configurado CUALQUIER otro negocio con «Hoja
+   * A4» para que todos los demás que nunca se configuraron ahí salieran
+   * impresos en A4 —un tiquete chiquito en media hoja— aunque su propia
+   * configuración dijera 80mm. Reproducido: con `printer_local_last` en A4, la
+   * config efectiva de un negocio guardado en 48 salía `paperWidth: 'a4'`.
+   *
+   * Las copias y la autoimpresión quedan fuera por lo mismo: que otro negocio
+   * imprima dos copias no es razón para que este imprima dos.
+   */
+  static HARDWARE_FIELDS: (keyof ReceiptConfig)[] = ['printers', 'printerType', 'printerName'];
+
   private localPrinterKey(tenantId: string) { return `printer_local_${tenantId}`; }
 
   /**
@@ -429,9 +449,16 @@ export class POSPrinterService {
    */
   getLocalPrinterConfig(tenantId: string): Partial<ReceiptConfig> {
     try {
+      // La de ESTE negocio en ESTE equipo manda entera: alguien la eligió acá.
       const propia = localStorage.getItem(this.localPrinterKey(tenantId));
       if (propia) return JSON.parse(propia);
-      return JSON.parse(localStorage.getItem('printer_local_last') || '{}');
+      // De la del último negocio configurado acá solo se toma el aparato.
+      const ultima = JSON.parse(localStorage.getItem('printer_local_last') || '{}');
+      const heredado: Partial<ReceiptConfig> = {};
+      for (const k of POSPrinterService.HARDWARE_FIELDS) {
+        if (ultima[k] !== undefined) (heredado as any)[k] = ultima[k];
+      }
+      return heredado;
     } catch { return {}; }
   }
 
