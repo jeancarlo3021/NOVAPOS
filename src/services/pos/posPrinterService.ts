@@ -1624,10 +1624,13 @@ export class POSPrinterService {
        carta en vez de en el rollo. Misma causa que tenía el tiquete de venta;
        acá el alto va generoso y fijo porque estos documentos son de largo
        acotado y no vale la pena medirlos con un guion. */
-    @page { size: ${widthMM} 300mm; margin: 0; }
+    @page { size: ${widthMM} 300mm; margin: 0; }   /* estimación: el guion del final la ajusta al alto real */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    body { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.7;
+    /* Interlineado 1.35, no 1.7: el cierre de caja es el documento más largo
+       que sale del rollo —más de 30 cm— y cada décima de interlineado son
+       varios centímetros de papel. Se sigue leyendo igual. */
+    body { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.35;
       color: #000; background: #fff; width: ${areaMM}; margin: 0 auto; font-weight: 700; }
     .receipt { width: 100%; padding: 3mm 1mm 6mm; }
     .title { font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 2px;
@@ -1642,7 +1645,10 @@ export class POSPrinterService {
       padding: 4px 0; border-top: 4px solid #000; border-bottom: 4px solid #000; letter-spacing: 1px; }
     .diff-line { font-size: 20px; font-weight: 900; text-align: center; margin: 8px 0;
       padding: 6px 0; border: 4px solid; letter-spacing: 2px; }
-    .feed { padding-bottom: 15mm; }
+    /* Aire antes del corte: la cuchilla está a un centímetro del cabezal, así
+       que sin esto la última línea queda partida. Doce milímetros alcanzan;
+       quince o veinticinco eran papel regalado en cada documento. */
+    .feed { padding-bottom: 12mm; }
   </style>
 </head>
 <body>
@@ -1731,6 +1737,25 @@ export class POSPrinterService {
 
   <div class="feed">&nbsp;</div>
 </div>
+<script>
+/**
+ * El alto REAL, medido una vez maquetado.
+ *
+ * Estaba fijo en 300 mm: treinta centímetros de rollo en CADA documento,
+ * tuviera el contenido doce o veinticinco. El tiquete de venta ya se medía
+ * solo desde hace rato; esto hace lo mismo.
+ */
+(function ajustarAlto() {
+  try {
+    var recibo = document.querySelector('.receipt');
+    var px = recibo ? recibo.getBoundingClientRect().bottom : document.body.scrollHeight;
+    var mm = Math.ceil(px / (96 / 25.4)) + 2;
+    var estilo = document.createElement('style');
+    estilo.textContent = '@page { size: ${widthMM} ' + mm + 'mm; margin: 0; }';
+    document.head.appendChild(estilo);
+  } catch (e) { /* queda la altura estimada: el documento sale igual */ }
+})();
+</script>
 </body>
 </html>`;
   }
@@ -1822,7 +1847,7 @@ export class POSPrinterService {
        carta en vez de en el rollo. Misma causa que tenía el tiquete de venta;
        acá el alto va generoso y fijo porque estos documentos son de largo
        acotado y no vale la pena medirlos con un guion. */
-    @page { size: ${widthMM} 300mm; margin: 0; }
+    @page { size: ${widthMM} 300mm; margin: 0; }   /* estimación: el guion del final la ajusta al alto real */
     *, *::before, *::after {
       box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important;
@@ -1832,7 +1857,8 @@ export class POSPrinterService {
     body {
       font-family: 'Courier New', Courier, monospace;
       font-size: 13px;
-      line-height: 1.7;
+      /* Igual que el cierre de caja: 1.7 regalaba centímetros de rollo. */
+      line-height: 1.35;
       color: #000;
       background: #fff;
       width: ${areaMM};   /* lo que imprime el cabezal, no el ancho del rollo */
@@ -1907,7 +1933,9 @@ export class POSPrinterService {
       margin-top: 24px;
       padding-top: 10px;
     }
-    .feed { padding-bottom: 25mm; }
+    /* Ver el comentario del cierre de caja: con 25 mm se iban dos centímetros
+       y medio en blanco en cada orden. */
+    .feed { padding-bottom: 12mm; }
   </style>
 </head>
 <body>
@@ -1952,8 +1980,26 @@ export class POSPrinterService {
   <div class="sign-line">_______________________</div>
 
   <div class="feed">&nbsp;</div>
-
 </div>
+<script>
+/**
+ * El alto REAL, medido una vez maquetado.
+ *
+ * Estaba fijo en 300 mm: treinta centímetros de rollo en CADA documento,
+ * tuviera el contenido doce o veinticinco. El tiquete de venta ya se medía
+ * solo desde hace rato; esto hace lo mismo.
+ */
+(function ajustarAlto() {
+  try {
+    var recibo = document.querySelector('.receipt');
+    var px = recibo ? recibo.getBoundingClientRect().bottom : document.body.scrollHeight;
+    var mm = Math.ceil(px / (96 / 25.4)) + 2;
+    var estilo = document.createElement('style');
+    estilo.textContent = '@page { size: ${widthMM} ' + mm + 'mm; margin: 0; }';
+    document.head.appendChild(estilo);
+  } catch (e) { /* queda la altura estimada: el documento sale igual */ }
+})();
+</script>
 </body>
 </html>`;
   }
@@ -2610,7 +2656,17 @@ export class POSPrinterService {
       font-family: 'Courier New', Courier, monospace;
       /* Ver fontMM arriba: lo que manda es el número de columnas, no un px fijo. */
       font-size: ${fontMM.toFixed(3)}mm;
-      line-height: 1.45;
+      /*
+       * EL INTERLINEADO ES PAPEL.
+       *
+       * Cada renglón del tiquete se paga en centímetros de rollo. Con 1.45 un
+       * tiquete de tres artículos medía 102 mm; la misma información a 1.25
+       * entra en bastante menos y se sigue leyendo igual —la térmica por QZ
+       * imprime a un interlineado equivalente a 1.2 y nadie se queja de que no
+       * se lea—. En un negocio que factura cien tiquetes al día, cada
+       * milímetro ahorrado es un metro de papel al mes.
+       */
+      line-height: 1.25;
       color: #000;
       background: #fff;
       width: ${areaMM};   /* lo que imprime el cabezal, no el ancho del rollo */
@@ -2620,7 +2676,11 @@ export class POSPrinterService {
     }
     .receipt {
       width: 100%;
-      padding: 3mm 1mm 6mm;
+      /* Abajo sobraban 6 mm en BLANCO antes del corte, además de los
+         milímetros que la propia cuchilla deja. Con 2 mm el último renglón no
+         queda pegado al borde y se devuelve casi medio centímetro por
+         tiquete. */
+      padding: 2mm 1mm 2mm;
     }
     /* Nada se parte a la mitad entre páginas: ni una línea de producto ni el total. */
     tr, .total-line, .payment-block, .store-block, .footer, .section-label {
@@ -2638,18 +2698,22 @@ export class POSPrinterService {
     .large { font-size: 2em; font-weight: 900; text-align: center; }   /* doble, como el doble-alto de la térmica */
     .divider {
       /* Guiones, como el separador de la térmica: una línea CSS se ve como una
-         barra negra que el tiquete de QZ no tiene. */
+         barra negra que el tiquete de QZ no tiene.
+         El interlineado propio es más apretado que el del texto: un separador
+         no necesita el aire de un renglón que se lee, y en un tiquete hay
+         cuatro o cinco. */
       border: none;
+      line-height: 1;
       margin: 0;
       white-space: pre;
       overflow: hidden;
       font-weight: 700;
       letter-spacing: 0;
     }
-    .header { text-align: center; margin-bottom: 5px; }
+    .header { text-align: center; margin-bottom: 3px; }
     .title { font-size: 1.3em; font-weight: 900; letter-spacing: 0.02em; }
     .subtitle { color: #000; font-weight: 900; margin: 0; }
-    .store-block { text-align: center; margin: 4px 0; }
+    .store-block { text-align: center; margin: 2px 0; }
     .store-name { font-weight: 900; margin: 0; }
     .store-commercial { font-weight: 700; margin: 0; }
     .store-line { font-weight: 700; margin: 0; }
@@ -2674,7 +2738,7 @@ export class POSPrinterService {
     .item-detail { color: #000; font-weight: 700; margin: 0; }
     .totals { font-weight: 800; }
     .totals tr { border: none; }   /* la térmica no dibuja líneas entre totales */
-    .totals td { padding: 2px 0; }
+    .totals td { padding: 1px 0; }
     .totals td:last-child { text-align: right; }
     /* En EM, no en px: el cuerpo mide en milímetros y cambia con el ancho del
        papel. Con 20px fijos, en 58 mm el total no cabía y «*** TOTAL: ₡25 481
@@ -2683,15 +2747,18 @@ export class POSPrinterService {
       font-size: 1.5em;
       font-weight: 900;
       text-align: center;
-      margin: 6px 0;
-      padding: 4px 0;
+      margin: 3px 0;
+      padding: 2px 0;
       border-top: 1px solid #000;
       border-bottom: 1px solid #000;
       letter-spacing: 0.04em;
     }
     .payment-block { margin: 0; font-weight: 900; }
-    .footer { text-align: center; font-size: 1.05em; font-weight: 900; margin-top: 8px; letter-spacing: 0; }
-    .cashier { text-align: center; font-size: 0.9em; color: #000; margin: 3px 0; font-weight: 800; }
+    .footer { text-align: center; font-size: 1.05em; font-weight: 900; margin-top: 4px; letter-spacing: 0; }
+    /* El salto dentro del pie ocupaba un renglón entero de 3 mm para separar
+       dos frases cortas. */
+    .footer br { line-height: 0.6; }
+    .cashier { text-align: center; font-size: 0.9em; color: #000; margin: 2px 0; font-weight: 800; }
   </style>
 </head>
 <body>
@@ -2862,7 +2929,7 @@ ${isA4 ? '' : `<script>
      */
     var recibo = document.querySelector('.receipt');
     var px = recibo ? recibo.getBoundingClientRect().bottom : document.body.scrollHeight;
-    var mm = Math.ceil(px / (96 / 25.4)) + 4;
+    var mm = Math.ceil(px / (96 / 25.4)) + 2;   // 2 mm de respiro, no 4
     var estilo = document.createElement('style');
     estilo.textContent = '@page { size: ${widthMM} ' + mm + 'mm; margin: 0; }';
     document.head.appendChild(estilo);
