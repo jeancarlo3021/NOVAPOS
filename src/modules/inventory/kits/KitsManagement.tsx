@@ -240,6 +240,8 @@ const KitEditor: React.FC<{
   const [target, setTarget] = useState<string>(kit?.id ?? '');
   const [items, setItems] = useState<KitItem[]>(kit?.items?.map(i => ({ ...i })) ?? []);
   const [q, setQ] = useState('');
+  const [targetQ, setTargetQ] = useState('');
+  const [targetOpen, setTargetOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -364,28 +366,63 @@ const KitEditor: React.FC<{
 
         <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
           {/* Producto que se vende */}
-          {!kit && (
-            <div>
-              <p className="text-xs font-black text-gray-500 uppercase mb-1">Producto que se vende como kit</p>
-              <select value={target} onChange={e => setTarget(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-800">
-                <option value="">
-                  {products.length === 0 ? 'No hay productos cargados' : 'Elegí el producto…'}
-                </option>
-                {products
-                  .filter(p => !existingKitIds.includes(String(p.id)))
-                  .map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}{p.sku ? ` · ${p.sku}` : ''} — {money(priceOf(p))}
-                    </option>
-                  ))}
-              </select>
-              <p className="text-[11px] font-semibold text-gray-400 mt-1">
-                El kit se vende con el precio y el CABYS de ese producto. Su stock deja de
-                controlarse: lo que manda es el stock de los componentes.
-              </p>
-            </div>
-          )}
+          {!kit && (() => {
+            const selected = products.find(p => String(p.id) === String(target));
+            const term = targetQ.trim().toLowerCase();
+            const matches = products
+              .filter(p => !existingKitIds.includes(String(p.id)))
+              .filter(p => !term
+                || String(p.name ?? '').toLowerCase().includes(term)
+                || String(p.sku ?? '').toLowerCase().includes(term))
+              .slice(0, 50);
+            return (
+              <div className="relative">
+                <p className="text-xs font-black text-gray-500 uppercase mb-1">Producto que se vende como kit</p>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={targetOpen ? targetQ : (selected ? `${selected.name}${selected.sku ? ` · ${selected.sku}` : ''}` : targetQ)}
+                    onChange={e => { setTargetQ(e.target.value); setTargetOpen(true); if (target) setTarget(''); }}
+                    onFocus={() => { setTargetOpen(true); setTargetQ(''); }}
+                    onBlur={() => setTimeout(() => setTargetOpen(false), 150)}
+                    placeholder={products.length === 0 ? 'No hay productos cargados' : 'Buscá por nombre o SKU…'}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-800 outline-none focus:border-teal-500" />
+                  {target && !targetOpen && (
+                    <button type="button" onClick={() => { setTarget(''); setTargetQ(''); setTargetOpen(true); }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-gray-100">
+                      <X size={14} className="text-gray-400" />
+                    </button>
+                  )}
+                </div>
+                {targetOpen && matches.length > 0 && (
+                  <ul className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                    {matches.map(p => (
+                      <li key={p.id}>
+                        <button type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => { setTarget(String(p.id)); setTargetQ(''); setTargetOpen(false); }}
+                          className="w-full text-left px-3 py-2 hover:bg-teal-50 text-sm">
+                          <span className="block font-black text-gray-800 truncate">
+                            {p.name}{p.sku ? ` · ${p.sku}` : ''}
+                          </span>
+                          <span className="block text-[11px] font-bold text-gray-400">{money(priceOf(p))}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {targetOpen && term && matches.length === 0 && (
+                  <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg px-3 py-2 text-xs font-bold text-gray-400">
+                    Sin resultados para “{targetQ}”.
+                  </div>
+                )}
+                <p className="text-[11px] font-semibold text-gray-400 mt-1">
+                  El kit se vende con el precio y el CABYS de ese producto. Su stock deja de
+                  controlarse: lo que manda es el stock de los componentes.
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Composición */}
           <div>
