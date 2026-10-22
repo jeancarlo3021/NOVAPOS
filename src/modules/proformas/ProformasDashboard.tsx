@@ -9,6 +9,7 @@ import {
 import { useTenantId } from '@/hooks/useTenant';
 import { useSettings } from '@/hooks/useSettings';
 import { getAllProducts } from '@/services/Inventory/InventoryProductsService';
+import { KitSustitucionModal, kitNecesitaCambios, type SustitucionKit } from '@/components/kits/KitSustitucionModal';
 import type { Product } from '@/types/Pos.types';
 import { POSCustomerSearch } from '@/modules/pos/POSCustomerSearch';
 import type { Customer } from '@/services/customers/customersService';
@@ -185,7 +186,30 @@ const ProformaEditor: React.FC<{
     return products.filter(p => p.name.toLowerCase().includes(s) || (p.sku ?? '').toLowerCase().includes(s)).slice(0, 8);
   }, [q, products]);
 
-  const add = (p: Product) => {
+  /**
+   * Un KIT sin existencias también se avisa en la cotización.
+   *
+   * Cotizar un combo cuyo componente está agotado es prometerle al cliente algo
+   * que hoy no se le puede entregar. Acá se revisa antes de agregarlo y, si
+   * falta algo, se ofrece cambiarlo por otro modelo: la proforma sale con lo
+   * que de verdad se va a entregar, y el cambio viaja con la línea hasta la
+   * venta.
+   */
+  const [kitPendiente, setKitPendiente] = useState<Product | null>(null);
+
+  const add = (p: Product, kitSubs?: SustitucionKit[]) => {
+    if ((p as any).is_kit && !kitSubs) {
+      void (async () => {
+        const faltan = await kitNecesitaCambios(String(p.id), 1);
+        if (faltan.length) setKitPendiente(p);
+        else agregarLinea(p);
+      })();
+      return;
+    }
+    agregarLinea(p, kitSubs);
+  };
+
+  const agregarLinea = (p: Product, kitSubs?: SustitucionKit[]) => {
     setItems(prev => {
       const i = prev.findIndex(x => x.product_id === p.id);
       if (i >= 0) { const c = [...prev]; c[i] = { ...c[i], quantity: c[i].quantity + 1 }; return c; }
@@ -196,7 +220,10 @@ const ProformaEditor: React.FC<{
         // guarda y lo que termina viendo el cliente en la cotización.
         iva_rate: taxEnabled ? Number((p as any).iva_rate ?? taxPct) : 0,
         cabys: (p as any).cabys_code ?? null, unit: (p as any).unit ?? null,
-      }];
+        // Los cambios del kit viajan con la línea: si la proforma se pasa a
+        // venta, se cobra y se descuenta lo que se cotizó.
+        kit_substitutions: kitSubs?.length ? kitSubs : undefined,
+      } as any];
     });
     setQ('');
   };
@@ -238,6 +265,15 @@ const ProformaEditor: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3" onClick={onClose}>
+      {kitPendiente && (
+        <KitSustitucionModal
+          kit={{ id: String(kitPendiente.id), name: kitPendiente.name }}
+          cantidad={1}
+          productos={products as any[]}
+          onCancelar={() => setKitPendiente(null)}
+          onConfirmar={(subs) => { agregarLinea(kitPendiente, subs); setKitPendiente(null); }}
+        />
+      )}
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="font-black text-gray-900">{initial.id ? `Editar ${initial.number ?? 'proforma'}` : 'Nueva proforma'}</h3>

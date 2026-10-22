@@ -58,6 +58,7 @@ import type { SelectedModifier } from '@/services/modifiers/modifiersService';
 import { BipperModal } from './BipperModal';
 import { BipperListModal } from './BipperListModal';
 import { FeQuotaWarning } from '@/components/FeQuotaWarning';
+import { KitSustitucionModal, kitNecesitaCambios, type SustitucionKit } from '@/components/kits/KitSustitucionModal';
 import { LoadingState } from '@/components/ui/uiComponents';
 import type { CartItem, Product } from '@/types/Types_POS';
 
@@ -888,9 +889,39 @@ export const POSMain = () => {
     refetchProducts();
   };
 
+  /**
+   * KIT SIN EXISTENCIAS: se pregunta antes de meterlo al carrito.
+   *
+   * Un combo esconde sus componentes: el cajero lo toca, la venta sale, y el
+   * faltante aparece recién al revisar el inventario —cuando el cliente ya se
+   * fue con el producto que no había—. Acá se revisa la cadena completa del kit
+   * y, si algo no alcanza, se ofrece cambiarlo por otro modelo en el momento.
+   *
+   * La revisión es asíncrona (el stock de un sub-kit vive tres niveles abajo),
+   * así que el kit entra al carrito DESPUÉS de resolverla. Para todo lo demás
+   * el carrito sigue siendo instantáneo.
+   */
+  const [kitPendiente, setKitPendiente] = useState<
+    { product: Product; quantity: number } | null>(null);
+
   const handleAddToCart = (
     product: Product, quantity: number = 1, mods?: SelectedModifier[], note?: string,
-    montoExacto?: number,
+    montoExacto?: number, kitSubs?: SustitucionKit[],
+  ) => {
+    if ((product as any).is_kit && !kitSubs && !montoExacto) {
+      void (async () => {
+        const faltan = await kitNecesitaCambios(String(product.id), quantity);
+        if (faltan.length) setKitPendiente({ product, quantity });
+        else agregarAlCarrito(product, quantity, mods, note, montoExacto, undefined);
+      })();
+      return;
+    }
+    agregarAlCarrito(product, quantity, mods, note, montoExacto, kitSubs);
+  };
+
+  const agregarAlCarrito = (
+    product: Product, quantity: number = 1, mods?: SelectedModifier[], note?: string,
+    montoExacto?: number, kitSubs?: SustitucionKit[],
   ) => {
     /**
      * Venta POR MONTO de un producto pesado: manda el monto, no el peso.
@@ -969,6 +1000,9 @@ export const POSMain = () => {
         quantity,
         unit_price: round2(base),
         subtotal,
+        // Los cambios viajan con la línea: el servidor descuenta lo que de
+        // verdad salió, no lo que dice la receta del kit.
+        kit_substitutions: kitSubs?.length ? kitSubs : undefined,
         promo: promo
           ? {
               id: promo.id, name: promo.name, type: promo.type, value: promo.value,
@@ -2074,6 +2108,23 @@ export const POSMain = () => {
           onVoided={(invoiceNumber) => {
             setShowVoidModal(false);
             setSuccess(`Factura ${invoiceNumber} anulada correctamente`);
+          }}
+        />
+      )}
+
+      {/* El cambio de componentes del kit. Va acá, al nivel de la pantalla,
+          para que tape el carrito y la cuadrícula: es una decisión que hay que
+          tomar antes de seguir cobrando. */}
+      {kitPendiente && (
+        <KitSustitucionModal
+          kit={{ id: String(kitPendiente.product.id), name: kitPendiente.product.name }}
+          cantidad={kitPendiente.quantity}
+          productos={products as any[]}
+          onCancelar={() => setKitPendiente(null)}
+          onConfirmar={(subs) => {
+            agregarAlCarrito(kitPendiente.product, kitPendiente.quantity,
+              undefined, undefined, undefined, subs);
+            setKitPendiente(null);
           }}
         />
       )}

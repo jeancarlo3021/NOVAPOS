@@ -7,7 +7,11 @@ import { productKitsService, type ProductKit, type KitItem } from '@/services/In
 import { inventoryProductsService } from '@/services/Inventory/InventoryProductsService';
 import { useTenantId } from '@/hooks/useTenant';
 
-const money = (n: number) => `₡${Math.round(Number(n || 0)).toLocaleString('es-CR')}`;
+/* Miles con punto: `toLocaleString('es-CR')` devuelve un espacio fino según el
+   navegador —«₡2 600»— y no es como se escribe un precio acá ni como lo
+   escriben las demás pantallas. */
+const money = (n: number) =>
+  `₡${Math.round(Number(n || 0)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 const round2 = (n: number) => Math.round(Number(n || 0) * 100) / 100;
 /** Precio de venta de un producto del catálogo (la columna es `unit_price`). */
 const priceOf = (p: any) => Number(p?.unit_price ?? p?.price ?? 0);
@@ -134,6 +138,7 @@ export const KitsManagement: React.FC = () => {
                     <p className="font-black text-gray-900 truncate">{k.name}</p>
                     <p className="text-xs font-bold text-gray-400">
                       {k.sku ?? 'Sin código'} · {k.items.length} producto(s)
+                      {(k.depth ?? 1) > 1 && ` · ${k.depth} niveles`}
                     </p>
                   </div>
                   <span className="text-xl font-black tabular-nums shrink-0">{money(k.price)}</span>
@@ -165,10 +170,21 @@ export const KitsManagement: React.FC = () => {
                 <ul className="mt-3 text-xs text-gray-600 space-y-0.5 max-h-32 overflow-y-auto no-scrollbar">
                   {k.items.map((it, i) => (
                     <li key={i} className="flex justify-between gap-2">
-                      <span className="truncate">{it.quantity} × {it.name}</span>
+                      <span className="truncate">
+                        {it.quantity} × {it.name}
+                        {it.is_kit && (
+                          <span className="ml-1 px-1 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-black uppercase">
+                            sub-kit
+                          </span>
+                        )}
+                      </span>
+                      {/* Un sub-kit no tiene stock propio: lo que importa es lo
+                          que hay al final de su cadena, y eso ya está contado
+                          en «Se pueden armar». */}
                       <span className={`tabular-nums shrink-0 ${
-                        it.tracks_stock && (it.stock_quantity ?? 0) < it.quantity ? 'text-red-600 font-black' : 'text-gray-400'}`}>
-                        {it.tracks_stock ? `stock ${it.stock_quantity}` : '∞'}
+                        !it.is_kit && it.tracks_stock && (it.stock_quantity ?? 0) < it.quantity
+                          ? 'text-red-600 font-black' : 'text-gray-400'}`}>
+                        {it.is_kit ? '→' : it.tracks_stock ? `stock ${it.stock_quantity}` : '∞'}
                       </span>
                     </li>
                   ))}
@@ -194,6 +210,7 @@ export const KitsManagement: React.FC = () => {
         <KitEditor
           kit={editing}
           products={products}
+          kits={kits}
           existingKitIds={kits.map(k => k.id)}
           onClose={() => { setEditing(null); setCreating(false); }}
           onSaved={text => {
@@ -211,10 +228,13 @@ export const KitsManagement: React.FC = () => {
 const KitEditor: React.FC<{
   kit: ProductKit | null;
   products: any[];
+  /** Los demás kits: hacen falta para los SUB-KITS —cuánto cuesta uno por
+   *  dentro y qué productos reales arrastra— antes de guardar. */
+  kits: ProductKit[];
   existingKitIds: string[];
   onClose: () => void;
   onSaved: (msg: string) => void;
-}> = ({ kit, products, existingKitIds, onClose, onSaved }) => {
+}> = ({ kit, products, kits, existingKitIds, onClose, onSaved }) => {
   // Al crear hay que elegir primero QUÉ producto es el kit: el kit se vende con
   // su propio precio y CABYS, así que tiene que existir como producto.
   const [target, setTarget] = useState<string>(kit?.id ?? '');
@@ -229,9 +249,15 @@ const KitEditor: React.FC<{
   const candidates = useMemo(() => {
     const term = q.trim().toLowerCase();
     return products
-      // Un kit dentro de otro kit no está soportado: el backend lo rechaza y acá
-      // ni siquiera se ofrece.
-      .filter(p => !existingKitIds.includes(String(p.id)) && String(p.id) !== String(target))
+      /*
+       * Los otros KITS también se ofrecen: un kit puede llevar sub-kits.
+       *
+       * El único que se saca de la lista es el kit que se está armando —un kit
+       * no puede contenerse a sí mismo—. Los círculos más largos (A lleva B y B
+       * lleva A) los detecta el servidor, que es el que ve la cadena completa,
+       * y responde diciendo por dónde da la vuelta.
+       */
+      .filter(p => String(p.id) !== String(target))
       .filter(p => !items.some(i => String(i.component_id) === String(p.id)))
       .filter(p => !term
         || String(p.name ?? '').toLowerCase().includes(term)
@@ -247,7 +273,60 @@ const KitEditor: React.FC<{
   const setQty = (i: number, qty: number) =>
     setItems(prev => prev.map((x, j) => j === i ? { ...x, quantity: Math.max(0, round2(qty)) } : x));
 
-  const cost = items.reduce((s, i) => s + Number(i.cost_price ?? 0) * i.quantity, 0);
+  const esKit = (p: any) => existingKitIds.includes(String(p?.id ?? p?.component_id));
+
+  /**
+   * EL COSTO DE UN SUB-KIT ES EL DE LO QUE LLEVA ADENTRO.
+   *
+   * Un kit casi nunca tiene `cost_price`: no se compra, se arma. Sumando el
+   * costo directo, un kit hecho de kits costaba ₡0 y el margen daba 100% —un
+   * número alegre y falso con el que alguien podría fijar un precio—.
+   */
+  const costoDe = (componentId: string, visto = new Set<string>()): number => {
+    const id = String(componentId);
+    const subKit = kits.find(k => String(k.id) === id);
+    if (subKit && !visto.has(id)) {
+      const marcado = new Set(visto).add(id);
+      return (subKit.items ?? []).reduce(
+        (s, i) => s + costoDe(i.component_id, marcado) * Number(i.quantity || 0), 0);
+    }
+    const prod = products.find(p => String(p.id) === id);
+    return Number(prod?.cost_price ?? 0);
+  };
+
+  /**
+   * Qué productos REALES se descuentan al vender uno, bajando por la cadena.
+   *
+   * Es lo que hace entendible un kit de kits: en la lista de arriba se ven tres
+   * «Combo chico», pero del inventario salen doce refrescos, y ese es el número
+   * que decide si el combo se puede armar.
+   */
+  const explosion = (() => {
+    const hojas = new Map<string, { nombre: string; cantidad: number; stock: number; rastrea: boolean }>();
+    const bajar = (componentId: string, cantidad: number, visto: Set<string>) => {
+      const id = String(componentId);
+      const subKit = kits.find(k => String(k.id) === id);
+      if (subKit && !visto.has(id)) {
+        const marcado = new Set(visto).add(id);
+        for (const i of subKit.items ?? []) bajar(i.component_id, cantidad * Number(i.quantity || 0), marcado);
+        return;
+      }
+      const prod = products.find(p => String(p.id) === id);
+      const previo = hojas.get(id);
+      hojas.set(id, {
+        nombre: prod?.name ?? 'Producto',
+        cantidad: round2((previo?.cantidad ?? 0) + cantidad),
+        stock: Number(prod?.stock_quantity ?? 0),
+        rastrea: prod?.tracks_stock !== false,
+      });
+    };
+    for (const it of items) bajar(it.component_id, it.quantity, new Set([String(target)]));
+    return [...hojas.values()];
+  })();
+
+  const haySubKits = items.some(i => esKit({ id: i.component_id }));
+
+  const cost = items.reduce((s, i) => s + costoDe(i.component_id) * i.quantity, 0);
   const loose = items.reduce((s, i) => s + Number(i.price ?? 0) * i.quantity, 0);
   const margin = price > 0 ? round2(((price - cost) / price) * 100) : null;
 
@@ -318,10 +397,21 @@ const KitEditor: React.FC<{
                 {items.map((it, i) => (
                   <div key={i} className="flex items-center gap-2 border border-gray-200 rounded-xl px-2.5 py-2">
                     <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-black text-gray-800 truncate">{it.name}</span>
+                      <span className="block text-sm font-black text-gray-800 truncate">
+                        {it.name}
+                        {it.is_kit && (
+                          <span className="ml-1.5 align-middle px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[9px] font-black uppercase tracking-wide">
+                            Sub-kit
+                          </span>
+                        )}
+                      </span>
                       <span className="block text-[11px] font-bold text-gray-400">
-                        {it.tracks_stock ? `stock ${it.stock_quantity}` : 'stock infinito'} ·
-                        costo {money(Number(it.cost_price ?? 0))}
+                        {/* De un sub-kit no se dice «stock»: no tiene. Lo que
+                            baja al vender es lo que él lleva adentro, y eso se
+                            ve completo en «Al vender uno se descuenta». */}
+                        {it.is_kit
+                          ? 'lleva sus propios productos adentro'
+                          : `${it.tracks_stock ? `stock ${it.stock_quantity}` : 'stock infinito'} · costo ${money(Number(it.cost_price ?? 0))}`}
                       </span>
                     </span>
                     <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden shrink-0">
@@ -365,7 +455,14 @@ const KitEditor: React.FC<{
                   <button key={p.id} onClick={() => { add(p); setQ(''); }}
                     className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-teal-50 border-b border-gray-50">
                     <span className="min-w-0">
-                      <span className="block text-sm font-black text-gray-800 truncate">{p.name}</span>
+                      <span className="block text-sm font-black text-gray-800 truncate">
+                        {p.name}
+                        {esKit(p) && (
+                          <span className="ml-1.5 align-middle px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[9px] font-black uppercase tracking-wide">
+                            Sub-kit
+                          </span>
+                        )}
+                      </span>
                       <span className="block text-[11px] font-bold text-gray-400">
                         {p.sku ?? 'Sin código'} · {money(priceOf(p))}
                       </span>
@@ -376,6 +473,27 @@ const KitEditor: React.FC<{
               </div>
             )}
           </div>
+
+          {/* Lo que de verdad mueve el inventario. Solo tiene sentido mostrarlo
+              cuando hay sub-kits: sin ellos sería repetir la lista de arriba. */}
+          {haySubKits && explosion.length > 0 && (
+            <div className="rounded-xl bg-violet-50 border border-violet-100 p-3">
+              <p className="text-[11px] font-black text-violet-700 uppercase mb-1.5">
+                Al vender uno se descuenta
+              </p>
+              <ul className="space-y-0.5">
+                {explosion.map((h, i) => (
+                  <li key={i} className="flex justify-between gap-2 text-xs font-bold text-violet-900">
+                    <span className="truncate">{h.cantidad} × {h.nombre}</span>
+                    <span className={`tabular-nums shrink-0 ${
+                      h.rastrea && h.stock < h.cantidad ? 'text-red-600' : 'text-violet-400'}`}>
+                      {h.rastrea ? `stock ${h.stock}` : '∞'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <div className="border-t border-gray-100 p-3 space-y-2 shrink-0">

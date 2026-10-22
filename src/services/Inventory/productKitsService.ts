@@ -12,6 +12,8 @@ export interface KitItem {
   cost_price?: number;
   stock_quantity?: number;
   tracks_stock?: boolean;
+  /** El componente es OTRO KIT: adentro todavía hay más. */
+  is_kit?: boolean;
 }
 
 export interface ProductKit {
@@ -28,6 +30,19 @@ export interface ProductKit {
   loose_price?: number;
   /** Cuántos kits se pueden armar hoy (null = componentes sin stock limitado). */
   buildable?: number | null;
+  /** Niveles de kit dentro de kit. 1 = solo productos sueltos. */
+  depth?: number;
+  /** Lo que de verdad baja del inventario al vender uno (toda la cadena). */
+  leaves?: KitLeaf[];
+}
+
+/** Un producto real al final de la cadena de sub-kits. */
+export interface KitLeaf {
+  product_id: string;
+  name: string;
+  quantity: number;
+  stock_quantity: number;
+  tracks_stock: boolean;
 }
 
 export const productKitsService = {
