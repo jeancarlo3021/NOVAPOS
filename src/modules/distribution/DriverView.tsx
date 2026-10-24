@@ -31,6 +31,30 @@ export const DriverView: React.FC = () => {
   const [showReturned, setShowReturned] = useState(false);
   const [printTicket_, setPrintTicket_] = useState<{ invoiceNumber?: string; total?: number; print: () => Promise<void>; receipt?: any } | null>(null);
 
+  const [reimprimiendo, setReimprimiendo] = useState<string | null>(null);
+
+  /**
+   * Vuelve a sacar el cierre de una ruta ya cerrada.
+   *
+   * Pide el resumen al servidor en vez de usar lo que quedó en pantalla: lo
+   * que hay en memoria es del último cierre hecho en esta sesión, y con tres
+   * camiones eso es justo como se imprime el cierre de otra ruta.
+   */
+  const reimprimirCierre = async (r: DeliveryRoute) => {
+    setReimprimiendo(r.id);
+    try {
+      const sum = await distributionService.closeSummary(r.id);
+      setPrintTicket_({
+        print: () => posPrinterService.printRouteClose(
+          { ...sum, truck: (sum as any).truck ?? r.warehouse?.name, route_date: r.route_date } as any,
+          tenantId ?? ''),
+      });
+    } catch (e) {
+      alert(`No se pudo traer el cierre de ${r.warehouse?.name ?? 'la ruta'}: `
+        + (e instanceof Error ? e.message : 'error'));
+    } finally { setReimprimiendo(null); }
+  };
+
   const printClose = () => {
     if (!closeSummary) return;
     // Modal con Reintentar / Conectar impresora (igual que las facturas).
@@ -179,6 +203,18 @@ export const DriverView: React.FC = () => {
                     {closingId === r.id ? <Loader2 size={15} className="animate-spin" /> : <Lock size={15} />} Cerrar ruta
                   </button>
                 </div>
+              )}
+              {/* REIMPRIMIR el cierre de una ruta ya cerrada.
+                  El tiquete se arruga, se moja o la impresora se queda sin
+                  papel a mitad del corte, y hasta ahora la ruta cerrada
+                  desaparecía de la pantalla del chofer sin forma de sacarlo de
+                  nuevo: había que pedírselo a la oficina. */}
+              {r.status === 'closed' && (
+                <button onClick={() => reimprimirCierre(r)} disabled={reimprimiendo === r.id}
+                  className="mt-3 w-full flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold py-2.5 rounded-lg disabled:opacity-50">
+                  {reimprimiendo === r.id ? <Loader2 size={15} className="animate-spin" /> : <Printer size={15} />}
+                  Reimprimir cierre
+                </button>
               )}
             </div>
           ))}

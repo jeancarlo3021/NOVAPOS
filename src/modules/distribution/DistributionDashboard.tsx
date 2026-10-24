@@ -76,7 +76,22 @@ export const DistributionDashboard: React.FC = () => {
   useEffect(() => { load(); }, [load]);
 
   const closeRoute = async (r: DeliveryRoute) => {
-    if (!confirm(`Cerrar la ruta del ${r.route_date}? Se devuelve el sobrante del camión a la bodega central.`)) return;
+    if (!confirm(`Cerrar la ruta de "${r.warehouse?.name ?? 'camión'}" del ${r.route_date}?\n`
+      + 'Se devuelve el sobrante del camión a la bodega central.')) return;
+    /*
+     * EL RESUMEN ANTERIOR SE BORRA ANTES DE EMPEZAR.
+     *
+     * Pasó en producción: se cerró la ruta de Jacó y salió impreso el cierre
+     * de Parrita. La causa es ésta —el resumen de la ruta anterior quedaba en
+     * pantalla con su botón «Imprimir cierre»—: si el cierre nuevo falla (lo
+     * más común, un 409 porque el chofer ya la cerró desde el teléfono), se
+     * mostraba el error PERO el botón seguía apuntando al cierre viejo. El
+     * operador lo tocaba creyendo que imprimía el que acababa de hacer.
+     *
+     * Con esto, un cierre que falla no deja nada que imprimir.
+     */
+    setCloseSummary(null);
+    setError('');
     try {
       const sum = await distributionService.close(r.id);
       await truckTracking.stop();   // detener el rastreo GPS al cerrar la ruta
@@ -103,7 +118,13 @@ export const DistributionDashboard: React.FC = () => {
           sections,
         }) }).catch(() => {});
       } catch { /* no bloquear el cierre */ }
-    } catch (e) { setError(e instanceof Error ? e.message : 'Error al cerrar'); }
+    } catch (e) {
+      // El error nombra la ruta: con tres camiones abiertos, «Error al cerrar»
+      // no dice cuál quedó sin cerrar.
+      const detalle = e instanceof Error ? e.message : 'Error al cerrar';
+      setError(`${r.warehouse?.name ?? 'Ruta'} (${r.route_date}): ${detalle}`);
+      setCloseSummary(null);
+    }
   };
 
   const openClearLoad = async (r: DeliveryRoute) => {
