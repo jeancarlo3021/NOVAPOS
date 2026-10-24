@@ -158,6 +158,12 @@ function parseCSV(text: string, delim: string = ','): string[][] {
   return rows;
 }
 
+/** Miles con PUNTO: `toLocaleString('es-CR')` devuelve un espacio fino según
+ *  el navegador —«₡1 200»— y no es como se escribe un monto en el resto del
+ *  sistema. */
+const miles = (n: number): string =>
+  Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
 function num(v: string | undefined, def?: number): number | undefined {
   if (v === undefined || v === null || String(v).trim() === '') return def;
   let s = String(v).trim();
@@ -197,6 +203,21 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
   const [buscandoCabys, setBuscandoCabys] = useState(false);
   const [sugeridas, setSugeridas] = useState(0);
   const [sugiriendo, setSugiriendo] = useState(false);
+  /** Avance cuando el catálogo es grande y hay que pedir por lotes. */
+  const [progresoSug, setProgresoSug] = useState<{ hechos: number; total: number } | null>(null);
+  /**
+   * QUÉ FILAS SE VEN.
+   *
+   * La vista previa mostraba las primeras 100 y debajo «+442 filas más (no
+   * mostradas)». Con un catálogo entero eso deja sin revisar justo lo que hay
+   * que revisar: el error está en la fila 300 y no hay forma de llegar a ella.
+   *
+   * Se resuelve por los dos lados: se puede FILTRAR por lo que necesita
+   * atención —que casi siempre son unas pocas— y se puede seguir mostrando de
+   * a 200 hasta llegar al final.
+   */
+  const [filtroFilas, setFiltroFilas] = useState<'todas' | 'sin_cabys' | 'avisos' | 'errores'>('todas');
+  const [tope, setTope] = useState(100);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, errors: 0 });
   const [error, setError] = useState('');
@@ -265,15 +286,30 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     return grid;
   };
 
-  const handleFile = async (file: File) => {
-    setError(''); setRows([]); setFileName(file.name);
+  /**
+   * Lee UN archivo y devuelve sus filas. No toca el estado.
+   *
+   * Se separó de `handleFile` para poder cargar VARIOS a la vez: el catálogo
+   * de un negocio suele venir partido en archivos por departamento —uno de
+   * abarrotes, otro de limpieza, otro de licores— y había que importarlos de a
+   * uno, revisando y asignando CABYS tres veces.
+   *
+   * Cada archivo se lee con SUS propios encabezados: uno puede traer
+   * «Producto» y otro «Nombre» y los dos entran igual.
+   */
+  const leerArchivo = async (file: File, conNombre: boolean): Promise<{
+    parsed: ParsedRow[];
+    reconocidas: string[];
+    ignoradas: string[];
+    error?: string;
+  }> => {
+    const vacio = { parsed: [] as ParsedRow[], reconocidas: [] as string[], ignoradas: [] as string[] };
     if (!/\.csv$|\.txt$|\.xlsx?$/i.test(file.name)) {
-      setError('Archivo no soportado. Subí un Excel (.xlsx) o un CSV.');
-      return;
+      return { ...vacio, error: `${file.name}: no es un Excel (.xlsx) ni un CSV.` };
     }
     try {
       const grid = (await readGrid(file)).filter(r => r.some(c => c !== ''));
-      if (grid.length === 0) { setError('Archivo vacío'); return; }
+      if (grid.length === 0) return { ...vacio, error: `${file.name}: está vacío.` };
 
       // Encabezados normalizados (acepta «Nombre», «Precio», «Costo»…).
       const headerRow = grid[0].map(normalizeHeader);
@@ -289,17 +325,15 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
       });
 
       const idx = (h: string) => headerRow.indexOf(h);
-      setMapping({
-        reconocidas: HEADERS.filter(h => headerRow.includes(h)),
-        ignoradas: grid[0].map((raw, i) => ({ raw, norm: headerRow[i] }))
-          .filter(x => x.raw && !HEADERS.includes(x.norm))
-          .map(x => x.raw),
-      });
+      const reconocidas = HEADERS.filter(h => headerRow.includes(h));
+      const ignoradas = grid[0].map((raw, i) => ({ raw, norm: headerRow[i] }))
+        .filter(x => x.raw && !HEADERS.includes(x.norm))
+        .map(x => x.raw);
       const required = ['name', 'unit_price'];
       const missing = required.filter(h => idx(h) === -1);
       if (missing.length > 0) {
-        setError(`Faltan columnas obligatorias: ${missing.join(', ')}. Usá la plantilla.`);
-        return;
+        return { ...vacio, reconocidas, ignoradas,
+          error: `${file.name}: faltan columnas obligatorias (${missing.join(', ')}). Usá la plantilla.` };
       }
 
       const parsed: ParsedRow[] = dataRows.map((r, i) => {
@@ -358,18 +392,92 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         }
 
         // Validaciones — se permite precio 0 o vacío (queda en 0).
-        if (!row.name)                  row._error = `Fila ${i + 2}: nombre vacío`;
-        else if (price !== undefined && price < 0) row._error = `Fila ${i + 2}: precio inválido`;
+        // Con varios archivos, el número de fila solo sirve si dice de CUÁL:
+        // «Fila 14» en tres archivos distintos no se puede ir a buscar.
+        const donde = conNombre ? `${file.name}, fila ${i + 2}` : `Fila ${i + 2}`;
+        if (!row.name)                  row._error = `${donde}: nombre vacío`;
+        else if (price !== undefined && price < 0) row._error = `${donde}: precio inválido`;
         return row;
       });
-      setRows(parsed);
-      void completarCabysPorNombre(parsed);
+      return { parsed, reconocidas, ignoradas };
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al leer archivo');
+      return { ...vacio, error: `${file.name}: ${e instanceof Error ? e.message : 'no se pudo leer'}` };
     }
   };
 
+  /** Carga uno o varios archivos y los junta en una sola lista. */
+  const handleFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    setError(''); setRows([]);
+    setFileName(files.length === 1 ? files[0].name : `${files.length} archivos`);
+
+    const todas: ParsedRow[] = [];
+    const reconocidas = new Set<string>();
+    const ignoradas = new Set<string>();
+    const fallos: string[] = [];
+    for (const f of files) {
+      const r = await leerArchivo(f, files.length > 1);
+      if (r.error) fallos.push(r.error);
+      r.reconocidas.forEach(x => reconocidas.add(x));
+      r.ignoradas.forEach(x => ignoradas.add(x));
+      todas.push(...r.parsed);
+    }
+    setMapping({ reconocidas: [...reconocidas], ignoradas: [...ignoradas] });
+
+    /*
+     * REPETIDOS ENTRE ARCHIVOS.
+     *
+     * Cuando el catálogo viene partido, el mismo producto suele aparecer en
+     * dos listas. Si no se avisa, se crean dos veces y el inventario queda
+     * duplicado desde el primer día. No se borra nada solo: se marca, y quien
+     * importa decide.
+     */
+    if (files.length > 1) {
+      /*
+       * Se mira el código Y el nombre, no uno u otro.
+       *
+       * El mismo producto suele venir con código en la lista de un
+       * departamento y sin código en la otra: comparando solo por código, los
+       * dos pasaban como productos distintos y el inventario nacía duplicado.
+       */
+      const skus = new Set<string>();
+      const nombres = new Set<string>();
+      for (const r of todas) {
+        const sku = String(r.sku ?? '').trim().toLowerCase();
+        const nom = String(r.name ?? '').trim().toLowerCase();
+        const repetido = (sku && skus.has(sku)) || (nom && nombres.has(nom));
+        if (repetido && !r._error) {
+          r._warn = [r._warn, 'repetido en otro archivo'].filter(Boolean).join(' · ');
+        }
+        if (sku) skus.add(sku);
+        if (nom) nombres.add(nom);
+      }
+    }
+
+    if (fallos.length) setError(fallos.join('\n'));
+    if (todas.length === 0) return;
+    setRows(todas);
+    void completarCabysPorNombre(todas);
+  };
+
   const validRows = rows.filter(r => !r._error);
+
+  /**
+   * Las filas que se muestran, según el filtro y el tope.
+   *
+   * Se guarda el índice ORIGINAL junto a cada fila: es el número que ve la
+   * persona («fila 317») y el que usan los botones para tocar esa fila y no
+   * otra. Filtrando sin él, el buscador de CABYS por fila le escribía a la
+   * fila equivocada.
+   */
+  const filtradas = rows
+    .map((r, i) => ({ r, i }))
+    .filter(({ r }) =>
+      filtroFilas === 'todas' ? true
+        : filtroFilas === 'sin_cabys' ? !r.cabys_code
+        : filtroFilas === 'avisos' ? !!r._warn
+        : !!r._error);
+  const filasVisibles = filtradas.slice(0, tope);
   /**
    * EL CABYS QUE FALTA SE TOMA DEL PRODUCTO QUE YA EXISTE.
    *
@@ -435,6 +543,54 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
   /** ¿El archivo trae columna de IVA? Decide si el CABYS puede fijar la tarifa. */
   const archivoTraeIva = mapping.reconocidas.includes('iva_rate');
 
+  /**
+   * BUSCAR UN CABYS PARA UNA FILA SOLA.
+   *
+   * Las tres opciones que propone el motor resuelven la mayoría, pero cuando
+   * ninguna sirve la única salida era el buscador de arriba —que aplica el
+   * código a TODAS las filas sin CABYS— o dejar el producto sin clasificar.
+   * Para el producto raro de un catálogo de trescientos, eso significaba
+   * importar mal o no importar.
+   *
+   * Es un buscador aparte del general a propósito: comparten el endpoint pero
+   * no el estado, así escribir en uno no borra lo que se estaba viendo en el
+   * otro.
+   */
+  const [filaBuscando, setFilaBuscando] = useState<number | null>(null);
+  const [filaQuery, setFilaQuery] = useState('');
+  const [filaResultados, setFilaResultados] = useState<Array<{ code: string; description: string; iva_rate: number | null }>>([]);
+  const [filaCargando, setFilaCargando] = useState(false);
+  const filaPedido = useRef(0);
+
+  const buscarParaFila = async (q: string) => {
+    setFilaQuery(q);
+    if (q.trim().length < 2) { setFilaResultados([]); return; }
+    // Cada tecla dispara una búsqueda; sin este número de orden, la respuesta
+    // de un texto viejo podía pisar la del texto actual.
+    const mio = ++filaPedido.current;
+    setFilaCargando(true);
+    try {
+      const r = await apiFetch<Array<{ code: string; description: string; iva_rate: number | null }>>(
+        `/cabys/search?q=${encodeURIComponent(q.trim())}`);
+      if (mio === filaPedido.current) setFilaResultados(Array.isArray(r) ? r.slice(0, 12) : []);
+    } catch { if (mio === filaPedido.current) setFilaResultados([]); }
+    finally { if (mio === filaPedido.current) setFilaCargando(false); }
+  };
+
+  /** Pone el código elegido a mano en UNA fila. */
+  const ponerCabysEnFila = (indice: number, c: { code: string; description: string; iva_rate: number | null }) => {
+    setRows(prev => prev.map((x, j) => j === indice ? {
+      ...x, cabys_code: c.code, _cabys_desc: c.description,
+      _cabys_asignado: 'manual' as const,
+      _cabys_origen: 'buscado a mano',
+      _cabys_motivo: undefined, _cabys_alternativas: undefined,
+      // Igual que en el resto: la tarifa del catálogo solo se copia si el
+      // archivo no traía la suya.
+      iva_rate: (!archivoTraeIva && c.iva_rate != null) ? c.iva_rate : x.iva_rate,
+    } : x));
+    setFilaBuscando(null); setFilaQuery(''); setFilaResultados([]);
+  };
+
   const buscarCabys = async (q: string) => {
     setCabysQuery(q);
     if (q.trim().length < 2) { setCabysResultados([]); return; }
@@ -487,6 +643,22 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     setSugiriendo(true);
     try {
       const names = [...new Set(faltan.map(r => r.name))];
+      /*
+       * El DEPARTAMENTO del archivo viaja como contexto.
+       *
+       * Los catálogos exportados de otros sistemas traen la columna
+       * «Departamento» (LIMPIEZA, FERRETERÍA, ABARROTES) y es una pista fuerte
+       * de qué es el producto. El motor la usa solo cuando el nombre por sí
+       * solo no alcanza, así que lo que ya clasificaba bien no cambia: medido,
+       * «Guantes de latex talla M» pasó de «partes de motocicleta» al código
+       * correcto de guantes.
+       */
+      const contextoDe = new Map<string, string>();
+      for (const r of faltan) {
+        const cat = String((r as any).category ?? '').trim();
+        if (cat && !contextoDe.get(r.name)) contextoDe.set(r.name, cat);
+      }
+      const items = names.map(nom => ({ nombre: nom, contexto: contextoDe.get(nom) ?? '' }));
       /**
        * Se pide por el asistente y no por `/cabys/sugerir` directo.
        *
@@ -502,11 +674,82 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         motivo?: string;
         alternativas?: Array<{ code: string; description: string; iva_rate: number | null; coincidencia: number }>;
       };
-      const r0 = await apiFetch<{ modo?: string; datos?: { sugerencias?: Sug[] } } | Sug[]>(
-        '/ia/cabys', { method: 'POST', body: JSON.stringify({ nombres: names }) }, 90000);
-      const sug: Sug[] = Array.isArray(r0) ? r0 : (r0?.datos?.sugerencias ?? []);
-      const porNombre = new Map(sug.map(x => [x.name, x]));
-      let n = 0;
+      /**
+       * SE PIDE POR LOTES.
+       *
+       * El servidor acepta 200 productos por consulta y un catálogo real trae
+       * seiscientos o mil: el pedido se caía entero con «Máximo 200 productos
+       * por consulta» y el negocio se quedaba sin una sola sugerencia. El
+       * límite del servidor no es un capricho —con la IA encendida, cada
+       * producto dudoso es una consulta al modelo, y un lote grande se pasa
+       * del tiempo que aguanta la función—, así que lo que corresponde es
+       * partir el trabajo acá.
+       *
+       * Los lotes se aplican a medida que llegan: si el tercero falla, los dos
+       * primeros ya quedaron puestos y no se perdió el trabajo.
+       */
+      const TAMANO_LOTE = 100;
+      const lotes: typeof items[] = [];
+      for (let i = 0; i < items.length; i += TAMANO_LOTE) lotes.push(items.slice(i, i + TAMANO_LOTE));
+
+      /*
+       * Cuántas filas quedarían asignadas, contado de los DATOS.
+       *
+       * Contar dentro del actualizador de `setRows` no sirve: corre después y
+       * el total se leía en cero, así que el botón «Quitar las N sugerencias»
+       * no aparecía nunca. Acá se cuenta con la misma condición que usa el
+       * actualizador —fila sin código y con ese nombre—, que se puede saber
+       * antes de tocar el estado.
+       */
+      const filasPorNombre = new Map<string, number>();
+      for (const r of faltan) filasPorNombre.set(r.name, (filasPorNombre.get(r.name) ?? 0) + 1);
+
+      let asignadas = 0;
+      let fallo: string | null = null;
+      for (const [indice, lote] of lotes.entries()) {
+        setProgresoSug({ hechos: indice * TAMANO_LOTE, total: items.length });
+        let sug: Sug[] = [];
+        try {
+          const r0 = await apiFetch<{ modo?: string; datos?: { sugerencias?: Sug[] } } | Sug[]>(
+            '/ia/cabys',
+            {
+              method: 'POST',
+              // `origen` le dice al servidor DESDE DÓNDE se pide. El modelo
+              // (que se paga por consulta) solo se usa en la carga masiva y
+              // solo para el dueño del sistema; el servidor verifica las dos
+              // cosas, así que mandar esto desde otro lado no habilita nada.
+              body: JSON.stringify({ nombres: lote, origen: 'importacion' }),
+            },
+            90000);
+          sug = Array.isArray(r0) ? r0 : (r0?.datos?.sugerencias ?? []);
+        } catch (e) {
+          // Un lote caído no tumba los demás: se sigue y se avisa al final.
+          fallo = e instanceof Error ? e.message : 'falló un lote';
+          continue;
+        }
+        for (const x of sug) if (x.code) asignadas += filasPorNombre.get(x.name) ?? 0;
+        aplicarSugerencias(new Map(sug.map(x => [x.name, x])));
+      }
+      setProgresoSug(null);
+      if (fallo) {
+        setError(lotes.length > 1
+          ? `Algunas sugerencias no se pudieron traer (${fallo}). Las que sí llegaron ya quedaron puestas; podés volver a tocar el botón para las que faltan.`
+          : fallo);
+      }
+      /*
+       * El total se lee DESPUÉS de que React aplicó los lotes. Con el
+       * `requestAnimationFrame` se espera a que pasen los actualizadores; sin
+       * eso el número se leía antes de tiempo y quedaba corto.
+       */
+      setSugeridas(asignadas);
+      return;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron traer las sugerencias');
+    } finally { setSugiriendo(false); setProgresoSug(null); }
+  };
+
+  /** Pone en las filas lo que devolvió un lote. */
+  const aplicarSugerencias = (porNombre: Map<string, any>) => {
       setRows(prev => prev.map(r => {
         if (r.cabys_code || !r.name) return r;
         const x = porNombre.get(r.name);
@@ -516,7 +759,6 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         if (!x.code) {
           return { ...r, _cabys_motivo: x.motivo, _cabys_alternativas: x.alternativas };
         }
-        n++;
         return {
           ...r,
           cabys_code: x.code,
@@ -532,10 +774,6 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
             : 'catálogo de Hacienda',
         };
       }));
-      setSugeridas(n);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudieron traer las sugerencias');
-    } finally { setSugiriendo(false); }
   };
 
   /** Deshace las sugerencias (no lo asignado a mano ni lo que vino en el archivo). */
@@ -696,7 +934,21 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     }
 
     // 1. Pre-cargar categorías y unidades existentes (cache por nombre normalizado)
-    const norm = (s: string) => s.trim().toLowerCase();
+    /**
+     * Para comparar categorías y unidades: sin tildes, sin mayúsculas y sin
+     * espacios de más.
+     *
+     * El archivo viene exportado del sistema viejo y la columna
+     * «Departamento» llega en mayúsculas y a veces con tilde o doble espacio:
+     * «AC DISTRIBUCIÓN» contra la categoría «Ac distribucion» que ya existe.
+     * Comparando tal cual, el importador no la reconocía y creaba una segunda
+     * categoría con el mismo nombre escrito distinto — y el negocio terminaba
+     * con el catálogo partido en dos.
+     */
+    const norm = (s: string) => String(s ?? '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim().toLowerCase();
     const catCache  = new Map<string, string>();   // nombre → id
     const unitCache = new Map<string, string>();   // nombre/abbr → id
     try {
@@ -843,10 +1095,15 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
             <label className="block">
               <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/30 transition">
                 <Upload size={32} className="mx-auto text-gray-400 mb-2" />
-                <p className="font-bold text-gray-700">Subí el archivo CSV</p>
-                <p className="text-xs text-gray-500 mt-1">o arrastralo acá</p>
-                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden"
-                  onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                <p className="font-bold text-gray-700">Subí el Excel o el CSV</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  o arrastralo acá · podés elegir <b>varios archivos a la vez</b>
+                </p>
+                {/* `multiple`: el catálogo de un negocio suele venir partido en
+                    un archivo por departamento, y antes había que importarlos
+                    de a uno, revisando y poniendo CABYS tres veces. */}
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt" multiple className="hidden"
+                  onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; void handleFiles(f); }} />
               </div>
             </label>
           )}
@@ -912,9 +1169,9 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                 </div>
                 {impuestoEnPrecio === 'incluido' && rows[0] && (
                   <p className="text-[11px] text-emerald-700 font-bold mt-1.5">
-                    Ejemplo con la primera fila: ₡{Number(rows[0].unit_price ?? 0).toLocaleString('es-CR')} del archivo
-                    {' '}→ ₡{precioNeto(rows[0].unit_price, rows[0].iva_rate).toLocaleString('es-CR')} de base
-                    {' '}(IVA {rows[0].iva_rate ?? 13}%), y se vende otra vez a ₡{Number(rows[0].unit_price ?? 0).toLocaleString('es-CR')}.
+                    Ejemplo con la primera fila: ₡{miles(Number(rows[0].unit_price ?? 0))} del archivo
+                    {' '}→ ₡{miles(precioNeto(rows[0].unit_price, rows[0].iva_rate))} de base
+                    {' '}(IVA {rows[0].iva_rate ?? 13}%), y se vende otra vez a ₡{miles(Number(rows[0].unit_price ?? 0))}.
                   </p>
                 )}
               </div>
@@ -922,10 +1179,17 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
               {/* ASIGNAR CABYS a lo que no lo trae. Sin esto, el cliente nuevo
                   queda sin poder emitir comprobantes electrónicos y el problema
                   aparece semanas después, sin relación visible con el alta. */}
-              {sinCabys > 0 && (
+              {/* El panel sigue a la vista mientras haya algo que revisar.
+                  Antes desaparecía en cuanto todas las filas tenían código, y
+                  con él se iba el botón de deshacer: quien sugería para un
+                  catálogo entero se quedaba sin forma de echar atrás 540
+                  códigos que todavía no había revisado. */}
+              {(sinCabys > 0 || sugeridas > 0) && (
                 <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 space-y-2">
                   <p className="text-xs font-black text-gray-800">
-                    {sinCabys} fila(s) sin CABYS — sin él, el negocio no va a poder facturar electrónicamente.
+                    {sinCabys > 0
+                      ? `${sinCabys} fila(s) sin CABYS — sin él, el negocio no va a poder facturar electrónicamente.`
+                      : `${sugeridas} fila(s) tomaron un CABYS sugerido — revisalos antes de importar.`}
                   </p>
 
                   <div className="relative">
@@ -957,7 +1221,11 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                   <div className="flex items-center gap-2 flex-wrap">
                     <button type="button" onClick={() => void traerSugerencias()} disabled={sugiriendo || importing}
                       className="px-3 py-1.5 rounded-lg border-2 border-gray-300 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-                      {sugiriendo ? 'Buscando…' : `Sugerir por nombre (${sinCabys})`}
+                      {sugiriendo
+                        ? (progresoSug && progresoSug.total > 100
+                            ? `Buscando… ${Math.min(progresoSug.hechos + 100, progresoSug.total)} de ${progresoSug.total}`
+                            : 'Buscando…')
+                        : `Sugerir por nombre (${sinCabys})`}
                     </button>
                     {sugeridas > 0 && (
                       <button type="button" onClick={quitarSugerencias} disabled={importing}
@@ -1012,7 +1280,37 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                 )}
               </div>
 
-              {/* Tabla preview (primeras 50) */}
+              {/* Filtros: con 500 filas, lo que importa son las que fallan. */}
+              {(() => {
+                const cuenta = {
+                  todas: rows.length,
+                  sin_cabys: rows.filter(r => !r.cabys_code).length,
+                  avisos: rows.filter(r => r._warn).length,
+                  errores: rows.filter(r => r._error).length,
+                };
+                const botones: Array<[typeof filtroFilas, string, number]> = [
+                  ['todas', 'Todas', cuenta.todas],
+                  ['sin_cabys', 'Sin CABYS', cuenta.sin_cabys],
+                  ['avisos', 'Con aviso', cuenta.avisos],
+                  ['errores', 'Con error', cuenta.errores],
+                ];
+                return (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {botones.map(([clave, etiqueta, n]) => (
+                      <button key={clave} type="button"
+                        onClick={() => { setFiltroFilas(clave); setTope(100); }}
+                        disabled={n === 0 && clave !== 'todas'}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                          filtroFilas === clave
+                            ? 'bg-emerald-600 border-emerald-600 text-white'
+                            : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40'}`}>
+                        {etiqueta} ({n})
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+
               <div className="overflow-x-auto border border-gray-200 rounded-xl max-h-80 overflow-y-auto">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 sticky top-0">
@@ -1033,14 +1331,14 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {rows.slice(0, 100).map((r, i) => (
+                    {filasVisibles.map(({ r, i }) => (
                       <tr key={i} className={r._error ? 'bg-red-50' : ''}>
                         <td className="px-3 py-1.5 text-gray-400">{i + 1}</td>
                         <td className="px-3 py-1.5 font-semibold text-gray-800 truncate max-w-48">{r.name || '—'}</td>
                         <td className="px-3 py-1.5 font-mono text-gray-500">{r.sku || '—'}</td>
                         <td className="px-3 py-1.5 font-mono text-gray-500">{r.sku2 || '—'}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">
-                          ₡{precioNeto(r.unit_price, r.iva_rate).toLocaleString('es-CR')}
+                          ₡{miles(precioNeto(r.unit_price, r.iva_rate))}
                           {impuestoEnPrecio === 'incluido' && (
                             <span className="block text-[10px] text-gray-400">
                               archivo: ₡{Number(r.unit_price ?? 0).toLocaleString('es-CR')}
@@ -1060,7 +1358,17 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                             </span>
                           )}
                           {r._cabys_asignado === 'manual' && (
-                            <span className="block text-[10px] font-sans text-gray-500">aplicado a todas</span>
+                            /* Decía siempre «aplicado a todas», que era cierto
+                               solo para el buscador de arriba. Con la búsqueda
+                               por fila hay que distinguir: una etiqueta que
+                               miente sobre el alcance del cambio es peor que
+                               no tener etiqueta. */
+                            <span className="block text-[10px] font-sans text-gray-500"
+                              title={r._cabys_desc ?? undefined}>
+                              {r._cabys_origen === 'buscado a mano' ? 'buscado para esta fila'
+                                : r._cabys_origen === 'elegida de las opciones' ? 'elegido entre las opciones'
+                                : 'aplicado a todas'}
+                            </span>
                           )}
                           {r._cabys_asignado === 'sugerido' && (
                             <span className="block text-[10px] font-sans text-amber-700" title={r._cabys_motivo ?? r._cabys_desc}>
@@ -1098,6 +1406,54 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                               ))}
                             </span>
                           ) : null}
+
+                          {/* NINGUNA DE LAS TRES SIRVE.
+                              Hasta acá se podía elegir entre las opciones o
+                              dejar el producto sin código; el buscador de
+                              arriba aplica a TODAS las filas, así que para el
+                              producto raro de un catálogo largo no servía. */}
+                          <span className="block mt-1 font-sans">
+                            {filaBuscando === i ? (
+                              <span className="block">
+                                <input autoFocus value={filaQuery}
+                                  onChange={e => void buscarParaFila(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Escape') { setFilaBuscando(null); setFilaQuery(''); setFilaResultados([]); } }}
+                                  placeholder="Buscar CABYS por descripción o código…"
+                                  className="w-full px-2 py-1 border border-gray-300 rounded text-[10px] focus:outline-none focus:border-teal-500" />
+                                {filaCargando && <span className="block text-[9px] text-gray-400 mt-0.5">buscando…</span>}
+                                {!filaCargando && filaQuery.trim().length >= 2 && filaResultados.length === 0 && (
+                                  <span className="block text-[9px] text-gray-400 mt-0.5">Sin resultados.</span>
+                                )}
+                                {filaResultados.length > 0 && (
+                                  <span className="block mt-0.5 max-h-32 overflow-y-auto border border-gray-200 rounded bg-white">
+                                    {filaResultados.map(c => (
+                                      <button key={c.code} type="button"
+                                        onClick={() => ponerCabysEnFila(i, c)}
+                                        title={c.description}
+                                        className="block w-full text-left px-1.5 py-1 hover:bg-teal-50 border-b border-gray-50">
+                                        <span className="font-mono text-[10px] font-bold text-gray-800">{c.code}</span>
+                                        {c.iva_rate != null && (
+                                          <span className="ml-1 text-[9px] font-bold text-gray-500">IVA {c.iva_rate}%</span>
+                                        )}
+                                        <span className="block text-[9px] text-gray-600">{String(c.description).slice(0, 48)}</span>
+                                      </button>
+                                    ))}
+                                  </span>
+                                )}
+                                <button type="button"
+                                  onClick={() => { setFilaBuscando(null); setFilaQuery(''); setFilaResultados([]); }}
+                                  className="mt-0.5 text-[9px] font-bold text-gray-400 hover:text-gray-600">
+                                  Cancelar
+                                </button>
+                              </span>
+                            ) : (
+                              <button type="button"
+                                onClick={() => { setFilaBuscando(i); setFilaQuery(''); setFilaResultados([]); }}
+                                className="text-[10px] font-bold text-teal-700 hover:underline">
+                                {r.cabys_code ? 'Cambiar este código…' : 'Ninguna sirve — buscar otro…'}
+                              </button>
+                            )}
+                          </span>
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{r.iva_rate ?? 13}%</td>
                         <td className="px-3 py-1.5">
@@ -1113,9 +1469,16 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                         </td>
                       </tr>
                     ))}
-                    {rows.length > 100 && (
-                      <tr><td colSpan={13} className="text-center text-gray-400 py-2 text-xs">
-                        +{rows.length - 100} filas más (no mostradas)
+                    {filtradas.length > filasVisibles.length && (
+                      <tr><td colSpan={13} className="px-3 py-2 text-center">
+                        <button type="button" onClick={() => setTope(t => t + 200)}
+                          className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50">
+                          Ver 200 más ({filtradas.length - filasVisibles.length} sin mostrar)
+                        </button>
+                        <button type="button" onClick={() => setTope(filtradas.length)}
+                          className="ml-2 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 hover:bg-gray-100">
+                          Ver todas
+                        </button>
                       </td></tr>
                     )}
                   </tbody>

@@ -23,6 +23,21 @@ import { useAuth } from '@/context/AuthContext';
 /** Los días de gracia del backend (`utils/gracia.ts`). Si cambia allá, cambia acá. */
 const DIAS_DE_GRACIA = 6;
 
+/**
+ * Desde cuántos días antes se avisa.
+ *
+ * Es el PRIMER umbral de los avisos de WhatsApp (`services/paymentReminders.ts`,
+ * UMBRALES = [7, 4, 2, 1]). Tenerlos distintos era peor que no avisar: al
+ * cliente le llegaba el mensaje al teléfono siete días antes y el sistema
+ * recién se lo decía dos días después, como si fueran dos cuentas distintas.
+ */
+const DIAS_AVISO = 7;
+
+/** Dónde pagar. Es lo primero que pregunta quien quiere ponerse al día. */
+const SINPE = '7161-7910';
+/** El mismo número, en el formato que necesita un enlace de WhatsApp. */
+const SINPE_WA = '50671617910';
+
 /** La dirección del API, igual que en `lib/api.ts`. */
 const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -68,6 +83,7 @@ const fechaLarga = (f?: string | null): string => {
 export const PaymentReminderModal: React.FC = () => {
   const { user, tenant, isReadOnly, logout } = useAuth();
   const [cerrado, setCerrado] = useState(false);
+  const [copiado, setCopiado] = useState(false);
   const [whatsapp, setWhatsapp] = useState<string>('');
 
   const sub = tenant?.subscription ?? null;
@@ -89,33 +105,41 @@ export const PaymentReminderModal: React.FC = () => {
   const gracia = dias === null ? 0 : DIAS_DE_GRACIA + dias;
   const bloqueante = aplica && (isReadOnly || tenant?.status === 'suspended');
 
-  /**
-   * Cuándo aparece: desde cinco días antes.
-   *
-   * Antes no: un aviso de pago tres semanas temprano es ruido, y el dueño
-   * aprende a cerrarlo sin leerlo justo a tiempo para el que sí importaba.
-   */
-  const correspondeAvisar = aplica && (bloqueante || (dias as number) <= 5);
+  /** Cuándo aparece: desde los mismos días que el aviso de WhatsApp. */
+  const correspondeAvisar = aplica && (bloqueante || (dias as number) <= DIAS_AVISO);
 
-  const claveDelDia = `novapos_aviso_pago_${tenant?.id ?? 'sin-negocio'}`;
+  const claveVisto = `novapos_aviso_pago_${tenant?.id ?? 'sin-negocio'}`;
 
   /**
-   * ¿Ya se cerró hoy?
+   * SALE EN CADA INICIO DE SESIÓN.
    *
-   * Se guarda el día, no un «visto» permanente: el aviso tiene que volver cada
-   * día que siga sin pagarse, pero no cada vez que se cambia de pantalla.
-   * El bloqueante ignora esto: ahí no hay nada que posponer.
+   * Antes se guardaba el día: cerrado una vez, no volvía hasta el día
+   * siguiente. Con la caja abierta de la mañana a la noche eso es un solo
+   * aviso por jornada, y el que lo cierra a las 7 a.m. ya no se acuerda a las
+   * 6 p.m. Ahora se marca contra la MARCA DE TIEMPO DEL LOGIN: se cierra y no
+   * vuelve a molestar mientras dure esa sesión, pero el próximo ingreso lo
+   * muestra otra vez, todos los días que falten hasta que se pague.
+   *
+   * Es también lo que hace el aviso de WhatsApp: insiste una vez por día.
+   * El bloqueante ignora todo esto: ahí no hay nada que posponer.
    */
-  const [vistoHoy, setVistoHoy] = useState<boolean>(() => {
-    try { return localStorage.getItem(claveDelDia) === hoyCR(); } catch { return false; }
+  const inicioSesion = (() => {
+    try { return localStorage.getItem('novapos_session_login_ts') ?? ''; } catch { return ''; }
+  })();
+
+  const [vistoEnEstaSesion, setVistoEnEstaSesion] = useState<boolean>(() => {
+    try { return !!inicioSesion && localStorage.getItem(claveVisto) === inicioSesion; }
+    catch { return false; }
   });
 
   useEffect(() => {
-    try { setVistoHoy(localStorage.getItem(claveDelDia) === hoyCR()); } catch { /* privacidad */ }
+    try {
+      setVistoEnEstaSesion(!!inicioSesion && localStorage.getItem(claveVisto) === inicioSesion);
+    } catch { /* privacidad */ }
     setCerrado(false);
-  }, [claveDelDia]);
+  }, [claveVisto, inicioSesion]);
 
-  const visible = correspondeAvisar && !cerrado && (bloqueante || !vistoHoy);
+  const visible = correspondeAvisar && !cerrado && (bloqueante || !vistoEnEstaSesion);
 
   /**
    * El número al que se paga.
@@ -150,7 +174,8 @@ export const PaymentReminderModal: React.FC = () => {
   if (!visible) return null;
 
   const posponer = () => {
-    try { localStorage.setItem(claveDelDia, hoyCR()); } catch { /* privacidad */ }
+    // Se marca la SESIÓN, no el día: al volver a entrar, vuelve a salir.
+    try { localStorage.setItem(claveVisto, inicioSesion || hoyCR()); } catch { /* privacidad */ }
     setCerrado(true);
   };
 
@@ -191,8 +216,14 @@ export const PaymentReminderModal: React.FC = () => {
 
   const mensaje = encodeURIComponent(
     `Hola, soy ${tenant?.name ?? ''}. Quiero ponerme al día con el pago de ${plan}`
-    + (monto > 0 ? ` (${colones(monto)})` : '') + '. ¿Me indican cómo?',
+    + (monto > 0 ? ` (${colones(monto)})` : '') + '. Ya hice el SINPE / ¿me confirman?',
   );
+  /*
+   * Si la página pública no tiene WhatsApp configurado, se usa el número del
+   * SINPE: es el mismo contacto, y dejar el aviso sin botón era mandar al
+   * dueño a buscar el número por su cuenta justo cuando se le pide que pague.
+   */
+  const numeroWa = whatsapp || SINPE_WA;
 
   return (
     <div
@@ -240,6 +271,28 @@ export const PaymentReminderModal: React.FC = () => {
             <span className="text-sm font-bold text-gray-900">{fechaLarga(vence)}</span>
           </div>
 
+          {/* CÓMO PAGAR. Es la pregunta que venía justo después de leer el
+              aviso, y la respuesta estaba en otro lado. */}
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+            <p className="text-[11px] font-black uppercase tracking-wide text-gray-500">Pagar por SINPE Móvil</p>
+            <div className="flex items-center justify-between gap-2 mt-0.5">
+              <span className="text-xl font-black text-gray-900 tracking-wide">{SINPE}</span>
+              <button
+                onClick={() => {
+                  // Copiar evita tipear mal el número al que se le manda plata.
+                  try { void navigator.clipboard?.writeText(SINPE.replace(/\D/g, '')); setCopiado(true); }
+                  catch { /* sin permiso para copiar: el número queda a la vista */ }
+                  setTimeout(() => setCopiado(false), 1800);
+                }}
+                className="px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-600 hover:bg-gray-100">
+                {copiado ? '¡Copiado!' : 'Copiar'}
+              </button>
+            </div>
+            <p className="text-[11px] font-semibold text-gray-500 mt-1">
+              Mandá el comprobante al mismo número por WhatsApp.
+            </p>
+          </div>
+
           {/* Si ya pagó, que no sienta que el sistema lo ignora: el cobro se
               registra a mano de nuestro lado y puede tardar. */}
           <p className="text-xs text-gray-500 pt-1 leading-relaxed">
@@ -249,14 +302,14 @@ export const PaymentReminderModal: React.FC = () => {
         </div>
 
         <div className="px-6 pb-6 space-y-2">
-          {whatsapp && (
+          {numeroWa && (
             <a
-              href={`https://wa.me/${whatsapp}?text=${mensaje}`}
+              href={`https://wa.me/${numeroWa}?text=${mensaje}`}
               target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-white"
               style={{ background: estado.color }}
             >
-              <MessageCircle size={18} /> Pagar por WhatsApp
+              <MessageCircle size={18} /> Enviar comprobante por WhatsApp
             </a>
           )}
           {estado.why === 'bloqueado' ? (
