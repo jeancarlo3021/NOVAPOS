@@ -218,6 +218,20 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
    */
   const [filtroFilas, setFiltroFilas] = useState<'todas' | 'sin_cabys' | 'avisos' | 'errores'>('todas');
   const [tope, setTope] = useState(100);
+  /**
+   * QUÉ FILAS ESTÁN MARCADAS, para ponerles un CABYS entre todas.
+   *
+   * «Aplicar a todas las que no lo tienen» sirve cuando el negocio usa un solo
+   * código, pero la mayoría no: una pulpería tiene las gaseosas en uno, los
+   * granos en otro y los cigarros en un tercero. Sin poder marcar un grupo
+   * había que entrar fila por fila —trescientas veces— o aplicarle a todo el
+   * catálogo un código que solo le calza a una parte.
+   *
+   * Se guardan los ÍNDICES de `rows`, no las filas: el filtro y el «ver 200
+   * más» cambian lo que se muestra, y la marca tiene que seguir apuntando a la
+   * misma fila del archivo.
+   */
+  const [marcadas, setMarcadas] = useState<Set<number>>(new Set());
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, errors: 0 });
   const [error, setError] = useState('');
@@ -457,6 +471,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
     if (fallos.length) setError(fallos.join('\n'));
     if (todas.length === 0) return;
     setRows(todas);
+    setMarcadas(new Set());   // las marcas eran del archivo anterior
     void completarCabysPorNombre(todas);
   };
 
@@ -478,6 +493,52 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         : filtroFilas === 'avisos' ? !!r._warn
         : !!r._error);
   const filasVisibles = filtradas.slice(0, tope);
+
+  /* ── MARCAR FILAS ───────────────────────────────────────────────────────
+     Todo lo que sigue trabaja sobre los índices de `rows`. */
+
+  const alternarFila = (i: number) => setMarcadas(prev => {
+    const s = new Set(prev);
+    if (s.has(i)) s.delete(i); else s.add(i);
+    return s;
+  });
+
+  /** El check del encabezado: marca o desmarca TODO lo que el filtro deja ver. */
+  const indicesDelFiltro = filtradas.map(({ i }) => i);
+  const todasDelFiltroMarcadas = indicesDelFiltro.length > 0
+    && indicesDelFiltro.every(i => marcadas.has(i));
+  const algunaDelFiltroMarcada = indicesDelFiltro.some(i => marcadas.has(i));
+  const alternarTodasDelFiltro = () => setMarcadas(prev => {
+    const s = new Set(prev);
+    if (todasDelFiltroMarcadas) for (const i of indicesDelFiltro) s.delete(i);
+    else for (const i of indicesDelFiltro) s.add(i);
+    return s;
+  });
+
+  /**
+   * «Las que van con este mismo CABYS».
+   *
+   * El caso real es al revés de como uno lo escribiría: la fila ya tiene un
+   * código —puesto por una sugerencia, o heredado del producto que existe— y
+   * resulta que está mal para las treinta filas que lo comparten. Marcarlas a
+   * mano buscándolas entre 500 es lo que hace que se importe con el código
+   * equivocado. Si la fila no tiene código, marca a todas las que tampoco.
+   */
+  const marcarLasIguales = (i: number) => {
+    const codigo = rows[i]?.cabys_code ?? '';
+    setMarcadas(() => {
+      const s = new Set<number>();
+      rows.forEach((r, j) => { if ((r.cabys_code ?? '') === codigo) s.add(j); });
+      return s;
+    });
+  };
+
+  /** Cuántas filas comparten cada código: para decir «iguales (30)». */
+  const cuantasPorCabys = new Map<string, number>();
+  for (const r of rows) {
+    const k = r.cabys_code ?? '';
+    cuantasPorCabys.set(k, (cuantasPorCabys.get(k) ?? 0) + 1);
+  }
   /**
    * EL CABYS QUE FALTA SE TOMA DEL PRODUCTO QUE YA EXISTE.
    *
@@ -604,7 +665,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
   };
 
   /**
-   * UN CÓDIGO PARA TODAS LAS FILAS QUE NO LO TIENEN.
+   * UN CÓDIGO PARA LAS FILAS MARCADAS, O PARA LAS QUE NO LO TIENEN.
    *
    * Es la forma más rápida y la que calza con cómo se usa de verdad: un
    * restaurante tiene sus 133 productos con UN solo CABYS, y una ferretería
@@ -614,14 +675,26 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
    * La tarifa del CABYS solo se copia si el archivo NO traía columna de IVA:
    * si el negocio escribió una tarifa, manda la suya.
    */
-  const aplicarCabysATodas = (code: string, ivaDelCatalogo: number | null) => {
-    setRows(prev => prev.map(r => r.cabys_code ? r : {
-      ...r,
-      cabys_code: code,
-      iva_rate: (!archivoTraeIva && ivaDelCatalogo != null) ? ivaDelCatalogo : r.iva_rate,
-      _cabys_asignado: 'manual' as const,
+  const aplicarCabys = (code: string, ivaDelCatalogo: number | null) => {
+    const hayMarcadas = marcadas.size > 0;
+    setRows(prev => prev.map((r, i) => {
+      /* Con filas marcadas el código va A ESAS, tengan o no uno ya: marcarlas
+         es justamente lo que se hace para CORREGIR un código equivocado. Sin
+         marcas se mantiene lo de antes: solo a las que les falta. */
+      const leToca = hayMarcadas ? marcadas.has(i) : !r.cabys_code;
+      if (!leToca) return r;
+      return {
+        ...r,
+        cabys_code: code,
+        iva_rate: (!archivoTraeIva && ivaDelCatalogo != null) ? ivaDelCatalogo : r.iva_rate,
+        _cabys_asignado: 'manual' as const,
+        _cabys_origen: hayMarcadas ? 'elegido para las marcadas' : undefined,
+        _cabys_desc: undefined, _cabys_heredado: undefined,
+        _cabys_motivo: undefined, _cabys_alternativas: undefined,
+      };
     }));
     setCabysQuery(''); setCabysResultados([]);
+    setMarcadas(new Set());   // ya se les puso: la marca cumplió su función
   };
 
   /**
@@ -1050,7 +1123,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
   };
 
   const reset = () => {
-    setRows([]); setFileName(''); setError('');
+    setRows([]); setFileName(''); setError(''); setMarcadas(new Set());
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -1189,13 +1262,24 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                   con él se iba el botón de deshacer: quien sugería para un
                   catálogo entero se quedaba sin forma de echar atrás 540
                   códigos que todavía no había revisado. */}
-              {(sinCabys > 0 || sugeridas > 0) && (
+              {(sinCabys > 0 || sugeridas > 0 || marcadas.size > 0) && (
                 <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 space-y-2">
+                  {/* Con filas marcadas el panel habla de ESAS: si dijera
+                      «340 filas sin CABYS» mientras hay 12 marcadas, el
+                      código se aplicaría a un grupo distinto del que se lee. */}
                   <p className="text-xs font-black text-gray-800">
-                    {sinCabys > 0
-                      ? `${sinCabys} fila(s) sin CABYS — sin él, el negocio no va a poder facturar electrónicamente.`
-                      : `${sugeridas} fila(s) tomaron un CABYS sugerido — revisalos antes de importar.`}
+                    {marcadas.size > 0
+                      ? `${marcadas.size} fila(s) marcadas — elegí abajo el CABYS que les va a quedar a todas.`
+                      : sinCabys > 0
+                        ? `${sinCabys} fila(s) sin CABYS — sin él, el negocio no va a poder facturar electrónicamente.`
+                        : `${sugeridas} fila(s) tomaron un CABYS sugerido — revisalos antes de importar.`}
                   </p>
+                  {marcadas.size > 0 && (
+                    <button type="button" onClick={() => setMarcadas(new Set())}
+                      className="text-[11px] font-bold text-gray-500 underline hover:text-gray-700">
+                      Desmarcar las {marcadas.size}
+                    </button>
+                  )}
 
                   <div className="relative">
                     <input value={cabysQuery} onChange={e => void buscarCabys(e.target.value)}
@@ -1208,7 +1292,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                     <div className="max-h-44 overflow-y-auto border border-amber-200 rounded-lg bg-white divide-y divide-gray-100">
                       {cabysResultados.map(c => (
                         <button key={c.code} type="button"
-                          onClick={() => aplicarCabysATodas(c.code, c.iva_rate)}
+                          onClick={() => aplicarCabys(c.code, c.iva_rate)}
                           className="w-full text-left px-3 py-2 hover:bg-amber-50">
                           <span className="font-mono text-[11px] font-bold text-gray-800">{c.code}</span>
                           {c.iva_rate != null && (
@@ -1216,7 +1300,9 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                           )}
                           <span className="block text-[11px] text-gray-600">{c.description}</span>
                           <span className="block text-[10px] font-bold text-amber-700 mt-0.5">
-                            Aplicar a las {sinCabys} filas sin CABYS
+                            {marcadas.size > 0
+                              ? `Aplicar a las ${marcadas.size} filas marcadas`
+                              : `Aplicar a las ${sinCabys} filas sin CABYS`}
                           </span>
                         </button>
                       ))}
@@ -1320,6 +1406,20 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
+                      <th className="px-2 py-2 text-left">
+                        {/* Marca o desmarca TODO lo que el filtro deja ver. Con
+                            el filtro «Sin CABYS» puesto, este check es el camino
+                            corto: marca las que faltan y nada más. */}
+                        <input
+                          type="checkbox"
+                          aria-label={todasDelFiltroMarcadas ? 'Desmarcar las filas que se ven' : 'Marcar las filas que se ven'}
+                          title={`${todasDelFiltroMarcadas ? 'Desmarcar' : 'Marcar'} las ${indicesDelFiltro.length} filas que se ven`}
+                          checked={todasDelFiltroMarcadas}
+                          ref={el => { if (el) el.indeterminate = !todasDelFiltroMarcadas && algunaDelFiltroMarcada; }}
+                          onChange={alternarTodasDelFiltro}
+                          className="w-4 h-4 accent-emerald-600 cursor-pointer align-middle"
+                        />
+                      </th>
                       <th className="px-2 py-2 text-left font-bold text-gray-600">#</th>
                       <th className="px-2 py-2 text-left font-bold text-gray-600">Nombre</th>
                       <th className="px-2 py-2 text-left font-bold text-gray-600">SKU</th>
@@ -1337,7 +1437,14 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {filasVisibles.map(({ r, i }) => (
-                      <tr key={i} className={r._error ? 'bg-red-50' : ''}>
+                      <tr key={i} className={
+                        marcadas.has(i) ? 'bg-emerald-50' : r._error ? 'bg-red-50' : ''}>
+                        <td className="px-2 py-1.5">
+                          <input type="checkbox" checked={marcadas.has(i)}
+                            onChange={() => alternarFila(i)}
+                            aria-label={`Marcar ${r.name || `la fila ${i + 1}`}`}
+                            className="w-4 h-4 accent-emerald-600 cursor-pointer align-middle" />
+                        </td>
                         <td className="px-2 py-1.5 text-gray-400">{i + 1}</td>
                         {/* Con el modal ancho el nombre puede usar el espacio: recortarlo a 192px
                             desperdiciaba la pantalla grande. */}
@@ -1359,6 +1466,18 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                         <td className="px-2 py-1.5 text-gray-600 truncate max-w-32">{r.unit_type ?? '—'}</td>
                         <td className="px-2 py-1.5 font-mono text-gray-500">
                           {r.cabys_code || <span className="text-amber-600">sin CABYS</span>}
+                          {/* De un golpe, todas las filas que llevan ESTE mismo
+                              código (o todas las que no llevan ninguno). Es
+                              para cuando el código está mal en el grupo entero. */}
+                          {(cuantasPorCabys.get(r.cabys_code ?? '') ?? 0) > 1 && (
+                            <button type="button" onClick={() => marcarLasIguales(i)}
+                              title={r.cabys_code
+                                ? `Marcar las ${cuantasPorCabys.get(r.cabys_code)} filas que van con ${r.cabys_code}`
+                                : `Marcar las ${cuantasPorCabys.get('')} filas sin CABYS`}
+                              className="block text-[10px] font-sans font-bold text-emerald-700 underline hover:text-emerald-900">
+                              marcar las {cuantasPorCabys.get(r.cabys_code ?? '')} iguales
+                            </button>
+                          )}
                           {r._cabys_heredado && (
                             <span className="block text-[10px] font-sans text-blue-600" title="No venía en el archivo: se tomó del producto que ya existe, emparejando por nombre">
                               del producto existente
@@ -1374,6 +1493,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                               title={r._cabys_desc ?? undefined}>
                               {r._cabys_origen === 'buscado a mano' ? 'buscado para esta fila'
                                 : r._cabys_origen === 'elegida de las opciones' ? 'elegido entre las opciones'
+                                : r._cabys_origen === 'elegido para las marcadas' ? 'puesto a las marcadas'
                                 : 'aplicado a todas'}
                             </span>
                           )}
@@ -1477,7 +1597,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                       </tr>
                     ))}
                     {filtradas.length > filasVisibles.length && (
-                      <tr><td colSpan={13} className="px-2 py-2 text-center">
+                      <tr><td colSpan={14} className="px-2 py-2 text-center">
                         <button type="button" onClick={() => setTope(t => t + 200)}
                           className="px-2 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50">
                           Ver 200 más ({filtradas.length - filasVisibles.length} sin mostrar)
