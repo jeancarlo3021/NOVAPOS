@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock, LogIn, LogOut, User, Check, Calendar } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { employeesService, attendanceService } from '@/services/hr/hrService';
+import { CodigosFichaje } from '../fichaje/CodigosFichaje';
 import type { Employee, AttendanceRecord } from '../types/HR.types';
 
 export const AttendanceTracker: React.FC = () => {
@@ -60,6 +61,13 @@ export const AttendanceTracker: React.FC = () => {
   const fmtTime = (iso?: string) => iso ? new Date(iso).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }) : '—';
 
   return (
+    <div className="space-y-5">
+    {/* CONFIGURACIÓN DEL FICHAJE, arriba del reloj manual.
+        El reloj de abajo lo maneja el encargado eligiendo a la persona de una
+        lista: sirve para corregir, pero no identifica a nadie. Lo de arriba es
+        lo que hace que cada quien marque lo suyo. */}
+    <CodigosFichaje />
+
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
       {/* Reloj marcador */}
@@ -174,6 +182,7 @@ export const AttendanceTracker: React.FC = () => {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 };

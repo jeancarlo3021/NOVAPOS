@@ -145,6 +145,13 @@ export interface TenantSubscription {
   started_at?: string;
   ends_at?: string;
   auto_renew?: boolean;
+  /**
+   * Lo que se le cobra A ESTE negocio, cuando se le pactó un monto aparte.
+   *
+   * Es el mismo campo que usan el portal de dueños y los avisos de WhatsApp:
+   * si está en null se cobra el precio de lista del plan.
+   */
+  custom_price?: number | null;
   plan?: {
     id: string;
     name: string;
@@ -753,7 +760,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const TENANT_SELECT = `
     id, name, owner_id, is_demo, created_at, subscription_id, plan_id, status,
     subscription:subscriptions!tenants_subscription_id_fkey (
-      id, status, started_at, ends_at, auto_renew,
+      id, status, started_at, ends_at, auto_renew, custom_price,
       plan:plan_id (
         id, name, description, price, billing_cycle,
         max_users, max_products, max_orders, features

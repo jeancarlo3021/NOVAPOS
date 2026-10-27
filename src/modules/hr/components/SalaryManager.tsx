@@ -51,7 +51,10 @@ export const SalaryManager: React.FC = () => {
     try {
       const p = await payrollService.preview(from, to);
       setPrev(p);
-      setLineas(p.lineas);
+      /* Si la respuesta no trae `lineas` —servidor sin la migración, o un error
+         devuelto con forma de éxito— la pantalla entera quedaba en blanco al
+         sumar los totales. Mejor una planilla vacía con su mensaje. */
+      setLineas(Array.isArray(p?.lineas) ? p.lineas : []);
     } catch (e) {
       setPrev(null); setLineas([]);
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo calcular la planilla' });
@@ -179,20 +182,20 @@ export const SalaryManager: React.FC = () => {
             className="px-3 py-2 rounded-xl border-2 border-gray-200 text-sm font-bold" />
         </div>
         <button onClick={() => setPeriodo(mesDe())}
-          className="px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50">
+          className="px-3 h-9 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50">
           Este mes
         </button>
         <button onClick={() => setPeriodo(mesDe(new Date(new Date().setMonth(new Date().getMonth() - 1))))}
-          className="px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50">
+          className="px-3 h-9 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50">
           Mes pasado
         </button>
         <div className="flex-1" />
         <button onClick={() => void cargar()} disabled={cargando}
-          className="p-2 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50">
+          className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50">
           <RefreshCw size={15} className={cargando ? 'animate-spin' : ''} />
         </button>
         <button onClick={() => { setVerHistorial(v => !v); }}
-          className="px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-1.5">
+          className="px-3 h-9 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-1.5">
           <History size={14} /> Planillas guardadas ({historial.length})
         </button>
       </div>
@@ -230,7 +233,7 @@ export const SalaryManager: React.FC = () => {
         <KPI icon={Users} label="Empleados en planilla" value={String(lineas.length)} color="bg-blue-500" />
         <KPI icon={DollarSign} label="Salarios base" value={fmt(totales.base)} color="bg-emerald-500" />
         <KPI icon={TrendingUp} label="Comisiones" value={fmt(totales.comisiones)} color="bg-violet-500"
-          sub={prev ? `sobre ${fmt(prev.totales.sales_total)} vendidos` : undefined} />
+          sub={prev?.totales ? `sobre ${fmt(prev.totales.sales_total)} vendidos` : undefined} />
         <KPI icon={FileText} label="Costo para el negocio" value={fmt(totales.costo)} color="bg-orange-500"
           sub={`con cargas patronales (${pct(cargas.patronal)})`} />
       </div>
@@ -249,12 +252,12 @@ export const SalaryManager: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={exportCsv} disabled={lineas.length === 0}
-              className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-md px-3 py-2 rounded-lg text-xs font-bold transition disabled:opacity-40">
+              className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-md px-3 h-9 rounded-lg text-xs font-bold transition disabled:opacity-40">
               <Download size={14} /> CSV
             </button>
             {!yaGuardada && (
               <button onClick={() => void guardar()} disabled={guardando || lineas.length === 0}
-                className="flex items-center gap-1.5 bg-white text-orange-700 px-4 py-2 rounded-lg text-xs font-black transition disabled:opacity-50">
+                className="flex items-center gap-1.5 bg-white text-orange-700 px-4 h-9 rounded-lg text-xs font-black transition disabled:opacity-50">
                 {guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 Guardar la planilla
               </button>

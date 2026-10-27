@@ -215,3 +215,135 @@ export const hrStats = {
     };
   },
 };
+
+/* ── FICHAJE (marcar entrada y salida) ──────────────────────────────────────
+ * La huella y el FaceID van por WebAuthn: el navegador verifica a la persona
+ * con el sensor del aparato y firma un desafío. Acá NO viaja ningún dato
+ * biométrico — lo único que se manda es esa firma.
+ */
+
+export interface ResultadoFichaje {
+  accion: 'entrada' | 'salida';
+  empleado: { id: string; full_name: string; position?: string | null };
+  hora: string;
+  horas?: number;
+}
+
+/** ¿El aparato puede fichar con huella/FaceID? Requiere HTTPS. */
+export async function biometriaDisponible(): Promise<boolean> {
+  try {
+    if (!window.PublicKeyCredential) return false;
+    return await (window.PublicKeyCredential as any)
+      .isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch { return false; }
+}
+
+/** base64url ⇄ ArrayBuffer: lo que WebAuthn pide y devuelve. */
+const aBuffer = (s: string): ArrayBuffer => {
+  const base = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(base + '='.repeat((4 - base.length % 4) % 4));
+  const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u.buffer;
+};
+const aTexto = (b: ArrayBuffer): string =>
+  btoa(String.fromCharCode(...new Uint8Array(b)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+const nombreDelAparato = () => {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad/i.test(ua)) return 'iPhone/iPad';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/Mac/i.test(ua)) return 'Mac';
+  if (/Windows/i.test(ua)) return 'Windows';
+  return 'Aparato';
+};
+
+export const fichajeService = {
+  /** Marcar con el código personal. El servidor decide si es entrada o salida. */
+  conCodigo: (pin: string) =>
+    apiFetch<ResultadoFichaje>('/hr/attendance/mark', {
+      method: 'POST',
+      body: JSON.stringify({ pin, device: nombreDelAparato() }),
+    }),
+
+  /** Quién marcó hoy. */
+  deHoy: () =>
+    apiFetch<{ date: string; marcajes: Array<{ employee_id: string; nombre: string; puesto: string | null; entrada: string; salida: string | null; horas: number | null }> }>(
+      '/hr/attendance/today'),
+
+  /** Cambiar el código de un empleado (lo hace quien administra la planilla). */
+  ponerCodigo: (employeeId: string, pin: string) =>
+    apiFetch<{ ok: true }>(`/hr/employees/${employeeId}/pin`, {
+      method: 'PUT', body: JSON.stringify({ pin }),
+    }),
+
+  /**
+   * Registrar la huella/FaceID de ESTE aparato.
+   *
+   * Se pide el código primero: si bastara con tener la sesión abierta,
+   * cualquiera podría registrar su dedo a nombre de otro empleado.
+   */
+  async registrarBiometria(pin: string): Promise<{ nombre: string }> {
+    const r = await apiFetch<{ options: any; employee_id: string; nombre: string }>(
+      '/hr/attendance/biometria/registro/opciones',
+      { method: 'POST', body: JSON.stringify({ pin }) });
+
+    const o = r.options;
+    const cred: any = await navigator.credentials.create({
+      publicKey: {
+        ...o,
+        challenge: aBuffer(o.challenge),
+        user: { ...o.user, id: aBuffer(o.user.id) },
+        excludeCredentials: (o.excludeCredentials ?? []).map((c: any) => ({ ...c, id: aBuffer(c.id) })),
+      },
+    });
+    if (!cred) throw new Error('No se registró el aparato');
+
+    await apiFetch('/hr/attendance/biometria/registro', {
+      method: 'POST',
+      body: JSON.stringify({
+        employee_id: r.employee_id,
+        etiqueta: nombreDelAparato(),
+        respuesta: {
+          id: cred.id, rawId: aTexto(cred.rawId), type: cred.type,
+          response: {
+            clientDataJSON: aTexto(cred.response.clientDataJSON),
+            attestationObject: aTexto(cred.response.attestationObject),
+          },
+          clientExtensionResults: cred.getClientExtensionResults?.() ?? {},
+        },
+      }),
+    });
+    return { nombre: r.nombre };
+  },
+
+  /** Fichar con la huella/FaceID ya registrada en este aparato. */
+  async conBiometria(): Promise<ResultadoFichaje> {
+    const o = await apiFetch<any>('/hr/attendance/biometria/opciones', { method: 'POST', body: '{}' });
+    const cred: any = await navigator.credentials.get({
+      publicKey: {
+        ...o,
+        challenge: aBuffer(o.challenge),
+        allowCredentials: (o.allowCredentials ?? []).map((c: any) => ({ ...c, id: aBuffer(c.id) })),
+      },
+    });
+    if (!cred) throw new Error('No se pudo leer la huella');
+    return apiFetch<ResultadoFichaje>('/hr/attendance/biometria/marcar', {
+      method: 'POST',
+      body: JSON.stringify({
+        device: nombreDelAparato(),
+        respuesta: {
+          id: cred.id, rawId: aTexto(cred.rawId), type: cred.type,
+          response: {
+            clientDataJSON: aTexto(cred.response.clientDataJSON),
+            authenticatorData: aTexto(cred.response.authenticatorData),
+            signature: aTexto(cred.response.signature),
+            userHandle: cred.response.userHandle ? aTexto(cred.response.userHandle) : null,
+          },
+          clientExtensionResults: cred.getClientExtensionResults?.() ?? {},
+        },
+      }),
+    });
+  },
+};

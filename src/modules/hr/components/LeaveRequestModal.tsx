@@ -112,7 +112,7 @@ export const LeaveRequestModal: React.FC = () => {
           <button
             key={f.id}
             onClick={() => setFilter(f.id as any)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+            className={`px-3 h-9 rounded-lg text-xs font-bold transition ${
               filter === f.id
                 ? `bg-${f.color}-500 text-white`
                 : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'

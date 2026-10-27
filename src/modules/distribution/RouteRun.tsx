@@ -202,7 +202,10 @@ export const RouteRun: React.FC = () => {
       {/* Header con degradado */}
       <div className="bg-linear-to-r from-cyan-600 to-blue-600 text-white px-4 pt-3 pb-4 sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/distribution')} className="p-2 -ml-2 rounded-lg hover:bg-white/15"><ArrowLeft size={18} /></button>
+          {/* Volver: era de 34px. Un botón de salida chico en la esquina es
+              justo el que se falla con el pulgar llevando una caja. */}
+          <button onClick={() => navigate('/distribution')} aria-label="Volver a las rutas"
+            className="w-11 h-11 shrink-0 -ml-2 flex items-center justify-center rounded-lg hover:bg-white/15"><ArrowLeft size={20} /></button>
           <div className="flex-1 min-w-0">
             <h1 className="font-black text-lg truncate flex items-center gap-2"><Truck size={18} /> {route.warehouse?.name ?? 'Ruta'}</h1>
             <p className="text-cyan-100 text-xs">{route.route_date} · {modLabel}</p>
@@ -427,7 +430,7 @@ export const RouteRun: React.FC = () => {
           <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h2 className="font-black text-gray-900 flex items-center gap-2"><Package size={18} /> Inventario del camión</h2>
-              <button onClick={() => setShowStock(false)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+              <button onClick={() => setShowStock(false)} aria-label="Cerrar" className="w-11 h-11 shrink-0 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={20} /></button>
             </div>
             <div className="p-4 overflow-y-auto">
               {stockLoading && <p className="text-center text-gray-400 text-sm py-10 flex items-center justify-center gap-2"><Loader2 size={15} className="animate-spin" /> Cargando…</p>}
@@ -472,7 +475,7 @@ function DeliverModal({ order, onClose, onConfirm }: {
             <h2 className="font-black text-gray-900">Entregar pedido</h2>
             <p className="text-xs text-gray-400">{order.customer?.name ?? order.customer_name ?? 'Cliente'} · {fmt(order.total)}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="w-11 h-11 shrink-0 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={20} /></button>
         </div>
         <div className="p-5 space-y-3">
           <p className="text-xs font-bold text-gray-500">¿Con qué pagó el cliente?</p>
@@ -621,6 +624,10 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
     return { ...r, baseUnit, unit_price, q, subtotal, promo };
   }).filter(l => l.q > 0);
   const total = lines.reduce((s, l) => s + l.subtotal, 0);
+  /** Unidades, para que el repartidor controle el bulto además del monto. */
+  const totalUnidades = Math.round(lines.reduce((s, l) => s + l.q, 0) * 100) / 100;
+  /** El detalle del carrito, plegado por omisión para no comerse la pantalla. */
+  const [verDetalle, setVerDetalle] = useState(false);
 
   const setQ = (id: string, v: number, available: number) => {
     let n = Math.max(0, Number(v) || 0);   // permite decimales (tipo de medida)
@@ -731,7 +738,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
             <h2 className="font-black text-gray-900">{isAuto ? 'Vender' : 'Tomar pedido'}</h2>
             <p className="text-xs text-gray-400">{customer?.name ?? 'Mostrador (sin cliente)'}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="w-11 h-11 shrink-0 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={20} /></button>
         </div>
 
         {/* Selector de cliente (cuando es mostrador, sin parada fija) */}
@@ -787,7 +794,10 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
                     </div>
                     {q > 0 && <span className={`text-[10px] font-black text-white rounded-full px-1.5 py-0.5 ${special ? 'bg-violet-600' : 'bg-emerald-600'}`}>{q}</span>}
                   </div>
-                  <p className="text-xs font-bold text-gray-800 leading-tight mt-1.5 line-clamp-2 min-h-8">{r.name}</p>
+                  {/* El nombre es lo único que distingue un producto de otro:
+                      va un punto más grande y partiendo palabras largas antes
+                      que recortarlas. */}
+                  <p className="text-[13px] font-bold text-gray-800 leading-tight mt-1.5 line-clamp-2 min-h-9 break-words" title={r.name}>{r.name}</p>
                   <div className="mt-0.5">
                     {promo && promo.type !== '2x1'
                       ? (<>
@@ -801,14 +811,23 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
                     {byWeight && <span className="ml-1 text-[8px] font-black text-amber-600 bg-amber-100 px-1 rounded uppercase">por {unit.name}</span>}
                     {isAuto && <p className={`text-[10px] font-bold ${r.available <= 0 ? 'text-red-500' : 'text-gray-400'}`}>camión: {r.available}{unit ? ` ${unit.abbreviation}` : ''}</p>}
                   </div>
+                  {/* BOTONES PARA DEDO, NO PARA MOUSE.
+                      Medido en un teléfono de 360 px: −/+ eran de 28×28 y la
+                      cantidad de 30 de alto. El repartidor vende parado, con
+                      una mano y a veces bajo el sol; con ese tamaño se toca el
+                      botón de al lado o se abre el teclado sin querer. 40 px
+                      es lo mínimo cómodo y sigue entrando en dos columnas. */}
                   <div className="flex items-center gap-1 mt-2">
                     <button onClick={() => setQ(r.product_id, q - (byWeight ? 0.5 : 1), r.available)} disabled={q <= 0}
-                      className="w-7 h-7 rounded-lg bg-gray-100 text-gray-700 font-black disabled:opacity-30">−</button>
+                      aria-label={`Quitar uno de ${r.name}`}
+                      className="w-10 h-10 shrink-0 rounded-lg bg-gray-100 text-gray-700 text-lg font-black disabled:opacity-30 active:bg-gray-200">−</button>
                     <input type="number" inputMode="decimal" step={byWeight ? '0.01' : 'any'} value={qty[r.product_id] ?? ''} disabled={noStock}
                       onChange={e => setQ(r.product_id, parseFloat(e.target.value) || 0, r.available)} placeholder="0"
-                      className="flex-1 w-full min-w-0 text-center border border-gray-200 rounded-lg py-1 text-sm disabled:bg-gray-100" />
+                      aria-label={`Cantidad de ${r.name}`}
+                      className="flex-1 w-full min-w-0 h-10 text-center border border-gray-200 rounded-lg text-base font-bold disabled:bg-gray-100" />
                     <button onClick={() => setQ(r.product_id, q + (byWeight ? 0.5 : 1), r.available)} disabled={noStock || (isAuto && q >= r.available)}
-                      className={`w-7 h-7 rounded-lg text-white font-black disabled:opacity-30 ${special ? 'bg-violet-500' : 'bg-emerald-500'}`}>+</button>
+                      aria-label={`Agregar uno de ${r.name}`}
+                      className={`w-10 h-10 shrink-0 rounded-lg text-white text-lg font-black disabled:opacity-30 active:brightness-90 ${special ? 'bg-violet-500' : 'bg-emerald-500'}`}>+</button>
                   </div>
                   {byWeight && (
                     <button onClick={() => setWeightFor({ id: r.product_id, name: r.name, price, available: r.available, abbr: unit?.abbreviation ?? 'kg' })} disabled={noStock}
@@ -828,7 +847,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
               <div className="flex gap-2">
                 {(['tiquete_electronico', 'factura_electronica'] as const).map(dt => (
                   <button key={dt} onClick={() => setDocumentType(dt)}
-                    className={`flex-1 py-2 rounded-lg text-xs font-bold ${documentType === dt ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                    className={`flex-1 min-h-11 py-2.5 rounded-lg text-xs font-bold ${documentType === dt ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
                     {dt === 'tiquete_electronico' ? 'Tiquete elec.' : 'Factura elec.'}
                   </button>
                 ))}
@@ -841,7 +860,7 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
                 ...(customer?.id ? (['credit'] as const) : []),
               ] as ('cash' | 'card' | 'sinpe' | 'mixed' | 'credit')[]).map(m => (
                 <button key={m} onClick={() => setPaymentMethod(m)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : m === 'mixed' ? 'bg-violet-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
+                  className={`flex-1 min-w-24 min-h-11 py-2.5 rounded-lg text-xs font-bold ${paymentMethod === m ? (m === 'credit' ? 'bg-amber-600 text-white' : m === 'mixed' ? 'bg-violet-600 text-white' : 'bg-cyan-600 text-white') : 'bg-gray-100 text-gray-600'}`}>
                   {payLabel(m)}
                 </button>
               ))}
@@ -867,10 +886,38 @@ function SaleModal({ tenantId, route, stop, mode, onClose, onDone, onPrint }: {
             )}
           </div>
         )}
+        {/* QUÉ LLEVA LA VENTA.
+            En una cuadrícula de dos columnas con veinte productos, lo agregado
+            queda repartido entre tarjetas resaltadas que hay que ir a buscar
+            rodando la pantalla. Antes de cobrar, el repartidor necesita ver la
+            lista —y poder quitar una línea sin cazar la tarjeta—. Se abre solo
+            cuando hay algo; cerrado no ocupa nada. */}
+        {lines.length > 0 && (
+          <div className="px-4 pt-2 border-t border-gray-100">
+            <button onClick={() => setVerDetalle(v => !v)}
+              className="w-full min-h-11 flex items-center justify-between gap-2 py-1.5 text-xs font-black text-gray-600">
+              <span>{lines.length} producto(s) · {totalUnidades} u.</span>
+              <span className="text-emerald-700">{verDetalle ? 'Ocultar' : 'Ver detalle'}</span>
+            </button>
+            {verDetalle && (
+              <ul className="max-h-32 overflow-y-auto space-y-1 pb-1">
+                {lines.map(l => (
+                  <li key={l.product_id} className="flex items-center gap-2 text-xs">
+                    <span className="flex-1 min-w-0 truncate font-bold text-gray-700">{l.q} × {l.name}</span>
+                    <span className="tabular-nums font-black text-gray-800 shrink-0">{fmt(l.subtotal)}</span>
+                    <button onClick={() => setQ(l.product_id, 0, Infinity)}
+                      aria-label={`Quitar ${l.name}`}
+                      className="w-10 h-10 shrink-0 rounded-lg text-red-500 hover:bg-red-50 text-lg font-black">×</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-3">
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <p className="text-xs text-gray-400">Total</p>
-            <p className="text-xl font-black text-gray-900">{fmt(total)}</p>
+            <p className="text-xl font-black text-gray-900 truncate">{fmt(total)}</p>
           </div>
           <button onClick={() => isAuto ? tryPreview() : confirm()} disabled={saving || lines.length === 0}
             className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black px-5 py-3 rounded-xl text-sm">
@@ -952,7 +999,7 @@ function WeightEntryModal({ entry, isAuto, onConfirm, onClose }: {
               <p className="text-emerald-100 text-xs">{fmt(entry.price)} / {entry.abbr}{isAuto ? ` · camión: ${entry.available} ${entry.abbr}` : ''}</p>
             </div>
           </div>
-          <button onClick={onClose} className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center"><X size={16} className="text-white" /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="w-11 h-11 shrink-0 bg-white/20 rounded-xl flex items-center justify-center"><X size={18} className="text-white" /></button>
         </div>
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-2">

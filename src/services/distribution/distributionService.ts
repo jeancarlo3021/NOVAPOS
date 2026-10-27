@@ -84,6 +84,22 @@ export const distributionService = {
 
   centralStock: () => apiFetch<Record<string, number>>('/routes/central-stock'),
 
+  /**
+   * QUÉ CARGAR SEGÚN LA PREVENTA de una fecha.
+   *
+   * El histórico sirve para autoventa —salir a vender lo que suele venderse—;
+   * la preventa es al revés: ya está vendido y el camión tiene que llevar
+   * exactamente eso.
+   */
+  loadFromOrders: (date: string, zone?: string) =>
+    apiFetch<{
+      date: string;
+      orders: Array<{ id: string; number: string; customer_name?: string | null; zone?: string | null; total: number; status: string; assigned_name?: string | null }>;
+      suggestion: Record<string, number>;
+      products: Array<{ product_id: string; name: string; sku?: string | null; quantity: number; stock_available: number; tracks_stock: boolean; falta: number }>;
+      sin_producto?: Array<{ name: string; quantity: number }>;
+    }>(`/routes/load-from-orders?date=${encodeURIComponent(date)}${zone ? `&zone=${encodeURIComponent(zone)}` : ''}`),
+
   /** Sugerencia de carga por histórico: cantidad promedio vendida por producto. */
   loadSuggestion: (warehouseId: string, days = 30) =>
     apiFetch<{ suggestion: Record<string, number>; routes: number; days: number }>(

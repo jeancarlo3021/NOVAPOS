@@ -37,14 +37,24 @@ export const StockAdjustModal: React.FC<Props> = ({ product, onClose, onSuccess 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const qty = parseFloat(quantity) || 0;
+  /**
+   * VACÍO NO ES LO MISMO QUE CERO.
+   *
+   * `parseFloat('') || 0` da 0, así que con una sola variable no se podía
+   * distinguir «todavía no escribió nada» de «escribió cero». Por eso el modal
+   * exigía `qty > 0` y CERO QUEDABA PROHIBIDO: contabas un producto, no había
+   * ninguno, escribías 0 y el botón de guardar seguía apagado. La única salida
+   * era inventar una salida por la cantidad exacta que decía el sistema.
+   */
+  const hayCantidad = quantity.trim() !== '' && Number.isFinite(parseFloat(quantity));
+  const qty = hayCantidad ? parseFloat(quantity) : 0;
   const stockBefore = Number(product.stock_quantity ?? 0);
 
   // Calcular el stock después según el tipo
   let stockAfter = stockBefore;
-  if (selectedReason && qty > 0) {
+  if (selectedReason && hayCantidad) {
     if (selectedReason.direction === 'set') {
-      stockAfter = qty;
+      stockAfter = Math.max(0, qty);
     } else if (selectedReason.direction === 'in') {
       stockAfter = stockBefore + qty;
     } else {
@@ -52,11 +62,32 @@ export const StockAdjustModal: React.FC<Props> = ({ product, onClose, onSuccess 
     }
   }
   const diff = stockAfter - stockBefore;
-  const isValid = selectedReason !== null && qty > 0;
+
+  /**
+   * Cuándo se puede guardar.
+   *
+   * - Poner un total («Conteo», «Corrección manual»): vale CERO. Es el caso
+   *   que estaba roto, y es el más común al cuadrar inventario.
+   * - Entrada o salida: sumar o restar cero no es un ajuste, es un registro
+   *   vacío.
+   * - En los dos casos, el ajuste tiene que cambiar algo: guardar uno que deja
+   *   el stock igual solo ensucia el historial.
+   */
+  const ponerTotal = selectedReason?.direction === 'set';
+  const cantidadOk = hayCantidad && qty >= 0 && (ponerTotal || qty > 0);
+  const isValid = selectedReason !== null && cantidadOk && diff !== 0;
+
+  /** Por qué no se puede guardar todavía, dicho en palabras. */
+  const motivoBloqueo = !selectedReason ? 'Elegí un motivo'
+    : !hayCantidad ? (ponerTotal ? 'Escribí el stock contado' : 'Escribí la cantidad')
+    : qty < 0 ? 'La cantidad no puede ser negativa'
+    : (!ponerTotal && qty === 0) ? 'Una entrada o salida de cero no ajusta nada'
+    : diff === 0 ? `El stock ya es ${stockBefore}: este ajuste no cambiaría nada`
+    : '';
 
   const handleSubmit = async () => {
     if (!isValid || !selectedReason) {
-      setError(!selectedReason ? 'Selecciona un motivo' : 'Ingresa una cantidad válida');
+      setError(motivoBloqueo || 'Revisá el motivo y la cantidad');
       return;
     }
     setLoading(true);
@@ -110,7 +141,7 @@ export const StockAdjustModal: React.FC<Props> = ({ product, onClose, onSuccess 
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Stock actual</p>
               <p className="text-3xl font-black text-gray-900">{stockBefore}</p>
             </div>
-            {selectedReason && qty > 0 && (
+            {selectedReason && hayCantidad && (
               <>
                 <div className={`text-2xl font-black ${diff > 0 ? 'text-emerald-500' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>
                   {diff > 0 ? '+' : ''}{diff}
@@ -208,6 +239,9 @@ export const StockAdjustModal: React.FC<Props> = ({ product, onClose, onSuccess 
         </div>
 
         {/* Footer */}
+        {selectedReason && !isValid && motivoBloqueo && (
+          <p className="px-5 pb-1 text-xs font-bold text-gray-400">{motivoBloqueo}</p>
+        )}
         <div className="bg-gray-50 border-t border-gray-200 px-4 py-3 grid grid-cols-2 gap-2 shrink-0">
           <button
             onClick={onClose}
@@ -219,6 +253,9 @@ export const StockAdjustModal: React.FC<Props> = ({ product, onClose, onSuccess 
           <button
             onClick={handleSubmit}
             disabled={loading || !isValid}
+            /* El botón apagado dice POR QUÉ. Sin esto, el cajero que escribía
+               un cero se quedaba mirando un botón gris sin ninguna pista. */
+            title={!isValid ? motivoBloqueo : undefined}
             className="h-12 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-sm transition"
           >
             {loading ? 'Guardando...' : 'Confirmar Ajuste'}

@@ -17,7 +17,10 @@ import { inventoryProductsService } from '@/services/Inventory/InventoryProducts
 import { unitTypesService } from '@/services/Inventory/unitTypesService';
 import type { Product } from '@/types/Types_POS';
 
-const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
+/* Miles con punto: `toLocaleString('es-CR')` devuelve un espacio fino según el
+   navegador —«₡45 000»— y no es como se escribe un monto acá. */
+const fmt = (n: number) =>
+  `₡${Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 const today = () => new Date().toISOString().slice(0, 10);
 
 export const DistributionDashboard: React.FC = () => {
@@ -706,6 +709,34 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
     finally { setSuggesting(false); }
   };
 
+  /**
+   * CARGAR SEGÚN LA PREVENTA.
+   *
+   * Lo que el distribuidor necesita de verdad cuando trabaja con preventa: el
+   * camión no sale con un promedio, sale con lo que ya se vendió para esa
+   * fecha. Se avisa además de lo que NO alcanza en bodega —cargar lo que no
+   * hay es la forma de dejar sin producto a un cliente que ya compró— y de las
+   * líneas que el agente escribió a mano, que no se pueden cargar solas.
+   */
+  const [preventa, setPreventa] = useState<Awaited<ReturnType<typeof distributionService.loadFromOrders>> | null>(null);
+
+  const suggestPreventa = async () => {
+    setSuggesting(true); setErr('');
+    try {
+      const r = await distributionService.loadFromOrders(route.route_date);
+      setPreventa(r);
+      if (Object.keys(r.suggestion).length) {
+        applyMap(r.suggestion);
+        const faltan = r.products.filter(p => p.falta > 0).length;
+        flash(`${r.orders.length} pedido(s) de preventa cargados`
+          + (faltan ? ` · ${faltan} producto(s) sin existencias suficientes` : ''));
+      } else {
+        flash(`No hay pedidos de preventa pendientes para el ${route.route_date}`);
+      }
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Error al traer la preventa'); }
+    finally { setSuggesting(false); }
+  };
+
   // #5 Imprimir la lista de carga (ventana del navegador → cualquier impresora/PDF).
   const printLoad = () => {
     const rows = items.map(i => `<tr><td>${nameOf(i.product_id)}</td><td style="text-align:right;font-weight:bold">${i.quantity} ${abbrOf(i.product_id)}</td></tr>`).join('');
@@ -750,6 +781,13 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
               className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm" />
           </div>
           <div className="flex flex-wrap gap-1.5">
+            {/* Va PRIMERO y resaltado: en un distribuidor con preventa, cargar
+                lo ya vendido es la opción correcta, y el histórico pasa a ser
+                la de respaldo. */}
+            <button onClick={suggestPreventa} disabled={suggesting}
+              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black hover:bg-emerald-700 disabled:opacity-50">
+              {suggesting ? 'Buscando…' : '🧾 Cargar la preventa del día'}
+            </button>
             <button onClick={suggestHistory} disabled={suggesting}
               className="px-2.5 py-1.5 rounded-lg bg-cyan-50 text-cyan-700 text-xs font-bold hover:bg-cyan-100 disabled:opacity-50">
               {suggesting ? 'Calculando…' : '📊 Sugerir por histórico'}
@@ -761,6 +799,48 @@ function LoadTruckModal({ tenantId, route, onClose, onDone }: { tenantId: string
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           {err && <div className="mb-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+
+          {/* QUÉ PEDIDOS COMPONEN ESTA CARGA.
+              Sin esto, el encargado ve números cambiados y tiene que creer:
+              acá puede comprobar contra los pedidos y ver qué NO alcanza. */}
+          {preventa && preventa.orders.length > 0 && (
+            <div className="mb-3 rounded-xl border-2 border-emerald-200 bg-emerald-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-black text-emerald-800">
+                  Preventa del {preventa.date} · {preventa.orders.length} pedido(s)
+                </p>
+                <button onClick={() => setPreventa(null)}
+                  className="text-[11px] font-bold text-emerald-700 hover:underline">Ocultar</button>
+              </div>
+              <ul className="mt-1.5 text-[11px] font-bold text-emerald-900 space-y-0.5 max-h-24 overflow-y-auto">
+                {preventa.orders.map(o => (
+                  <li key={o.id} className="flex justify-between gap-2">
+                    <span className="truncate">{o.number} · {o.customer_name || 'sin cliente'}{o.zone ? ` · ${o.zone}` : ''}</span>
+                    <span className="tabular-nums shrink-0">{fmt(o.total)}</span>
+                  </li>
+                ))}
+              </ul>
+              {preventa.products.some(p => p.falta > 0) && (
+                <div className="mt-2 rounded-lg bg-white border border-red-200 px-2.5 py-2">
+                  <p className="text-[11px] font-black text-red-700">No alcanza en bodega:</p>
+                  <ul className="text-[11px] font-bold text-red-800 mt-0.5 space-y-0.5">
+                    {preventa.products.filter(p => p.falta > 0).map(p => (
+                      <li key={p.product_id} className="flex justify-between gap-2">
+                        <span className="truncate">{p.name}</span>
+                        <span className="tabular-nums shrink-0">piden {p.quantity} · hay {p.stock_available}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {(preventa.sin_producto ?? []).length > 0 && (
+                <p className="mt-2 text-[11px] font-bold text-amber-800">
+                  Fuera del catálogo (hay que resolverlo aparte):{' '}
+                  {(preventa.sin_producto ?? []).map(x => `${x.quantity}× ${x.name}`).join(', ')}
+                </p>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {filtered.map(p => {
               const avail = availOf(p.id);

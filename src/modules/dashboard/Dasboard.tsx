@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, Sparkles , BookOpenCheck, Search, Star} from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, Sparkles , BookOpenCheck, Search, Star, Clock, UserCog} from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { AsistenteIA } from '@/modules/ia/AsistenteIA';
+import { FichajeModal } from '@/modules/hr/fichaje/FichajeModal';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
@@ -68,6 +69,10 @@ const ALL_TILES: Tile[] = [
   // Estaba en el menú lateral pero NO acá, así que desde el tablero no había
   // forma de llegar: para quien entra por el tablero, el módulo no existía.
   { feature: 'accounting',       label: 'Contabilidad',    icon: BookOpenCheck, path: '/accounting',       bg: 'from-slate-600 to-gray-800'       },
+  /* Estaba solo en la barra lateral, igual que pasaba con Contabilidad: quien
+     lleva la planilla entraba por el menú lateral porque en el tablero no
+     existía. */
+  { feature: 'hr',               label: 'Recursos Humanos', icon: UserCog,      path: '/hr',               bg: 'from-indigo-500 to-violet-700'    },
   { feature: 'accounts_receivable', label: 'Por Cobrar',   icon: HandCoins,     path: '/accounts-receivable', bg: 'from-teal-500 to-emerald-600'  },
   { feature: 'purchases',        label: 'Compras',         icon: ClipboardList, path: '/purchases',        bg: 'from-cyan-500 to-sky-600'         },
   { feature: 'promotions',       label: 'Promociones',     icon: Tag,           path: '/promotions',       bg: 'from-violet-500 to-purple-600'    },
@@ -109,6 +114,8 @@ const ALL_TILES: Tile[] = [
 export const Dashboard = () => {
   /** Asistente de preguntas sobre el negocio (hoy en modo demostración). */
   const [asistente, setAsistente] = useState(false);
+  /** El modal de marcar hora. Vive en el tablero: lo usa todo el personal. */
+  const [fichando, setFichando] = useState(false);
   const { user, planFeatures, tenant } = useAuth();
   const { tenantId } = useTenantId();
   const navigate = useNavigate();
@@ -333,6 +340,7 @@ export const Dashboard = () => {
     '/fe-recepcion': 'facturacion recepcion compras recibidas proveedores correo xml',
     '/pos': 'caja cobrar vender punto de venta',
     '/accounting': 'contabilidad asientos libro diario mayor balance partida doble',
+    '/hr': 'rh recursos humanos planilla empleados salarios asistencia marcar hora vacaciones aguinaldo incapacidad ccss',
     '/inventory': 'bodega stock existencias productos articulos',
     '/accounts-payable': 'cuentas por pagar proveedores deudas',
     '/accounts-receivable': 'cobrar credito fiado deudores',
@@ -441,6 +449,29 @@ export const Dashboard = () => {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
       {asistente && <AsistenteIA onClose={() => setAsistente(false)} />}
+      {fichando && <FichajeModal onClose={() => setFichando(false)} />}
+
+      {/* ── MARCAR HORA ──────────────────────────────────────────────────
+          Va en el tablero y no adentro de Planilla a propósito: lo usa TODO
+          el personal varias veces al día —entrada, salida— y nadie va a
+          navegar tres pantallas para eso. Medido antes de hacerlo: el fichaje
+          existía en el servidor desde hace rato y tenía CERO marcajes, porque
+          no había por dónde usarlo. */}
+      {/* Chico: ocupa lo que mide su texto, no el ancho de la pantalla. Un
+          botón que se usa en dos segundos no tiene por qué pesar lo mismo que
+          un módulo. Los 44 px de alto se mantienen: se toca con el dedo. */}
+      {flagOn(planFeatures, 'hr') && (
+        <div className="flex">
+          <button
+            type="button"
+            onClick={() => setFichando(true)}
+            title="Marcar entrada o salida con tu código o tu huella"
+            className="inline-flex items-center gap-2 h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-sm transition"
+          >
+            <Clock size={16} /> Marcar hora
+          </button>
+        </div>
+      )}
 
       {/* ── Panel Admin — primero, porque es donde entra el administrador ──
           Estaba solo al final de la barra lateral, dentro de «Sistema»: quien

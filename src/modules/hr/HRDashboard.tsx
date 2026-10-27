@@ -11,6 +11,7 @@ import { SalaryManager } from './components/SalaryManager';
 import { LeaveRequestModal } from './components/LeaveRequestModal';
 import { AttendanceTracker } from './components/AttendanceTracker';
 import { EmployeeSelfView } from './components/EmployeeSelfView';
+import { FichajeModal } from './fichaje/FichajeModal';
 import { hrStats } from '@/services/hr/hrService';
 import type { Employee, EmployeeStatus } from './types/HR.types';
 
@@ -32,7 +33,10 @@ const MODULES: ModuleDef[] = [
   { id: 'payroll',    icon: DollarSign, title: 'Planilla',   desc: 'Salarios, comisiones de ventas y cargas sociales', color: 'bg-amber-100 text-amber-600'  },
 ];
 
-const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
+/* Miles con punto: `toLocaleString('es-CR')` devuelve un espacio fino según el
+   navegador —«₡1 250 000»— y no es como se escribe un monto acá. */
+const fmt = (n: number) =>
+  `₡${Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 
 // Roles que se consideran gerentes (acceso completo)
 const MANAGER_ROLES = ['owner', 'admin', 'manager', 'supervisor'];
@@ -52,6 +56,8 @@ export const HRDashboard: React.FC = () => {
 
   // Por defecto el gerente ve la vista manager, los demás solo employee
   const [viewMode, setViewMode] = useState<ViewMode>(isManager ? 'manager' : 'employee');
+  /** Marcar hora, también desde acá: es la pantalla donde el encargado ya está. */
+  const [fichando, setFichando] = useState(false);
   const [selectedModule, setSelectedModule] = useState<ModuleId | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,12 +113,27 @@ export const HRDashboard: React.FC = () => {
             </div>
           </div>
 
+          {fichando && <FichajeModal onClose={() => setFichando(false)} />}
+
+          {/* Marcar hora acá también: el encargado que abre Recursos Humanos
+              para revisar la asistencia es el mismo que ficha al personal que
+              llega sin teléfono. */}
+          {!selectedModule && (
+            <button
+              type="button"
+              onClick={() => setFichando(true)}
+              className="inline-flex items-center gap-2 h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-sm shrink-0"
+            >
+              <Clock size={16} /> Marcar hora
+            </button>
+          )}
+
           {/* Toggle vista — solo si es gerente */}
           {isManager && !selectedModule && (
             <div className="flex bg-gray-100 p-1 rounded-xl">
               <button
                 onClick={() => setViewMode('employee')}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition ${
+                className={`flex items-center gap-1.5 px-3 sm:px-4 h-9 rounded-lg text-xs font-bold transition ${
                   viewMode === 'employee' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -120,7 +141,7 @@ export const HRDashboard: React.FC = () => {
               </button>
               <button
                 onClick={() => setViewMode('manager')}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition ${
+                className={`flex items-center gap-1.5 px-3 sm:px-4 h-9 rounded-lg text-xs font-bold transition ${
                   viewMode === 'manager' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -178,11 +199,24 @@ export const HRDashboard: React.FC = () => {
                 ))}
               </div>
             ) : stats ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <StatCard label="Personal activo" value={`${stats.counts.active}/${stats.total}`} color="text-blue-600 bg-blue-100" icon={Users} />
-                <StatCard label="Presentes hoy"   value={String(stats.presentToday)}              color="text-violet-600 bg-violet-100" icon={Clock} />
-                <StatCard label="Solicitudes pendientes" value={String(stats.pendingLeave)}        color="text-amber-600 bg-amber-100" icon={Calendar} />
-                <StatCard label="Nómina proyectada" value={fmt(stats.payroll.total)}                color="text-emerald-600 bg-emerald-100" icon={DollarSign} />
+              /* Los indicadores LLEVAN a su módulo. «Presentes hoy: 3» y
+                 «Solicitudes pendientes: 2» eran números que no se podían
+                 abrir: para ver quiénes son había que adivinar en cuál de las
+                 cuatro fichas de abajo estaban. */
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-8">
+                <StatCard label="Personal activo" value={`${stats.counts.active}/${stats.total}`}
+                  color="text-blue-600 bg-blue-100" icon={Users}
+                  onClick={() => setSelectedModule('employees')} />
+                <StatCard label="Presentes hoy" value={String(stats.presentToday)}
+                  color="text-violet-600 bg-violet-100" icon={Clock}
+                  onClick={() => setSelectedModule('attendance')} />
+                <StatCard label="Solicitudes pendientes" value={String(stats.pendingLeave)}
+                  color="text-amber-600 bg-amber-100" icon={Calendar}
+                  resalta={stats.pendingLeave > 0}
+                  onClick={() => setSelectedModule('leave')} />
+                <StatCard label="Nómina proyectada" value={fmt(stats.payroll.total)}
+                  color="text-emerald-600 bg-emerald-100" icon={DollarSign}
+                  onClick={() => setSelectedModule('payroll')} />
               </div>
             ) : null}
 
@@ -215,14 +249,26 @@ export const HRDashboard: React.FC = () => {
   );
 };
 
-const StatCard: React.FC<{ label: string; value: string; color: string; icon: React.ElementType }> = ({ label, value, color, icon: Icon }) => (
-  <div className="bg-white p-5 rounded-2xl border border-gray-100">
+const StatCard: React.FC<{
+  label: string; value: string; color: string; icon: React.ElementType;
+  onClick?: () => void;
+  /** Para lo que pide atención: una solicitud sin responder no es un dato más. */
+  resalta?: boolean;
+}> = ({ label, value, color, icon: Icon, onClick, resalta }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={!onClick}
+    className={`text-left bg-white p-4 sm:p-5 rounded-2xl border transition w-full
+      ${resalta ? 'border-amber-300 ring-1 ring-amber-200' : 'border-gray-100'}
+      ${onClick ? 'hover:border-emerald-300 hover:shadow-md active:scale-[0.99] cursor-pointer' : ''}`}
+  >
     <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-2 ${color}`}>
       <Icon size={18} />
     </div>
-    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-0.5">{label}</p>
-    <p className="text-2xl font-black text-gray-900 leading-tight truncate">{value}</p>
-  </div>
+    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-0.5 leading-tight">{label}</p>
+    <p className="text-xl sm:text-2xl font-black text-gray-900 leading-tight truncate">{value}</p>
+  </button>
 );
 
 export default HRDashboard;

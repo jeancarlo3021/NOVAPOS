@@ -179,7 +179,17 @@ export const PaymentReminderModal: React.FC = () => {
     setCerrado(true);
   };
 
-  const monto = Number(sub?.plan?.price ?? 0);
+  /**
+   * EL MONTO ES EL DE ESTE CLIENTE, NO EL DEL PLAN.
+   *
+   * Acá se mostraba el precio de lista del plan, y a casi nadie se le cobra
+   * eso: el monto pactado va en `custom_price` de la suscripción. El dueño al
+   * que se le rebajó —o al que se le cobra algo aparte— leía una cifra que no
+   * era la suya, hacía el SINPE por ese monto y había que devolverle o
+   * cobrarle la diferencia. El portal de dueños, la factura y el aviso de
+   * WhatsApp ya resolvían así: `custom_price` y, si no hay, el precio del plan.
+   */
+  const monto = Number(sub?.custom_price ?? sub?.plan?.price ?? 0);
   const plan = sub?.plan?.name ?? 'tu plan';
 
   /**

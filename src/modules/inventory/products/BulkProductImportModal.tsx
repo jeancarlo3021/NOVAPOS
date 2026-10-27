@@ -1056,7 +1056,12 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col">
+      {/* ANCHO: la vista previa tiene TRECE columnas (nombre, dos SKU, precio,
+          costo, stock, proveedor, categoría, unidad, CABYS, IVA, estado). En
+          768px no caben: el nombre del producto —lo único que permite ver si la
+          fila está bien— quedaba cortado y había que arrastrar la tabla de lado
+          para revisar el CABYS. Ahora usa el ancho de la pantalla. */}
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl md:max-w-5xl xl:max-w-[82rem] max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -1315,29 +1320,31 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">#</th>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">Nombre</th>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">SKU</th>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">SKU2</th>
-                      <th className="px-3 py-2 text-right font-bold text-gray-600">Precio</th>
-                      <th className="px-3 py-2 text-right font-bold text-gray-600">Costo</th>
-                      <th className="px-3 py-2 text-right font-bold text-gray-600">Stock</th>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">Proveedor</th>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">Categoría</th>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">Unidad</th>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">CABYS</th>
-                      <th className="px-3 py-2 text-right font-bold text-gray-600">IVA</th>
-                      <th className="px-3 py-2 text-left font-bold text-gray-600">Estado</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">#</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">Nombre</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">SKU</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">SKU2</th>
+                      <th className="px-2 py-2 text-right font-bold text-gray-600">Precio</th>
+                      <th className="px-2 py-2 text-right font-bold text-gray-600">Costo</th>
+                      <th className="px-2 py-2 text-right font-bold text-gray-600">Stock</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">Proveedor</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">Categoría</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">Unidad</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">CABYS</th>
+                      <th className="px-2 py-2 text-right font-bold text-gray-600">IVA</th>
+                      <th className="px-2 py-2 text-left font-bold text-gray-600">Estado</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {filasVisibles.map(({ r, i }) => (
                       <tr key={i} className={r._error ? 'bg-red-50' : ''}>
-                        <td className="px-3 py-1.5 text-gray-400">{i + 1}</td>
-                        <td className="px-3 py-1.5 font-semibold text-gray-800 truncate max-w-48">{r.name || '—'}</td>
-                        <td className="px-3 py-1.5 font-mono text-gray-500">{r.sku || '—'}</td>
-                        <td className="px-3 py-1.5 font-mono text-gray-500">{r.sku2 || '—'}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
+                        <td className="px-2 py-1.5 text-gray-400">{i + 1}</td>
+                        {/* Con el modal ancho el nombre puede usar el espacio: recortarlo a 192px
+                            desperdiciaba la pantalla grande. */}
+                        <td className="px-2 py-1.5 font-semibold text-gray-800 truncate max-w-48 xl:max-w-96">{r.name || '—'}</td>
+                        <td className="px-2 py-1.5 font-mono text-gray-500">{r.sku || '—'}</td>
+                        <td className="px-2 py-1.5 font-mono text-gray-500">{r.sku2 || '—'}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">
                           ₡{miles(precioNeto(r.unit_price, r.iva_rate))}
                           {impuestoEnPrecio === 'incluido' && (
                             <span className="block text-[10px] text-gray-400">
@@ -1345,12 +1352,12 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">{r.cost_price != null ? `₡${r.cost_price.toLocaleString('es-CR')}` : '—'}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{r.tracks_stock === false ? '∞' : (r.stock_quantity ?? 0)}</td>
-                        <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.supplier ?? '—'}</td>
-                        <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.category ?? '—'}</td>
-                        <td className="px-3 py-1.5 text-gray-600 truncate max-w-32">{r.unit_type ?? '—'}</td>
-                        <td className="px-3 py-1.5 font-mono text-gray-500">
+                        <td className="px-2 py-1.5 text-right tabular-nums text-gray-500">{r.cost_price != null ? `₡${r.cost_price.toLocaleString('es-CR')}` : '—'}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{r.tracks_stock === false ? '∞' : (r.stock_quantity ?? 0)}</td>
+                        <td className="px-2 py-1.5 text-gray-600 truncate max-w-32">{r.supplier ?? '—'}</td>
+                        <td className="px-2 py-1.5 text-gray-600 truncate max-w-32">{r.category ?? '—'}</td>
+                        <td className="px-2 py-1.5 text-gray-600 truncate max-w-32">{r.unit_type ?? '—'}</td>
+                        <td className="px-2 py-1.5 font-mono text-gray-500">
                           {r.cabys_code || <span className="text-amber-600">sin CABYS</span>}
                           {r._cabys_heredado && (
                             <span className="block text-[10px] font-sans text-blue-600" title="No venía en el archivo: se tomó del producto que ya existe, emparejando por nombre">
@@ -1455,7 +1462,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                             )}
                           </span>
                         </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{r.iva_rate ?? 13}%</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{r.iva_rate ?? 13}%</td>
                         <td className="px-3 py-1.5">
                           {r._error ? (
                             <span className="text-red-600 text-[10px]">{r._error}</span>
@@ -1470,9 +1477,9 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                       </tr>
                     ))}
                     {filtradas.length > filasVisibles.length && (
-                      <tr><td colSpan={13} className="px-3 py-2 text-center">
+                      <tr><td colSpan={13} className="px-2 py-2 text-center">
                         <button type="button" onClick={() => setTope(t => t + 200)}
-                          className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50">
+                          className="px-2 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50">
                           Ver 200 más ({filtradas.length - filasVisibles.length} sin mostrar)
                         </button>
                         <button type="button" onClick={() => setTope(filtradas.length)}

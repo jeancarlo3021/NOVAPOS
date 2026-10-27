@@ -162,13 +162,15 @@ export const EmployeeProfile: React.FC = () => {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-xl font-black text-gray-900">Empleados ({employees.length})</h2>
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        {/* En teléfono el buscador se estiraba a su ancho natural y empujaba
+            «Agregar» fuera de la pantalla: ahora el buscador se encoge. */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 min-w-0 sm:flex-none">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar..."
-              className="pl-9 pr-3 py-2 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-400" />
+              className="w-full pl-9 pr-3 h-11 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-400" />
           </div>
-          <button onClick={startCreate} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition">
+          <button onClick={startCreate} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 h-11 rounded-xl text-sm font-bold transition shrink-0">
             <Plus size={16} /> Agregar
           </button>
         </div>
@@ -210,10 +212,10 @@ export const EmployeeProfile: React.FC = () => {
                   )}
                 </div>
                 <div className="flex gap-2 mt-3 opacity-0 group-hover:opacity-100 transition">
-                  <button onClick={() => startEdit(emp)} className="flex-1 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
+                  <button onClick={() => startEdit(emp)} className="flex-1 h-9 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
                     <Edit2 size={12} /> Editar
                   </button>
-                  <button onClick={() => handleDelete(emp)} className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100">
+                  <button onClick={() => handleDelete(emp)} className="px-3 h-9 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100">
                     <Trash2 size={12} />
                   </button>
                 </div>

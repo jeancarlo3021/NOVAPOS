@@ -41,7 +41,9 @@ export const InfoDashboard: React.FC = () => {
   // Preferimos lo que resuelve el backend; caemos al objeto del cliente.
   const plan = {
     name: planInfo?.name ?? clientPlan?.name ?? planName,
-    price: planInfo?.price ?? clientPlan?.price ?? null,
+    /* Lo que paga ESTE negocio: el monto pactado (`custom_price`) manda sobre
+       el precio de lista del plan. */
+    price: planInfo?.price ?? sub?.custom_price ?? clientPlan?.price ?? null,
     billing_cycle: planInfo?.billing_cycle ?? clientPlan?.billing_cycle ?? '',
     description: planInfo?.description ?? clientPlan?.description ?? '',
   };
