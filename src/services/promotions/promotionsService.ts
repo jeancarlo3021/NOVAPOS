@@ -23,7 +23,16 @@ import { apiFetch } from '@/lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type PromoType    = 'percentage' | 'fixed' | '2x1' | 'combo' | 'qty_bundle';
+export type PromoType    = 'percentage' | 'fixed' | '2x1' | 'combo' | 'qty_bundle' | 'second_half';
+/**
+ * A CUÁL del par se le descuenta, cuando los dos productos no valen lo mismo.
+ *
+ * 'barato' es lo que hace el supermercado: el 50% se le aplica al más barato de
+ * los dos. 'caro' es la versión generosa. No es un detalle: con una camisa de
+ * ₡12.000 y otra de ₡8.000, el cliente ahorra ₡4.000 o ₡6.000 según cuál sea,
+ * así que lo elige el negocio y no el programa.
+ */
+export type SecondRule   = 'barato' | 'caro';
 export type PromoScope   = 'all' | 'category' | 'products';
 export type PromoStatus  = 'active' | 'scheduled' | 'expired' | 'inactive';
 export type ComboMode    = 'price' | 'percent';   // precio fijo del combo / % de descuento
@@ -38,6 +47,8 @@ export interface Promotion {
   combo_mode?: ComboMode | null;
   /** Promo por cantidad: unidades/kg del paquete. `value` es su precio. */
   bundle_qty?: number | null;
+  /** Segunda unidad: a cuál del par se le descuenta. Por defecto, al más barato. */
+  second_rule?: SecondRule | null;
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
@@ -57,6 +68,7 @@ export interface PromotionPayload {
   value:       number;
   combo_mode?: ComboMode | null;
   bundle_qty?: number | null;
+  second_rule?: SecondRule | null;
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
@@ -125,6 +137,10 @@ export function promoLabel(promo: Promotion): string {
   if (promo.type === '2x1')        return '2×1';
   if (promo.type === 'qty_bundle')
     return `${Number(promo.bundle_qty ?? 0)} × ₡${Number(promo.value).toLocaleString('es-CR')}`;
+  if (promo.type === 'second_half') {
+    const pct = Number(promo.value ?? 50);
+    return pct === 50 ? '2ª a mitad de precio' : `2ª a -${pct}%`;
+  }
   if (promo.type === 'combo')      return promo.combo_mode === 'percent'
                                      ? `Combo -${promo.value}%`
                                      : `Combo ₡${Number(promo.value).toLocaleString('es-CR')}`;
@@ -240,6 +256,143 @@ export function computeCartCombos(
   return { discount: r2(discount), applied, basePorProducto };
 }
 
+// ── Segunda unidad a mitad de precio (nivel carrito) ───────────────────
+
+export interface SegundaUnidadItem extends ComboCartItem {
+  /** Para las promos por categoría: a qué categoría pertenece el producto. */
+  category_id?: string | null;
+}
+
+export interface AppliedSegundaUnidad {
+  promo:    Promotion;
+  label:    string;
+  /** Cuántos pares se armaron: uno por cada dos unidades que entran. */
+  pares:    number;
+  /** Descuento total, CON IVA (lo que el cliente ve que se le bajó). */
+  discount: number;
+  /** El mismo descuento sobre la base SIN IVA (lo que baja cada línea). */
+  discount_base: number;
+  /** Lo que se le descontó por par, para poder explicarlo en pantalla. */
+  detalle: Array<{ product_id: string; monto: number }>;
+}
+
+/** ¿Esta línea entra en la promo? Mismo criterio de alcance que el resto. */
+const entraEnPromo = (promo: Promotion, it: SegundaUnidadItem): boolean => {
+  if (promo.applies_to === 'products') return (promo.product_ids ?? []).includes(it.product_id);
+  if (promo.applies_to === 'category') return !!promo.category_id && it.category_id === promo.category_id;
+  return true;   // 'all'
+};
+
+/**
+ * «LA SEGUNDA A MITAD DE PRECIO», con los productos que de verdad hay en la cuenta.
+ *
+ * No es un descuento por línea: dos camisas distintas forman un par igual que
+ * dos iguales, así que hay que mirar el carrito completo. Las unidades se
+ * ordenan de más cara a más barata y se emparejan de dos en dos; el descuento
+ * se le hace al más barato o al más caro de cada par, según lo que eligió el
+ * negocio al crear la promo.
+ *
+ * Lo que sobra sin pareja se cobra normal: con tres unidades hay UN par y una
+ * suelta, que es como lo entiende el cliente en la caja.
+ *
+ * Las cantidades con decimales (lo que se vende por peso) no entran: «la
+ * segunda» no significa nada con 1,4 kg de queso.
+ */
+export function computeSegundaUnidad(
+  items: SegundaUnidadItem[],
+  promotions: Promotion[],
+): { discount: number; applied: AppliedSegundaUnidad[]; basePorProducto: Record<string, number> } {
+  const hoy = todayCR();
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const promos = promotions.filter(
+    p => p.type === 'second_half' && p.is_active
+      && p.starts_at <= hoy && (!p.ends_at || p.ends_at >= hoy),
+  );
+
+  const applied: AppliedSegundaUnidad[] = [];
+  const basePorProducto: Record<string, number> = {};
+  let discount = 0;
+  /* Un producto no entra en dos promos de segunda unidad: si dos promos lo
+     alcanzan, la primera se lo lleva y la otra no lo vuelve a descontar. */
+  const yaUsados = new Set<string>();
+
+  for (const promo of promos) {
+    const pct = Math.min(100, Math.max(0, Number(promo.value ?? 50) || 50));
+    if (pct <= 0) continue;
+    const regla: SecondRule = promo.second_rule === 'caro' ? 'caro' : 'barato';
+
+    /** Una entrada por UNIDAD: así se pueden emparejar entre productos distintos. */
+    const unidades: Array<{ pid: string; conIva: number; factor: number }> = [];
+    for (const it of items) {
+      if (yaUsados.has(it.product_id)) continue;
+      if (!entraEnPromo(promo, it)) continue;
+      const enteras = Math.floor(Number(it.quantity) || 0);
+      if (enteras < 1) continue;
+      const factor = 1 + (Number(it.iva_pct) || 0) / 100;
+      const conIva = (Number(it.unit_price) || 0) * factor;
+      if (conIva <= 0) continue;
+      for (let k = 0; k < enteras; k++) unidades.push({ pid: it.product_id, conIva, factor });
+    }
+    if (unidades.length < 2) continue;
+
+    unidades.sort((a, b) => b.conIva - a.conIva);   // de la más cara a la más barata
+    const pares = Math.floor(unidades.length / 2);
+
+    let conIvaTotal = 0, baseTotal = 0;
+    const detalle: Array<{ product_id: string; monto: number }> = [];
+    for (let i = 0; i < pares; i++) {
+      const caro = unidades[i * 2];
+      const barato = unidades[i * 2 + 1];
+      const elegida = regla === 'caro' ? caro : barato;
+      const monto = r2(elegida.conIva * (pct / 100));
+      if (monto <= 0) continue;
+      conIvaTotal += monto;
+      const base = r2(monto / elegida.factor);
+      basePorProducto[elegida.pid] = r2((basePorProducto[elegida.pid] ?? 0) + base);
+      baseTotal += base;
+      detalle.push({ product_id: elegida.pid, monto });
+    }
+    if (conIvaTotal <= 0) continue;
+
+    for (const u of unidades) yaUsados.add(u.pid);
+    discount += conIvaTotal;
+    applied.push({
+      promo, label: promo.name || promoLabel(promo), pares,
+      discount: r2(conIvaTotal), discount_base: r2(baseTotal), detalle,
+    });
+  }
+
+  return { discount: r2(discount), applied, basePorProducto };
+}
+
+/**
+ * CUÁNTO CAMBIA SEGÚN A CUÁL SE LE DESCUENTE.
+ *
+ * Es lo que se le muestra al administrador cuando arma la promo: con los
+ * precios de los productos que eligió, cuánto ahorra el cliente por par si el
+ * descuento va al más barato y cuánto si va al más caro. Sin ese número,
+ * elegir entre «barato» y «caro» es adivinar.
+ */
+export function compararReglasSegundaUnidad(
+  precios: number[],
+  pct = 50,
+): { barato: number; caro: number; masCaro: number; masBarato: number; diferencia: number } | null {
+  const p = precios.map(n => Number(n) || 0).filter(n => n > 0).sort((a, b) => b - a);
+  if (p.length < 2) return null;
+  const pares = Math.floor(p.length / 2);
+  let barato = 0, caro = 0;
+  for (let i = 0; i < pares; i++) {
+    caro += p[i * 2] * (pct / 100);
+    barato += p[i * 2 + 1] * (pct / 100);
+  }
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    barato: r2(barato), caro: r2(caro),
+    masCaro: p[0], masBarato: p[p.length - 1],
+    diferencia: r2(caro - barato),
+  };
+}
+
 /** Returns the first applicable promotion for a product (priority: products > category > all) */
 export function getProductPromotion(
   productId: string,
@@ -248,8 +401,11 @@ export function getProductPromotion(
 ): Promotion | null {
   const today  = todayCR();
   const active = promotions.filter(
-    // Los combos se resuelven a nivel de carrito (computeCartCombos), no por producto.
-    p => p.type !== 'combo' && p.is_active && p.starts_at <= today && (!p.ends_at || p.ends_at >= today)
+    /* Los combos y la segunda unidad se resuelven a nivel de CARRITO
+       (computeCartCombos / computeSegundaUnidad), no por producto: dependen de
+       qué más hay en la cuenta y de cómo se emparejan los precios. */
+    p => p.type !== 'combo' && p.type !== 'second_half'
+      && p.is_active && p.starts_at <= today && (!p.ends_at || p.ends_at >= today)
   );
   return (
     active.find(p => p.applies_to === 'products' && p.product_ids.includes(productId)) ??

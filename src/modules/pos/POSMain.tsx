@@ -28,6 +28,7 @@ import {
   getProductPromotion,
   calcPromoSubtotal,
   computeCartCombos,
+  computeSegundaUnidad,
 } from '@/services/promotions/promotionsService';
 import { invoicesService, localNowISO } from '@/services/invoice/invoiceService';
 import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from '@/services/pos/posOfflineService';
@@ -681,13 +682,36 @@ export const POSMain = () => {
 
   // Combos / grupos de promos — varios productos juntos por un precio único o un
   // % de descuento. El precio del combo es CON IVA incluido.
-  const { applied: combosAplicados, basePorProducto } = computeCartCombos(
+  const { applied: combosAplicados, basePorProducto: baseCombos } = computeCartCombos(
     cartItems.map(it => ({
       product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity,
       iva_pct: ivaPctDe(it),
     })),
     activePromotions,
   );
+
+  /**
+   * «La segunda a mitad de precio»: también se resuelve con el carrito entero.
+   *
+   * Dos productos distintos forman un par igual que dos iguales, así que no se
+   * puede calcular línea por línea. El descuento vuelve por `basePorProducto` y
+   * entra en las líneas netas por el mismo camino que el combo, que es lo que
+   * hace que llegue a la factura y el IVA se cobre sobre lo que se cobró.
+   */
+  const { applied: segundasAplicadas, basePorProducto: baseSegundas } = computeSegundaUnidad(
+    cartItems.map(it => ({
+      product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity,
+      iva_pct: ivaPctDe(it),
+      category_id: (it.product as any)?.category_id ?? null,
+    })),
+    activePromotions,
+  );
+
+  /** Los dos descuentos de carrito, sumados por producto. */
+  const basePorProducto: Record<string, number> = { ...baseCombos };
+  for (const [pid, monto] of Object.entries(baseSegundas)) {
+    basePorProducto[pid] = round2((basePorProducto[pid] ?? 0) + monto);
+  }
 
   /**
    * Líneas NETAS: con el descuento del combo ya dentro de cada una.
@@ -712,7 +736,16 @@ export const POSMain = () => {
   const subtotalBruto = round2(cartItems.reduce((sum, item) => sum + item.subtotal, 0));
   const subtotal = round2(cartItemsNetos.reduce((sum, item) => sum + item.subtotal, 0));
   const comboDiscount = round2(subtotalBruto - subtotal);
-  const appliedCombos = combosAplicados.map(c => ({ ...c, discount: c.discount_base }));
+  const appliedCombos = [
+    ...combosAplicados.map(c => ({ ...c, discount: c.discount_base })),
+    /* La segunda unidad se muestra en la misma lista del carrito: para el
+       cajero es otro descuento con su nombre y su monto. `sets` es el número
+       de pares, que es lo que corresponde mostrar como «x2». */
+    ...segundasAplicadas.map(c => ({
+      promo: c.promo, label: c.label, sets: c.pares,
+      discount: c.discount_base, discount_base: c.discount_base,
+    })),
+  ];
 
   // IVA por producto sobre la línea NETA (usa el iva_rate de cada producto; si no
   // tiene, el IVA global). Desglosado por tasa para mostrarlo en el carrito.

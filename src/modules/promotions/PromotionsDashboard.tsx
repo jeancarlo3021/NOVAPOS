@@ -323,6 +323,13 @@ export const PromotionsDashboard: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-3 flex-wrap text-xs text-gray-500">
                       <span className="font-bold text-violet-700">{promoLabel(p)}</span>
+                      {/* En la promo de segunda unidad hay que poder ver A CUÁL se
+                          le descuenta sin abrirla: es la mitad de la promoción. */}
+                      {p.type === 'second_half' && (
+                        <span className="font-bold text-cyan-700">
+                          {p.second_rule === 'caro' ? 'al más caro' : 'al más barato'}
+                        </span>
+                      )}
                       <span>·</span>
                       <span className="flex items-center gap-1">
                         <Calendar size={11} />

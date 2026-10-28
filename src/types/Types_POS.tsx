@@ -66,7 +66,7 @@ export interface Product {
 export interface CartItemPromo {
   id:    string;
   name:  string;
-  type:  'percentage' | 'fixed' | '2x1' | 'combo' | 'qty_bundle';
+  type:  'percentage' | 'fixed' | '2x1' | 'combo' | 'qty_bundle' | 'second_half';
   value: number;
   /** Promo por cantidad: unidades/kg del paquete (`value` es su precio). */
   bundle_qty?: number | null;

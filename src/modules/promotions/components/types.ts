@@ -23,6 +23,7 @@ export const TYPE_CFG = {
   '2x1':      { label: '2×1',         icon: '2', color: 'bg-amber-500'  },
   combo:      { label: 'Combo',       icon: '🍔', color: 'bg-rose-500'  },
   qty_bundle: { label: 'Por cantidad', icon: '⚖️', color: 'bg-emerald-500' },
+  second_half: { label: '2ª a mitad', icon: '½', color: 'bg-cyan-600' },
 } as const;
 
 /**

@@ -8,8 +8,9 @@ import {
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { notifyPromotionsUpdated } from '@/hooks/POS/usePOSPromotions';
 import {
-  promotionsService,
+  promotionsService, compararReglasSegundaUnidad,
   type Promotion, type PromotionPayload, type PromoType, type PromoScope, type ComboMode,
+  type SecondRule,
 } from '@/services/promotions/promotionsService';
 import { apiFetch } from '@/lib/api';
 import { TYPE_CFG, today, type FormModalProps } from './types';
@@ -36,6 +37,7 @@ function enqueuePromoOp(tid: string, op: Record<string, unknown>) {
 
 const EMPTY: PromotionPayload = {
   name: '', description: null, type: 'percentage', value: 10, combo_mode: 'price', bundle_qty: 2,
+  second_rule: 'barato',
   applies_to: 'all', category_id: null, product_ids: [],
   starts_at: today(), ends_at: today(), is_active: true,
 };
@@ -48,6 +50,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
         name: editing.name, description: editing.description, type: editing.type,
         value: editing.value, combo_mode: editing.combo_mode ?? 'price',
         bundle_qty: editing.bundle_qty ?? 2,
+        second_rule: editing.second_rule ?? 'barato',
         applies_to: editing.applies_to, category_id: editing.category_id,
         product_ids: editing.product_ids ?? [], starts_at: editing.starts_at,
         ends_at: editing.ends_at ?? '', is_active: editing.is_active,
@@ -86,6 +89,21 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
 
   const set = <K extends keyof PromotionPayload>(k: K, v: PromotionPayload[K]) =>
     setForm(f => ({ ...f, [k]: v }));
+
+  /**
+   * Cambiar de tipo trae su valor por defecto.
+   *
+   * «La segunda a mitad de precio» con el 10% que arrastraba del tipo anterior
+   * no es la promoción que se quiso armar, y el campo dice «%» sin más: nadie
+   * revisa un número que ya estaba puesto.
+   */
+  const elegirTipo = (t: PromoType) =>
+    setForm(f => ({
+      ...f,
+      type: t,
+      value: t === 'second_half' && (f.type !== 'second_half') ? 50 : f.value,
+      second_rule: t === 'second_half' ? (f.second_rule ?? 'barato') : f.second_rule,
+    }));
 
   const toggleProduct = (id: string) =>
     set('product_ids', form.product_ids.includes(id)
@@ -141,6 +159,10 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
             value: form.value,
             combo_mode: form.combo_mode ?? null,
             bundle_qty: form.type === 'qty_bundle' ? Number(form.bundle_qty) : null,
+            /* Sin esto, una promo creada sin internet quedaba en el caché del POS
+               sin la regla del par y cobraba al más barato hasta el próximo
+               refresco, aunque se hubiera elegido al más caro. */
+            second_rule: form.type === 'second_half' ? (form.second_rule ?? 'barato') : null,
             applies_to: form.applies_to,
             category_id: form.category_id ?? null,
             product_ids: form.product_ids ?? [],
@@ -167,9 +189,36 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
       }
       // `bundle_qty` solo tiene sentido en la promo por cantidad: si el usuario
       // probó ese tipo y se cambió a otro, no debe quedar guardado.
-      const payload = { ...form, bundle_qty: form.type === 'qty_bundle' ? Number(form.bundle_qty) : null };
-      if (editing) await promotionsService.update(editing.id, payload);
-      else         await promotionsService.create(tenantId, payload);
+      const payload = {
+        ...form,
+        bundle_qty: form.type === 'qty_bundle' ? Number(form.bundle_qty) : null,
+        // La regla del par solo tiene sentido en la promo de segunda unidad.
+        second_rule: form.type === 'second_half' ? (form.second_rule ?? 'barato') : null,
+      };
+      const guardada = editing
+        ? await promotionsService.update(editing.id, payload)
+        : await promotionsService.create(tenantId, payload);
+
+      /**
+       * ¿SE GUARDÓ LA REGLA DEL PAR?
+       *
+       * Si la base todavía no tiene la columna `second_rule` (migración 126), el
+       * servidor guarda la promo SIN ella para no perder el trabajo —pero
+       * entonces queda con el descuento al más barato, no con lo que se eligió.
+       * Decirlo es obligatorio: si no, el negocio cree que está regalando el
+       * producto caro y está regalando el barato.
+       */
+      if (payload.type === 'second_half' && payload.second_rule === 'caro'
+          && guardada && (guardada as any).second_rule !== 'caro') {
+        setError('La promoción se guardó, pero el descuento quedó aplicado AL MÁS BARATO: '
+          + 'falta correr la migración 126 en la base. Al correrla, volvé a elegir «al más caro».');
+        promotionsService.getActiveToday(tenantId)
+          .then(data => { cacheSet(cacheKey(tenantId, 'active_promotions'), data); notifyPromotionsUpdated(); })
+          .catch(() => {});
+        onSaved();
+        setSaving(false);
+        return;   // no se cierra: el aviso tiene que leerse
+      }
       // Refresh active-promotions cache + notify POS immediately
       promotionsService.getActiveToday(tenantId)
         .then(data => {
@@ -186,6 +235,35 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
       setSaving(false);
     }
   };
+
+  /** Miles con punto, como se escribe un monto acá. */
+  const col = (n: number) =>
+    `₡${Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
+
+  const precioDe = (p: any) => Number(p?.unit_price ?? p?.price ?? 0) || 0;
+
+  /** Los precios de los productos que la promo alcanza, según su alcance. */
+  const preciosElegibles = React.useMemo(() => {
+    const precios = (arr: any[]) => arr.map(precioDe).filter(n => n > 0);
+    if (form.applies_to === 'products') return precios(products.filter(p => form.product_ids.includes(p.id)));
+    if (form.applies_to === 'category') return precios(products.filter(p => p.category_id === form.category_id));
+    return precios(products);
+  }, [products, form.applies_to, form.product_ids, form.category_id]);
+
+  /**
+   * EL AVISO AL ADMINISTRADOR.
+   *
+   * Se compara el producto más caro con el más barato de los que entran en la
+   * promo y se dice, en plata, cuánto cuesta cada opción. Es la pregunta que
+   * decide el precio de la promoción y no se puede contestar sin los números.
+   */
+  const avisoSegunda = React.useMemo(() => {
+    if (form.type !== 'second_half' || preciosElegibles.length < 2) return null;
+    const ord = [...preciosElegibles].sort((a, b) => b - a);
+    const cmp = compararReglasSegundaUnidad([ord[0], ord[ord.length - 1]], Number(form.value) || 50);
+    if (!cmp) return null;
+    return { ...cmp, iguales: ord[0] === ord[ord.length - 1] };
+  }, [form.type, form.value, preciosElegibles]);
 
   const filteredProducts = products.filter(p =>
     !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.sku?.toLowerCase().includes(productSearch.toLowerCase())
@@ -227,11 +305,11 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           {/* Tipo de descuento */}
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-2">Tipo de descuento *</label>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {(['percentage', 'fixed', '2x1', 'combo', 'qty_bundle'] as PromoType[]).map(t => {
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {(['percentage', 'fixed', '2x1', 'combo', 'qty_bundle', 'second_half'] as PromoType[]).map(t => {
                 const cfg = TYPE_CFG[t];
                 return (
-                  <button key={t} type="button" onClick={() => set('type', t)}
+                  <button key={t} type="button" onClick={() => elegirTipo(t)}
                     className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition ${
                       form.type === t ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-violet-300'
                     }`}>
@@ -273,11 +351,12 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
                 {form.type === 'combo'
                   ? ((form.combo_mode ?? 'price') === 'percent' ? 'Descuento del combo (%)' : 'Precio total del combo (₡)')
                   : form.type === 'qty_bundle' ? 'Precio del paquete (₡)'
+                  : form.type === 'second_half' ? 'Descuento de la segunda unidad (%)'
                   : form.type === 'percentage' ? 'Porcentaje de descuento (%)' : 'Monto a descontar (₡)'}
               </label>
               <input type="number" min="0.01"
-                step={(form.type === 'percentage' || (form.type === 'combo' && form.combo_mode === 'percent')) ? '1' : '100'}
-                max={(form.type === 'percentage' || (form.type === 'combo' && form.combo_mode === 'percent')) ? '100' : undefined}
+                step={(form.type === 'percentage' || form.type === 'second_half' || (form.type === 'combo' && form.combo_mode === 'percent')) ? '1' : '100'}
+                max={(form.type === 'percentage' || form.type === 'second_half' || (form.type === 'combo' && form.combo_mode === 'percent')) ? '100' : undefined}
                 value={form.value} onChange={e => set('value', parseFloat(e.target.value) || 0)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
               {form.type === 'percentage' && (
@@ -288,6 +367,78 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           {form.type === '2x1' && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
               El cliente paga solo 1 de cada 2 unidades — el sistema calcula el total automáticamente.
+            </div>
+          )}
+
+          {/* SEGUNDA UNIDAD: cómo se empareja y a cuál se le descuenta */}
+          {form.type === 'second_half' && (
+            <div className="space-y-3">
+              <div className="bg-cyan-50 border border-cyan-200 rounded-xl px-4 py-3 text-sm text-cyan-900">
+                Por cada <b>dos unidades</b>, una se cobra con el <b>{Number(form.value) || 50}%</b> de
+                descuento. Se emparejan entre sí aunque sean productos distintos, y la unidad que queda
+                sin pareja se cobra normal.
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-2">
+                  Cuando los dos productos no valen lo mismo, ¿a cuál se le hace el descuento? *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { v: 'barato' as SecondRule, label: 'Al más barato',
+                      hint: 'Lo normal — es lo que hace el supermercado',
+                      monto: avisoSegunda?.barato },
+                    { v: 'caro' as SecondRule, label: 'Al más caro',
+                      hint: 'Más generoso con el cliente',
+                      monto: avisoSegunda?.caro },
+                  ]).map(({ v, label, hint, monto }) => (
+                    <button key={v} type="button" onClick={() => set('second_rule', v)}
+                      className={`flex flex-col items-start gap-0.5 p-3 rounded-xl border-2 transition text-left ${
+                        (form.second_rule ?? 'barato') === v
+                          ? 'border-cyan-500 bg-cyan-50' : 'border-gray-200 hover:border-cyan-300'
+                      }`}>
+                      <span className="text-sm font-bold text-gray-700">{label}</span>
+                      <span className="text-[11px] text-gray-400">{hint}</span>
+                      {monto != null && (
+                        <span className="text-[11px] font-bold text-cyan-700 mt-0.5">
+                          el cliente ahorra {col(monto)} por par
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* El aviso con los números de SUS productos. Elegir entre una
+                  forma y la otra sin esto es adivinar: la diferencia se la paga
+                  el negocio en cada par que se vende. */}
+              {avisoSegunda && !avisoSegunda.iguales && (
+                <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-900 space-y-1">
+                  <p className="font-black">
+                    Los productos de esta promo NO valen lo mismo — revisá cuál conviene.
+                  </p>
+                  <p>
+                    El más caro vale <b>{col(avisoSegunda.masCaro)}</b> y el más barato <b>{col(avisoSegunda.masBarato)}</b>.
+                    Con ese par: al más barato el cliente ahorra <b>{col(avisoSegunda.barato)}</b>, y al más caro
+                    <b> {col(avisoSegunda.caro)}</b>.
+                  </p>
+                  <p className="font-bold">
+                    Son {col(avisoSegunda.diferencia)} de diferencia por cada par que se venda.
+                  </p>
+                </div>
+              )}
+              {avisoSegunda?.iguales && (
+                <p className="text-[11px] text-gray-500">
+                  Todos los productos de la promo valen {col(avisoSegunda.masCaro)}: da igual a cuál de los dos
+                  se le aplique.
+                </p>
+              )}
+              {!avisoSegunda && (
+                <p className="text-[11px] text-gray-500">
+                  Elegí abajo los productos (o la categoría) y acá se va a mostrar cuánto cuesta cada opción
+                  con sus precios.
+                </p>
+              )}
             </div>
           )}
 
@@ -343,7 +494,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
                       <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
                       {p.sku && <p className="text-xs text-gray-400">{p.sku}</p>}
                     </div>
-                    {p.price != null && <span className="text-xs font-mono text-gray-400">₡{Number(p.price).toLocaleString('es-CR')}</span>}
+                    {precioDe(p) > 0 && <span className="text-xs font-mono text-gray-400">{col(precioDe(p))}</span>}
                   </label>
                 ))}
                 {filteredProducts.length === 0 && (
@@ -405,6 +556,11 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
                       <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
                       {p.sku && <p className="text-xs text-gray-400">{p.sku}</p>}
                     </div>
+                    {/* El precio a la vista: en la promo de segunda unidad es
+                        justo el dato con el que se elige a cuál descontar. */}
+                    {precioDe(p) > 0 && (
+                      <span className="text-xs font-mono text-gray-500 shrink-0">{col(precioDe(p))}</span>
+                    )}
                   </label>
                 ))}
                 {filteredProducts.length === 0 && (
