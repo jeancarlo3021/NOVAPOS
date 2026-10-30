@@ -12,6 +12,28 @@ export const checkoutTotal = (base: number, rate: number) =>
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
+ * TOTAL A COBRAR EN CAJA.
+ *
+ * Lo que sobra del múltiplo de ₡10 se acomoda al más cercano: de 1 a 4 se quita
+ * y de 6 a 9 se completa. El 5 se deja EXACTO —la moneda de ₡5 circula, así que
+ * ₡1.005 se puede pagar tal cual y no hay por qué tocarlo.
+ *
+ *   ₡1.001 → ₡1.000     ₡1.004 → ₡1.000
+ *   ₡1.005 → ₡1.005  (exacto, no se redondea)
+ *   ₡1.006 → ₡1.010     ₡1.009 → ₡1.010
+ *
+ * Los céntimos se descartan siempre para abajo: no circulan, y lo que decide el
+ * redondeo es el dígito de los colones, no la fracción.
+ */
+export const cashTotal = (n: number): number => {
+  const exacto = Math.max(0, Number(n) || 0);
+  const enteros = Math.floor(exacto);          // los céntimos no se cobran
+  const sobra = enteros % 10;
+  if (sobra === 0 || sobra === 5) return enteros;
+  return sobra < 5 ? enteros - sobra : enteros + (10 - sobra);
+};
+
+/**
  * Precio "cerrado": dado un total CON IVA deseado, calcula la BASE con DECIMALES
  * (target ÷ (1+IVA)) para que el total de caja sea EXACTAMENTE el ingresado. La
  * base se guarda con decimales (precisión fiscal); el POS la muestra redondeada.

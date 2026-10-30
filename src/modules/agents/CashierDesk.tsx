@@ -23,6 +23,7 @@ import { ChargePrepModal } from './ChargePrepModal';
 import { PosShortcutsHint } from '@/modules/pos/PosShortcutsHint';
 import { ReprintInvoiceModal } from '@/modules/pos/ReprintInvoiceModal';
 import type { CartItem } from '@/types/Types_POS';
+import { cashTotal } from '@/utils/priceUtils';
 
 /** Hoy en Costa Rica. El día del negocio no es el UTC del navegador. */
 const crToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
@@ -40,8 +41,8 @@ const money = (n: number) => `₡${Math.round(Number(n || 0)).toLocaleString('es
 const hhmm = (s?: string | null) =>
   s ? new Date(s).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }) : '';
 const round2 = (n: number) => Math.round(Number(n || 0) * 100) / 100;
-/** Redondeo de caja a múltiplos de ₡10, igual que el POS: ya no circulan ₡5. */
-const round10 = (n: number) => Math.round(Number(n || 0) / 10) * 10;
+/** Redondeo de caja, igual que el POS: al ₡10 más cercano, salvo el 5 (exacto). */
+const round10 = (n: number) => cashTotal(n);
 
 /**
  * CAJA — vista de espera del cajero.

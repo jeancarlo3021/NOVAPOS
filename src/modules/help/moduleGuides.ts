@@ -67,7 +67,7 @@ export const MODULE_GUIDES: ModuleGuide[] = [
     ],
     tips: [
       'Si aparece el aviso de ventas sin subir, tocá "Subir ahora" ANTES de cerrar: si no, esas ventas no entran en el arqueo.',
-      'El total se redondea a múltiplos de ₡10, porque ya no circulan monedas de ₡5.',
+      'El total se acomoda al múltiplo de ₡10 más cercano: de 1 a 4 se quita y de 6 a 9 se completa. Si termina en 5 se cobra exacto, porque la moneda de ₡5 sí circula.',
     ],
   },
   {

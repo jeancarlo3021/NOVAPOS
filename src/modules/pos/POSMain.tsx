@@ -34,6 +34,7 @@ import { invoicesService, localNowISO } from '@/services/invoice/invoiceService'
 import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from '@/services/pos/posOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
+import { cashTotal } from '@/utils/priceUtils';
 import { POSHeader } from './POSHeader';
 import { PendingInvoicesModal } from './PendingInvoicesModal';
 import { ReservationsPickerModal } from './ReservationsPickerModal';
@@ -761,16 +762,16 @@ export const POSMain = () => {
     }
     return { taxAmount: round2(total), taxBreakdown: bd };
   })();
-  // Total. En comprobantes ELECTRÓNICOS va exacto (Hacienda exige que el total =
-  // suma de líneas + IVA). En tiquetes corrientes se redondea a múltiplos de ₡10
-  // (ya no circulan monedas de ₡5). Los productos con "precio cerrado" ya vienen
-  // pensados para dar múltiplos de 10, así que en electrónico también cuadra.
   // El combo ya está dentro de `subtotal` (líneas netas): no se resta otra vez.
   const rawTotal = Math.max(0, subtotal + taxAmount);
-  // Total COBRADO a múltiplos de ₡10 SIEMPRE (ya no circulan ₡5), corriente y
-  // electrónico. En electrónico, el COMPROBANTE que va a Hacienda se arma de las
-  // líneas (total exacto = suma + IVA); la diferencia de ≤₡10 es redondeo de caja.
-  const total = Math.round(rawTotal / 10) * 10;
+  /**
+   * Total COBRADO: lo que sobra se acomoda al ₡10 más cercano, salvo el 5, que
+   * se cobra exacto porque la moneda de ₡5 circula (ver `cashTotal`).
+   *
+   * En electrónico el COMPROBANTE que va a Hacienda se arma de las líneas (total
+   * exacto = suma + IVA); esta diferencia es el redondeo de caja.
+   */
+  const total = cashTotal(rawTotal);
   const roundingAdjust = round2(total - rawTotal);
 
   /**
@@ -1257,7 +1258,7 @@ export const POSMain = () => {
           + (sub + tax - tot) + rounding,
         ),
         discountLabel: 'Descuentos',
-        // Redondeo a ₡10 (positivo = se sumó, negativo = se restó).
+        // Redondeo de caja: lo que se le quitó o se le completó al total.
         rounding: Math.round(rounding),
         paymentMethod: etiquetaMedioPago(paymentMethod),
         bipper: currencyInfo?.bipper || undefined,   // localizador para el ticket

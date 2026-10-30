@@ -6,11 +6,12 @@ import {
 import { customersService } from '@/services/customers/customersService';
 import { CRLocationFields } from '@/components/CRLocationFields';
 import type { AgentOrder } from '@/services/agents/salesAgentsService';
+import { cashTotal } from '@/utils/priceUtils';
 
 const money = (n: number) => `₡${Math.round(Number(n || 0)).toLocaleString('es-CR')}`;
 const round2 = (n: number) => Math.round(Number(n || 0) * 100) / 100;
-/** Redondeo de caja a múltiplos de ₡10, igual que el POS: ya no circulan ₡5. */
-const round10 = (n: number) => Math.round(Number(n || 0) / 10) * 10;
+/** Redondeo de caja, igual que el POS: solo se quita lo que sobra si es menor de 5. */
+const round10 = (n: number) => cashTotal(n);
 
 type DocType = 'ticket' | 'tiquete_electronico' | 'factura_electronica';
 

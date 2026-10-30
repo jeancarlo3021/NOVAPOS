@@ -121,7 +121,7 @@ export interface ReceiptData {
    * Es un dato que el cliente pide ver impreso en la factura.
    */
   notes?: string;
-  /** Ajuste por redondeo a ₡10 (positivo = se sumó, negativo = se restó). */
+  /** Ajuste por redondeo de caja (negativo = se quitó, positivo = se completó). */
   rounding?: number;
   paymentMethod: string;
   // Datos del local (negocio)

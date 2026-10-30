@@ -52,7 +52,7 @@ interface POSCartPanelProps {
   comboDiscount?: number;
   /** Combos armados en el carrito (para mostrar cada uno). */
   appliedCombos?: AppliedCombo[];
-  /** Ajuste por redondeo a ₡10 (total redondeado − total exacto). */
+  /** Ajuste por redondeo de caja (total cobrado − total exacto). */
   roundingAdjust?: number;
   taxEnabled?: boolean;
   taxRate?: number;
