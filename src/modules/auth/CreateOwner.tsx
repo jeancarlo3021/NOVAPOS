@@ -5,13 +5,14 @@ import { supabase } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale, Server, Globe, Megaphone } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale, Server, Globe, Megaphone, PackageX } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
 import { TenantUsersModal } from './components/TenantUsersModal';
 import { TenantModulesModal } from './components/TenantModulesModal';
 import { PurgeProductsModal } from './components/PurgeProductsModal';
+import { ResetStockModal } from './components/ResetStockModal';
 import { TenantBackupsModal } from './components/TenantBackupsModal';
 import { TenantAccountantsModal } from './components/TenantAccountantsModal';
 import { TenantFeDataModal } from './components/TenantFeDataModal';
@@ -104,6 +105,7 @@ export const CreateOwner: React.FC = () => {
   const [manageModulesFor, setManageModulesFor] = useState<OwnerData | null>(null);
   /** Borrado masivo del catálogo (va con su propia confirmación y avance). */
   const [purgeProductsFor, setPurgeProductsFor] = useState<OwnerData | null>(null);
+  const [resetStockFor, setResetStockFor] = useState<OwnerData | null>(null);
   /** Respaldos diarios del negocio: ver, bajar y forzar uno. */
   const [backupsFor, setBackupsFor] = useState<OwnerData | null>(null);
   const [importProductsFor, setImportProductsFor] = useState<OwnerData | null>(null);
@@ -1712,6 +1714,17 @@ export const CreateOwner: React.FC = () => {
                                   {/* Va junto a importar: el caso típico es
                                       «entró mal el Excel, hay que dejarlo
                                       limpio y volver a subirlo». */}
+                                  {/* PRIMERO el que se usa de verdad y no es
+                                      irreversible para el catálogo: dejar las
+                                      existencias en 0 para una toma física. El
+                                      borrado de productos queda debajo, porque
+                                      quien quiere «borrar el inventario» casi
+                                      siempre quiere esto y no perder la lista. */}
+                                  <button onClick={() => { setOpenMenuId(null); setResetStockFor(o); }}
+                                    title="Deja el catálogo intacto y pone en 0 la cantidad de cada producto"
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50">
+                                    <PackageX size={13} /> Poner existencias en 0
+                                  </button>
                                   <button onClick={() => { setOpenMenuId(null); setPurgeProductsFor(o); }}
                                     title="Borra todo el catálogo de este negocio, por tandas y con avance"
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50">
@@ -2032,6 +2045,14 @@ export const CreateOwner: React.FC = () => {
         <PurgeProductsModal
           owner={purgeProductsFor}
           onClose={() => setPurgeProductsFor(null)}
+          onToast={showToast}
+        />
+      )}
+
+      {resetStockFor && (
+        <ResetStockModal
+          owner={resetStockFor}
+          onClose={() => setResetStockFor(null)}
           onToast={showToast}
         />
       )}
