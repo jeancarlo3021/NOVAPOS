@@ -81,6 +81,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'multi_branch', label: 'Multi-sucursal' },
     { key: 'multi_branch_transfers', label: 'Traslados entre sucursales' },
     { key: 'digital_menu', label: 'Carta digital (QR)' },
+    { key: 'mesa_digital', label: 'Mesa digital (QR en la mesa)' },
     { key: 'digital_catalog', label: 'Catálogo digital (QR)' },
     { key: 'window_service', label: 'Ventanita / para llevar' },
     { key: 'invoice_pdf_a4', label: 'Descargar factura en PDF (A4)' },

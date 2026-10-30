@@ -32,6 +32,9 @@ const BranchReportsDashboard   = lazy(() => import('./modules/reports/BranchRepo
 const Recipes                  = lazy(() => import('./modules/recipes/Recipes').then(m => ({ default: m.Recipes })));
 const MenuBuilder              = lazy(() => import('./modules/menu/MenuBuilder').then(m => ({ default: m.MenuBuilder })));
 const PublicMenu               = lazy(() => import('./modules/menu/PublicMenu').then(m => ({ default: m.PublicMenu })));
+const MesaCliente              = lazy(() => import('./modules/mesaDigital/MesaCliente').then(m => ({ default: m.MesaCliente })));
+const JuegosMesa               = lazy(() => import('./modules/mesaDigital/JuegosMesa').then(m => ({ default: m.JuegosMesa })));
+const MesaDigitalDashboard     = lazy(() => import('./modules/mesaDigital/MesaDigitalDashboard').then(m => ({ default: m.MesaDigitalDashboard })));
 const DistributionDashboard    = lazy(() => import('./modules/distribution/DistributionDashboard').then(m => ({ default: m.DistributionDashboard })));
 const RouteRun                 = lazy(() => import('./modules/distribution/RouteRun').then(m => ({ default: m.RouteRun })));
 const TruckTrackingMap         = lazy(() => import('./modules/distribution/TruckTrackingMap').then(m => ({ default: m.TruckTrackingMap })));
@@ -104,6 +107,11 @@ function AppContent() {
           {/* Catálogo digital PÚBLICO: misma página, otra ruta, para que el QR
               de una ferretería no diga «menú». */}
           <Route path="/c/:slug" element={<PublicMenu />} />
+          {/* MESA DIGITAL pública: lo que abre el QR pegado en la mesa. También
+              fuera de ProtectedRoute —el comensal no tiene cuenta— y atada al
+              token secreto de esa mesa, no a un número adivinable. */}
+          <Route path="/mesa/:token" element={<MesaCliente />} />
+          <Route path="/mesa/:token/juegos" element={<JuegosMesa />} />
           {/* PANTALLA DEL CLIENTE (segundo monitor de la caja).
               Va fuera del layout: no lleva menú ni botones —el monitor puede ser
               táctil y lo toca cualquiera— y tiene que ocupar la pantalla entera.
@@ -229,6 +237,9 @@ function AppContent() {
               } />
               <Route path="/tables" element={
                 <PlanGuard feature="tables"><TablesDashboard /></PlanGuard>
+              } />
+              <Route path="/mesa-digital" element={
+                <PlanGuard feature="mesa_digital"><MesaDigitalDashboard /></PlanGuard>
               } />
               <Route path="/modifiers" element={
                 <PlanGuard feature="modifiers"><ModifiersManager /></PlanGuard>

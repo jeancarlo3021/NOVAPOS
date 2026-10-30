@@ -135,14 +135,32 @@ export const InfoDashboard: React.FC = () => {
               Excedente acumulado: <b>{quota.overage}</b> comprobante(s) · cobro extra <b>{fmtColones(quota.extra_charge)}</b>
             </div>
           )}
-          {quota.included > 0 && (
+          {/* VENCE O SE REINICIA, cuando el plan es de ese tipo. El dato que el
+              negocio necesita no es solo cuántos le quedan, sino hasta cuándo:
+              «100 por un mes» y «100 hasta agotarse» se leen igual en el
+              contador y son dos cosas distintas. */}
+          {quota.periodo === 'mes' && (
+            <p className="text-xs text-gray-500 mt-2">
+              Tu plan trae <b>{quota.included} comprobantes por mes</b>. El contador vuelve a
+              {' '}{quota.included} el primer día de cada mes y lo que no usés <b>no se acumula</b>.
+              {quota.extra_fee > 0 && <> Pasado el límite, cada comprobante extra cuesta {fmtColones(quota.extra_fee)}.</>}
+            </p>
+          )}
+          {quota.periodo === 'unico' && (
+            <p className={`text-xs mt-2 ${quota.vencida ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
+              {quota.vencida
+                ? <>Tu paquete de <b>{quota.included}</b> comprobantes <b>venció</b>{quota.vence_el ? <> el {fmtDate(quota.vence_el)}</> : null}. Para seguir facturando electrónicamente hay que renovarlo.</>
+                : <>Tenés <b>{quota.included}</b> comprobantes {quota.vence_el ? <>válidos hasta el <b>{fmtDate(quota.vence_el)}</b></> : 'con vencimiento'}. Los que sobren al vencer no se pasan al siguiente.</>}
+            </p>
+          )}
+          {quota.included > 0 && (quota.periodo ?? 'bolsa') === 'bolsa' && (
             <p className="text-xs text-gray-400 mt-2">
               Tenés un paquete de <b>{quota.included}</b> comprobantes que se van gastando hasta agotarse (puede durar meses). Se <b>renueva al pagar</b>. Te avisamos cuando queden 50, 20 y 10. Superado el paquete, cada comprobante extra cuesta {fmtColones(quota.extra_fee)}.
             </p>
           )}
           {/* Arrastre: lo que sobró de la bolsa anterior. Se muestra porque
               explica por qué el paquete es más grande que el del plan. */}
-          {(quota.carryover ?? 0) > 0 && (
+          {(quota.carryover ?? 0) > 0 && quota.periodo !== 'mes' && (
             <p className="text-xs text-emerald-600 mt-1">
               Incluye <b>{quota.carryover}</b> comprobante(s) que te sobraron del paquete anterior
               {quota.included_plan ? <> (plan: {quota.included_plan})</> : null}. Lo que no usés

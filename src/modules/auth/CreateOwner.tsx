@@ -146,7 +146,25 @@ export const CreateOwner: React.FC = () => {
   const [formErrors, setFormErrors] = useState({ email: '', password: '', businessName: '' });
 
   // Catálogo de planes FE (para asignar en alta y en acciones).
-  const [fePlans, setFePlans] = useState<Array<{ id: string; name: string; docsPerMonth: number | null; extraDocPrice: number; is_active: boolean }>>([]);
+  /**
+   * Cómo se lee la cuota de un plan FE.
+   *
+   * Antes los dos selectores decían «— 300/mes» para TODOS, y la mayoría son
+   * bolsas que duran hasta gastarse: el panel prometía 300 por mes donde había
+   * 300 en total. Con planes que sí son mensuales o que vencen, el texto tiene
+   * que distinguirlos.
+   */
+  const cuotaFe = (p: { docsPerMonth: number | null; periodo?: string | null; vigenciaMeses?: number | null }): string => {
+    if (p.docsPerMonth == null) return 'ilimitado';
+    if (p.periodo === 'mes') return `${p.docsPerMonth} por mes`;
+    if (p.periodo === 'unico') {
+      const m = p.vigenciaMeses ?? 1;
+      return `${p.docsPerMonth} por ${m === 1 ? 'un mes' : `${m} meses`}`;
+    }
+    return `${p.docsPerMonth} hasta agotarse`;
+  };
+
+  const [fePlans, setFePlans] = useState<Array<{ id: string; name: string; docsPerMonth: number | null; extraDocPrice: number; periodo?: 'bolsa' | 'mes' | 'unico'; vigenciaMeses?: number | null; is_active: boolean }>>([]);
   useEffect(() => {
     apiFetch<any[]>('/admin/fe-plans').then(l => setFePlans(Array.isArray(l) ? l : [])).catch(() => {});
   }, []);
@@ -1349,7 +1367,7 @@ export const CreateOwner: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white disabled:bg-gray-100 disabled:text-gray-400">
                   <option value="">{formData.simplificado ? 'No aplica (régimen simplificado)' : 'Sin FE (dejar vacío)'}</option>
                   {fePlans.filter(p => p.is_active).map(p => (
-                    <option key={p.id} value={p.id}>{p.name}{p.docsPerMonth == null ? ' — ilimitado' : ` — ${p.docsPerMonth}/mes`}</option>
+                    <option key={p.id} value={p.id}>{p.name} — {cuotaFe(p)}</option>
                   ))}
                 </select>
               </div>
@@ -1961,7 +1979,7 @@ export const CreateOwner: React.FC = () => {
               <option value="">Mantener el plan actual</option>
               {fePlans.filter(p => p.is_active).map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.name} · {p.docsPerMonth == null ? 'ilimitado' : `${p.docsPerMonth} comprob.`}
+                  {p.name} · {cuotaFe(p)}
                   {p.extraDocPrice > 0 ? ` · extra ₡${p.extraDocPrice}` : ''}
                 </option>
               ))}

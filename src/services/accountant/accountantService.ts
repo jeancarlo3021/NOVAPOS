@@ -109,6 +109,45 @@ export interface NewClientResult {
   alanube?: AlanubeSync | null;
 }
 
+/** Un comprobante del consolidado, ya listo para escribir en una fila. */
+export interface ComprobanteConsolidado {
+  fecha: string;
+  numero: string | null;
+  consecutivo_fe: string;
+  clave: string;
+  tipo: string;
+  cliente: string;
+  cliente_id: string;
+  subtotal: number;
+  impuesto: number;
+  total: number;
+  moneda: string;
+  medio_pago: string;
+  estado_fe: string;
+  anulada: boolean;
+  nota_credito: string;
+  error_fe: string;
+}
+
+export interface ClienteConsolidado {
+  tenant_id: string;
+  nombre: string;
+  cedula: string;
+  comprobantes: ComprobanteConsolidado[];
+  totales: {
+    comprobantes: number; validos: number;
+    aceptados: number; rechazados: number; pendientes: number; anulados: number;
+    subtotal: number; impuesto: number; total: number;
+  };
+}
+
+export interface Consolidado {
+  desde: string | null;
+  hasta: string | null;
+  solo_fe: boolean;
+  clientes: ClienteConsolidado[];
+}
+
 export const accountantService = {
   clients: () => apiFetch<AccountantClient[]>('/accountant/clients'),
 
@@ -159,6 +198,21 @@ export const accountantService = {
     `/accountant/clients/${tenantId}/certificate`,
     { method: 'POST', body: JSON.stringify(data) },
   ),
+
+  /**
+   * Los comprobantes de TODA la cartera, para el consolidado del mes.
+   *
+   * Un solo viaje: con quince clientes, pedirlos uno por uno son quince
+   * peticiones y una pantalla que parece colgada a mitad de camino.
+   */
+  consolidado: (from?: string, to?: string, soloFe = true) => {
+    const p = new URLSearchParams();
+    if (from) p.set('from', from);
+    if (to) p.set('to', to);
+    if (!soloFe) p.set('solo_fe', 'no');
+    const qs = p.toString();
+    return apiFetch<Consolidado>(`/accountant/consolidado${qs ? '?' + qs : ''}`);
+  },
 
   invoices: (tenantId: string, from?: string, to?: string) => {
     const p = new URLSearchParams();

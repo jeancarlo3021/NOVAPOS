@@ -94,6 +94,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Recetas',           to: '/recipes',    icon: BookOpen,      feature: 'recipes',    module: 'recipes'    },
       { name: 'Ventanita',         to: '/ventanita',  icon: Store,       feature: 'window_service', module: 'window_service' },
       { name: 'Menú digital',      to: '/menu-digital', icon: QrCode,      feature: 'digital_menu', module: 'digital_menu' },
+      { name: 'Mesa digital (QR)', to: '/mesa-digital', icon: QrCode,      feature: 'mesa_digital', module: 'mesa_digital' },
       { name: 'Catálogo digital',  to: '/catalogo-digital', icon: QrCode,  feature: 'digital_catalog', module: 'digital_catalog' },
       { name: 'Promociones',       to: '/promotions', icon: Tag,           feature: 'promotions', module: 'promotions' },
       { name: 'Mapa de Mesas',     to: '/tables',     icon: LayoutGrid,    feature: 'tables',     module: 'restaurant' },

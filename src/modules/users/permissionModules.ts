@@ -25,6 +25,7 @@ export const PERMISSION_MODULES: PermissionModuleMeta[] = [
   { key: 'restaurant', label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa' },
   { key: 'recipes', label: 'Recetas', description: 'Recetas e ingredientes' },
   { key: 'digital_menu', label: 'Menú digital', description: 'Carta pública con QR' },
+  { key: 'mesa_digital', label: 'Mesa digital (QR)', description: 'Avisos del cliente desde la mesa y sus QR' },
   { key: 'window_service', label: 'Ventanita', description: 'Mostrador con fila de despacho' },
   { key: 'distribution', label: 'Distribución', description: 'Rutas de reparto y repartidor' },
   { key: 'caja', label: 'Caja', description: 'Recibe pedidos de agentes y cobra' },

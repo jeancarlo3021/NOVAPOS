@@ -8,6 +8,7 @@ import { CRLocationFields } from '@/components/CRLocationFields';
 import { formatCedula, cleanCedula, cedulaPlaceholder } from '@/utils/cedula';
 import { accountantService, type AccountantClient } from '@/services/accountant/accountantService';
 import { AddClientModal } from './AddClientModal';
+import { ConsolidadoPanel } from './ConsolidadoPanel';
 
 const fdate = (s?: string | null) => s ? new Date(s).toLocaleDateString('es-CR', { dateStyle: 'medium' }) : '—';
 
@@ -88,8 +89,13 @@ export const AccountantPortal: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-md">
+      {/* EL CONSOLIDADO DEL MES. Va arriba de la lista porque es la tarea que
+          el contador viene a hacer: bajar lo que emitieron todos sus clientes
+          para declarar, no revisar negocio por negocio. */}
+      <ConsolidadoPanel cantidadClientes={clients.length} />
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar negocio, emisor o cédula…"
             className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-indigo-400" />

@@ -108,6 +108,15 @@ function SubFeatureRow({
 // ── Main component ────────────────────────────────────────────────────────────
 
 // ── Planes de Facturación Electrónica (estado local; sin backend por ahora) ──
+/**
+ * Cómo funciona la cuota de un plan FE.
+ *
+ *   'bolsa' — N comprobantes hasta agotarse, sin vencimiento (lo de siempre).
+ *   'mes'   — N comprobantes POR MES: vuelven a N el día 1 de cada mes.
+ *   'unico' — N comprobantes que VENCEN a los `vigenciaMeses` meses.
+ */
+export type PeriodoFe = 'bolsa' | 'mes' | 'unico';
+
 interface FePlan {
   id: string;
   name: string;
@@ -115,21 +124,37 @@ interface FePlan {
   price: number;
   docsPerMonth: number | null;   // null = ilimitado
   extraDocPrice: number;
+  periodo: PeriodoFe;
+  /** Solo en 'unico': cuántos meses vale la cuota. */
+  vigenciaMeses: number | null;
   features: string[];
   is_active: boolean;
 }
 
+/** Cómo se lee la cuota de un plan, en una línea. */
+export const textoCuotaFe = (p: Pick<FePlan, 'docsPerMonth' | 'periodo' | 'vigenciaMeses'>): string => {
+  if (p.docsPerMonth == null) return 'Ilimitados';
+  if (p.periodo === 'mes') return `${p.docsPerMonth} por mes`;
+  if (p.periodo === 'unico') {
+    const m = p.vigenciaMeses ?? 1;
+    return `${p.docsPerMonth} por ${m === 1 ? 'un mes' : `${m} meses`}`;
+  }
+  return `${p.docsPerMonth} hasta agotarse`;
+};
+
 // Detalles predefinidos desde un principio.
 const FE_PLANS_DEFAULT: FePlan[] = [
-  { id: 'fe-inicial',   name: 'FE Inicial',   description: 'Para negocios que arrancan con FE', price: 5000,  docsPerMonth: 50,   extraDocPrice: 80, features: ['Tiquete electrónico', 'Factura electrónica'], is_active: true },
-  { id: 'fe-pyme',      name: 'FE Pyme',      description: 'Volumen medio de comprobantes',     price: 12000, docsPerMonth: 300,  extraDocPrice: 60, features: ['Tiquete', 'Factura', 'Nota de crédito'], is_active: true },
-  { id: 'fe-pro',       name: 'FE Pro',       description: 'Alto volumen mensual',              price: 25000, docsPerMonth: 1000, extraDocPrice: 40, features: ['Todos los documentos', 'Reportes Hacienda'], is_active: true },
-  { id: 'fe-ilimitado', name: 'FE Ilimitado', description: 'Comprobantes sin límite',            price: 45000, docsPerMonth: null, extraDocPrice: 0,  features: ['Comprobantes ilimitados', 'Soporte prioritario'], is_active: true },
+  { id: 'fe-inicial',   name: 'FE Inicial',   description: 'Para negocios que arrancan con FE', price: 5000,  docsPerMonth: 50,   periodo: 'bolsa' as PeriodoFe, vigenciaMeses: null, extraDocPrice: 80, features: ['Tiquete electrónico', 'Factura electrónica'], is_active: true },
+  { id: 'fe-pyme',      name: 'FE Pyme',      description: 'Volumen medio de comprobantes',     price: 12000, docsPerMonth: 300,  periodo: 'bolsa' as PeriodoFe, vigenciaMeses: null, extraDocPrice: 60, features: ['Tiquete', 'Factura', 'Nota de crédito'], is_active: true },
+  { id: 'fe-pro',       name: 'FE Pro',       description: 'Alto volumen mensual',              price: 25000, docsPerMonth: 1000, periodo: 'bolsa' as PeriodoFe, vigenciaMeses: null, extraDocPrice: 40, features: ['Todos los documentos', 'Reportes Hacienda'], is_active: true },
+  { id: 'fe-ilimitado', name: 'FE Ilimitado', description: 'Comprobantes sin límite',            price: 45000, docsPerMonth: null, periodo: 'bolsa' as PeriodoFe, vigenciaMeses: null, extraDocPrice: 0,  features: ['Comprobantes ilimitados', 'Soporte prioritario'], is_active: true },
 ];
 
 const emptyFePlan = (): FePlan => ({
   id: `fe-${Date.now()}`, name: '', description: '', price: 0,
-  docsPerMonth: null, extraDocPrice: 0, features: [], is_active: true,
+  docsPerMonth: null, extraDocPrice: 0,
+  periodo: 'bolsa', vigenciaMeses: null,
+  features: [], is_active: true,
 });
 
 // Costo del proveedor de facturación electrónica por tramo de documentos/mes.
@@ -175,10 +200,25 @@ export default function Plans() {
     setFeIsNew(false);
     setShowFeModal(true);
   };
+  /**
+   * Aviso de que el período NO se guardó.
+   *
+   * Si la base todavía no tiene las columnas de la migración 128, el servidor
+   * guarda el plan sin ellas para no perder lo escrito —pero queda como bolsa
+   * que no vence, no como «100 por un mes»—. Callarlo sería vender un plan de
+   * un mes que en realidad no caduca nunca.
+   */
+  const [feAvisoMigracion, setFeAvisoMigracion] = useState(false);
+
   // Persistir en la BD (app_config key='fe_plans') vía admin.
   const persistFePlans = (next: FePlan[]) => {
     setFePlans(next);
-    apiFetch('/admin/fe-plans', { method: 'PUT', body: JSON.stringify({ plans: next }) }).catch(() => {});
+    const hayPeriodo = next.some(p => p.periodo && p.periodo !== 'bolsa');
+    apiFetch<{ falta_migracion_128?: boolean }>('/admin/fe-plans', {
+      method: 'PUT', body: JSON.stringify({ plans: next }),
+    })
+      .then(r => setFeAvisoMigracion(hayPeriodo && (r as any)?.falta_migracion_128 === true))
+      .catch(() => {});
   };
   const saveFePlan = () => {
     const features = feFeaturesText.split(',').map(s => s.trim()).filter(Boolean);
@@ -654,6 +694,17 @@ export default function Plans() {
             </div>
           </div>
 
+          {/* El período no se pudo guardar: el plan quedó como bolsa que no vence.
+              Se dice acá y no en un `console.log` porque de eso depende si el
+              cliente paga un mes o comprobantes para siempre. */}
+          {feAvisoMigracion && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <b>El plan se guardó, pero sin su período:</b> quedó como bolsa que se gasta hasta
+              agotarse, no como cuota mensual ni con vencimiento. Falta correr la migración
+              <b> 128_fe_plan_periodo.sql</b> en la base; después volvé a guardar el plan.
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-400 font-semibold">{fePlans.length} planes de facturación electrónica</p>
             <button
@@ -681,7 +732,7 @@ export default function Plans() {
                   </div>
                 </div>
                 <div className="px-5 py-3 text-xs text-gray-500 space-y-1 border-b border-gray-50">
-                  <div className="flex justify-between"><span>Comprobantes/mes</span><span className="font-bold text-gray-700">{plan.docsPerMonth ?? '∞'}</span></div>
+                  <div className="flex justify-between"><span>Comprobantes</span><span className="font-bold text-gray-700">{textoCuotaFe(plan)}</span></div>
                   <div className="flex justify-between"><span>Costo por doc. extra</span><span className="font-bold text-gray-700">₡{plan.extraDocPrice}</span></div>
                   {(() => {
                     const cost = feProviderCost(plan.docsPerMonth);
@@ -776,7 +827,7 @@ export default function Plans() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Comprobantes / mes</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cuántos comprobantes</label>
                   <input type="number" value={feForm.docsPerMonth ?? ''} placeholder="∞ (vacío = ilimitado)"
                     onChange={e => setFeForm({ ...feForm, docsPerMonth: e.target.value === '' ? null : parseInt(e.target.value) })}
                     className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
@@ -790,6 +841,47 @@ export default function Plans() {
                   </select>
                 </div>
               </div>
+
+              {/* CÓMO FUNCIONA LA CUOTA.
+                  Sin esto solo se podían vender bolsas que no caducan: no había
+                  forma de armar «100 por un mes» ni «25 cada mes», que son dos
+                  planes distintos y con precios distintos. */}
+              {feForm.docsPerMonth != null && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">¿Cómo funciona la cuota?</label>
+                    <select value={feForm.periodo}
+                      onChange={e => {
+                        const periodo = e.target.value as PeriodoFe;
+                        setFeForm({
+                          ...feForm, periodo,
+                          vigenciaMeses: periodo === 'unico' ? (feForm.vigenciaMeses ?? 1) : null,
+                        });
+                      }}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm bg-white">
+                      <option value="bolsa">Hasta agotarse · no vence</option>
+                      <option value="mes">Por mes · se reinicia el día 1</option>
+                      <option value="unico">Por una sola vez · vence</option>
+                    </select>
+                  </div>
+                  {feForm.periodo === 'unico' && (
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1.5">¿Por cuántos meses vale?</label>
+                      <input type="number" min={1} max={36} value={feForm.vigenciaMeses ?? 1}
+                        onChange={e => setFeForm({ ...feForm, vigenciaMeses: Math.max(1, Math.min(36, parseInt(e.target.value) || 1)) })}
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
+                    </div>
+                  )}
+                  <p className="col-span-2 text-xs text-gray-500">
+                    Queda: <b className="text-gray-700">{textoCuotaFe(feForm)}</b>.{' '}
+                    {feForm.periodo === 'mes'
+                      ? 'Lo que no se use NO se acumula para el mes siguiente.'
+                      : feForm.periodo === 'unico'
+                        ? 'Al vencer no quedan comprobantes, aunque hayan sobrado.'
+                        : 'Duran lo que duren: no se vencen hasta gastarse.'}
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1.5">Características <span className="text-gray-400 font-normal">(separadas por coma)</span></label>
                 <textarea value={feFeaturesText} onChange={e => setFeFeaturesText(e.target.value)}

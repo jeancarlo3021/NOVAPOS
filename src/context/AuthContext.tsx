@@ -271,6 +271,8 @@ export interface PlanFeatures {
   restaurant_menu_recipes?: boolean;
   /** Menú digital con QR: página pública que el cliente abre desde la mesa. */
   digital_menu?: boolean;
+  /** Mesa digital: el QR de cada mesa, con el que el cliente avisa al personal. */
+  mesa_digital?: boolean;
   /** Catálogo digital con QR: la misma página, para productos corrientes. */
   digital_catalog?: boolean;
   /** Módulo contable: partida doble, libro diario, balance. */
@@ -424,6 +426,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   modifiers: false,
   restaurant_menu_recipes: false,
   digital_menu: false,
+  mesa_digital: false,
   digital_catalog: false,
   accounting: false,
   window_service: false,
@@ -522,6 +525,7 @@ export const FULL_FEATURES: PlanFeatures = {
   table_orders: true,
   restaurant_menu_recipes: true,
   digital_menu: true,
+  mesa_digital: true,
   digital_catalog: true,
   accounting: true,
   window_service: true,
