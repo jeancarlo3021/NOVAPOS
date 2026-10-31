@@ -44,7 +44,12 @@ export function ReceiveReviewModal({ purchase, tenantId, canUpdateStock, onClose
         const raw: ReviewItem[] = (detail?.purchase_items ?? []).map((it: any) => ({
           id:             it.id,
           product_id:     it.product_id,
-          product_name:   it.product?.name ?? it.product?.sku ?? 'Producto',
+          /* El nombre que manda el servidor manda. Antes se leía solo
+             `it.product?.name`, que el endpoint NO devolvía: todas las líneas
+             de todas las órdenes decían «Producto». Y cuando el producto se
+             borró después de la compra, el servidor dice eso, que es
+             información, en vez de dejarlo en blanco. */
+          product_name:   it.product_name ?? it.product?.name ?? it.product?.sku ?? '(producto eliminado)',
           qty_ordered:    Number(it.quantity ?? 0),
           qty_received:   Number(it.quantity ?? 0),
           price_ordered:  Number(it.unit_price ?? 0),

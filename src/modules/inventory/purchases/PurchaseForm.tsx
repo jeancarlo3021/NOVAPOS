@@ -61,6 +61,24 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
   const [products, setProducts]     = useState<Product[]>([]);
   const [loadingData, setLoadingData] = useState(false);
 
+  /**
+   * EL BUSCADOR DE PRODUCTOS, POR LOTES.
+   *
+   * Antes el desplegable se llenaba con el catálogo COMPLETO: en un negocio con
+   * 5.065 productos eso son 4 MB y tres segundos y medio solo para abrir la
+   * ventana, más cinco mil opciones que nadie va a recorrer con la rueda del
+   * mouse. Ahora se piden de a 50 —filtrados en el servidor por lo que se
+   * escribe— y hay un botón para traer más.
+   */
+  const LOTE = 50;
+  const [busqueda, setBusqueda]   = useState('');
+  const [opciones, setOpciones]   = useState<Product[]>([]);
+  const [buscando, setBuscando]   = useState(false);
+  const [hayMas, setHayMas]       = useState(false);
+  const [listaAbierta, setListaAbierta] = useState(false);
+  /** El producto elegido, completo: el de la lista puede no estar en `products`. */
+  const [elegido, setElegido]     = useState<Product | null>(null);
+
   // Add-item row
   const [newProductId, setNewProductId]   = useState('');
   const [newQuantity, setNewQuantity]     = useState<string>('1');
@@ -100,17 +118,27 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     setError('');
     try {
       if (navigator.onLine) {
-        const [supps, prods] = await Promise.all([
-          apiFetch<InventorySupplier[]>('/suppliers'),
-          apiFetch<Product[]>('/products'),
-        ]);
+        const supps = await apiFetch<InventorySupplier[]>('/suppliers');
         setSuppliers(supps);
-        setProducts(prods);
-        // Cache for offline use — both IndexedDB and localStorage
         purchasesOfflineService.cacheSuppliers(tid, supps).catch(() => {});
-        purchasesOfflineService.cacheProducts(tid, prods).catch(() => {});
         cacheSet(cacheKey(tid, 'suppliers_list'), supps);
-        cacheSet(cacheKey(tid, 'products_list'), prods);
+
+        /**
+         * El CATÁLOGO COMPLETO se baja aparte y SIN BLOQUEAR.
+         *
+         * La ventana ya se puede usar con el primer lote de 50; lo demás se
+         * trae en segundo plano y sirve para dos cosas: el respaldo sin
+         * internet y buscar sin volver a preguntarle al servidor. Si tarda o
+         * falla, el formulario igual funciona.
+         */
+        void apiFetch<Product[]>('/products')
+          .then(prods => {
+            if (!isMountedRef.current) return;
+            setProducts(prods);
+            purchasesOfflineService.cacheProducts(tid, prods).catch(() => {});
+            cacheSet(cacheKey(tid, 'products_list'), prods);
+          })
+          .catch(() => {});
       } else {
         // Try IndexedDB first, then localStorage as fallback (try both global and local cache keys)
         let [supps, prods] = await Promise.all([
@@ -174,11 +202,59 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
 
   const selectedSupplier = suppliers.find(s => s.id === supplierId) ?? null;
 
+  /**
+   * Trae un lote de productos.
+   *
+   * Con internet se le pide al servidor —que filtra y pagina— y sin internet se
+   * filtra sobre el catálogo que quedó en el caché. Las dos formas devuelven
+   * lotes del mismo tamaño, así que la pantalla se comporta igual.
+   */
+  const cargarLote = async (texto: string, desde: number) => {
+    setBuscando(true);
+    try {
+      let lote: Product[];
+      if (navigator.onLine) {
+        const qs = new URLSearchParams({ limit: String(LOTE), offset: String(desde) });
+        if (texto.trim()) qs.set('search', texto.trim());
+        lote = await apiFetch<Product[]>(`/products?${qs.toString()}`);
+      } else {
+        const t = texto.trim().toLowerCase();
+        const base = t
+          ? products.filter(p => `${p.name} ${p.sku ?? ''}`.toLowerCase().includes(t))
+          : products;
+        lote = base.slice(desde, desde + LOTE);
+      }
+      if (!isMountedRef.current) return;
+      setOpciones(prev => (desde === 0 ? lote : [...prev, ...lote]));
+      // Si el lote vino lleno, es probable que haya más: se ofrece traerlos.
+      setHayMas(lote.length === LOTE);
+    } catch {
+      if (isMountedRef.current && desde === 0) { setOpciones([]); setHayMas(false); }
+    } finally {
+      if (isMountedRef.current) setBuscando(false);
+    }
+  };
+
+  /* Se busca con RETARDO: pedirle al servidor en cada tecla son diez consultas
+     para escribir «tornillo» y la lista parpadeando mientras se escribe. */
+  /* `products` solo cuenta SIN internet, que es cuando es la fuente del filtro.
+     Con internet el lote lo trae el servidor, y volver a pedirlo cuando termina
+     de bajar el catálogo de respaldo es una consulta al aire. */
+  const fuenteLocal = navigator.onLine ? 0 : products.length;
+  useEffect(() => {
+    if (!isOpen) return;
+    const t = setTimeout(() => { void cargarLote(busqueda, 0); }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busqueda, isOpen, fuenteLocal]);
+
   // Pre-fill with cost_price (what we pay the supplier), not unit_price (what we sell)
-  const handleProductSelect = (pid: string) => {
-    setNewProductId(pid);
-    const prod = products.find(p => p.id === pid);
-    if (prod) setNewUnitPrice(String(prod.cost_price ?? ''));
+  const handleProductSelect = (prod: Product) => {
+    setElegido(prod);
+    setNewProductId(prod.id);
+    setBusqueda(prod.name);
+    setListaAbierta(false);
+    setNewUnitPrice(String(prod.cost_price ?? ''));
   };
 
   const handleAddItem = () => {
@@ -187,7 +263,11 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     if (!Number.isFinite(qty) || qty <= 0) { setError('La cantidad debe ser mayor a 0'); return; }
     const price = parseFloat(newUnitPrice);
     if (!price || price <= 0) { setError('El precio debe ser mayor a 0'); return; }
-    const prod = products.find(p => p.id === newProductId)!;
+    /* El producto sale del BUSCADOR, no de `products`: con la carga por lotes el
+       catálogo completo puede no haber llegado todavía, y buscarlo ahí dejaba la
+       línea sin nombre —o reventaba— al agregarla. */
+    const prod = elegido ?? products.find(p => p.id === newProductId);
+    if (!prod) { setError('Volvé a elegir el producto'); return; }
     setItems(prev => [...prev, {
       rowId: `${Date.now()}-${Math.random()}`,
       product_id: prod.id,
@@ -197,6 +277,8 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
       total: qty * price,
     }]);
     setNewProductId('');
+    setElegido(null);
+    setBusqueda('');
     setNewQuantity('1');
     setNewUnitPrice('');
     setError('');
@@ -305,6 +387,9 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     setNotes('');
     setItems([]);
     setNewProductId('');
+    setElegido(null);
+    setBusqueda('');
+    setOpciones([]);
     setNewQuantity('1');
     setNewUnitPrice('');
     setError('');
@@ -448,17 +533,61 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             <div className="grid grid-cols-12 gap-2 mb-3 items-end">
               <div className="col-span-5">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Producto *</label>
+                {/* BUSCADOR, no desplegable: con cinco mil productos la lista no
+                    se recorre, se busca. Se traen de a 50 y hay botón para más. */}
                 <div className="relative">
-                  <select
-                    value={newProductId}
-                    onChange={e => handleProductSelect(e.target.value)}
+                  <input
+                    type="text"
+                    value={busqueda}
+                    onChange={e => { setBusqueda(e.target.value); setListaAbierta(true); setElegido(null); setNewProductId(''); }}
+                    onFocus={() => setListaAbierta(true)}
+                    placeholder={loadingData ? 'Cargando…' : 'Escribí el nombre o el código…'}
                     disabled={submitting || loadingData}
-                    className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 bg-white appearance-none"
-                  >
-                    <option value="">{loadingData ? 'Cargando...' : 'Seleccionar producto'}</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                    className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 bg-white"
+                  />
                   <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+
+                  {listaAbierta && (
+                    <>
+                      {/* Un clic afuera cierra la lista sin elegir nada. */}
+                      <div className="fixed inset-0 z-10" onClick={() => setListaAbierta(false)} />
+                      <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                        {opciones.map(p => (
+                          <button
+                            key={p.id} type="button"
+                            onClick={() => handleProductSelect(p)}
+                            className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-50 last:border-0"
+                          >
+                            <span className="block text-sm text-gray-800 truncate">{p.name}</span>
+                            <span className="block text-[11px] text-gray-400">
+                              {p.sku ? `${p.sku} · ` : ''}costo ₡{Number(p.cost_price ?? 0).toLocaleString('en-US').replace(/,/g, '.')}
+                              {` · hay ${Number(p.stock_quantity ?? 0)}`}
+                            </span>
+                          </button>
+                        ))}
+
+                        {buscando && (
+                          <div className="px-3 py-2 text-xs text-gray-400 flex items-center gap-2">
+                            <Loader size={12} className="animate-spin" /> Buscando…
+                          </div>
+                        )}
+
+                        {!buscando && opciones.length === 0 && (
+                          <p className="px-3 py-3 text-xs text-gray-400">
+                            {busqueda.trim() ? 'Ningún producto con ese nombre o código.' : 'Sin productos.'}
+                          </p>
+                        )}
+
+                        {hayMas && !buscando && (
+                          <button type="button"
+                            onClick={() => void cargarLote(busqueda, opciones.length)}
+                            className="w-full px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 border-t border-gray-100">
+                            Cargar {LOTE} más
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="col-span-2">
