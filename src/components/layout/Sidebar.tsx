@@ -97,7 +97,9 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Mesa digital (QR)', to: '/mesa-digital', icon: QrCode,      feature: 'mesa_digital', module: 'mesa_digital' },
       { name: 'Catálogo digital',  to: '/catalogo-digital', icon: QrCode,  feature: 'digital_catalog', module: 'digital_catalog' },
       { name: 'Promociones',       to: '/promotions', icon: Tag,           feature: 'promotions', module: 'promotions' },
-      { name: 'Mapa de Mesas',     to: '/tables',     icon: LayoutGrid,    feature: 'tables',     module: 'restaurant' },
+      // El salón se DIBUJA acá y se TRABAJA en «Restaurante». El nombre lo
+      // dice, porque con «Mapa de Mesas» media planilla entraba acá a cobrar.
+      { name: 'Diseño del salón',  to: '/tables',     icon: LayoutGrid,    feature: 'tables',     module: 'restaurant' },
       { name: 'Extras y modificadores', to: '/modifiers', icon: Layers,   feature: 'modifiers',  module: 'restaurant' },
       // Vistas separadas: el CAJERO ve «Caja» (cobra), el AGENTE ve «Nuevo pedido»
       // (arma y envía). Cada una con su propio módulo de permisos.

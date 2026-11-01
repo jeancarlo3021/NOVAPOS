@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Save, Trash2, RotateCw, Plus, MousePointer2, Pencil,
-  Eye, Grid as GridIcon, Download, Upload, Hand,
+  Save, Trash2, RotateCw, Plus, MousePointer2, Receipt,
+  Grid as GridIcon, Download, Upload, Hand,
   Square, BoxSelect, Armchair, Copy, ClipboardPaste, Maximize2,
 } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
-import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/lib/api';
 import { MapItemShape } from './MapShapes';
-import { TableOrderPanel } from './TableOrderPanel';
-import { tableOrdersService, type TableOrder } from '@/services/tables/tableOrdersService';
 import {
   tableMeta, STATUS_FILL, STATUS_LABEL, ZONE_COLORS, migrateItems, itemSize,
   type MapItem, type TableType, type TableStatus, type ItemKind,
@@ -45,29 +43,24 @@ const KIND_Z: Record<ItemKind, number> = { zone: 0, wall: 1, table: 2, freeTable
 
 export function TablesDashboard() {
   const { tenantId } = useTenantId();
-  const { planFeatures } = useAuth();
+  const navigate = useNavigate();
   const [items, setItems] = useState<MapItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState(true);
+  /**
+   * ESTA PANTALLA ES EL EDITOR DEL SALÓN. Nada más.
+   *
+   * Antes tenía dos modos: «Editar» para dibujar y «Operar» para abrir cuentas
+   * y cobrar. Eso dejaba DOS pantallas haciendo el mismo trabajo —esta y
+   * Restaurante— con capacidades distintas cada una: el mesero nunca sabía
+   * dónde pararse y la mitad de lo que necesitaba estaba siempre en la otra.
+   *
+   * Ahora el salón se DIBUJA acá —el administrador arma las mesas como quiera,
+   * una sola vez— y se TRABAJA en Restaurante: cuentas, comandas, el 10%,
+   * dividir y cobrar. `editMode` queda fijo para no tocar cada componente del
+   * lienzo, que lo recibe como propiedad.
+   */
+  const editMode = true;
   const [showGrid, setShowGrid] = useState(true);
-  // ── Cuentas abiertas por mesa ────────────────────────────────────────────
-  // El mapa era solo un plano: no se podía abrir una cuenta, sumarle consumos y
-  // cobrarla. Ahora en modo OPERAR cada mesa abre su cuenta.
-  const [orders, setOrders] = useState<TableOrder[]>([]);
-  const [panelFor, setPanelFor] = useState<{ id: string; label: string } | null>(null);
-  const tableOrdersOn = (planFeatures as any)?.table_orders === true;
-  const loadOrders = useCallback(async () => {
-    if (!tableOrdersOn) return;   // sin la feature, el mapa queda como plano
-    try { setOrders(await tableOrdersService.open()); } catch { /* sin conexión: el mapa igual sirve */ }
-  }, [tableOrdersOn]);
-  useEffect(() => { void loadOrders(); }, [loadOrders]);
-  // Refresco periódico: varios meseros trabajan sobre el mismo mapa.
-  useEffect(() => {
-    if (editMode) return;
-    const iv = setInterval(() => void loadOrders(), 20_000);
-    return () => clearInterval(iv);
-  }, [editMode, loadOrders]);
-  const orderByTable = new Map(orders.map(o => [o.table_id, o]));
   const [dirty, setDirty] = useState(false);
 
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -412,7 +405,10 @@ export function TablesDashboard() {
       <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3 shrink-0 flex-wrap">
         <div className="flex items-center gap-2">
           <GridIcon size={20} className="text-blue-600" />
-          <h1 className="font-black text-gray-900">Mapa del Salón</h1>
+          <h1 className="font-black text-gray-900">
+            Diseño del salón
+            <span className="hidden sm:inline font-bold text-gray-400 text-xs"> · acá se arma el mapa; se cobra en Restaurante</span>
+          </h1>
         </div>
 
         <div className="flex-1" />
@@ -426,16 +422,13 @@ export function TablesDashboard() {
           <span className="px-2 py-1 rounded bg-amber-50 text-amber-700 font-bold border border-amber-200">◷ {stats.res}</span>
         </div>
 
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-          <button onClick={() => { setEditMode(true); setSelectedId(null); }}
-            className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition ${editMode ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
-            <Pencil size={13} /> Editar
-          </button>
-          <button onClick={() => { setEditMode(false); setSelectedId(null); }}
-            className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition ${!editMode ? 'bg-white shadow text-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}>
-            <Eye size={13} /> Operar
-          </button>
-        </div>
+        {/* A dónde se va a trabajar. Acá se dibuja; las cuentas, las comandas
+            y el cobro viven en Restaurante, y hay que decirlo donde se busca. */}
+        <button onClick={() => navigate('/billing')}
+          title="Abrir cuentas, mandar comandas y cobrar"
+          className="px-3 py-1.5 rounded-lg text-xs font-bold border-2 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-1.5 transition">
+          <Receipt size={13} /> Ir a cobrar
+        </button>
 
         {editMode && (
           <button onClick={() => setShowGrid(g => !g)}
@@ -583,14 +576,7 @@ export function TablesDashboard() {
                     if (!editMode) {
                       const cur = items.find(x => x.id === id);
                       if (!cur) return;
-                      // MESAS → abren su cuenta (consumo, rondas, cobro).
                       if (cur.kind === 'table' || cur.kind === 'freeTable') {
-                        // Sin «Cuentas por mesa» las mesas siguen ciclando estado,
-                        // como antes de que existiera el módulo.
-                        if (tableOrdersOn) {
-                          setPanelFor({ id, label: (cur as any).label || 'Mesa' });
-                          return;
-                        }
                         const st: TableStatus[] = ['free', 'occupied', 'reserved'];
                         const nx = st[(st.indexOf((cur as any).status) + 1) % st.length];
                         setItems(prev => prev.map(x =>
@@ -614,22 +600,6 @@ export function TablesDashboard() {
                 />
               ))}
 
-              {/* Total consumido sobre cada mesa con cuenta abierta. En modo EDITAR
-                  estorba, así que solo se muestra al operar. */}
-              {!editMode && sortedItems.map(it => {
-                if (it.kind !== 'table' && it.kind !== 'freeTable') return null;
-                const o = orderByTable.get(it.id);
-                if (!o) return null;
-                return (
-                  <g key={`t-${it.id}`} pointerEvents="none">
-                    <rect x={it.x - 34} y={it.y + 14} width={68} height={18} rx={9} fill="#111827" opacity={0.85} />
-                    <text x={it.x} y={it.y + 27} textAnchor="middle" fontSize={11} fontWeight={900} fill="#fff">
-                      ₡{Number(o.total || 0).toLocaleString('es-CR')}
-                    </text>
-                  </g>
-                );
-              })}
-
               {items.length === 0 && (
                 <g pointerEvents="none">
                   <text x={CANVAS_W / 2} y={CANVAS_H / 2 - 10}
@@ -649,22 +619,12 @@ export function TablesDashboard() {
 
       <div className="bg-white border-t border-gray-200 px-6 py-2 text-[11px] text-gray-500 flex items-center gap-3 shrink-0">
         <Hand size={12} />
-        {editMode
-          ? <span>Arrastra cualquier elemento · Click para seleccionar · Las zonas quedan detrás, mesas/sillas arriba</span>
-          : <span>Click sobre una mesa para abrir su cuenta · Click en una silla para cambiar su estado</span>}
+        <span>
+          Arrastrá cualquier elemento · Click para seleccionar · Las zonas quedan detrás, mesas y sillas arriba.
+          Poneles número en el nombre («Mesa 4»): es lo que las enlaza con los QR y con los avisos del cliente.
+        </span>
       </div>
 
-      {panelFor && (
-        <TableOrderPanel
-          tableId={panelFor.id}
-          tableLabel={panelFor.label}
-          otherTables={items
-            .filter(x => (x.kind === 'table' || x.kind === 'freeTable') && x.id !== panelFor.id)
-            .map(x => ({ id: x.id, label: (x as any).label || 'Mesa' }))}
-          onClose={() => setPanelFor(null)}
-          onChanged={loadOrders}
-        />
-      )}
     </div>
   );
 }

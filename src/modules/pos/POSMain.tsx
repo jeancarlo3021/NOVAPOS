@@ -186,16 +186,31 @@ export const POSMain = () => {
     try { sessionStorage.removeItem('novapos_pending_table_order'); } catch { /* ignore */ }
     try {
       const pending = JSON.parse(raw) as {
-        order_id: string; table_label?: string;
-        items: Array<{ product_id?: string | null; product_name: string; quantity: number; unit_price: number; subtotal: number; notes?: string | null }>;
+        order_id: string; table_label?: string; customer_name?: string | null;
+        items: Array<{ product_id?: string | null; product_name: string; quantity: number; unit_price: number; subtotal: number; notes?: string | null; is_adhoc?: boolean; iva_rate?: number }>;
       };
       const cart = (pending.items ?? []).map(it => {
-        const prod = products.find(p => p.id === it.product_id)
-          ?? ({ id: it.product_id ?? '', name: it.product_name, unit_price: it.unit_price, stock_quantity: 0, tenant_id: tenantId ?? '' } as any);
+        /**
+         * Líneas que NO son del catálogo (el «Servicio 10%» del restaurante).
+         *
+         * Viajan con `is_adhoc` y su propia tasa de IVA, y se facturan con
+         * `product_id` nulo. Sin esto, el 10% o no llegaba a la factura —el
+         * cliente lo pagaba y no aparecía desglosado— o viajaba con un id de
+         * producto vacío que el servidor rechaza.
+         */
+        const suelto = !!it.is_adhoc || !it.product_id;
+        const prod = (!suelto && products.find(p => p.id === it.product_id))
+          || ({
+            id: it.product_id ?? '', name: it.product_name, unit_price: it.unit_price,
+            stock_quantity: 0, tenant_id: tenantId ?? '',
+            ...(suelto ? { is_adhoc: true } : {}),
+            ...(it.iva_rate != null ? { iva_rate: it.iva_rate } : {}),
+          } as any);
         return {
           product_id: (it.product_id ?? prod.id) as string,
           product_name: it.product_name,
           product: prod,
+          is_adhoc: suelto || undefined,
           unit_price: it.unit_price,
           quantity: it.quantity,
           subtotal: it.subtotal,
@@ -204,6 +219,7 @@ export const POSMain = () => {
       });
       if (cart.length === 0) return;
       setCartItems(cart as any);
+      if (pending.customer_name) setTabCustomerName(pending.customer_name);
       tableOrderToClose.current = { id: pending.order_id, label: pending.table_label ?? 'Mesa' };
       setSuccess(`Cuenta de ${pending.table_label ?? 'la mesa'} cargada — completá el cobro para cerrarla`);
     } catch { /* json corrupto: se ignora */ }

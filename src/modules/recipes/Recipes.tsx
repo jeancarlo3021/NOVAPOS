@@ -143,8 +143,14 @@ export const Recipes: React.FC = () => {
             const prodPrice = r.product_id ? (products.find(p => p.id === r.product_id)?.unit_price ?? 0) : 0;
             const margin = prodPrice > 0 ? ((prodPrice - r.perYield) / prodPrice) * 100 : null;
             return (
-              <button key={r.id} onClick={() => setEditing(r)}
-                className="text-left bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:border-orange-300 transition">
+              /* La tarjeta NO puede ser un <button>: adentro lleva el botón
+                 «Producir lote», y un botón dentro de otro es HTML inválido —el
+                 navegador puede reacomodarlo y el click de adentro deja de
+                 responder—. Se comporta igual (click y teclado) siendo un div. */
+              <div key={r.id} role="button" tabIndex={0}
+                onClick={() => setEditing(r)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(r); } }}
+                className="cursor-pointer text-left bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:border-orange-300 transition">
                 <div className="flex items-center gap-2 mb-1">
                   {r.is_subrecipe ? <Utensils size={15} className="text-amber-500" /> : <ChefHat size={15} className="text-orange-500" />}
                   <p className="font-black text-gray-900 flex-1 truncate">{r.name}</p>
@@ -153,6 +159,20 @@ export const Recipes: React.FC = () => {
                 <p className="text-[11px] text-gray-400 mb-2">
                   {r.is_subrecipe ? 'Subreceta' : 'Receta'} · rinde {r.yield_qty} {r.yield_unit || 'porción'}
                 </p>
+                {/* La ESTACIÓN decide a qué impresora de cocina va el plato, así
+                    que tiene que verse sin entrar a editar: un plato sin ella se
+                    reparte solo por su categoría de venta. */}
+                {!r.is_subrecipe && (
+                  r.station ? (
+                    <p className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded-md px-2 py-0.5 mb-2">
+                      <ChefHat size={10} /> {r.station}
+                    </p>
+                  ) : (
+                    <p className="inline-flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-gray-50 border border-gray-200 rounded-md px-2 py-0.5 mb-2">
+                      sin estación
+                    </p>
+                  )
+                )}
                 {/* Aviso de unidades: es lo que separa un costo real de un
                     número inventado, así que va arriba y en rojo. */}
                 {unitsOn && (r.warnings?.length ?? 0) > 0 && (
@@ -182,7 +202,7 @@ export const Recipes: React.FC = () => {
                     <Factory size={13} /> Producir lote
                   </button>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>

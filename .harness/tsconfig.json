@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2020", "module": "ESNext", "moduleResolution": "bundler",
+    "jsx": "react-jsx", "strict": false, "skipLibCheck": true, "baseUrl": "..",
+    "paths": {
+      "@/lib/api": [".harness/stub-api.ts"],
+      "@/lib/supabase": [".harness/stub-supabase.ts"],
+      "@/hooks/useTenant": [".harness/stub-tenant.ts"],
+      "@/context/AuthContext": [".harness/stub-auth.ts"],
+      "@/services/pos/posPrinterService": [".harness/stub-printer.ts"],
+      "@/modules/mesaDigital/sonido": [".harness/stub-sonido.ts"],
+      "@/*": ["src/*"]
+    }
+  }
+}

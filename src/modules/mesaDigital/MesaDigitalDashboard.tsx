@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   QrCode, Bell, Lightbulb, Settings as SettingsIcon, Hand, Receipt, Check,
   Volume2, VolumeX, RefreshCw, Printer, Trash2, Loader2, ExternalLink, Copy,
+  Nfc, Pencil, X, AlertTriangle, CheckCircle2, Smartphone, LayoutGrid,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabase } from '@/lib/supabase';
@@ -15,6 +16,7 @@ import {
 import {
   sonar, sonidoListo, desbloquear, leerVolumen, guardarVolumen, leerRepetir, guardarRepetir,
 } from './sonido';
+import { soporteNfc, grabarEtiqueta, motivoNfc, type SoporteNfc } from './nfc';
 
 /**
  * MESA DIGITAL — el panel del negocio.
@@ -305,6 +307,9 @@ const PanelMesas: React.FC = () => {
   const [dias, setDias] = useState(7);
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  /** Mesas a grabar en etiquetas NFC (vacío = ventana cerrada). */
+  const [grabando, setGrabando] = useState<MesaQr[] | null>(null);
+  const nfc = useMemo(soporteNfc, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -331,6 +336,63 @@ const PanelMesas: React.FC = () => {
     } finally { setGuardando(false); }
   };
 
+  /**
+   * TRAE LAS MESAS DEL MAPA DEL SALÓN.
+   *
+   * Son dos listas que tienen que calzar: el cliente avisa desde «la mesa 4» y
+   * el mesero lo ve sobre la mesa del mapa que se llama «Mesa 4». Si en el mapa
+   * hay ocho mesas y acá hay tres, los avisos de las otras cinco no se pintan
+   * en ninguna parte; si los nombres no coinciden, el mesero no sabe cuál es.
+   *
+   * Llenarlo a mano es donde se equivoca cualquiera, así que se copia del mapa:
+   * se crean tantas mesas como el número más alto que haya, y a cada una se le
+   * pone el nombre que tiene en el salón.
+   */
+  const traerDelMapa = async () => {
+    setGuardando(true); setError('');
+    try {
+      const { apiFetch } = await import('@/lib/api');
+      const cfg = await apiFetch<{ items?: any[] }>('/settings/tables-map');
+      const cobrables = (cfg?.items ?? []).filter(
+        (i: any) => ['table', 'freeTable', 'seat'].includes(i?.kind) && String(i?.label ?? '').trim());
+
+      const conNumero: Array<{ n: number; label: string }> = [];
+      const sinNumero: string[] = [];
+      for (const i of cobrables) {
+        const m = String(i.label).match(/(\d+)/);
+        if (m) conNumero.push({ n: Number(m[1]), label: String(i.label).trim() });
+        else sinNumero.push(String(i.label).trim());
+      }
+      if (conNumero.length === 0) {
+        setError('Ninguna mesa del mapa tiene un número en su nombre, así que no hay con qué enlazarlas. '
+          + 'Poneles «Mesa 1», «Mesa 2»… en el Mapa de Mesas.');
+        return;
+      }
+
+      const mayor = Math.max(...conNumero.map(x => x.n));
+      const aviso = [
+        `En el mapa del salón hay ${cobrables.length} sitio(s).`,
+        `Se van a dejar ${mayor} mesa(s) con QR, numeradas del 1 al ${mayor},`,
+        'y cada una tomará el nombre que tiene en el mapa.',
+        sinNumero.length ? `\nQuedan afuera (no tienen número en el nombre): ${sinNumero.join(', ')}.` : '',
+        '\n¿Seguir?',
+      ].filter(Boolean).join(' ');
+      if (!window.confirm(aviso)) return;
+
+      const nuevas = await mesaAdmin.ponerCantidad(mayor, true);
+      // Los nombres, uno por uno: son pocos y así se ve cuál falló.
+      for (const { n, label } of conNumero) {
+        if (n < 1 || n > mayor) continue;
+        const actual = nuevas.find(x => x.numero === n);
+        if (actual?.nombre === label) continue;
+        try { await mesaAdmin.renombrar(n, label); } catch { /* el nombre es cosmético */ }
+      }
+      await cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo leer el mapa del salón');
+    } finally { setGuardando(false); }
+  };
+
   const regenerar = async (numero?: number) => {
     const que = numero == null ? 'TODAS las mesas' : `la mesa ${numero}`;
     if (!window.confirm(`¿Cambiar el código de ${que}?\n\nLos QR impresos y las etiquetas NFC de ${numero == null ? 'todas las mesas' : 'esa mesa'} dejan de funcionar y hay que imprimirlos de nuevo.`)) return;
@@ -353,9 +415,22 @@ const PanelMesas: React.FC = () => {
             className="h-10 px-4 rounded-xl bg-teal-600 text-white text-sm font-black disabled:opacity-50">
             {guardando ? 'Guardando…' : 'Guardar'}
           </button>
+          <button type="button" onClick={() => void traerDelMapa()} disabled={guardando}
+            title="Crea las mesas con los mismos números y nombres que el mapa del salón"
+            className="h-10 px-4 rounded-xl border-2 border-teal-200 bg-teal-50 text-sm font-bold text-teal-700 inline-flex items-center gap-1.5 disabled:opacity-40">
+            <LayoutGrid size={14} /> Traer del mapa del salón
+          </button>
           <button type="button" onClick={() => void regenerar()}
             className="h-10 px-4 rounded-xl border-2 border-gray-200 text-sm font-bold text-gray-600 inline-flex items-center gap-1.5">
             <RefreshCw size={14} /> Cambiar todos los códigos
+          </button>
+          <button type="button" onClick={() => setGrabando(mesas ?? [])}
+            disabled={!mesas?.length}
+            title={nfc === 'si'
+              ? 'Grabar las calcomanías NFC de todas las mesas, una tras otra'
+              : 'Acá se ve el enlace de cada etiqueta para grabarla con una app'}
+            className="h-10 px-4 rounded-xl border-2 border-sky-200 bg-sky-50 text-sm font-bold text-sky-700 inline-flex items-center gap-1.5 disabled:opacity-40">
+            <Nfc size={14} /> Grabar etiquetas NFC
           </button>
           <button type="button" onClick={() => window.print()}
             className="h-10 px-4 rounded-xl border-2 border-gray-200 text-sm font-bold text-gray-600 inline-flex items-center gap-1.5 ml-auto">
@@ -392,7 +467,20 @@ const PanelMesas: React.FC = () => {
               </p>
             </div>
           </div>
+          {/* De dónde entraron: es lo que dice si vale la pena seguir pagando
+              calcomanías NFC o si todo el mundo usa el QR. */}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {([['qr', 'QR', QrCode], ['nfc', 'NFC', Nfc], ['enlace', 'Enlace', ExternalLink]] as const).map(([k, label, Icon]) => (
+              <span key={k} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gray-50 border border-gray-200 text-xs font-bold text-gray-600">
+                <Icon size={13} /> {label}: {resumen.por_origen?.[k] ?? 0}
+              </span>
+            ))}
+          </div>
         </section>
+      )}
+
+      {grabando && (
+        <GrabarNfcModal mesas={grabando} soporte={nfc} onClose={() => setGrabando(null)} />
       )}
 
       {!mesas && <div className="flex justify-center py-12 text-gray-400"><Loader2 className="animate-spin" /></div>}
@@ -408,6 +496,9 @@ const PanelMesas: React.FC = () => {
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {(mesas ?? []).map(m => (
           <TarjetaMesa key={m.numero} mesa={m} usos={resumen?.por_mesa?.[String(m.numero)]}
+            soporteNfc={nfc}
+            onGrabarNfc={() => setGrabando([m])}
+            onRenombrada={() => void cargar()}
             onRegenerar={() => void regenerar(m.numero)} />
         ))}
       </div>
@@ -422,11 +513,34 @@ const PanelMesas: React.FC = () => {
  * pueda imprimir estando sin internet, que es cuando el dueño arma las mesas.
  */
 const TarjetaMesa: React.FC<{
-  mesa: MesaQr; usos?: { visitas: number; llamadas: number }; onRegenerar: () => void;
-}> = ({ mesa, usos, onRegenerar }) => {
+  mesa: MesaQr; usos?: { visitas: number; llamadas: number };
+  soporteNfc: SoporteNfc;
+  onGrabarNfc: () => void;
+  onRenombrada: () => void;
+  onRegenerar: () => void;
+}> = ({ mesa, usos, soporteNfc: sop, onGrabarNfc, onRenombrada, onRegenerar }) => {
   const [img, setImg] = useState('');
-  const [copiado, setCopiado] = useState(false);
+  const [copiado, setCopiado] = useState<'' | 'qr' | 'nfc'>('');
+  const [editando, setEditando] = useState(false);
+  const [nombre, setNombre] = useState(mesa.nombre ?? '');
+  const [guardando, setGuardando] = useState(false);
   const url = useMemo(() => enlaceMesa(mesa.token), [mesa.token]);
+  /* El mismo destino, marcado como NFC: así el resumen puede decir cuánta
+     gente entró por la calcomanía y cuánta por el QR. */
+  const urlNfc = useMemo(() => enlaceMesa(mesa.token, 'nfc'), [mesa.token]);
+
+  const copiar = (texto: string, cual: 'qr' | 'nfc') => {
+    navigator.clipboard?.writeText(texto).then(() => {
+      setCopiado(cual); setTimeout(() => setCopiado(''), 1500);
+    });
+  };
+
+  const renombrar = async () => {
+    setGuardando(true);
+    try { await mesaAdmin.renombrar(mesa.numero, nombre.trim()); setEditando(false); onRenombrada(); }
+    catch { /* el nombre es cosmético: si falla, se queda como estaba */ }
+    finally { setGuardando(false); }
+  };
 
   useEffect(() => {
     let vivo = true;
@@ -438,7 +552,32 @@ const TarjetaMesa: React.FC<{
 
   return (
     <article className="bg-white rounded-2xl border border-gray-100 p-4 text-center break-inside-avoid">
-      <p className="text-base font-black text-gray-900">{mesa.nombre || `Mesa ${mesa.numero}`}</p>
+      {/* El nombre se puede cambiar: «Terraza 2» o «Barra» dice más que
+          «Mesa 7», y es el que tiene que coincidir con el mapa del salón. */}
+      {editando ? (
+        <div className="flex gap-1.5 no-print">
+          <input value={nombre} onChange={e => setNombre(e.target.value)} autoFocus
+            placeholder={`Mesa ${mesa.numero}`}
+            onKeyDown={e => { if (e.key === 'Enter') void renombrar(); if (e.key === 'Escape') setEditando(false); }}
+            className="flex-1 min-w-0 h-9 px-2 border-2 border-teal-300 rounded-lg text-sm font-bold" />
+          <button type="button" onClick={() => void renombrar()} disabled={guardando}
+            aria-label="Guardar el nombre"
+            className="w-9 h-9 rounded-lg bg-teal-600 text-white inline-flex items-center justify-center disabled:opacity-50">
+            <Check size={14} />
+          </button>
+          <button type="button" onClick={() => { setNombre(mesa.nombre ?? ''); setEditando(false); }}
+            aria-label="Cancelar"
+            className="w-9 h-9 rounded-lg border border-gray-200 text-gray-500 inline-flex items-center justify-center">
+            <X size={14} />
+          </button>
+        </div>
+      ) : (
+        <p className="text-base font-black text-gray-900 inline-flex items-center justify-center gap-1.5">
+          {mesa.nombre || `Mesa ${mesa.numero}`}
+          <button type="button" onClick={() => setEditando(true)} aria-label="Cambiar el nombre"
+            className="text-gray-300 hover:text-gray-600 no-print"><Pencil size={12} /></button>
+        </p>
+      )}
       {img
         ? <img src={img} alt={`QR de la mesa ${mesa.numero}`} className="w-40 h-40 mx-auto my-2" />
         : <div className="w-40 h-40 mx-auto my-2 bg-gray-50 rounded-xl animate-pulse" />}
@@ -454,18 +593,178 @@ const TarjetaMesa: React.FC<{
           <ExternalLink size={13} /> Probar
         </a>
         <button type="button" aria-label="Copiar el enlace"
-          onClick={() => navigator.clipboard?.writeText(url).then(() => {
-            setCopiado(true); setTimeout(() => setCopiado(false), 1500);
-          })}
+          onClick={() => copiar(url, 'qr')}
           className="w-10 h-10 rounded-xl border border-gray-200 text-gray-500 inline-flex items-center justify-center">
-          {copiado ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+          {copiado === 'qr' ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
         </button>
         <button type="button" onClick={onRegenerar} aria-label="Cambiar el código"
           className="w-10 h-10 rounded-xl border border-gray-200 text-gray-500 inline-flex items-center justify-center">
           <RefreshCw size={14} />
         </button>
       </div>
+      {/* NFC: grabar la calcomanía de ESTA mesa. Donde el navegador no puede
+          escribir (iPhone, o el panel abierto en la computadora), queda el
+          enlace para copiarlo y grabarlo con una app. */}
+      <div className="flex gap-2 mt-2 no-print">
+        <button type="button" onClick={sop === 'si' ? onGrabarNfc : () => copiar(urlNfc, 'nfc')}
+          className="flex-1 h-10 rounded-xl border border-sky-200 bg-sky-50 text-xs font-bold text-sky-700 inline-flex items-center justify-center gap-1.5">
+          <Nfc size={13} />
+          {sop === 'si' ? 'Grabar etiqueta NFC' : copiado === 'nfc' ? '¡Enlace copiado!' : 'Copiar enlace NFC'}
+        </button>
+      </div>
     </article>
+  );
+};
+
+/* ══════════════════════ GRABAR ETIQUETAS NFC ══════════════════════ */
+
+type EstadoNfc = 'pendiente' | 'grabando' | 'lista' | 'error';
+
+/**
+ * Graba las calcomanías NFC, una tras otra, sin tocar la pantalla entre mesa y
+ * mesa.
+ *
+ * Así es como se hace de verdad: el encargado agarra el rollo de calcomanías y
+ * va pasando por las mesas con el teléfono. Pedirle que vuelva a la pantalla y
+ * toque «siguiente» veinte veces es lo que hace que termine usando otra app.
+ */
+const GrabarNfcModal: React.FC<{ mesas: MesaQr[]; soporte: SoporteNfc; onClose: () => void }> = ({
+  mesas, soporte, onClose,
+}) => {
+  const [estado, setEstado] = useState<Record<number, EstadoNfc>>({});
+  const [msg, setMsg] = useState<Record<number, string>>({});
+  const [bloquear, setBloquear] = useState(false);
+  const [actual, setActual] = useState<number | null>(null);
+  const [corriendo, setCorriendo] = useState(false);
+  const abortar = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortar.current?.abort(), []);
+
+  const pendientes = mesas.filter(m => (estado[m.numero] ?? 'pendiente') !== 'lista');
+  const listas = mesas.length - pendientes.length;
+
+  const correr = async () => {
+    setCorriendo(true);
+    for (const m of mesas) {
+      if ((estado[m.numero] ?? 'pendiente') === 'lista') continue;
+      const ctrl = new AbortController();
+      abortar.current = ctrl;
+      setActual(m.numero);
+      setEstado(e => ({ ...e, [m.numero]: 'grabando' }));
+      try {
+        await grabarEtiqueta(enlaceMesa(m.token, 'nfc'), { bloquear, signal: ctrl.signal });
+        setEstado(e => ({ ...e, [m.numero]: 'lista' }));
+        setMsg(x => ({ ...x, [m.numero]: bloquear ? 'Grabada y bloqueada' : 'Grabada' }));
+      } catch (e) {
+        const texto = e instanceof Error ? e.message : String(e);
+        if (/abort/i.test(texto)) { setEstado(x => ({ ...x, [m.numero]: 'pendiente' })); break; }
+        // Si se grabó pero no se pudo bloquear, la etiqueta YA sirve: no es un fallo.
+        const soloBloqueo = texto.startsWith('GRABADA_SIN_BLOQUEAR');
+        setEstado(x => ({ ...x, [m.numero]: soloBloqueo ? 'lista' : 'error' }));
+        setMsg(x => ({ ...x, [m.numero]: soloBloqueo
+          ? 'Grabada, pero no se pudo bloquear' : motivoNfc(e) }));
+        if (!soloBloqueo) break;   // algo pasa: no seguir quemando etiquetas
+      }
+    }
+    setActual(null); setCorriendo(false); abortar.current = null;
+  };
+
+  const detener = () => { abortar.current?.abort(); setCorriendo(false); setActual(null); };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={() => { if (!corriendo) onClose(); }}>
+      <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[92vh] flex flex-col"
+        onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2 shrink-0">
+          <Nfc size={18} className="text-sky-600" />
+          <h2 className="text-base font-black text-gray-900 flex-1">
+            Grabar etiquetas NFC {mesas.length > 1 && <span className="text-gray-400 font-bold">· {listas}/{mesas.length}</span>}
+          </h2>
+          <button type="button" onClick={() => { detener(); onClose(); }}
+            className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {soporte !== 'si' ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900 space-y-2">
+              <p className="font-black flex items-center gap-1.5">
+                <AlertTriangle size={15} />
+                {soporte === 'sin-https'
+                  ? 'Hay que abrir el panel por https'
+                  : 'Este aparato no puede grabar etiquetas'}
+              </p>
+              <p>
+                {soporte === 'sin-https'
+                  ? 'El navegador solo deja usar el NFC en páginas seguras. Abrí el panel con la dirección https del sistema.'
+                  : 'Escribir NFC desde el navegador solo funciona en Chrome sobre Android. En iPhone se pueden LEER las etiquetas, pero para grabarlas hay que usar una app (por ejemplo NFC Tools).'}
+              </p>
+              <p className="text-[12px]">
+                Mientras tanto: copiá el enlace de cada mesa con el botón «Copiar enlace NFC» y pegalo en la app.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 text-sm text-sky-900">
+              <p className="font-black flex items-center gap-1.5 mb-1"><Smartphone size={15} /> Cómo se hace</p>
+              <p>Tocá «Empezar» y apoyá la calcomanía en la parte de atrás del teléfono, cerca de la cámara. Cuando diga «Grabada», pasá a la siguiente mesa: la ventana avanza sola.</p>
+            </div>
+          )}
+
+          {mesas.map(m => {
+            const e = estado[m.numero] ?? 'pendiente';
+            return (
+              <div key={m.numero}
+                className={`rounded-xl border-2 px-3 py-2.5 flex items-center gap-3 ${
+                  e === 'lista' ? 'border-emerald-200 bg-emerald-50'
+                  : e === 'error' ? 'border-red-200 bg-red-50'
+                  : actual === m.numero ? 'border-sky-400 bg-sky-50 animate-pulse'
+                  : 'border-gray-100'}`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-black text-gray-900">{m.nombre || `Mesa ${m.numero}`}</p>
+                  <p className="text-[11px] text-gray-500 break-all">
+                    {msg[m.numero] ?? (actual === m.numero ? 'Acercá la etiqueta al teléfono…' : enlaceMesa(m.token, 'nfc'))}
+                  </p>
+                </div>
+                {e === 'lista' && <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />}
+                {e === 'error' && <AlertTriangle size={18} className="text-red-600 shrink-0" />}
+                {e === 'grabando' && <Loader2 size={18} className="text-sky-600 animate-spin shrink-0" />}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="border-t border-gray-100 p-4 space-y-3 shrink-0">
+          <label className="flex items-start gap-2 text-xs text-gray-600">
+            <input type="checkbox" checked={bloquear} onChange={e => setBloquear(e.target.checked)}
+              disabled={corriendo} className="w-4 h-4 mt-0.5 accent-sky-600" />
+            <span>
+              <b>Bloquear la etiqueta</b> para que nadie la pueda reescribir.
+              <span className="block text-[11px] text-amber-700">
+                No tiene vuelta atrás: esa calcomanía no se puede volver a grabar nunca.
+                Si después cambiás el código de la mesa, hay que tirarla.
+              </span>
+            </span>
+          </label>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => { detener(); onClose(); }}
+              className="flex-1 h-11 rounded-xl border-2 border-gray-200 font-bold text-sm text-gray-600">
+              {listas > 0 ? 'Listo' : 'Cerrar'}
+            </button>
+            {soporte === 'si' && (corriendo ? (
+              <button type="button" onClick={detener}
+                className="flex-1 h-11 rounded-xl bg-gray-900 text-white font-black text-sm">
+                Detener
+              </button>
+            ) : (
+              <button type="button" onClick={() => void correr()} disabled={pendientes.length === 0}
+                className="flex-1 h-11 rounded-xl bg-sky-600 text-white font-black text-sm disabled:bg-gray-200 disabled:text-gray-400">
+                {listas > 0 ? `Seguir (${pendientes.length})` : 'Empezar'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 

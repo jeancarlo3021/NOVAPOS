@@ -2149,6 +2149,10 @@ export class POSPrinterService {
       orderNumber?: number | string;
       bipper?: string;
       serviceMode?: 'aca' | 'llevar' | 'mesa';
+      /** Mesero que tomó el pedido. */
+      waiter?: string;
+      /** Tanda del pedido (2 = segunda ronda de la misma mesa). */
+      round?: number;
     },
   ): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);

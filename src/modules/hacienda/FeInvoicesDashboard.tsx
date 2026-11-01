@@ -329,7 +329,15 @@ export const FeInvoicesDashboard: React.FC = () => {
     try {
       const r = await haciendaService.creditNote(row.id, reason || undefined);
       setRows(prev => prev.map(x => x.id === row.id ? { ...x, fe_nc_clave: r.nc_clave ?? 'nc' } : x));
-      alert('Nota de crédito emitida.' + (r.nc_clave ? ` Clave: ${r.nc_clave}` : ''));
+      /* Lo del inventario se dice: la nota de crédito anula la venta y la
+         mercadería vuelve al estante, y quien anula tiene que saber que su
+         stock acaba de cambiar. */
+      const stock = r.stock_ya_devuelto
+        ? '\nEl inventario ya se había devuelto al anular la factura.'
+        : (r.restocked ?? 0) > 0
+          ? `\nSe devolvieron ${r.restocked} línea(s) al inventario.`
+          : '';
+      alert('Nota de crédito emitida.' + (r.nc_clave ? ` Clave: ${r.nc_clave}` : '') + stock);
     } catch (e) { alert(e instanceof Error ? e.message : 'No se pudo emitir la nota de crédito'); }
     finally { setBusyId(null); }
   };

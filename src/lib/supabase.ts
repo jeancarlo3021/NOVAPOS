@@ -36,4 +36,58 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
  * Lo que necesita esa llave vive en el backend, que sí la guarda en secreto.
  */
 
+/**
+ * El MOTIVO REAL de una Edge Function que respondió con error.
+ *
+ * `supabase.functions.invoke` tira un `FunctionsHttpError` cuyo mensaje es
+ * siempre el mismo: «Edge Function returned a non-2xx status code». El motivo
+ * de verdad viaja en el CUERPO de la respuesta —nuestras funciones responden
+ * `{ error: "Auth error: A user with this email..." }`— y queda dentro de
+ * `error.context`, que es la `Response` sin leer. Si nadie la abre, el que está
+ * del otro lado ve una frase en inglés que no dice nada y no tiene forma de
+ * saber si el correo ya existía, si faltó un campo o si se cayó la base.
+ *
+ * Devuelve el motivo en claro y, cuando lo reconoce, traducido.
+ */
+export const motivoDeFuncion = async (error: unknown): Promise<string> => {
+  const err = error as any;
+  const generico = typeof err?.message === 'string' ? err.message : 'Falló la función';
+  let crudo = '';
+  let estado: number | undefined;
+
+  const res: Response | undefined = err?.context instanceof Response ? err.context : undefined;
+  if (res) {
+    estado = res.status;
+    try {
+      // `context` se puede leer una sola vez: se clona para no quemarla.
+      const texto = await res.clone().text();
+      try {
+        const j = JSON.parse(texto);
+        crudo = String(j?.error ?? j?.message ?? j?.msg ?? texto ?? '');
+      } catch { crudo = texto; }
+    } catch { /* el cuerpo ya se consumió o no se pudo leer */ }
+  }
+
+  const limpio = crudo.trim();
+  const low = limpio.toLowerCase();
+
+  // Los motivos que de verdad se repiten, dichos en español.
+  if (low.includes('already been registered') || low.includes('already exists') || (low.includes('duplicate key') && low.includes('email')))
+    return 'Ese correo ya tiene una cuenta. Usá otro correo, o buscá el negocio en la lista.';
+  if (low.includes('password') && (low.includes('short') || low.includes('6 characters')))
+    return 'La contraseña es muy corta: tiene que tener al menos 6 caracteres.';
+  if (low.includes('invalid email') || low.includes('unable to validate email'))
+    return 'El correo no es válido.';
+  if (low.includes('no autorizado') || low.includes('bearer token') || low.includes('jwt')
+    || low.includes('auth check error') || low.includes('session') || estado === 401)
+    return 'Tu sesión venció. Volvé a entrar y probá de nuevo.';
+  if (estado === 404)
+    return 'La función no está publicada en Supabase (404). Hay que desplegarla.';
+  if (estado === 546 || low.includes('worker_limit') || low.includes('memory limit'))
+    return 'La función se quedó sin recursos a mitad del trabajo. Probá otra vez.';
+
+  if (limpio) return limpio;
+  return estado ? `${generico} (HTTP ${estado})` : generico;
+};
+
 export default supabase;

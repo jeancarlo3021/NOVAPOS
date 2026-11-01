@@ -45,6 +45,19 @@ export interface Llamada {
   atendida_at: string | null;
 }
 
+export interface LineaCuenta { nombre: string; cantidad: number; total: number; pedido: boolean }
+
+/** Lo que lleva consumido la mesa, como lo ve el cliente desde su teléfono. */
+export interface CuentaMesa {
+  abierta: boolean;
+  /** Por qué no hay cuenta: 'apagado' | 'sin-mapa' | 'sin-cuenta'. */
+  motivo?: string;
+  desde?: string | null;
+  lineas?: LineaCuenta[];
+  subtotal?: number; servicio?: number; iva?: number; iva_pct?: number; total?: number;
+  actualizado?: string;
+}
+
 export interface MesaQr { numero: number; nombre: string | null; token: string }
 
 export interface Sugerencia {
@@ -97,6 +110,9 @@ export const mesaPublica = {
     sinSesion<{ id: string; repetido: boolean }>(`/${encodeURIComponent(token)}/llamar`, {
       method: 'POST', body: JSON.stringify(body),
     }),
+
+  /** Lo consumido hasta ahora. Se consulta aparte: cambia mientras el otro no. */
+  cuenta: (token: string) => sinSesion<CuentaMesa>(`/${encodeURIComponent(token)}/cuenta`),
 
   sugerir: (token: string, body: { estrellas?: number | null; mensaje: string }) =>
     sinSesion<{ enviado: boolean }>(`/${encodeURIComponent(token)}/sugerencia`, {

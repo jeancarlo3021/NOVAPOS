@@ -73,6 +73,18 @@ export const demoRequestsService = {
     apiFetch<DemoRequest & { login: { user: string; password: string; email: string } }>(
       `/demo-requests/${id}/provision`, { method: 'POST' }),
 
+  /**
+   * Cambia lo que una demo YA ENTREGADA tiene: sus módulos y/o cuánto le queda.
+   *
+   * Es distinto de `update`, que toca la solicitud en papel: esto le mueve los
+   * módulos al negocio de prueba que el cliente está usando en ese momento, sin
+   * borrarlo ni rehacerlo (y sin perder lo que ya cargó).
+   */
+  cambiarModulos: (id: string, d: { modules?: string[]; days?: number }) =>
+    apiFetch<DemoRequest>(`/demo-requests/${id}/modulos`, {
+      method: 'POST', body: JSON.stringify(d),
+    }),
+
   /** Planes que se pueden asignar al convertir una demo en cliente. */
   plans: () => apiFetch<Array<{ id: string; name: string; price: number; billing_cycle: string }>>(
     '/demo-requests/plans'),

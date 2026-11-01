@@ -26,6 +26,33 @@ export interface BillItem {
   quantity: number;
   modifiers?: BillItemModifier[];  // adicionales elegidos
   notes?: string;                  // solicitud especial ("sin cebolla")
+  /**
+   * Estación de PRODUCCIÓN del plato ("Cocina", "Barra", "Parrilla").
+   *
+   * Viene de la receta y manda sobre la categoría al repartir las comandas: la
+   * categoría es de venta (Bebidas, Postres) y la estación es de producción, y
+   * no coinciden —un café y un postre son dos categorías que salen de la misma
+   * barra—. Sin esto, el salón solo podía rutear por categoría.
+   */
+  station?: string;
+  /**
+   * RONDA en la que esta línea se mandó a cocina. 0 / sin valor = sin mandar.
+   *
+   * Lo que se manda es SOLO lo que todavía no tiene ronda. Antes cada toque al
+   * botón reimprimía el pedido completo y cocina volvía a preparar lo que ya
+   * había servido.
+   */
+  ronda?: number;
+}
+
+/** Las líneas que todavía no se le mandaron a cocina. */
+export function itemsSinMandar(b: Bill): BillItem[] {
+  return b.items.filter(it => !Number(it.ronda));
+}
+
+/** Número de la próxima ronda de una cuenta (la primera es 1). */
+export function proximaRonda(b: Bill): number {
+  return b.items.reduce((max, it) => Math.max(max, Number(it.ronda) || 0), 0) + 1;
 }
 
 /** Precio total de un item = (base + suma de modifiers) × cantidad. */

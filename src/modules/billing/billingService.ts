@@ -71,6 +71,33 @@ export const billingService = {
     }));
   },
 
+  /**
+   * Guarda UNA cuenta y DICE si llegó al servidor.
+   *
+   * `save` se traga los errores a propósito: es el guardado automático de
+   * fondo y no tiene a quién avisarle. Pero cuando el mesero toca «Guardar»
+   * sí hay a quién avisarle, y callarse que la cuenta se quedó en la tablet
+   * es lo que hace que un consumo se pierda sin que nadie se entere.
+   *
+   * No lanza: el caché local se escribe igual y la cuenta sigue en pantalla.
+   * El restaurante tiene que poder trabajar sin internet.
+   */
+  async guardar(tenantId: string, bill: Bill): Promise<boolean> {
+    const todas = readCache(tenantId);
+    const i = todas.findIndex(b => b.id === bill.id);
+    if (i >= 0) todas[i] = bill; else todas.push(bill);
+    writeCache(tenantId, todas);
+    try {
+      await apiFetch(`/table-orders/bills/${bill.id}`, { method: 'PUT', body: JSON.stringify(bill) });
+      pending.delete(bill.id);
+      return true;
+    } catch (e) {
+      pending.add(bill.id);
+      console.warn('[billing] no se pudo subir la cuenta', bill.id, e);
+      return false;
+    }
+  },
+
   /** Borra la cuenta en la base. */
   async remove(id: string): Promise<void> {
     try { await apiFetch(`/table-orders/bills/${id}`, { method: 'DELETE' }); }

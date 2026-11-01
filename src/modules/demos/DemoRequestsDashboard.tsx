@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, Plus, Search, RefreshCw, Loader2, X, Save, AlertCircle, CheckCircle2,
   MonitorPlay, Phone, MessageCircle, Mail, Trash2, Clock, User, Check, KeyRound, Copy,
-  BarChart3, ListChecks,
+  BarChart3, ListChecks, SlidersHorizontal,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/lib/api';
@@ -60,6 +60,8 @@ export const DemoRequestsDashboard: React.FC = () => {
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [deliver, setDeliver] = useState<DemoRequest | null>(null);
   const [provisioning, setProvisioning] = useState<string | null>(null);
+  /** Demo entregada a la que se le están cambiando los módulos. */
+  const [editandoModulos, setEditandoModulos] = useState<DemoRequest | null>(null);
   const [converting, setConverting] = useState<DemoRequest | null>(null);
   /**
    * Limpieza de demos vencidas, a mano.
@@ -467,6 +469,16 @@ export const DemoRequestsDashboard: React.FC = () => {
                       <Check size={13} /> Usuario creado
                     </span>
                   )}
+                  {/* Cambiarle los módulos a una demo que el cliente ya está
+                      usando: antes había que borrarla y rehacerla, perdiendo
+                      todo lo que había cargado. */}
+                  {esGerencia && r.demo_tenant_id && !r.converted_at && (
+                    <button onClick={() => setEditandoModulos(r)}
+                      title="Agregar o quitar módulos, o darle más días, sin rehacer la demo"
+                      className="flex items-center gap-1 px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-800 text-xs font-black hover:bg-indigo-100">
+                      <SlidersHorizontal size={13} /> Cambiar lo que tiene
+                    </button>
+                  )}
                   {esGerencia && r.converted_at && (
                     <span className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-black">
                       <Check size={13} /> Ya es cliente
@@ -535,6 +547,17 @@ export const DemoRequestsDashboard: React.FC = () => {
                   : 'Convertido en cliente: ya no se borra y quedó con su plan.',
             });
             void load();
+          }}
+        />
+      )}
+
+      {editandoModulos && (
+        <ModulosDemoModal
+          demo={editandoModulos}
+          onClose={() => setEditandoModulos(null)}
+          onSaved={(d) => {
+            setRows(prev => prev.map(x => (x.id === d.id ? { ...x, ...d } : x)));
+            setEditandoModulos(null);
           }}
         />
       )}
@@ -705,6 +728,158 @@ const DemoEditor: React.FC<{
  * demo, así conserva los productos, clientes y ventas que cargó en la prueba —
  * que es justo lo que hace que un cliente se quede.
  */
+/**
+ * CAMBIARLE LOS MÓDULOS A UNA DEMO QUE YA ESTÁ ANDANDO.
+ *
+ * Es lo que pasa siempre a mitad de la prueba: el cliente pregunta por algo que
+ * no le marcaron, o resulta que no necesita la mitad de lo que tiene. Hasta
+ * ahora la única salida era borrar la demo y armarla de nuevo, y con ella se
+ * iban los productos, las ventas de prueba y la confianza del cliente.
+ *
+ * Toca el plan propio de esa demo, así que el cambio se ve apenas el cliente
+ * recarga la página.
+ */
+const ModulosDemoModal: React.FC<{
+  demo: DemoRequest;
+  onClose: () => void;
+  onSaved: (d: DemoRequest) => void;
+}> = ({ demo, onClose, onSaved }) => {
+  const [mods, setMods] = useState<string[]>(demo.modules ?? []);
+  const [dias, setDias] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const original = useMemo(() => new Set(demo.modules ?? []), [demo.modules]);
+  const sumados = mods.filter(m => !original.has(m));
+  const quitados = [...original].filter(m => !mods.includes(m));
+  const hayCambio = sumados.length > 0 || quitados.length > 0 || dias.trim() !== '';
+
+  const toggle = (k: string) =>
+    setMods(prev => (prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k]));
+
+  const guardar = async () => {
+    if (mods.length === 0) { setError('La demo tiene que quedar con al menos un módulo.'); return; }
+    const n = dias.trim() ? Number(dias) : undefined;
+    if (n != null && (!Number.isFinite(n) || n < 1 || n > 180)) {
+      setError('Los días van entre 1 y 180.'); return;
+    }
+    setSaving(true); setError(null);
+    try {
+      onSaved(await demoRequestsService.cambiarModulos(demo.id, {
+        modules: mods, ...(n != null ? { days: n } : {}),
+      }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo cambiar');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={onClose}>
+      <div className="w-full max-w-2xl bg-white rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col max-h-[92vh]"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <span className="text-sm font-black text-gray-800 truncate">
+            Cambiar lo que tiene · {demo.business_name}
+          </span>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100">
+            <X size={16} className="text-gray-400" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
+          <p className="text-[11px] font-bold text-gray-500 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
+            El cambio entra en la demo que el cliente está usando. No se borra nada de lo que
+            ya cargó: solo aparecen o desaparecen módulos del menú.
+          </p>
+
+          <div>
+            <p className="text-xs font-black text-gray-500 uppercase mb-1">Paquetes rápidos</p>
+            <div className="flex flex-wrap gap-1.5">
+              {DEMO_PRESETS.map(p => (
+                <button key={p.label} onClick={() => setMods(prev => Array.from(new Set([...prev, ...p.modules])))}
+                  className="px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 text-[11px] font-black hover:bg-indigo-100">
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-black text-gray-500 uppercase">
+              Módulos ({mods.length} marcado(s))
+            </p>
+            {DEMO_GROUPS.map(g => (
+              <div key={g.group} className="border border-gray-200 rounded-xl p-2.5">
+                <p className="text-[11px] font-black text-gray-500 uppercase mb-1.5">{g.group}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  {g.modules.map(m => {
+                    const on = mods.includes(m.key);
+                    const nuevo = on && !original.has(m.key);
+                    const fuera = !on && original.has(m.key);
+                    return (
+                      <button key={m.key} onClick={() => toggle(m.key)}
+                        className={`flex items-start gap-2 text-left px-2 py-1.5 rounded-lg border transition ${
+                          nuevo ? 'border-emerald-300 bg-emerald-50'
+                          : fuera ? 'border-red-200 bg-red-50'
+                          : on ? 'border-indigo-300 bg-indigo-50'
+                          : 'border-transparent hover:bg-gray-50'}`}>
+                        <span className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${
+                          on ? (nuevo ? 'bg-emerald-600 border-emerald-600' : 'bg-indigo-600 border-indigo-600')
+                             : fuera ? 'border-red-400' : 'border-gray-300'}`}>
+                          {on && <Check size={11} className="text-white" />}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-xs font-black text-gray-800">
+                            {m.label}
+                            {nuevo && <span className="ml-1 text-emerald-700">· se agrega</span>}
+                            {fuera && <span className="ml-1 text-red-700">· se quita</span>}
+                          </span>
+                          {m.hint && <span className="block text-[10px] font-semibold text-gray-400">{m.hint}</span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-black text-gray-500 uppercase shrink-0">Darle más días</span>
+            <input type="number" min={1} max={180} value={dias} onChange={e => setDias(e.target.value)}
+              placeholder="dejar igual"
+              className="w-32 px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-black text-gray-800" />
+            <span className="text-[11px] font-semibold text-gray-400">
+              Se cuentan desde hoy. Vence ahora el {demo.expires_on ? day(demo.expires_on) : '—'}.
+            </span>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100 p-3 space-y-2 shrink-0">
+          {error && (
+            <p className="flex items-center gap-1.5 text-xs font-bold text-red-600">
+              <AlertCircle size={14} /> {error}
+            </p>
+          )}
+          {(sumados.length > 0 || quitados.length > 0) && (
+            <p className="text-[11px] font-black text-gray-600">
+              {sumados.length > 0 && <span className="text-emerald-700">{sumados.length} que se agregan</span>}
+              {sumados.length > 0 && quitados.length > 0 && ' · '}
+              {quitados.length > 0 && <span className="text-red-700">{quitados.length} que se quitan</span>}
+            </p>
+          )}
+          <button onClick={() => void guardar()} disabled={saving || !hayCambio}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm disabled:bg-gray-200 disabled:text-gray-400">
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+            {hayCambio ? 'Aplicar en la demo' : 'Sin cambios'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ConvertModal: React.FC<{
   request: DemoRequest;
   onClose: () => void;

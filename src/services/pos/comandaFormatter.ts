@@ -34,6 +34,10 @@ export interface ComandaData {
    * hay prisa.
    */
   serviceMode?: 'aca' | 'llevar' | 'mesa';
+  /** Mesero que tomó el pedido: cocina reclama por nombre, no por número. */
+  waiter?: string;
+  /** Tanda del pedido. La ronda 2 no es un pedido nuevo: es la misma mesa. */
+  round?: number;
 }
 
 // ── ESC/POS byte builder ──────────────────────────────────────────────────────
@@ -69,12 +73,21 @@ export function formatComanda(data: ComandaData, charWidth = 42): Uint8Array {
   // Lo primero que busca cocina al levantar el papel. En la ventanita es el
   // bipper o el número de orden; en el salón, la mesa. El consecutivo de la
   // factura no le sirve a nadie en la cocina, así que va chico y de respaldo.
+  /**
+   * La mesa NO se vuelve a nombrar si la etiqueta ya la nombra.
+   *
+   * Las mesas del mapa se llaman «Mesa 3», «Terraza 2», «Barra»: anteponerle
+   * siempre «MESA » imprimía «MESA Mesa 3» en el renglón más grande del papel,
+   * que es justo el que cocina lee de lejos.
+   */
+  const mesa = (data.tableInfo ?? '').trim();
+  const yaDiceDonde = /^(mesa|barra|terraza|silla)\b/i.test(mesa);
   const bigId = data.bipper
     ? `BIPPER ${data.bipper}`
     : data.orderNumber != null
       ? `ORDEN ${data.orderNumber}`
-      : data.tableInfo
-        ? `MESA ${data.tableInfo}`
+      : mesa
+        ? (yaDiceDonde ? mesa : `MESA ${mesa}`)
         : '';
   if (bigId) {
     bold(true);
@@ -94,7 +107,23 @@ export function formatComanda(data: ComandaData, charWidth = 42): Uint8Array {
     bold(false);
   }
 
+  // La ronda, en grande: es lo que evita que cocina crea que es un pedido
+  // nuevo —o que lo descarte creyendo que ya lo hizo.
+  if (data.round && data.round > 1) {
+    bold(true);
+    doubleSize(true);
+    text(`RONDA ${data.round}`); nl();
+    doubleSize(false);
+    bold(false);
+  }
+
   text(`#${data.invoiceNumber}  ${data.time}`); nl();
+
+  if (data.waiter) {
+    bold(true);
+    text(`Mesero: ${data.waiter}`); nl();
+    bold(false);
+  }
 
   if (data.customerName) {
     sep('-');
@@ -135,5 +164,23 @@ export function formatComanda(data: ComandaData, charWidth = 42): Uint8Array {
 // Basic accent stripping for thermal printers that use CP437 encoding.
 // Full unicode may not render on older thermal heads.
 function stripAccents(s: string): string {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return s
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // tildes y diéresis
+    /**
+     * Todo lo que no sea ASCII se cambia o se saca.
+     *
+     * El papel se manda en CP437 y el texto se codifica en UTF-8: un carácter
+     * como el punto medio «·» viaja en dos bytes y la impresora los saca como
+     * «Â·». Eso le pasaba a la línea de adicionales de cada plato —que se arma
+     * justamente con « · »—, así que la nota que cocina tenía que leer salía
+     * sucia en todas las comandas.
+     */
+    .replace(/[·•]/g, '-')
+    .replace(/[–—]/g, '-')
+    .replace(/[«»“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[¿¡]/g, '')
+    .replace(/°/g, ' grados ')
+    .replace(/₡/g, 'C')
+    .replace(/[^\x20-\x7e\n]/g, '');
 }

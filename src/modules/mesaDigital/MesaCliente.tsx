@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   Utensils, Hand, Receipt, Wifi, MessageCircle, Star, MapPin, Lightbulb,
-  Gamepad2, X, Copy, Check, Loader2, Camera, Music2,
+  Gamepad2, X, Copy, Check, Loader2, Camera, Music2, RefreshCw, ChefHat, Clock,
 } from 'lucide-react';
 import {
-  mesaPublica, type MesaPublica, type MedioPago, type OrigenVisita,
+  mesaPublica, type MesaPublica, type MedioPago, type OrigenVisita, type CuentaMesa,
 } from '@/services/mesaDigital/mesaDigitalService';
 
 /**
@@ -30,6 +30,11 @@ const PAGOS: Array<{ id: MedioPago; label: string; emoji: string }> = [
   { id: 'sinpe',    label: 'SINPE Móvil', emoji: '📲' },
 ];
 
+const plata = (n: number) => `\u20A1${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
+
+/** Cada cuánto se vuelve a preguntar el monto de la cuenta. */
+const REFRESCO_CUENTA_MS = 20_000;
+
 /** 88888888 → 8888-8888, como se lee un teléfono acá. */
 const telefono = (p: string) => {
   const d = String(p ?? '').replace(/\D/g, '');
@@ -50,6 +55,9 @@ export const MesaCliente: React.FC = () => {
   /** Cuántos son: se manda con el aviso para que el mesero lleve los cubiertos. */
   const [personas, setPersonas] = useState<number | null>(null);
   const [pidiendo, setPidiendo] = useState<string | null>(null);
+  /** Lo que lleva consumido la mesa. Se refresca solo mientras la pantalla está abierta. */
+  const [cuenta, setCuenta] = useState<CuentaMesa | null>(null);
+  const [refrescando, setRefrescando] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -63,6 +71,32 @@ export const MesaCliente: React.FC = () => {
   }, [token, origen]);
 
   const cerrar = useCallback(() => setHoja(null), []);
+
+  /**
+   * EL MONTO DE LA CUENTA, al día.
+   *
+   * Se pide aparte de la pantalla porque es lo único que cambia mientras el
+   * cliente está sentado. Y se deja de pedir cuando el teléfono queda en el
+   * bolsillo (`visibilitychange`): en una mesa que dura dos horas, seguir
+   * preguntando cada veinte segundos es batería ajena.
+   */
+  const verCuenta = useCallback(async () => {
+    setRefrescando(true);
+    try { setCuenta(await mesaPublica.cuenta(token)); }
+    catch { /* sin cuenta visible no se rompe nada: la pantalla sigue igual */ }
+    finally { setRefrescando(false); }
+  }, [token]);
+
+  useEffect(() => {
+    if (estado !== 'ok') return;
+    void verCuenta();
+    const tic = setInterval(() => {
+      if (document.visibilityState === 'visible') void verCuenta();
+    }, REFRESCO_CUENTA_MS);
+    const alVolver = () => { if (document.visibilityState === 'visible') void verCuenta(); };
+    document.addEventListener('visibilitychange', alVolver);
+    return () => { clearInterval(tic); document.removeEventListener('visibilitychange', alVolver); };
+  }, [estado, verCuenta]);
 
   // El aviso de «listo» se va solo: es una confirmación, no algo que leer dos veces.
   useEffect(() => {
@@ -159,6 +193,15 @@ export const MesaCliente: React.FC = () => {
       </header>
 
       <main className="max-w-md mx-auto px-4 -mt-5">
+        {/* LO QUE LLEVA LA MESA.
+            Va primero porque es lo primero que el cliente quiere saber cuando
+            abre esto a mitad de la comida, y porque es lo que evita el ida y
+            vuelta del mesero a la caja solo para decir un número. */}
+        {cuenta?.abierta && (
+          <CuentaEnVivo cuenta={cuenta} color={color} refrescando={refrescando}
+            onRefrescar={() => void verCuenta()} />
+        )}
+
         {/* Cuántos son: opcional, de un toque. Con esto el mesero llega con los
             cubiertos y no tiene que preguntar desde la puerta. */}
         <section className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
@@ -248,7 +291,7 @@ export const MesaCliente: React.FC = () => {
 
       {hoja === 'cuenta' && (
         <HojaCuenta
-          color={color} cfg={cfg!} cargando={pidiendo === 'cuenta'}
+          color={color} cfg={cfg!} cargando={pidiendo === 'cuenta'} cuenta={cuenta}
           onClose={cerrar} onConfirmar={medio => void llamar('cuenta', medio)}
         />
       )}
@@ -372,14 +415,101 @@ const Dato: React.FC<{ label: string; valor: string }> = ({ label, valor }) => {
   );
 };
 
+/**
+ * LA CUENTA DE LA MESA, en vivo.
+ *
+ * Grande arriba el total, porque es lo que se mira; el detalle, plegado, para
+ * el que quiere revisarlo. Dice también qué está en cocina y qué todavía no,
+ * que es la otra pregunta de la mesa.
+ */
+const CuentaEnVivo: React.FC<{
+  cuenta: CuentaMesa; color: string; refrescando: boolean; onRefrescar: () => void;
+}> = ({ cuenta, color, refrescando, onRefrescar }) => {
+  const [abierto, setAbierto] = useState(false);
+  const lineas = cuenta.lineas ?? [];
+  const enEspera = lineas.filter(l => !l.pedido).length;
+
+  return (
+    <section className="rounded-2xl shadow-sm overflow-hidden">
+      <div className="p-4 text-white" style={{ background: color }}>
+        <div className="flex items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs opacity-90">Tu cuenta va en</p>
+            <p className="text-4xl font-black leading-none mt-0.5">{plata(cuenta.total ?? 0)}</p>
+          </div>
+          <button type="button" onClick={onRefrescar} aria-label="Actualizar"
+            className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+            <RefreshCw size={16} className={refrescando ? 'animate-spin' : ''} />
+          </button>
+        </div>
+        <div className="mt-3 space-y-0.5 text-[13px]">
+          <Renglon label="Consumo" valor={plata(cuenta.subtotal ?? 0)} />
+          {(cuenta.servicio ?? 0) > 0 && <Renglon label="Servicio 10%" valor={plata(cuenta.servicio ?? 0)} />}
+          {(cuenta.iva ?? 0) > 0 && <Renglon label={`IVA ${cuenta.iva_pct ?? 13}%`} valor={plata(cuenta.iva ?? 0)} />}
+        </div>
+      </div>
+
+      <div className="bg-white">
+        <button type="button" onClick={() => setAbierto(a => !a)}
+          className="w-full h-12 px-4 flex items-center justify-between text-sm font-bold text-gray-700">
+          <span>{abierto ? 'Ocultar el detalle' : `Ver el detalle (${lineas.length})`}</span>
+          <span className="text-gray-400">{abierto ? '▲' : '▼'}</span>
+        </button>
+        {abierto && (
+          <ul className="px-4 pb-3 divide-y divide-gray-100">
+            {lineas.map((l, i) => (
+              <li key={i} className="py-2 flex items-start gap-2">
+                <span className="w-7 h-7 rounded-lg bg-gray-100 text-gray-700 text-xs font-black flex items-center justify-center shrink-0">
+                  {l.cantidad}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold text-gray-800 leading-tight">{l.nombre}</span>
+                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${l.pedido ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {l.pedido ? <><ChefHat size={10} /> en cocina</> : <><Clock size={10} /> recién anotado</>}
+                  </span>
+                </span>
+                <span className="text-sm font-black text-gray-900 tabular-nums shrink-0">{plata(l.total)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="px-4 pb-3 text-[11px] text-gray-400 leading-snug">
+          Es lo anotado hasta ahora{enEspera > 0 ? ` (${enEspera} sin pasar a cocina todavía)` : ''}.
+          Si falta algo, llamá al mesero.
+        </p>
+      </div>
+    </section>
+  );
+};
+
+const Renglon: React.FC<{ label: string; valor: string }> = ({ label, valor }) => (
+  <div className="flex items-center justify-between opacity-90">
+    <span>{label}</span><span className="font-bold tabular-nums">{valor}</span>
+  </div>
+);
+
 const HojaCuenta: React.FC<{
   color: string; cargando: boolean;
   cfg: NonNullable<MesaPublica['config']>;
+  cuenta?: CuentaMesa | null;
   onClose: () => void; onConfirmar: (m: MedioPago) => void;
-}> = ({ color, cargando, cfg, onClose, onConfirmar }) => {
+}> = ({ color, cargando, cfg, cuenta, onClose, onConfirmar }) => {
   const [medio, setMedio] = useState<MedioPago>('tarjeta');
   return (
     <Hojita titulo="Pedir la cuenta" onClose={onClose}>
+      {/* El monto, antes de elegir cómo pagar: con esto el cliente alista el
+          efectivo o hace el SINPE mientras el mesero camina. */}
+      {cuenta?.abierta && (
+        <div className="rounded-2xl p-4 mb-3 text-white" style={{ background: color }}>
+          <p className="text-xs opacity-90">Tu cuenta va en</p>
+          <p className="text-3xl font-black leading-tight">{plata(cuenta.total ?? 0)}</p>
+          <p className="text-[11px] opacity-85 mt-0.5">
+            {plata(cuenta.subtotal ?? 0)} de consumo
+            {(cuenta.servicio ?? 0) > 0 ? ` + ${plata(cuenta.servicio ?? 0)} de servicio` : ''}
+            {(cuenta.iva ?? 0) > 0 ? ` + ${plata(cuenta.iva ?? 0)} de IVA` : ''}
+          </p>
+        </div>
+      )}
       <p className="text-sm text-gray-600 mb-3">¿Cómo querés pagar?</p>
       <div className="space-y-2">
         {PAGOS.map(p => (

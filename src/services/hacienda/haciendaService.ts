@@ -158,8 +158,10 @@ export const haciendaService = {
   }>('/hacienda/refresh-pending', { method: 'POST' }, 28_000),
 
   /** Emite una Nota de Crédito que anula una factura ya emitida. */
-  creditNote: (invoiceId: string, reason?: string) => apiFetch<{ nc_clave?: string }>(
-    '/hacienda/credit-note', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason }) }),
+  /** `restocked`: cuántas líneas volvieron al inventario con la anulación. */
+  creditNote: (invoiceId: string, reason?: string) =>
+    apiFetch<{ nc_clave?: string; restocked?: number; stock_ya_devuelto?: boolean }>(
+      '/hacienda/credit-note', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason }) }),
 
   debitNote: (invoiceId: string, reason?: string) => apiFetch<{ nd_clave?: string }>(
     '/hacienda/debit-note', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason }) }),

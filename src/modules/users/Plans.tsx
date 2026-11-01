@@ -131,6 +131,18 @@ interface FePlan {
   is_active: boolean;
 }
 
+/**
+ * Qué significa el número de créditos, dicho en una línea.
+ *
+ * El 0 y el -1 son los que se malinterpretan: cero no es «no tiene asistente»
+ * —lo tiene, contestando con sus datos— y menos uno no es un error.
+ */
+export function textoCreditos(n: number): string {
+  if (n === -1) return 'Sin tope: este plan puede consultar el modelo todas las veces que quiera.';
+  if (n <= 0) return 'Sin consultas al modelo. El asistente igual funciona: contesta con los datos del negocio, gratis.';
+  return `${n} consulta(s) al modelo por mes. Se reinician el día 1.`;
+}
+
 /** Cómo se lee la cuota de un plan, en una línea. */
 export const textoCuotaFe = (p: Pick<FePlan, 'docsPerMonth' | 'periodo' | 'vigenciaMeses'>): string => {
   if (p.docsPerMonth == null) return 'Ilimitados';
@@ -258,6 +270,16 @@ export default function Plans() {
       .then(list => { if (Array.isArray(list) && list.length > 0) setFePlans(list); })
       .catch(() => {});
   }, []);
+
+  /** Los créditos viven dentro de `features` para no pedir otra columna. */
+  const creditosIaDelForm = (f: Partial<SubscriptionPlan>): number => {
+    const n = Number((f.features as any)?.ia_creditos);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const setCreditosIa = (valor: string) => {
+    const n = valor === '' ? 0 : Math.max(-1, Math.trunc(Number(valor) || 0));
+    setFormData(prev => ({ ...prev, features: { ...((prev.features as any) ?? {}), ia_creditos: n } }));
+  };
 
   const planesReales = plans.filter(p => !esPlanDemo(p));
   const planesDemo = plans.filter(esPlanDemo);
@@ -540,6 +562,14 @@ export default function Plans() {
               <div className="px-5 py-3 text-xs text-gray-500 space-y-1 border-b border-gray-50">
                 <div className="flex justify-between"><span>Usuarios</span><span className="font-bold text-gray-700">{plan.max_users ?? '∞'}</span></div>
                 <div className="flex justify-between"><span>Productos</span><span className="font-bold text-gray-700">{plan.max_products ?? '∞'}</span></div>
+                <div className="flex justify-between">
+                  <span>Créditos de IA</span>
+                  <span className={`font-bold ${Number((plan.features as any)?.ia_creditos) > 0 || Number((plan.features as any)?.ia_creditos) === -1 ? 'text-violet-700' : 'text-gray-400'}`}>
+                    {Number((plan.features as any)?.ia_creditos) === -1
+                      ? '∞'
+                      : `${Number((plan.features as any)?.ia_creditos) || 0}/mes`}
+                  </span>
+                </div>
                 <div className="flex justify-between"><span>Órdenes</span><span className="font-bold text-gray-700">{plan.max_orders ?? '∞'}</span></div>
               </div>
 
@@ -968,6 +998,40 @@ export default function Plans() {
                       className="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm" />
                   </div>
                 ))}
+              </div>
+
+              {/* CRÉDITOS DE IA.
+                  Es el único límite del plan que cuesta plata de verdad por
+                  uso: cada consulta al modelo se paga. Sin tope, un cliente
+                  con el chat abierto puede costar más que su mensualidad. */}
+              <div className="rounded-xl border-2 border-violet-200 bg-violet-50/60 p-3">
+                <label className="block text-xs font-black text-violet-900 mb-1.5">
+                  Créditos de IA por mes
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    type="number" min={-1}
+                    value={creditosIaDelForm(formData)}
+                    onChange={e => setCreditosIa(e.target.value)}
+                    className="w-32 border border-violet-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-400" />
+                  {[0, 50, 200, 1000, -1].map(n => (
+                    <button key={n} type="button" onClick={() => setCreditosIa(String(n))}
+                      className={`h-8 px-2.5 rounded-lg text-[11px] font-black border transition ${
+                        creditosIaDelForm(formData) === n
+                          ? 'bg-violet-600 border-violet-600 text-white'
+                          : 'bg-white border-violet-200 text-violet-700 hover:bg-violet-100'}`}>
+                      {n === -1 ? 'Sin tope' : n === 0 ? 'Sin IA' : n}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] font-semibold text-violet-800 mt-2 leading-snug">
+                  {textoCreditos(creditosIaDelForm(formData))}
+                </p>
+                <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+                  Solo gastan crédito las preguntas que <b>no</b> se pueden contestar con los datos
+                  del negocio. «¿Cuánto vendí?» o «¿qué se está acabando?» salen de la base y no
+                  cuestan nada; tampoco lo que ya estaba en caché.
+                </p>
               </div>
             </div>
 

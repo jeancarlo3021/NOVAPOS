@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, Sparkles , BookOpenCheck, Search, Star, Clock, UserCog} from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, BookOpenCheck, Search, Star, Clock, UserCog} from 'lucide-react';
 import { apiFetch } from '@/lib/api';
-import { AsistenteIA } from '@/modules/ia/AsistenteIA';
 import { FichajeModal } from '@/modules/hr/fichaje/FichajeModal';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -11,6 +10,7 @@ import type { PlanFeatures } from '@/context/AuthContext';
 import { qzConnect, qzIsConnected } from '@/services/pos/qzTrayService';
 import { GroupBranchesPanel } from './components/GroupBranchesPanel';
 import { NotificationsMenu, avisoDeSuscripcion, type Aviso } from './components/NotificationsMenu';
+import { ChatbotMenu } from './components/ChatbotMenu';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -99,7 +99,7 @@ const ALL_TILES: Tile[] = [
   // o recetas sin ninguna de las dos.
   { feature: 'restaurant',       label: 'Restaurante',     icon: UtensilsCrossed, path: '/billing',        bg: 'from-orange-600 to-red-600'       },
   { feature: 'window_service',   label: 'Ventanita',       icon: Store,         path: '/ventanita',        bg: 'from-orange-500 to-amber-600'     },
-  { feature: 'tables',           label: 'Mapa de Mesas',   icon: LayoutGrid,    path: '/tables',           bg: 'from-orange-500 to-red-500'       },
+  { feature: 'tables',           label: 'Diseño del salón',   icon: LayoutGrid,    path: '/tables',           bg: 'from-orange-500 to-red-500'       },
   { feature: 'modifiers',        label: 'Extras',          icon: Layers,        path: '/modifiers',        bg: 'from-violet-600 to-fuchsia-600'   },
   { feature: 'recipes',          label: 'Recetas',         icon: BookOpen,      path: '/recipes',          bg: 'from-lime-500 to-green-600'       },
   { feature: 'digital_menu',     label: 'Menú digital',    icon: QrCode,        path: '/menu-digital',     bg: 'from-teal-500 to-emerald-600'     },
@@ -113,8 +113,6 @@ const ALL_TILES: Tile[] = [
 ];
 
 export const Dashboard = () => {
-  /** Asistente de preguntas sobre el negocio (hoy en modo demostración). */
-  const [asistente, setAsistente] = useState(false);
   /** El modal de marcar hora. Vive en el tablero: lo usa todo el personal. */
   const [fichando, setFichando] = useState(false);
   const { user, planFeatures, tenant } = useAuth();
@@ -449,7 +447,6 @@ export const Dashboard = () => {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-      {asistente && <AsistenteIA onClose={() => setAsistente(false)} />}
       {fichando && <FichajeModal onClose={() => setFichando(false)} />}
 
       {/* ── MARCAR HORA ──────────────────────────────────────────────────
@@ -493,27 +490,6 @@ export const Dashboard = () => {
           </span>
         </button>
       )}
-
-      {/* ASISTENTE — en el cuerpo del panel, no flotando.
-          La esquina de abajo a la derecha ya tiene las notificaciones y la
-          guía del módulo: un tercer botón flotante ahí se monta encima de los
-          otros dos, y encima de ellos el que pierde es siempre el de más
-          abajo. Acá se ve de entrada y no le tapa nada a nadie. */}
-      <button
-        type="button"
-        onClick={() => setAsistente(true)}
-        className="w-full flex items-center gap-3 rounded-2xl px-5 py-4 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-md transition"
-      >
-        <span className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
-          <Sparkles size={22} />
-        </span>
-        <span className="text-left min-w-0">
-          <span className="block font-black text-lg leading-tight">Preguntale a tu negocio</span>
-          <span className="block text-violet-200 text-xs">
-            Cuánto vendiste, qué deja más plata, quién te debe, qué se está acabando
-          </span>
-        </span>
-      </button>
 
       {/* ── Hero compacto: saludo + ventas de hoy ────────────────────────── */}
       <div className="bg-linear-to-br from-emerald-600 via-emerald-600 to-teal-700 rounded-2xl px-5 sm:px-6 py-5 text-white shadow-md flex items-center justify-between gap-4 flex-wrap">
@@ -648,6 +624,10 @@ export const Dashboard = () => {
       {/* Notificaciones: flotante, para que siga a la vista mientras se baja
           por el tablero. Si no hay nada pendiente, es un botón discreto. */}
       <NotificationsMenu base={avisosBase} />
+
+      {/* El asistente, al lado de las notificaciones: las dos cosas se
+          consultan de paso, sin salir de lo que se estaba haciendo. */}
+      <ChatbotMenu />
     </div>
   );
 };

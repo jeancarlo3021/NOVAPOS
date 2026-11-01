@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { soloPlanesReales } from '@/utils/planesDemo';
 import { apiFetch } from '@/lib/api';
-import { supabase } from '@/lib/supabase';
+import { supabase, motivoDeFuncion } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale, Server, Globe, Megaphone, PackageX } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale, Server, Globe, Megaphone, PackageX, UtensilsCrossed } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
@@ -106,6 +106,8 @@ export const CreateOwner: React.FC = () => {
   /** Borrado masivo del catálogo (va con su propia confirmación y avance). */
   const [purgeProductsFor, setPurgeProductsFor] = useState<OwnerData | null>(null);
   const [resetStockFor, setResetStockFor] = useState<OwnerData | null>(null);
+  /** Negocio al que se le está cargando el menú de demostración. */
+  const [sembrando, setSembrando] = useState<string | null>(null);
   /** Respaldos diarios del negocio: ver, bajar y forzar uno. */
   const [backupsFor, setBackupsFor] = useState<OwnerData | null>(null);
   const [importProductsFor, setImportProductsFor] = useState<OwnerData | null>(null);
@@ -809,6 +811,34 @@ export const CreateOwner: React.FC = () => {
     }
   };
 
+  /**
+   * Carga el menú de demostración en un negocio.
+   *
+   * Avisa ANTES qué va a hacer: esto escribe productos y recetas en un negocio
+   * de verdad, y en el de un cliente que ya trabaja no tiene nada que hacer.
+   */
+  const cargarDemoRestaurante = async (o: OwnerData) => {
+    if (!confirm(
+      `Cargar el menú de demostración en «${o.name}».\n\n`
+      + 'Se crean 12 platos con su estación de cocina, 10 insumos con existencias, '
+      + '2 preparaciones base y el salón con 8 mesas.\n\n'
+      + 'No borra ni cambia nada de lo que ya tenga: lo que ya existe se respeta. '
+      + '¿Seguir?',
+    )) return;
+    setSembrando(o.id);
+    setError(''); setSuccess('');
+    try {
+      const r = await apiFetch<any>(`/admin/tenants/${o.id}/demo-restaurante`, { method: 'POST' });
+      setSuccess(r.yaEstaba
+        ? `«${o.name}» ya tenía el menú de demostración: no se duplicó nada.`
+        : `✅ ${o.name}: ${r.platos} plato(s), ${r.insumos} insumo(s), `
+          + `${r.subrecetas + r.recetas} receta(s) y ${r.mesas} mesa(s).`
+          + ((r.avisos ?? []).length ? ` · Avisos: ${r.avisos.join(' · ')}` : ''));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo cargar la demo');
+    } finally { setSembrando(null); }
+  };
+
   // ── Create owner ───────────────────────────────────────────────────────────
 
   const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -834,14 +864,16 @@ export const CreateOwner: React.FC = () => {
       const { data, error: fnError } = await supabase.functions.invoke('admin-create-owner', {
         body: { email: formData.email, password: formData.password, businessName: formData.businessName, planId: formData.planId, withDemo: formData.withDemo },
       });
-      if (fnError) throw new Error(fnError.message);
-      if (data?.error) throw new Error(data.error);
+      // El mensaje de `fnError` es siempre el mismo y no dice nada: el motivo
+      // real viene en el cuerpo de la respuesta (ver `motivoDeFuncion`).
+      if (fnError) throw new Error(await motivoDeFuncion(fnError));
+      if (data?.error) throw new Error(String(data.error));
       /**
        * El negocio recién creado: su id se resuelve UNA vez.
        *
        * Lo usan el plan de FE y el teléfono; antes se buscaba solo para el plan.
        */
-      let tid: string | undefined = data?.tenant_id ?? data?.tenant?.id;
+      let tid: string | undefined = data?.tenantId ?? data?.tenant_id ?? data?.tenant?.id;
       if (!tid && (formData.fePlanId || formData.phone.trim())) {
         const list = await apiFetch<any[]>('/admin/owners').catch(() => []);
         tid = (list ?? []).find(o => (o.email ?? '').toLowerCase() === formData.email.toLowerCase())?.id;
@@ -1720,6 +1752,19 @@ export const CreateOwner: React.FC = () => {
                                       borrado de productos queda debajo, porque
                                       quien quiere «borrar el inventario» casi
                                       siempre quiere esto y no perder la lista. */}
+                                  {/* Dejar el negocio listo para ENSEÑARLO.
+                                      Armar un menú a mano antes de cada
+                                      demostración toma media hora y siempre
+                                      falta la estación de algún plato. */}
+                                  <button onClick={() => { setOpenMenuId(null); void cargarDemoRestaurante(o); }}
+                                    disabled={sembrando === o.id}
+                                    title="Carga platos, insumos, dos preparaciones base y el salón con 8 mesas"
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-orange-700 hover:bg-orange-50 disabled:opacity-40">
+                                    {sembrando === o.id
+                                      ? <><RefreshCw size={13} className="animate-spin" /> Cargando…</>
+                                      : <><UtensilsCrossed size={13} /> Cargar demo de restaurante</>}
+                                  </button>
+                                  <div className="my-1 border-t border-gray-100" />
                                   <button onClick={() => { setOpenMenuId(null); setResetStockFor(o); }}
                                     title="Deja el catálogo intacto y pone en 0 la cantidad de cada producto"
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50">

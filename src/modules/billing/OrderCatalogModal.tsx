@@ -72,7 +72,13 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
   const modsCache = useRef<Map<string, ModifierGroup[]>>(new Map());
 
   const addDirect = (p: Product) =>
-    onAdd({ product_id: p.id, category_id: (p as any).category_id ?? undefined, name: p.name, unit_price: p.unit_price, quantity: 1, modifiers: [] });
+    onAdd({
+      product_id: p.id, category_id: (p as any).category_id ?? undefined,
+      // La estación viene en el menú de recetas; es la que decide a qué
+      // impresora va el plato.
+      station: (p as any).station ?? undefined,
+      name: p.name, unit_price: p.unit_price, quantity: 1, modifiers: [],
+    });
 
   const pickProduct = async (p: Product) => {
     // Cache hit: decide al instante, sin llamada ni parpadeo.
@@ -129,14 +135,18 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
               </div>
             </div>
 
-            {/* Grid de productos */}
+            {/* Grid de productos.
+                Las columnas se cuentan contra la VENTANA, no contra este panel
+                —que en la pantalla de la cuenta es la mitad—. Con `sm:3` una
+                tablet en vertical metía tres tarjetas en 384 px y los nombres
+                salían cortados: «Lomito en salsa de…». */}
             <div className="flex-1 overflow-y-auto p-4">
               {loading ? (
                 <div className="text-center py-12 text-gray-400">Cargando productos…</div>
               ) : filtered.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">Sin productos en esta categoría</div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
                   {filtered.map(p => (
                     <button key={p.id} onClick={() => pickProduct(p)}
                       disabled={loadingMods}
@@ -173,6 +183,7 @@ export function OrderCatalogModal({ tenantId, onClose, onAdd, embedded = false }
               onAdd({
                 product_id: configProduct.id,
                 category_id: (configProduct as any).category_id ?? undefined,
+                station: (configProduct as any).station ?? undefined,
                 name: configProduct.name,
                 unit_price: Number(configProduct.unit_price ?? 0),
                 quantity: qty,
