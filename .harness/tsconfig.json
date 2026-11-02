@@ -9,6 +9,8 @@
       "@/context/AuthContext": [".harness/stub-auth.ts"],
       "@/services/pos/posPrinterService": [".harness/stub-printer.ts"],
       "@/modules/mesaDigital/sonido": [".harness/stub-sonido.ts"],
+      "@/hooks/useCashSession": [".harness/stub-cash.ts"],
+      "@/hooks/useSettings": [".harness/stub-settings.ts"],
       "@/*": ["src/*"]
     }
   }

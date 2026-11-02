@@ -22,6 +22,7 @@ export const PERMISSION_MODULES: PermissionModuleMeta[] = [
   { key: 'users', label: 'Usuarios', description: 'Gestión de usuarios y roles' },
   { key: 'hr', label: 'Recursos Humanos', description: 'Empleados y nómina' },
   { key: 'customers', label: 'Clientes', description: 'Gestión de clientes' },
+  { key: 'portal_cliente', label: 'Portal del cliente', description: 'Crear el enlace del cliente y la hora de corte' },
   { key: 'restaurant', label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa' },
   { key: 'recipes', label: 'Recetas', description: 'Recetas e ingredientes' },
   { key: 'digital_menu', label: 'Menú digital', description: 'Carta pública con QR' },

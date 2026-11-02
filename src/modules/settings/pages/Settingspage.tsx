@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Tag,
   Truck,
+  Link2,
 } from 'lucide-react';
 import { GeneralSettings } from '../components/General/GeneralSettings';
 import { AccountSettings } from '../components/Account/AccountSettings';
@@ -28,10 +29,13 @@ import { LabelPrinterSettings } from '../components/LabelPrinter/LabelPrinterSet
 import { DeliverySettings } from '../components/Delivery/DeliverySettings';
 import { CustomerDisplaySettings } from '../components/CustomerDisplay/CustomerDisplaySettings';
 import { ComandasSettings } from '../components/Comandas/ComandasSettings';
+import { PortalClienteSettings } from '../components/PortalCliente/PortalClienteSettings';
 import { useAuth } from '@/context/AuthContext';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
+import { puedeDelPortal } from '@/services/customers/portalClienteService';
 import { MANAGER_ROLES } from '@/types/Types_Users';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'customer_display' | 'comandas' | 'account';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'customer_display' | 'comandas' | 'portal_cliente' | 'account';
 
 const SETTINGS_TABS = [
   {
@@ -89,6 +93,12 @@ const SETTINGS_TABS = [
     description: 'Comisiones de Uber, Didi, etc.',
   },
   {
+    id: 'portal_cliente' as SettingTab,
+    label: 'Portal del cliente',
+    icon: Link2,
+    description: 'Hora de corte y pedidos por enlace',
+  },
+  {
     id: 'notifications' as SettingTab,
     label: 'Notificaciones',
     icon: Bell,
@@ -110,7 +120,7 @@ export const SettingsPage: React.FC = () => {
     const t = new URLSearchParams(window.location.search).get('tab');
     const valid: SettingTab[] = ['general', 'products', 'payments', 'users', 'notifications',
       'receipt', 'pos_view', 'electronic_invoice', 'labels', 'delivery', 'customer_display',
-      'comandas', 'account'];
+      'comandas', 'portal_cliente', 'account'];
     return (valid as string[]).includes(String(t)) ? (t as SettingTab) : 'general';
   });
   /**
@@ -125,6 +135,7 @@ export const SettingsPage: React.FC = () => {
   const [showMobileList, setShowMobileList] = useState(true);
 const { planFeatures, user } = useAuth();
 const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
+const { matrix, isOwnerOrAdmin } = useRolePermissions();
 
   // Filtrar tabs según si es products_only
   const visibleTabs = SETTINGS_TABS.filter((tab) => {
@@ -154,6 +165,14 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
     if (tab.id === 'customer_display' && !(planFeatures as any)?.pos_customer_screen) return false;
     // Delivery: solo si el plan tiene la función de delivery.
     if (tab.id === 'delivery' && !(planFeatures as any)?.pos_delivery) return false;
+    /**
+     * Portal del cliente: solo con el módulo en el plan, y solo para quien
+     * puede cambiarlo. Un cajero vería una hora de corte que no puede tocar.
+     */
+    if (tab.id === 'portal_cliente') {
+      if (!(planFeatures as any)?.customer_portal) return false;
+      if (!puedeDelPortal(matrix as any, isOwnerOrAdmin, 'edit')) return false;
+    }
     // Cuenta / cambio de contraseña: solo el propietario.
     if (tab.id === 'account' && user?.role !== 'owner') return false;
     return true;
@@ -188,6 +207,8 @@ const isManager = MANAGER_ROLES.includes((user?.role ?? '') as any);
         return <CustomerDisplaySettings />;
       case 'comandas':
         return <ComandasSettings />;
+      case 'portal_cliente':
+        return <PortalClienteSettings />;
       case 'account':
         return <AccountSettings />;
       default:

@@ -6,6 +6,7 @@ import {
   ShoppingCart, Package, BarChart2, TrendingDown, ClipboardList,
   Wallet, Tag, Users, UserCog, Truck, Inbox, Send, CalendarDays, HandCoins,
   FileText, Undo2, ShieldCheck, QrCode, Store, Receipt, Building2, MapPin, Settings, TrendingUp, Monitor,
+  Link2,
 } from 'lucide-react';
 import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import { ROLE_META, USER_ROLES } from '@/types/Types_Users';
@@ -32,6 +33,7 @@ const MODULES: ModuleMeta[] = [
   { key: 'users',            label: 'Usuarios',          description: 'Gestión de usuarios y roles',    icon: Users,         color: 'bg-amber-500' },
   { key: 'hr',               label: 'Recursos Humanos',  description: 'Empleados y nómina',             icon: UserCog,       color: 'bg-fuchsia-500' },
   { key: 'customers',        label: 'Clientes',          description: 'Gestión de clientes',            icon: Users,         color: 'bg-teal-500' },
+  { key: 'portal_cliente',   label: 'Portal del cliente', description: 'Crear el enlace del cliente y la hora de corte', icon: Link2, color: 'bg-cyan-600' },
   { key: 'restaurant',       label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa',       icon: ShoppingCart,  color: 'bg-orange-500' },
   { key: 'recipes',          label: 'Recetas',           description: 'Recetas e ingredientes',         icon: Package,       color: 'bg-lime-500' },
   { key: 'distribution',     label: 'Distribución',      description: 'Rutas de reparto y repartidor',  icon: Truck,         color: 'bg-cyan-500' },
@@ -97,6 +99,11 @@ export const RoleSettings: React.FC = () => {
   const visibleModules = MODULES.filter(m => {
     // 'caja' y 'agent_orders' no son features del plan: dependen del POS.
     if (m.key === 'caja' || m.key === 'agent_orders') return (planFeatures as any)?.pos === true;
+    /* El portal del cliente se llama distinto en el plan (`customer_portal`)
+       que como módulo de permisos (`portal_cliente`): sin esta línea el módulo
+       no aparecería nunca, porque no hay ninguna función de plan con ese
+       nombre. */
+    if (m.key === 'portal_cliente') return (planFeatures as any)?.customer_portal === true;
     // Configuración no se vende por plan: todo negocio la tiene, lo que se
     // decide por rol es QUIÉN puede entrar.
     if (m.key === 'settings') return true;

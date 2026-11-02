@@ -39,6 +39,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
   { group: 'Clientes y cobros', items: [
     { key: 'customers', label: 'Clientes' },
     { key: 'customer_prices', label: 'Precios personalizados (por cliente)' },
+    { key: 'customer_portal', label: 'Portal del cliente (enlace: pide y ve su cuenta)' },
     { key: 'accounts_receivable', label: 'Cuentas por Cobrar (crédito)' },
     { key: 'exclude_from_close', label: 'Excluir clientes del cierre (ej. empleados)' },
     { key: 'reservations', label: 'Apartados (separar mercadería con abonos)' },

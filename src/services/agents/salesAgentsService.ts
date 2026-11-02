@@ -74,6 +74,15 @@ export interface AgentOrder {
   }>;
   /** Proforma de origen, si el pedido nació de una cotización. */
   proforma_id?: string | null;
+  /**
+   * Quién armó el pedido: 'agente' (como siempre) o 'cliente' (lo mandó el
+   * cliente desde su enlace del portal). La caja los trata distinto: el del
+   * cliente se revisa antes de facturar.
+   */
+  origen?: 'agente' | 'cliente' | null;
+  customer_link_id?: string | null;
+  /** Hasta cuándo el cliente puede cambiarlo desde su enlace. */
+  editable_hasta?: string | null;
   taken_by?: string | null;
   taken_at?: string | null;
   created_at: string;

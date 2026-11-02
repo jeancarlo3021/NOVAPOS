@@ -5,7 +5,7 @@ import {
   ShoppingCart, Plus, Search, RefreshCw, Truck,
   CheckCircle2, Clock, XCircle, DollarSign, Eye,
   ChevronDown, Calendar, Filter, Package, ClipboardCheck,
-  Loader, Printer,
+  Loader, Printer, PackagePlus,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -21,6 +21,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { KPICard } from './components/KPICard';
 import { StatusBadge } from './components/StatusBadge';
 import { ReceiveReviewModal } from './components/ReceiveReviewModal';
+import { ReloadStockModal } from './components/ReloadStockModal';
 import { Status, fmt, fmtDate } from './components/types';
 
 // ── Main dashboard ────────────────────────────────────────────────────────────
@@ -49,6 +50,8 @@ export const PurchasesDashboard: React.FC = () => {
   const [printingId, setPrintingId]         = useState<string | null>(null);
   const [detailPurchase, setDetailPurchase] = useState<any | null>(null);
   const [reviewPurchase, setReviewPurchase] = useState<any | null>(null);
+  /** Orden que se va a volver a cargar al inventario. */
+  const [reloadPurchase, setReloadPurchase] = useState<any | null>(null);
   const [error, setError]                   = useState('');
   const syncRef = useRef(false);
 
@@ -414,6 +417,17 @@ export const PurchasesDashboard: React.FC = () => {
                                 Revisar y Recibir
                               </button>
                             )}
+                            {/* La mercadería entró pero las existencias no están
+                                —se puso el inventario en cero, se restauró un
+                                respaldo, la recepción se cortó—: hasta ahora la
+                                única salida era ajustar producto por producto. */}
+                            {p.status === 'received' && !isLocal && (
+                              <button onClick={() => setReloadPurchase(p)} disabled={busy}
+                                title="Volver a sumar al inventario las cantidades de esta orden"
+                                className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 disabled:opacity-40 transition">
+                                <PackagePlus size={11} /> Cargar al inventario
+                              </button>
+                            )}
                             {p.status === 'pending' && (
                               <button onClick={() => handleCancel(p)} disabled={busy}
                                 className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-red-50 border border-red-200 text-red-600 rounded-lg hover:bg-red-100 disabled:opacity-40 transition">
@@ -455,6 +469,21 @@ export const PurchasesDashboard: React.FC = () => {
         <PurchaseDetailModal
           purchaseId={detailPurchase.id}
           onClose={() => setDetailPurchase(null)}
+        />
+      )}
+
+      {/* Volver a cargar el inventario de una orden ya recibida */}
+      {reloadPurchase && tenantId && (
+        <ReloadStockModal
+          purchase={reloadPurchase}
+          onClose={() => setReloadPurchase(null)}
+          onDone={async () => {
+            setReloadPurchase(null);
+            await loadPurchases(tenantId);
+            // El inventario cambió en la base: se re-cachea para que el POS y
+            // la pantalla de productos muestren las nuevas existencias.
+            try { await getAllProducts(tenantId); } catch { /* el cache se rehará solo */ }
+          }}
         />
       )}
 

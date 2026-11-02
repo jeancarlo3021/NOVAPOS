@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, BookOpenCheck, Search, Star, Clock, UserCog} from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, BookOpenCheck, Search, Star, Clock, UserCog, ChefHat} from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { FichajeModal } from '@/modules/hr/fichaje/FichajeModal';
 import { useAuth } from '@/context/AuthContext';
@@ -41,6 +41,15 @@ interface Tile {
   hideForRoles?: string[];
   /** Banderas alternativas: con cualquiera de ellas el botón también aparece. */
   alsoIf?: string[];
+  /**
+   * Grupo con el que se muestra junto.
+   *
+   * El restaurante no es un módulo: son ocho —el salón, la ventanita, las
+   * recetas, los extras, los QR, las comandas—. Repartidos en la lista general
+   * no se ven como lo que son, y el dueño no se entera de la mitad de lo que
+   * compró. Juntos y con título, se ven todos de una.
+   */
+  grupo?: 'restaurante';
 }
 
 /**
@@ -97,14 +106,17 @@ const ALL_TILES: Tile[] = [
   // ── Restaurante ──────────────────────────────────────────────────────────
   // Cada uno con su propia bandera: un negocio puede tener ventanita sin salón,
   // o recetas sin ninguna de las dos.
-  { feature: 'restaurant',       label: 'Restaurante',     icon: UtensilsCrossed, path: '/billing',        bg: 'from-orange-600 to-red-600'       },
-  { feature: 'window_service',   label: 'Ventanita',       icon: Store,         path: '/ventanita',        bg: 'from-orange-500 to-amber-600'     },
-  { feature: 'tables',           label: 'Diseño del salón',   icon: LayoutGrid,    path: '/tables',           bg: 'from-orange-500 to-red-500'       },
-  { feature: 'modifiers',        label: 'Extras',          icon: Layers,        path: '/modifiers',        bg: 'from-violet-600 to-fuchsia-600'   },
-  { feature: 'recipes',          label: 'Recetas',         icon: BookOpen,      path: '/recipes',          bg: 'from-lime-500 to-green-600'       },
-  { feature: 'digital_menu',     label: 'Menú digital',    icon: QrCode,        path: '/menu-digital',     bg: 'from-teal-500 to-emerald-600'     },
-  { feature: 'mesa_digital',     label: 'Mesa digital',    icon: QrCode,        path: '/mesa-digital',     bg: 'from-cyan-500 to-teal-600'        },
-  { feature: 'digital_catalog',  label: 'Catálogo digital', icon: QrCode,       path: '/catalogo-digital', bg: 'from-blue-500 to-indigo-600'      },
+  { feature: 'restaurant',       label: 'Restaurante',     icon: UtensilsCrossed, path: '/billing',        bg: 'from-orange-600 to-red-600',       grupo: 'restaurante' },
+  { feature: 'window_service',   label: 'Ventanita',       icon: Store,         path: '/ventanita',        bg: 'from-orange-500 to-amber-600',     grupo: 'restaurante' },
+  { feature: 'tables',           label: 'Diseño del salón', icon: LayoutGrid,    path: '/tables',           bg: 'from-orange-500 to-red-500',       grupo: 'restaurante' },
+  // La configuración de las impresoras de cocina no tenía por dónde entrarse
+  // desde el tablero: estaba enterrada en Configuración y nadie la encontraba.
+  { feature: 'restaurant',       label: 'Comandas',        icon: ChefHat,       path: '/settings?tab=comandas', bg: 'from-orange-700 to-red-700', grupo: 'restaurante', alsoIf: ['table_orders'] },
+  { feature: 'modifiers',        label: 'Extras',          icon: Layers,        path: '/modifiers',        bg: 'from-violet-600 to-fuchsia-600',   grupo: 'restaurante' },
+  { feature: 'recipes',          label: 'Recetas',         icon: BookOpen,      path: '/recipes',          bg: 'from-lime-500 to-green-600',       grupo: 'restaurante' },
+  { feature: 'digital_menu',     label: 'Menú digital',    icon: QrCode,        path: '/menu-digital',     bg: 'from-teal-500 to-emerald-600',     grupo: 'restaurante' },
+  { feature: 'mesa_digital',     label: 'Mesa digital',    icon: QrCode,        path: '/mesa-digital',     bg: 'from-cyan-500 to-teal-600',        grupo: 'restaurante' },
+  { feature: 'digital_catalog',  label: 'Catálogo digital', icon: QrCode,       path: '/catalogo-digital', bg: 'from-blue-500 to-indigo-600',      grupo: 'restaurante' },
   // Vista de cartera del contador: datos del negocio, plan y comprobantes.
   { feature: 'businesses_panel',  label: 'Negocios',        icon: Building2,     path: '/businesses',       bg: 'from-indigo-600 to-violet-700'    },
   { feature: 'android_app',      label: 'App Android',     icon: Smartphone,    path: '/android-app',      bg: 'from-emerald-600 to-green-700'    },
@@ -357,6 +369,59 @@ export const Dashboard = () => {
     '/labels': 'etiquetas codigos de barras precios',
   };
 
+  /**
+   * Los módulos de RESTAURANTE, juntos y con título.
+   *
+   * Repartidos en la lista general eran ocho botones sueltos entre veinte:
+   * el dueño de una soda entraba por «Restaurante» y no se enteraba de que
+   * también tenía las recetas, los QR de la mesa y las comandas, que son
+   * justo lo que le vendieron. Buscando, en cambio, se mezclan todos como
+   * siempre: ahí lo que importa es el resultado, no el orden.
+   */
+  /** Un botón del tablero. Se usa en el grupo de restaurante y en el resto. */
+  const pintarTile = (t: Tile) => {
+          const Icon = t.icon;
+          const esFavorito = favoritos.includes(t.path);
+          return (
+            <button
+              key={t.path}
+              type="button"
+              onClick={() => navigate(t.path)}
+              className={`relative overflow-hidden rounded-3xl p-5 sm:p-6 text-left bg-linear-to-br ${t.bg} text-white shadow-md hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] transition-all duration-150 min-h-40 sm:min-h-48 flex flex-col justify-between`}
+            >
+              {/* La estrella. `stopPropagation` para que marcarla no abra el
+                  módulo: tocar «favorito» y que se te vaya la pantalla es
+                  exactamente lo que no se espera. */}
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={esFavorito ? `Quitar ${t.label} de los primeros` : `Poner ${t.label} de primero`}
+                title={esFavorito ? 'Quitar de los primeros' : 'Ponerlo de primero'}
+                onClick={(e) => { e.stopPropagation(); alternarFavorito(t.path); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); alternarFavorito(t.path); }
+                }}
+                className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/20 cursor-pointer"
+              >
+                <Star size={18}
+                  className={esFavorito ? 'text-amber-300' : 'text-white/45'}
+                  fill={esFavorito ? 'currentColor' : 'none'} />
+              </span>
+              {/* Decoración suave */}
+              <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+              <div className="absolute -bottom-10 -left-10 w-24 h-24 rounded-full bg-white/5 blur-xl pointer-events-none" />
+
+              <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                <Icon size={32} strokeWidth={2.2} className="text-white" />
+              </div>
+
+              <h3 className="relative text-xl sm:text-2xl font-black leading-tight mt-3">
+                {t.label}
+              </h3>
+            </button>
+          );
+  };
+
   const q = sinTildes(busqueda);
   const tilesFiltrados = q
     ? tiles.filter(t =>
@@ -364,6 +429,9 @@ export const Dashboard = () => {
         || sinTildes(t.path).includes(q)
         || sinTildes(SINONIMOS[t.path] ?? '').includes(q))
     : tiles;
+
+  const deRestaurante = q ? [] : tilesFiltrados.filter(t => t.grupo === 'restaurante');
+  const tilesSinGrupo = q ? tilesFiltrados : tilesFiltrados.filter(t => t.grupo !== 'restaurante');
 
   /**
    * Los favoritos van primero, en el orden en que se marcaron.
@@ -373,7 +441,7 @@ export const Dashboard = () => {
    */
   const tilesOrdenados = q
     ? tilesFiltrados
-    : [...tilesFiltrados].sort((a, b) => {
+    : [...tilesSinGrupo].sort((a, b) => {
         const ia = favoritos.indexOf(a.path);
         const ib = favoritos.indexOf(b.path);
         if (ia === -1 && ib === -1) return 0;
@@ -576,49 +644,32 @@ export const Dashboard = () => {
       )}
 
       {/* ── Botones gigantes estilo Eleventa ─────────────────────────────── */}
+
+      {/* RESTAURANTE, todo junto y con título.
+          Son ocho módulos distintos —el salón, la ventanita, las recetas, los
+          extras, los QR, las comandas—. Sueltos entre los otros veinte, el
+          dueño de una soda entraba por «Restaurante» y no se enteraba de que
+          tenía el resto, que es justo lo que le vendieron. */}
+      {deRestaurante.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-xl bg-orange-100 text-orange-700 flex items-center justify-center shrink-0">
+              <UtensilsCrossed size={16} />
+            </span>
+            <h2 className="text-base font-black text-gray-900">Restaurante</h2>
+            <span className="text-xs font-bold text-gray-400">
+              {deRestaurante.length} módulo(s) de tu plan
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+            {deRestaurante.map(pintarTile)}
+          </div>
+          <div className="border-b border-gray-200 pt-1" />
+        </section>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-        {tilesOrdenados.map((t) => {
-          const Icon = t.icon;
-          const esFavorito = favoritos.includes(t.path);
-          return (
-            <button
-              key={t.path}
-              type="button"
-              onClick={() => navigate(t.path)}
-              className={`relative overflow-hidden rounded-3xl p-5 sm:p-6 text-left bg-linear-to-br ${t.bg} text-white shadow-md hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] transition-all duration-150 min-h-40 sm:min-h-48 flex flex-col justify-between`}
-            >
-              {/* La estrella. `stopPropagation` para que marcarla no abra el
-                  módulo: tocar «favorito» y que se te vaya la pantalla es
-                  exactamente lo que no se espera. */}
-              <span
-                role="button"
-                tabIndex={0}
-                aria-label={esFavorito ? `Quitar ${t.label} de los primeros` : `Poner ${t.label} de primero`}
-                title={esFavorito ? 'Quitar de los primeros' : 'Ponerlo de primero'}
-                onClick={(e) => { e.stopPropagation(); alternarFavorito(t.path); }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); alternarFavorito(t.path); }
-                }}
-                className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/20 cursor-pointer"
-              >
-                <Star size={18}
-                  className={esFavorito ? 'text-amber-300' : 'text-white/45'}
-                  fill={esFavorito ? 'currentColor' : 'none'} />
-              </span>
-              {/* Decoración suave */}
-              <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/10 blur-2xl pointer-events-none" />
-              <div className="absolute -bottom-10 -left-10 w-24 h-24 rounded-full bg-white/5 blur-xl pointer-events-none" />
-
-              <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                <Icon size={32} strokeWidth={2.2} className="text-white" />
-              </div>
-
-              <h3 className="relative text-xl sm:text-2xl font-black leading-tight mt-3">
-                {t.label}
-              </h3>
-            </button>
-          );
-        })}
+        {tilesOrdenados.map(pintarTile)}
       </div>
 
       {/* Notificaciones: flotante, para que siga a la vista mientras se baja

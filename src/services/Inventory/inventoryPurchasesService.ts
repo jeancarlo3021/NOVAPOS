@@ -90,6 +90,24 @@ export const inventoryPurchasesService = {
     });
   },
 
+  /**
+   * ¿Qué pasaría si vuelvo a cargar esta orden al inventario?
+   *
+   * Se consulta ANTES de tocar nada: dice cuánto subiría cada producto, si la
+   * orden ya se cargó antes y si las líneas quedaron mal conciliadas.
+   */
+  async stockStatus(id: string) {
+    return apiFetch<EstadoDeCarga>('/purchases/' + id + '/stock-status');
+  },
+
+  /** Vuelve a sumar al inventario las cantidades de la orden. */
+  async reloadStock(id: string) {
+    return apiFetch<{ purchase_number: string; aplicados: number; sinStock: number; fallaron: number; unidades: number }>(
+      '/purchases/' + id + '/reload-stock',
+      { method: 'POST', body: JSON.stringify({ confirmar: true }) },
+    );
+  },
+
   // Obtener compras pendientes
   async getPendingPurchases(_tenantId: string) {
     return apiFetch<InventoryPurchase[]>('/purchases?status=pending');
@@ -130,3 +148,24 @@ export const inventoryPurchasesService = {
     }
   },
 };
+
+/** Lo que devuelve `stockStatus`: la foto previa a cargar una orden. */
+export interface EstadoDeCarga {
+  purchase_number: string | null;
+  status: string;
+  purchase_date: string | null;
+  lineas: number;
+  productos: number;
+  unidades: number;
+  /** Fechas en las que esta orden YA entró al inventario. */
+  cargas_previas: string[];
+  unidades_ya_cargadas: number;
+  /** Líneas que caen sobre un producto ya usado por otra línea. */
+  lineas_repetidas: number;
+  /** Hay un producto con 5 o más líneas: la factura quedó mal conciliada. */
+  sospechosa: boolean;
+  detalle: Array<{
+    product_id: string; nombre: string; sku: string | null;
+    lineas: number; cantidad: number; stock: number | null; infinito: boolean;
+  }>;
+}

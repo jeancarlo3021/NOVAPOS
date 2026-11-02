@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power, HandCoins, MapPin, Map, Crosshair, Loader2 } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, RefreshCw, Mail, Phone, IdCard, Users as UsersIcon, X, Check, Tag, Power, HandCoins, MapPin, Map, Crosshair, Loader2, Link2, Copy, MessageCircle, Ban, ShoppingCart, Receipt } from 'lucide-react';
 import { customersService, ID_TYPES, type Customer, type CustomerInput, type CustomerZone } from '@/services/customers/customersService';
 import { LocationPickerModal } from './LocationPickerModal';
 import { CustomersMapModal } from './CustomersMapModal';
@@ -8,15 +8,32 @@ import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { useAuth } from '@/context/AuthContext';
 import { CustomerPricesModal } from './CustomerPricesModal';
 import { CRLocationFields } from '@/components/CRLocationFields';
+import {
+  portalAdmin, urlDelEnlace, puedeDelPortal, type PortalEnlace,
+} from '@/services/customers/portalClienteService';
 
 export const CustomersList: React.FC = () => {
-  const { canDo } = useRolePermissions();
+  const { canDo, matrix, isOwnerOrAdmin } = useRolePermissions();
   const { planFeatures } = useAuth();
   // Precios personalizados: activable/desactivable aparte (default ON si no se define).
   const pricesEnabled = (planFeatures as any)?.customer_prices !== false;
   const canCreate = canDo('customers', 'create');
   const canEdit   = canDo('customers', 'edit');
   const canDelete = canDo('customers', 'delete');
+
+  /**
+   * EL ENLACE DEL CLIENTE lo crea SOLO el dueño o el administrador.
+   *
+   * El enlace muestra los precios acordados con ese cliente y lo que debe: que
+   * lo genere un cajero o un agente de ruta es regalar la lista de precios del
+   * negocio con un toque. El servidor vuelve a verificar el rol —esto es solo
+   * para no mostrar un botón que va a dar 403—.
+   */
+  const portalOn = !!(planFeatures as any)?.customer_portal;
+  const puedeEnlazar = portalOn && puedeDelPortal(matrix as any, isOwnerOrAdmin, 'create');
+  const puedeRevocar = portalOn && puedeDelPortal(matrix as any, isOwnerOrAdmin, 'delete');
+  const [enlaces, setEnlaces] = useState<Record<string, PortalEnlace>>({});
+  const [enlaceDe, setEnlaceDe] = useState<Customer | null>(null);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading]     = useState(false);
@@ -74,6 +91,16 @@ export const CustomersList: React.FC = () => {
     const t = setTimeout(load, 300);
     return () => clearTimeout(t);
   }, [load]);
+
+  /** Qué clientes YA tienen enlace, para no ofrecer «crear» sobre uno vivo. */
+  const cargarEnlaces = useCallback(async () => {
+    if (!puedeEnlazar) return;
+    try {
+      const ls = await portalAdmin.enlaces();
+      setEnlaces(Object.fromEntries((ls ?? []).map(l => [l.customer_id, l])));
+    } catch { /* el botón sigue sirviendo: se crea y listo */ }
+  }, [puedeEnlazar]);
+  useEffect(() => { void cargarEnlaces(); }, [cargarEnlaces]);
 
   const handleToggleActive = async (c: Customer) => {
     try { await customersService.setActive(c.id, !c.is_active); await load(); }
@@ -202,6 +229,18 @@ export const CustomersList: React.FC = () => {
                       {c.lat != null && c.lng != null ? 'Ubicado' : 'Ubicar'}
                     </button>
                   )}
+                  {puedeEnlazar && (
+                    <button onClick={() => setEnlaceDe(c)}
+                      title={enlaces[c.id]
+                        ? 'Ya tiene enlace · tocá para copiarlo, cambiarlo o revocarlo'
+                        : 'Crear el enlace para que este cliente pida y vea su cuenta'}
+                      className={`py-1.5 px-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1 ${
+                        enlaces[c.id]
+                          ? 'bg-cyan-50 text-cyan-700 hover:bg-cyan-100'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      <Link2 size={11} /> {enlaces[c.id] ? 'Enlace' : 'Enlazar'}
+                    </button>
+                  )}
                   {canEdit && pricesEnabled && (
                     <button onClick={() => setPricesFor(c)}
                       className="flex-1 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-100 flex items-center justify-center gap-1">
@@ -249,6 +288,16 @@ export const CustomersList: React.FC = () => {
       )}
 
       {showZones && <ZonesModal onClose={() => setShowZones(false)} />}
+
+      {enlaceDe && (
+        <EnlaceClienteModal
+          customer={enlaceDe}
+          enlace={enlaces[enlaceDe.id] ?? null}
+          puedeRevocar={puedeRevocar}
+          onClose={() => setEnlaceDe(null)}
+          onChanged={() => void cargarEnlaces()}
+        />
+      )}
     </div>
   );
 };
@@ -314,6 +363,183 @@ function ZonesModal({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: el enlace del cliente ─────────────────────────────────────────────
+
+/** Número listo para wa.me: solo dígitos y con código de país (CR por defecto). */
+const paraWhatsApp = (tel: string) => {
+  const d = String(tel ?? '').replace(/\D/g, '');
+  if (!d) return '';
+  return d.length === 8 ? `506${d}` : d;
+};
+
+/**
+ * EL ENLACE que se le manda al cliente.
+ *
+ * Uno por cliente: regenerarlo REEMPLAZA el token y el viejo deja de abrir en
+ * el acto —que es justo lo que se quiere cuando el enlace se filtró a quien no
+ * debía—. De ahí que el botón diga «Cambiar el enlace» y avise, en vez de
+ * crear un segundo enlace en silencio.
+ */
+function EnlaceClienteModal({ customer, enlace, puedeRevocar, onClose, onChanged }: {
+  customer: Customer; enlace: PortalEnlace | null; puedeRevocar: boolean;
+  onClose: () => void; onChanged: () => void;
+}) {
+  const [actual, setActual] = useState<PortalEnlace | null>(enlace);
+  const [pedir, setPedir] = useState(enlace?.puede_pedir ?? true);
+  const [verSaldo, setVerSaldo] = useState(enlace?.puede_ver_saldo ?? true);
+  const [pin, setPin] = useState('');
+  const [vence, setVence] = useState(enlace?.vence_el ?? '');
+  const [guardando, setGuardando] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const [err, setErr] = useState('');
+
+  const url = actual ? urlDelEnlace(actual.token) : '';
+
+  const guardar = async () => {
+    if (actual && !confirm(
+      '¿Cambiar el enlace de este cliente?\n\nEl que ya le mandaste va a dejar de abrir.')) return;
+    setGuardando(true); setErr('');
+    try {
+      const l = await portalAdmin.crearEnlace({
+        customer_id: customer.id,
+        puede_pedir: pedir, puede_ver_saldo: verSaldo,
+        pin: pin.trim() ? pin.trim() : null,
+        vence_el: vence || null,
+      });
+      setActual(l); onChanged();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'No se pudo crear el enlace'); }
+    finally { setGuardando(false); }
+  };
+
+  const revocar = async () => {
+    if (!confirm('¿Revocar el enlace? El cliente no va a poder abrirlo más.')) return;
+    setGuardando(true); setErr('');
+    try { await portalAdmin.revocar(customer.id); setActual(null); onChanged(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'No se pudo revocar'); }
+    finally { setGuardando(false); }
+  };
+
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiado(true); setTimeout(() => setCopiado(false), 2000);
+    } catch { setErr('No se pudo copiar. Seleccioná el texto y copialo a mano.'); }
+  };
+
+  const mensaje = `Hola${customer.commercial_name || customer.name ? ` ${customer.commercial_name || customer.name}` : ''}: `
+    + `desde este enlace podés ver tus precios${pedir ? ', hacer tus pedidos' : ''}`
+    + `${verSaldo ? ' y revisar tu cuenta' : ''}. ${url}`;
+  const wa = paraWhatsApp(customer.phone ?? '');
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-black text-gray-900 flex items-center gap-2 min-w-0">
+            <Link2 size={18} className="text-cyan-600 shrink-0" />
+            <span className="truncate">Enlace de {customer.commercial_name || customer.name}</span>
+          </h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+
+          {actual ? (
+            <>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">El enlace</label>
+                <div className="flex gap-2">
+                  <input readOnly value={url} onFocus={e => e.currentTarget.select()}
+                    className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono bg-gray-50" />
+                  <button onClick={copiar}
+                    className="px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs flex items-center gap-1.5 shrink-0">
+                    {copiado ? <Check size={14} /> : <Copy size={14} />} {copiado ? 'Copiado' : 'Copiar'}
+                  </button>
+                </div>
+              </div>
+              {wa ? (
+                <a href={`https://wa.me/${wa}?text=${encodeURIComponent(mensaje)}`} target="_blank" rel="noreferrer"
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm">
+                  <MessageCircle size={16} /> Mandarlo por WhatsApp
+                </a>
+              ) : (
+                <p className="text-xs text-gray-400">
+                  Este cliente no tiene teléfono guardado: copiá el enlace y mandalo por donde quieras.
+                </p>
+              )}
+              <p className="text-[11px] text-gray-500">
+                {actual.usos > 0
+                  ? `Abierto ${actual.usos} ${actual.usos === 1 ? 'vez' : 'veces'}`
+                  : 'Todavía no lo ha abierto'}
+                {actual.ultimo_uso ? ` · último ${new Date(actual.ultimo_uso).toLocaleString('es-CR')}` : ''}
+                {actual.tiene_pin ? ' · la cuenta pide PIN' : ''}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-600">
+              Este cliente todavía no tiene enlace. Al crearlo va a poder ver <b>sus</b> precios
+              {pedir ? ', armar pedidos' : ''}{verSaldo ? ' y consultar lo que debe' : ''} sin instalar nada
+              ni registrarse.
+            </p>
+          )}
+
+          {/* Qué puede hacer con el enlace */}
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2.5">
+            <label className="flex items-center justify-between gap-2 cursor-pointer">
+              <span className="flex items-center gap-1.5 text-sm font-bold text-gray-700">
+                <ShoppingCart size={15} className="text-emerald-600" /> Puede hacer pedidos
+              </span>
+              <input type="checkbox" checked={pedir} onChange={e => setPedir(e.target.checked)}
+                className="w-5 h-5 rounded text-emerald-600" />
+            </label>
+            <label className="flex items-center justify-between gap-2 cursor-pointer">
+              <span className="flex items-center gap-1.5 text-sm font-bold text-gray-700">
+                <Receipt size={15} className="text-cyan-600" /> Puede ver su cuenta
+              </span>
+              <input type="checkbox" checked={verSaldo} onChange={e => setVerSaldo(e.target.checked)}
+                className="w-5 h-5 rounded text-cyan-600" />
+            </label>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">
+                PIN para ver la cuenta <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric" placeholder={actual?.tiene_pin ? 'Ya tiene PIN · escribí otro para cambiarlo' : 'Sin PIN'}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Los precios se ven siempre. El PIN protege lo que debe, porque el enlace se
+                reenvía y eso no es información para un grupo de WhatsApp.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">
+                Vence el <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <input type="date" value={vence} onChange={e => setVence(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100 p-4 flex gap-2">
+          {actual && puedeRevocar && (
+            <button onClick={revocar} disabled={guardando}
+              className="px-3 py-2.5 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 text-sm font-bold flex items-center gap-1.5 disabled:opacity-50">
+              <Ban size={15} /> Revocar
+            </button>
+          )}
+          <button onClick={guardar} disabled={guardando}
+            className="flex-1 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-black flex items-center justify-center gap-1.5 disabled:opacity-50">
+            {guardando ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}
+            {actual ? 'Guardar y cambiar el enlace' : 'Crear el enlace'}
+          </button>
         </div>
       </div>
     </div>

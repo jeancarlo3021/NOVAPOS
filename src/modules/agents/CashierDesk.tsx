@@ -4,6 +4,7 @@ import {
   Inbox, Loader2, CreditCard, Ban, RotateCcw, Clock, User, AlertCircle, CheckCircle2,
   LockKeyhole, Unlock, ArrowDownCircle, ArrowUpCircle, RefreshCw, Home, Receipt,
   CalendarDays, ChevronLeft, ChevronRight, Pencil, Mail, Send, X, Printer,
+  Link2, HandCoins,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -18,6 +19,7 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
 import { invoiceEmail } from '@/services/email/invoiceEmailService';
 import { marcarOcupado } from '@/utils/appBusy';
 import { agentOrdersService, type AgentOrder } from '@/services/agents/salesAgentsService';
+import { accountsReceivableService } from '@/services/accountsReceivable/accountsReceivableService';
 import { OrderItemsEditor } from './OrderItemsEditor';
 import { ChargePrepModal } from './ChargePrepModal';
 import { PosShortcutsHint } from '@/modules/pos/PosShortcutsHint';
@@ -67,6 +69,17 @@ export const CashierDesk: React.FC = () => {
   /** true = ignora el día y muestra todo lo pendiente (incluye atrasados). */
   const [allDays, setAllDays] = useState(false);
   const [agenda, setAgenda] = useState<Array<{ date: string; pending: number; charged: number; total: number }>>([]);
+  /**
+   * De dónde vienen los pedidos que se están viendo.
+   *
+   * El del CLIENTE (lo armó él desde su enlace) y el del AGENTE no se trabajan
+   * igual: el del agente ya viene revisado por una persona del negocio, el del
+   * cliente hay que mirarlo antes de facturar. Mezclados en una sola lista el
+   * cajero no sabe cuál es cuál.
+   */
+  const [origen, setOrigen] = useState<'todos' | 'cliente' | 'agente'>('todos');
+  /** Lo que debe cada cliente, para verlo ANTES de facturarle otra cosa a crédito. */
+  const [saldos, setSaldos] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -108,6 +121,22 @@ export const CashierDesk: React.FC = () => {
     } finally { setLoading(false); }
   }, [day, allDays]);
   useEffect(() => { void load(); }, [load]);
+
+  /**
+   * El saldo de cada cliente, de las cuentas por cobrar.
+   *
+   * Se trae una sola vez por carga y para todos: lo que importa es que el
+   * cajero VEA la deuda antes de facturar otro pedido a crédito, no que el
+   * número esté al segundo.
+   */
+  useEffect(() => {
+    accountsReceivableService.summary()
+      .then(r => setSaldos(Object.fromEntries(
+        (r?.by_customer ?? [])
+          .filter(x => x.customer_id && x.balance > 0)
+          .map(x => [String(x.customer_id), Number(x.balance)]))))
+      .catch(() => setSaldos({}));
+  }, [orders.length]);
 
   // Resumen de la semana para saber qué viene sin cambiar de día.
   useEffect(() => {
@@ -353,9 +382,16 @@ export const CashierDesk: React.FC = () => {
   // sigue y se cobra con un toque (o F12). La única apertura automática que queda
   // es la del repartidor que llega con /caja?order=..., donde el pedido SÍ lo
   // eligió una persona.
-  const nextToCharge = orders.find(o => o.status === 'taken') ?? orders.find(o => o.status === 'pending');
+  /* La lista que se está viendo. Todo lo demás —el botón de «cobrar el
+     siguiente», la cuenta de pendientes— se calcula sobre ESTA lista y no
+     sobre la completa: si no, F12 cobra un pedido que no está en pantalla. */
+  const visibles = origen === 'todos' ? orders : orders.filter(o => (o.origen ?? 'agente') === origen);
 
-  const pendingCount = orders.filter(o => o.status === 'pending').length;
+  const nextToCharge = visibles.find(o => o.status === 'taken') ?? visibles.find(o => o.status === 'pending');
+
+  const pendingCount = visibles.filter(o => o.status === 'pending').length;
+  /** Cuántos los mandó el cliente: es lo que hay que revisar antes de cobrar. */
+  const delCliente = orders.filter(o => o.origen === 'cliente' && o.status === 'pending').length;
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-gray-100 p-3 sm:p-6 space-y-3 sm:space-y-4">
@@ -533,28 +569,62 @@ export const CashierDesk: React.FC = () => {
         </div>
       )}
 
-      <p className="text-sm text-gray-500">
-        {pendingCount > 0
-          ? <><b className="text-gray-800">{pendingCount}</b> pedido(s) esperando cobro</>
-          : 'Sin pedidos esperando'}
-      </p>
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-sm text-gray-500">
+          {pendingCount > 0
+            ? <><b className="text-gray-800">{pendingCount}</b> pedido(s) esperando cobro</>
+            : 'Sin pedidos esperando'}
+        </p>
+        {/* El filtro aparece SOLO cuando hay pedidos del portal: en un negocio
+            que no lo usa serían tres botones que no hacen nada. */}
+        {orders.some(o => o.origen === 'cliente') && (
+          <div className="ml-auto flex items-center gap-1.5">
+            {([['todos', 'Todos'], ['cliente', 'Del cliente'], ['agente', 'Del agente']] as const).map(([v2, l]) => (
+              <button key={v2} onClick={() => setOrigen(v2)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black border ${
+                  origen === v2 ? 'bg-gray-800 border-gray-800 text-white'
+                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Aviso de que entró trabajo nuevo por el portal. Se dice con palabras y
+          no con un sonido: la caja de un negocio ya tiene bastante ruido. */}
+      {delCliente > 0 && origen !== 'cliente' && (
+        <button onClick={() => setOrigen('cliente')}
+          className="w-full flex items-center gap-2 rounded-xl bg-cyan-50 border border-cyan-200 px-4 py-2.5 text-sm font-bold text-cyan-800 text-left">
+          <Link2 size={16} className="shrink-0" />
+          <span className="flex-1">
+            {delCliente} pedido(s) los mandó el cliente desde su enlace · revisalos antes de cobrar
+          </span>
+          <ChevronRight size={16} />
+        </button>
+      )}
 
       {/* Lista de espera */}
       {loading && orders.length === 0 ? (
         <div className="flex items-center justify-center py-14 text-gray-400 gap-2">
           <Loader2 size={18} className="animate-spin" /> Cargando…
         </div>
-      ) : orders.length === 0 ? (
+      ) : visibles.length === 0 ? (
         <div className="bg-white border border-gray-200 rounded-2xl text-center py-16">
           <Inbox size={44} className="mx-auto text-gray-200 mb-2" />
-          <p className="text-sm text-gray-400">No hay pedidos por cobrar.</p>
-          <p className="text-xs text-gray-400 mt-1">Aparecen acá apenas un agente los envía.</p>
+          <p className="text-sm text-gray-400">
+            {origen === 'todos' ? 'No hay pedidos por cobrar.'
+              : origen === 'cliente' ? 'Ningún cliente mandó pedidos.'
+              : 'Ningún agente mandó pedidos.'}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">Aparecen acá apenas los envían.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {orders.map(o => (
+          {visibles.map(o => (
             <div key={o.id} className={`bg-white border-2 rounded-2xl p-4 ${
-              o.status === 'taken' ? 'border-amber-300 bg-amber-50/30' : 'border-gray-200'}`}>
+              o.status === 'taken' ? 'border-amber-300 bg-amber-50/30'
+                : o.origen === 'cliente' ? 'border-cyan-300' : 'border-gray-200'}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-black text-gray-900">
@@ -565,7 +635,10 @@ export const CashierDesk: React.FC = () => {
                   </p>
                   <p className="text-xs text-gray-500 flex items-center gap-2 flex-wrap mt-0.5">
                     {o.agent_name && <span className="flex items-center gap-1"><User size={11} /> {o.agent_name}</span>}
-                    {o.customer_name && <span>· {o.customer_name}</span>}
+                    {/* El punto separa del agente; el pedido del portal no tiene
+                        agente, y un «·» suelto delante del nombre se lee como
+                        un error de la pantalla. */}
+                    {o.customer_name && <span>{o.agent_name ? '· ' : ''}{o.customer_name}</span>}
                     <span className="flex items-center gap-1"><Clock size={11} /> {hhmm(o.created_at)}</span>
                   </p>
                   {o.scheduled_date && (
@@ -583,6 +656,19 @@ export const CashierDesk: React.FC = () => {
                     <p className="text-[11px] font-bold text-emerald-700 truncate mt-0.5">
                       📍 {[o.customer_zone, o.delivery_place].filter(Boolean).join(' · ')}
                     </p>
+                  )}
+                  {o.origen === 'cliente' && (
+                    <span className="inline-flex items-center gap-1 mt-1 mr-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-700">
+                      <Link2 size={10} /> LO MANDÓ EL CLIENTE
+                    </span>
+                  )}
+                  {/* Lo que ya debe, a la vista ANTES de facturarle de nuevo a
+                      crédito. Era el dato que el cajero tenía que ir a buscar a
+                      otra pantalla, y casi nunca iba. */}
+                  {o.customer_id && saldos[o.customer_id] > 0 && (
+                    <span className="inline-flex items-center gap-1 mt-1 mr-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                      <HandCoins size={10} /> DEBE {money(saldos[o.customer_id])}
+                    </span>
                   )}
                   {o.proforma_id && (
                     <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">

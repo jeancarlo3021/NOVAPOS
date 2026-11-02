@@ -50,6 +50,10 @@ function medidaDe(it: MapItem): { w: number; h: number } {
   if (it.kind === 'freeTable') return { w: it.width, h: it.height };
   if (it.kind === 'seat') return { w: 28, h: 28 };
   if (it.kind === 'table') { const m = tableMeta(it.type); return { w: m.width, h: m.height }; }
+  // Las ZONAS y las PAREDES también miden: con la medida por omisión, el
+  // recorte del plano las dejaba fuera y el salón salía cortado por abajo.
+  if (it.kind === 'zone') return { w: it.width, h: it.height };
+  if (it.kind === 'wall') return { w: it.length, h: it.thickness };
   return { w: 100, h: 100 };
 }
 
@@ -784,7 +788,7 @@ export function BillingDashboard() {
             mesa, que es lo contrario de para qué sirve un mapa. Con la caja
             proporcional y el SVG al 100 %, el salón se achica hasta caber; en
             pantalla grande no pasa de su tamaño real. */}
-        <div className="flex-1 overflow-auto bg-gray-200 p-4">
+        <div className="flex-1 overflow-auto bg-gray-200 p-4 flex items-center justify-center">
           {mapItems.length === 0 ? (
             <div className="h-full flex items-center justify-center flex-col gap-2 text-gray-500">
               <GridIcon size={36} className="text-gray-300" />

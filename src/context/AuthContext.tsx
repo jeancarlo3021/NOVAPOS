@@ -251,6 +251,8 @@ export interface PlanFeatures {
   labels?: boolean;           // Etiquetas de productos (plantillas + impresión)
   customers?: boolean;        // Módulo de clientes
   customer_prices?: boolean;  // Precios personalizados por cliente (activable aparte)
+  /** Portal del cliente: el enlace con el que pide y ve su cuenta, sin sesión. */
+  customer_portal?: boolean;
   distribution?: boolean;     // Distribución (rutas de reparto en camión)
   tracking?: boolean;         // Rastreo de camiones en vivo (mapa + ajustes)
   /** Equipo en vivo: dónde anda cada persona (agentes, repartidores) en el mapa.
@@ -443,6 +445,7 @@ export const DEFAULT_FEATURES: PlanFeatures = {
   crm_leads: false,
   demo_requests: false,
   accountant_portal: false,
+  customer_portal: false,
   businesses_panel: false,
   warranties: false,
   invoice_pdf_a4: false,
@@ -541,6 +544,7 @@ export const FULL_FEATURES: PlanFeatures = {
   crm_leads: true,
   demo_requests: true,
   accountant_portal: true,
+  customer_portal: true,
   businesses_panel: true,
   warranties: true,
   invoice_pdf_a4: true,

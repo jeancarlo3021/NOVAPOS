@@ -34,6 +34,7 @@ const MenuBuilder              = lazy(() => import('./modules/menu/MenuBuilder')
 const PublicMenu               = lazy(() => import('./modules/menu/PublicMenu').then(m => ({ default: m.PublicMenu })));
 const MesaCliente              = lazy(() => import('./modules/mesaDigital/MesaCliente').then(m => ({ default: m.MesaCliente })));
 const JuegosMesa               = lazy(() => import('./modules/mesaDigital/JuegosMesa').then(m => ({ default: m.JuegosMesa })));
+const PortalCliente            = lazy(() => import('./modules/portalCliente/PortalCliente').then(m => ({ default: m.PortalCliente })));
 const MesaDigitalDashboard     = lazy(() => import('./modules/mesaDigital/MesaDigitalDashboard').then(m => ({ default: m.MesaDigitalDashboard })));
 const DistributionDashboard    = lazy(() => import('./modules/distribution/DistributionDashboard').then(m => ({ default: m.DistributionDashboard })));
 const RouteRun                 = lazy(() => import('./modules/distribution/RouteRun').then(m => ({ default: m.RouteRun })));
@@ -112,6 +113,11 @@ function AppContent() {
               token secreto de esa mesa, no a un número adivinable. */}
           <Route path="/mesa/:token" element={<MesaCliente />} />
           <Route path="/mesa/:token/juegos" element={<JuegosMesa />} />
+          {/* PORTAL DEL CLIENTE: el enlace que el negocio le manda a su
+              cliente para que vea sus precios, pida y consulte lo que debe.
+              Fuera de ProtectedRoute por lo mismo que la mesa: el cliente no
+              tiene cuenta, y todo cuelga del token. */}
+          <Route path="/cliente/:token" element={<PortalCliente />} />
           {/* PANTALLA DEL CLIENTE (segundo monitor de la caja).
               Va fuera del layout: no lleva menú ni botones —el monitor puede ser
               táctil y lo toca cualquiera— y tiene que ocupar la pantalla entera.

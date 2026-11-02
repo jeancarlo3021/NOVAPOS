@@ -170,6 +170,8 @@ export type UserModule =
   | 'pos' | 'inventory' | 'reports' | 'expenses'
   | 'purchases' | 'users' | 'promotions' | 'accounts_payable' | 'hr'
   | 'customers' | 'restaurant' | 'recipes' | 'distribution'
+  /** Portal del cliente: crear el enlace de un cliente y la hora de corte. */
+  | 'portal_cliente'
   /** Bandeja del CAJERO: recibe pedidos de agentes y los cobra. No arma ventas. */
   | 'caja'
   /** Vista del AGENTE: arma pedidos y los envía a caja. No cobra. */

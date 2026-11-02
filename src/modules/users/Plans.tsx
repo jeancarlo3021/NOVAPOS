@@ -9,7 +9,7 @@ import {
   Shield, CalendarDays, History,
   FileText, User, Search, Building, KeyRound, UtensilsCrossed, Receipt, BellRing, UserCheck, Undo2,
   Scale, PackageMinus, Printer, ChefHat, QrCode, Store, Boxes, Send, Inbox, Calculator,
-  Users2, MonitorPlay, Bookmark, CalendarPlus,
+  Users2, MonitorPlay, Bookmark, CalendarPlus, Link2,
 } from 'lucide-react';
 import { subscriptionPlansService, SubscriptionPlan } from '@/services/users/subscriptionPlansService';
 import { esPlanDemo } from '@/utils/planesDemo';
@@ -449,6 +449,7 @@ export default function Plans() {
     if ((pf as any).crm_leads)        a.push('Leads');
     if ((pf as any).demo_requests)    a.push('Solicitudes de demo');
     if ((pf as any).accountant_portal) a.push('Portal del contador');
+    if ((pf as any).customer_portal)  a.push('Portal del cliente');
     if ((pf as any).businesses_panel)  a.push('Panel de negocios');
     if ((pf as any).warranties)       a.push('Garantías');
     if ((pf as any).sales_agents)     a.push('Agentes de venta');
@@ -1139,6 +1140,15 @@ export default function Plans() {
                     description="Terminal dedicada de facturación electrónica (catálogo + precio/IVA editable)"
                     checked={(features as any).fe_pos ?? false}
                     onChange={v => set({ fe_pos: v } as any)} />
+                </section>
+
+                {/* ── Portal del cliente ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Portal del cliente</SectionTitle>
+                  <FeatureRow icon={Link2} color="bg-cyan-600" title="Portal del cliente"
+                    description="Un enlace por cliente: ve SUS precios y existencias, manda pedidos a la bandeja de caja y consulta lo que debe. Sin pago en línea."
+                    checked={(features as any).customer_portal ?? false}
+                    onChange={v => set({ customer_portal: v } as any)} />
                 </section>
 
                 {/* ── Restaurante ── */}
