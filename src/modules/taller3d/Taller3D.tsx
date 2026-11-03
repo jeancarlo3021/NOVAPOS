@@ -7,7 +7,7 @@ import {
 import {
   taller3d, type Venta, type Gasto, type Resumen, type Impresora,
   type Impresion, type Calendario, type ConfigTaller, type Articulo,
-  type Tarifa, type Variante,
+  type Tarifa, type Variante, type VentaItem,
 } from '@/services/taller3d/taller3dService';
 
 /**
@@ -120,6 +120,8 @@ function PanelVentas({ fecha, onError, onAviso }: {
     producto_id: '', variante: '', envio: '0', envio_etiqueta: '',
   };
   const [f, setF] = useState<Record<string, string>>(vacio);
+  /** Los artículos que lleva la venta que se está armando. */
+  const [detalle, setDetalle] = useState<VentaItem[]>([]);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -163,22 +165,52 @@ function PanelVentas({ fecha, onError, onAviso }: {
   };
 
   const envio = Number(f.envio) || 0;
-  const piezas = (Number(f.cantidad) || 0) * (Number(f.precio_unitario) || 0);
+  /** Lo que lleva la línea que se está escribiendo ahora. */
+  const enCurso = (Number(f.cantidad) || 0) * (Number(f.precio_unitario) || 0);
+  const piezas = detalle.reduce((s, l) => s + l.subtotal, 0) + enCurso;
   const total = piezas + envio;
 
+  /** Pasa la línea que se está escribiendo al detalle y limpia el formulario. */
+  const agregarArticulo = () => {
+    if (!f.descripcion.trim()) { onError('¿Qué artículo?'); return; }
+    const cant = Number(f.cantidad) || 1;
+    const precio = Number(f.precio_unitario) || 0;
+    setDetalle(d => [...d, {
+      producto_id: f.producto_id || null, descripcion: f.descripcion.trim(),
+      variante: f.variante || null, cantidad: cant, precio_unitario: precio,
+      subtotal: Math.round(cant * precio * 100) / 100,
+    }]);
+    setF({ ...f, descripcion: '', cantidad: '1', precio_unitario: '', producto_id: '', variante: '' });
+  };
+
   const agregar = async () => {
-    if (!f.descripcion.trim()) { onError('¿Qué se vendió?'); return; }
+    /* Lo que quedó escrito en el formulario cuenta como un artículo más: nadie
+       debería perder una venta por no haber tocado «Agregar otro». */
+    const lineas = [...detalle];
+    if (f.descripcion.trim()) {
+      const cant = Number(f.cantidad) || 1;
+      const precio = Number(f.precio_unitario) || 0;
+      lineas.push({
+        producto_id: f.producto_id || null, descripcion: f.descripcion.trim(),
+        variante: f.variante || null, cantidad: cant, precio_unitario: precio,
+        subtotal: Math.round(cant * precio * 100) / 100,
+      });
+    }
+    if (lineas.length === 0) { onError('¿Qué se vendió?'); return; }
     setGuardando(true);
     try {
       await taller3d.nuevaVenta({
-        fecha, descripcion: f.descripcion.trim(), cliente: f.cliente.trim() || null,
-        cantidad: Number(f.cantidad) || 1, precio_unitario: Number(f.precio_unitario) || 0,
+        fecha, cliente: f.cliente.trim() || null,
         medio_pago: f.medio_pago as any, categoria: f.categoria as any,
-        producto_id: f.producto_id || null, variante: f.variante || null,
         envio, envio_etiqueta: f.envio_etiqueta || null,
-      });
+        items: lineas.map(l => ({
+          producto_id: l.producto_id, descripcion: l.descripcion, variante: l.variante,
+          cantidad: l.cantidad, precio_unitario: l.precio_unitario,
+        })),
+      } as any);
       setF({ ...vacio, medio_pago: f.medio_pago, categoria: f.categoria });
-      onAviso('Venta anotada');
+      setDetalle([]);
+      onAviso(lineas.length > 1 ? `Venta anotada · ${lineas.length} artículos` : 'Venta anotada');
       await cargar();
     } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo anotar'); }
     finally { setGuardando(false); }
@@ -250,11 +282,45 @@ function PanelVentas({ fecha, onError, onAviso }: {
             placeholder="Precio c/u" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right" />
           <div className="flex flex-col items-end justify-center">
             <span className="font-black text-lg tabular-nums text-emerald-700">{plata(total)}</span>
-            {envio > 0 && (
-              <span className="text-[11px] font-bold text-gray-500">{plata(piezas)} + {plata(envio)} de envío</span>
+            {(envio > 0 || detalle.length > 0) && (
+              <span className="text-[11px] font-bold text-gray-500">
+                {plata(piezas)}{envio > 0 ? ` + ${plata(envio)} de envío` : ''}
+              </span>
             )}
           </div>
         </div>
+
+        {/* «Agregar otro» pasa la línea al detalle. No es obligatorio: lo que
+            quede escrito al guardar entra igual como un artículo más. */}
+        <button onClick={agregarArticulo} disabled={!f.descripcion.trim()}
+          className="text-xs font-black text-emerald-700 disabled:text-gray-300 flex items-center gap-1">
+          <Plus size={13} /> Agregar otro artículo a esta misma venta
+        </button>
+
+        {/* El detalle de la venta que se está armando. */}
+        {detalle.length > 0 && (
+          <div className="rounded-xl border-2 border-emerald-100 bg-emerald-50/40 divide-y divide-emerald-100">
+            {detalle.map((l, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-2">
+                <span className="min-w-0 flex-1 text-sm">
+                  <b className="text-gray-900">{l.descripcion}</b>
+                  {l.variante ? <span className="text-gray-500"> · {l.variante}</span> : null}
+                  <span className="text-gray-500"> · {l.cantidad} × {plata(l.precio_unitario)}</span>
+                </span>
+                <span className="font-black tabular-nums text-sm">{plata(l.subtotal)}</span>
+                <button onClick={() => setDetalle(d => d.filter((_, j) => j !== i))}
+                  aria-label={`Quitar ${l.descripcion}`}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-3 py-2 text-sm font-black">
+              <span>{detalle.length} artículo(s) en esta venta</span>
+              <span className="tabular-nums">{plata(detalle.reduce((a, l) => a + l.subtotal, 0))}</span>
+            </div>
+          </div>
+        )}
 
         {/* El envío, que acá se cobra aparte de la pieza. */}
         <div className="flex gap-2 flex-wrap items-center">
@@ -291,22 +357,33 @@ function PanelVentas({ fecha, onError, onAviso }: {
           </select>
           <button onClick={() => void agregar()} disabled={guardando}
             className="ml-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm flex items-center gap-1.5 disabled:opacity-50">
-            {guardando ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Agregar
+            {guardando ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+            {detalle.length > 0 ? `Anotar la venta (${plata(total)})` : 'Anotar la venta'}
           </button>
         </div>
       </div>
 
       <Listado
         cargando={cargando} vacio="Todavía no hay ventas anotadas este día."
-        filas={ventas.map(v => ({
-          id: v.id,
-          titulo: v.descripcion,
-          sub: [v.cliente, v.variante, `${v.cantidad} × ${plata(v.precio_unitario)}`,
-            Number(v.envio) > 0 ? `+ ${plata(v.envio)} de envío${v.envio_etiqueta ? ` (${v.envio_etiqueta})` : ''}` : null,
-            ETIQUETA[v.medio_pago]].filter(Boolean).join(' · '),
-          monto: plata(v.total), color: 'text-emerald-700',
-          onBorrar: () => void borrar(v),
-        }))} />
+        filas={ventas.map(v => {
+          const lineas = v.items ?? [];
+          return {
+            id: v.id,
+            titulo: v.descripcion,
+            sub: [v.cliente,
+              lineas.length <= 1 ? (v.variante ?? null) : null,
+              lineas.length <= 1 ? `${v.cantidad} × ${plata(v.precio_unitario)}` : null,
+              Number(v.envio) > 0 ? `+ ${plata(v.envio)} de envío${v.envio_etiqueta ? ` (${v.envio_etiqueta})` : ''}` : null,
+              ETIQUETA[v.medio_pago]].filter(Boolean).join(' · '),
+            monto: plata(v.total), color: 'text-emerald-700',
+            /* Con varios artículos, el detalle va debajo: el resumen solo dice
+               «Llavero y 2 más», que no alcanza para revisar una venta. */
+            detalle: lineas.length > 1
+              ? lineas.map(l => `${l.cantidad} × ${l.descripcion}${l.variante ? ` (${l.variante})` : ''} — ${plata(l.subtotal)}`)
+              : undefined,
+            onBorrar: () => void borrar(v),
+          };
+        })} />
     </div>
   );
 }
@@ -1148,7 +1225,10 @@ function Desglose({ titulo, filas }: { titulo: string; filas: Array<{ clave: str
 
 function Listado({ cargando, vacio, filas }: {
   cargando: boolean; vacio: string;
-  filas: Array<{ id: string; titulo: string; sub: string; monto: string; color: string; onBorrar: () => void }>;
+  filas: Array<{
+    id: string; titulo: string; sub: string; monto: string; color: string;
+    detalle?: string[]; onBorrar: () => void;
+  }>;
 }) {
   if (cargando && filas.length === 0) {
     return <div className="flex items-center justify-center py-12 text-gray-400 gap-2"><Loader2 size={18} className="animate-spin" /> Cargando…</div>;
@@ -1159,10 +1239,17 @@ function Listado({ cargando, vacio, filas }: {
   return (
     <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 overflow-hidden">
       {filas.map(f => (
-        <div key={f.id} className="px-4 py-3 flex items-center gap-3">
+        <div key={f.id} className="px-4 py-3 flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <p className="font-bold text-gray-900 truncate">{f.titulo}</p>
             {f.sub && <p className="text-xs text-gray-500 truncate">{f.sub}</p>}
+            {f.detalle && (
+              <ul className="mt-1 space-y-0.5">
+                {f.detalle.map((d, i) => (
+                  <li key={i} className="text-[11px] text-gray-500">· {d}</li>
+                ))}
+              </ul>
+            )}
           </div>
           <span className={`font-black tabular-nums ${f.color}`}>{f.monto}</span>
           <button onClick={f.onBorrar} className="p-1.5 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50">

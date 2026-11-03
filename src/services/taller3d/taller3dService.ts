@@ -7,14 +7,28 @@ export type CatVenta = 'impresion' | 'diseno' | 'material' | 'reparacion' | 'otr
 export type CatGasto = 'filamento' | 'resina' | 'electricidad' | 'repuestos' | 'envio' | 'otro';
 export type EstadoImpresion = 'en_cola' | 'programado' | 'imprimiendo' | 'listo' | 'entregado' | 'cancelado';
 
+/** Una línea de la venta. El envío NO es una línea: va en la cabeza. */
+export interface VentaItem {
+  id?: string;
+  producto_id: string | null;
+  descripcion: string;
+  variante: string | null;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+}
+
 export interface Venta {
-  id: string; fecha: string; descripcion: string; cliente: string | null;
+  id: string; fecha: string;
+  /** Resumen de la venta: «Llavero y 2 más». El detalle está en `items`. */
+  descripcion: string; cliente: string | null;
   cantidad: number; precio_unitario: number; total: number;
   medio_pago: MedioPago; categoria: CatVenta; notas: string | null; created_at: string;
-  /** De qué artículo del catálogo salió, y con cuál de sus precios. */
+  /** Con una sola línea, la cabeza repite su artículo. Con varias, van null. */
   producto_id: string | null; variante: string | null;
-  /** El envío se cobra aparte de la pieza. */
+  /** El envío se cobra aparte de las piezas. */
   envio: number; envio_etiqueta: string | null;
+  items?: VentaItem[];
 }
 
 /** Un precio del MISMO artículo: «Chico ₡2.000», «Grande ₡3.500». */
@@ -42,6 +56,8 @@ export interface Resumen {
     total: number; cuantas: number;
     /** Lo cobrado por las piezas, sin el envío. */
     piezas: number; envios: number; cuantos_envios: number;
+    /** Cuántos artículos se movieron, sin contar el envío. */
+    articulos: number;
     por_medio: Corte[]; por_categoria: Corte[]; por_producto: Corte[];
   };
   gastos: { total: number; cuantos: number; por_categoria: Corte[]; por_medio: Corte[] };

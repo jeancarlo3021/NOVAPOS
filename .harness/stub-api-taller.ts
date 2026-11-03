@@ -3,7 +3,11 @@ const HOY = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Ri
 const REG: any = { enviado: [] };
 (globalThis as any).__reg = REG;
 let VENTAS: any[] = [
-  { id: 'v1', fecha: HOY, descripcion: 'Llavero personalizado', cliente: 'Don Beto', cantidad: 3, precio_unitario: 2500, total: 7500, medio_pago: 'sinpe', categoria: 'impresion', notas: null, created_at: '' },
+  { id: 'v1', fecha: HOY, descripcion: 'Llavero personalizado y 1 más', cliente: 'Don Beto', cantidad: 4, precio_unitario: 0, total: 11000, medio_pago: 'sinpe', categoria: 'impresion', notas: null, created_at: '', envio: 2500,
+    items: [
+      { descripcion: 'Llavero personalizado', variante: 'Chico', cantidad: 3, precio_unitario: 2000, subtotal: 6000 },
+      { descripcion: 'Buje de nylon', variante: null, cantidad: 1, precio_unitario: 2500, subtotal: 2500 },
+    ] },
   { id: 'v2', fecha: HOY, descripcion: 'Diseño de pieza a medida', cliente: null, cantidad: 1, precio_unitario: 20000, total: 20000, medio_pago: 'efectivo', categoria: 'diseno', notas: null, created_at: '' },
 ];
 let GASTOS: any[] = [
@@ -79,7 +83,17 @@ export async function apiFetch<T = any>(path: string, init?: any): Promise<T> {
   if (path.startsWith('/taller-3d/ventas') && init?.method === 'POST') {
     REG.enviado.push({ ruta: 'venta', cuerpo });
     // El total lo arma el servidor: piezas + envío (ver routes/taller3d.ts).
-    const v = { id: 'v' + (VENTAS.length + 1), fecha: HOY, ...cuerpo, total: (cuerpo.cantidad ?? 1) * (cuerpo.precio_unitario ?? 0) + (cuerpo.envio ?? 0) };
+    // El total lo arma el servidor: la suma de las líneas más el envío.
+    const its = (cuerpo.items ?? [{ descripcion: cuerpo.descripcion, cantidad: cuerpo.cantidad ?? 1, precio_unitario: cuerpo.precio_unitario ?? 0, variante: cuerpo.variante ?? null, producto_id: cuerpo.producto_id ?? null }])
+      .map((l: any) => ({ ...l, subtotal: (l.cantidad ?? 1) * (l.precio_unitario ?? 0) }));
+    const v = {
+      id: 'v' + (VENTAS.length + 1), fecha: HOY, ...cuerpo,
+      descripcion: its.length === 1 ? its[0].descripcion : `${its[0].descripcion} y ${its.length - 1} más`,
+      cantidad: its.length === 1 ? its[0].cantidad : its.reduce((a: number, l: any) => a + l.cantidad, 0),
+      precio_unitario: its.length === 1 ? its[0].precio_unitario : 0,
+      items: its,
+      total: its.reduce((a: number, l: any) => a + l.subtotal, 0) + (cuerpo.envio ?? 0),
+    };
     VENTAS = [v, ...VENTAS]; return v as any;
   }
   if (path.startsWith('/taller-3d/ventas')) return VENTAS as any;
