@@ -40,7 +40,13 @@ export const ChequeoIA: React.FC<{ compacto?: boolean }> = ({ compacto }) => {
     try {
       setD(await apiFetch<DiagnosticoIA>('/ia/diagnostico', {}, 30_000));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo probar la conexión');
+      const msg = e instanceof Error ? e.message : '';
+      /* El aviso genérico de la pantalla («achicá el rango de fechas») no
+         tiene nada que ver con esto y confunde: acá significa que ni el
+         diagnóstico contestó, que ya es un dato. */
+      setError(/tardó más de|abort/i.test(msg)
+        ? 'Ni el diagnóstico contestó a tiempo. Eso ya dice algo: el servidor no está llegando al proveedor. Probá de nuevo en un minuto.'
+        : msg || 'No se pudo probar la conexión');
     } finally { setCargando(false); }
   };
 
