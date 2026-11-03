@@ -25,6 +25,8 @@ export interface DiagnosticoIA {
   llave: { presente: boolean; largo: number };
   /** ¿Se LLEGA al proveedor? Es lo que separa «no hay internet» de «tarda». */
   alcance?: { ok: boolean; ms: number; estado: number | null; error: string | null };
+  /** Los modelos que esta llave puede usar (solo si falló generar). */
+  alternativas?: string[];
   prueba: { ok: boolean; ms: number; respuesta: string | null; error: string | null; sin_pensamiento?: boolean };
   que_hacer: string | null;
   usos: string[];
@@ -100,6 +102,23 @@ export const ChequeoIA: React.FC<{ compacto?: boolean }> = ({ compacto }) => {
               <li className="text-red-700">Respuesta del proveedor: <span className="font-mono">{d.prueba.error}</span></li>
             )}
           </ul>
+
+          {/* LOS MODELOS QUE SÍ PODÉS USAR. Cuando el configurado no sirve,
+              la pregunta es «¿y entonces cuál pongo?»: la llave ya sabe la
+              respuesta, así que se muestra en vez de mandar a buscarla. */}
+          {(d.alternativas?.length ?? 0) > 0 && (
+            <div className="mt-2 rounded-lg border border-gray-200 bg-white px-2.5 py-2">
+              <p className="font-black text-gray-700">
+                Tu llave puede usar {d.alternativas!.length} modelos. Poné uno de estos en <code>IA_MODELO</code>:
+              </p>
+              <ul className="mt-1 font-mono text-[10px] text-gray-600 space-y-0.5 max-h-28 overflow-y-auto">
+                {/* Los «flash» primero: son los baratos y rápidos, que es lo
+                    que piden estas tareas. */}
+                {[...d.alternativas!].sort((a, b) => Number(b.includes('flash')) - Number(a.includes('flash')))
+                  .slice(0, 12).map(m => <li key={m}>{m}</li>)}
+              </ul>
+            </div>
+          )}
 
           {!d.conectada && (
             <p className="mt-1.5 text-gray-600">
