@@ -205,6 +205,8 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
   const [sugiriendo, setSugiriendo] = useState(false);
   /** Avance cuando el catálogo es grande y hay que pedir por lotes. */
   const [progresoSug, setProgresoSug] = useState<{ hechos: number; total: number } | null>(null);
+  /** Qué hizo el modelo en la última tanda de sugerencias. */
+  const [ia, setIa] = useState<{ encendido: boolean; revisados: number } | null>(null);
   /**
    * QUÉ FILAS SE VEN.
    *
@@ -713,7 +715,7 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
   const traerSugerencias = async () => {
     const faltan = rows.filter(r => !r.cabys_code && r.name);
     if (faltan.length === 0) return;
-    setSugiriendo(true);
+    setSugiriendo(true); setIa(null);
     try {
       const names = [...new Set(faltan.map(r => r.name))];
       /*
@@ -783,18 +785,28 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
         setProgresoSug({ hechos: indice * TAMANO_LOTE, total: items.length });
         let sug: Sug[] = [];
         try {
-          const r0 = await apiFetch<{ modo?: string; datos?: { sugerencias?: Sug[] } } | Sug[]>(
+          const r0 = await apiFetch<{
+            modo?: string;
+            datos?: { sugerencias?: Sug[]; modelo?: { encendido: boolean; revisados: number } };
+          } | Sug[]>(
             '/ia/cabys',
             {
               method: 'POST',
-              // `origen` le dice al servidor DESDE DÓNDE se pide. El modelo
-              // (que se paga por consulta) solo se usa en la carga masiva y
-              // solo para el dueño del sistema; el servidor verifica las dos
-              // cosas, así que mandar esto desde otro lado no habilita nada.
+              // `origen` le dice al servidor DESDE DÓNDE se pide: el modelo se
+              // usa en la carga de productos y no en el resto del sistema, y
+              // esa condición la verifica el servidor. Lo que de verdad
+              // protege es que el modelo solo puede ELEGIR entre los códigos
+              // reales que arma el servidor: no puede inventar uno.
               body: JSON.stringify({ nombres: lote, origen: 'importacion' }),
             },
             90000);
           sug = Array.isArray(r0) ? r0 : (r0?.datos?.sugerencias ?? []);
+          if (!Array.isArray(r0) && r0?.datos?.modelo) {
+            const m = r0.datos.modelo;
+            // Los revisados se ACUMULAN entre lotes: lo que diga la pantalla
+            // tiene que ser del catálogo entero, no del último lote.
+            setIa(prev => ({ encendido: m.encendido, revisados: (prev?.revisados ?? 0) + (m.revisados ?? 0) }));
+          }
         } catch (e) {
           // Un lote caído no tumba los demás: se sigue y se avisa al final.
           fallo = e instanceof Error ? e.message : 'falló un lote';
@@ -842,9 +854,14 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
           _cabys_alternativas: x.alternativas,
           // De dónde salió: un producto igual de otro negocio es mucho más
           // confiable que un parecido de palabras contra el catálogo.
-          _cabys_origen: x.fuente === 'otros_negocios'
-            ? (x.exacto ? 'otro negocio, producto igual' : `otro negocio, parecido ${x.parecido ?? '?'}%`)
-            : 'catálogo de Hacienda',
+          /* Decir «catálogo de Hacienda» de un código que eligió el modelo
+             sería mentir sobre quién decidió, que es justo el dato que uno
+             mira para saber cuánto desconfiar de la fila. */
+          _cabys_origen: x.fuente === 'ia'
+            ? 'elegido por la IA entre los candidatos'
+            : x.fuente === 'otros_negocios'
+              ? (x.exacto ? 'otro negocio, producto igual' : `otro negocio, parecido ${x.parecido ?? '?'}%`)
+              : 'catálogo de Hacienda',
         };
       }));
   };
@@ -1329,6 +1346,25 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                       solo para todo el menú.
                     </span>
                   </div>
+
+                  {/* QUIÉN CONTESTÓ. Con el modelo encendido, los dudosos los
+                      repasa la IA eligiendo entre los códigos reales que
+                      encontró el buscador —nunca inventa uno—. Con el modelo
+                      apagado las sugerencias son solo del buscador local, y
+                      eso cambia cuánto hay que revisarlas: decirlo es la
+                      diferencia entre revisar y confiar. */}
+                  {ia && (
+                    <p className="text-[11px] text-gray-700">
+                      {ia.encendido
+                        ? ia.revisados > 0
+                          ? <><b className="text-violet-700">La IA repasó {ia.revisados} producto(s) dudoso(s)</b> y eligió
+                            entre los códigos que encontró el buscador. Van marcados en la tabla como «elegido por la IA».</>
+                          : <>La IA está encendida, pero esta vez no hizo falta: el buscador resolvió todo con confianza alta.</>
+                        : <><b>La IA está apagada</b>, así que las sugerencias salen solo del buscador local (productos de
+                          otros negocios y catálogo de Hacienda). Para encenderla hay que configurar <code>IA_MODO=real</code> en
+                          el servidor.</>}
+                    </p>
+                  )}
                 </div>
               )}
 
