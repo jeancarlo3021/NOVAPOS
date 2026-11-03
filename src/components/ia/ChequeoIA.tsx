@@ -25,7 +25,7 @@ export interface DiagnosticoIA {
   llave: { presente: boolean; largo: number };
   /** ¿Se LLEGA al proveedor? Es lo que separa «no hay internet» de «tarda». */
   alcance?: { ok: boolean; ms: number; estado: number | null; error: string | null };
-  prueba: { ok: boolean; ms: number; respuesta: string | null; error: string | null };
+  prueba: { ok: boolean; ms: number; respuesta: string | null; error: string | null; sin_pensamiento?: boolean };
   que_hacer: string | null;
   usos: string[];
 }
@@ -85,7 +85,7 @@ export const ChequeoIA: React.FC<{ compacto?: boolean }> = ({ compacto }) => {
                 : <b className="text-red-700">no — {d.alcance.error}</b>}</li>
             )}
             <li>Generar una respuesta: {d.prueba.ok
-              ? <b className="text-emerald-700">sí ({d.prueba.ms} ms)</b>
+              ? <b className="text-emerald-700">sí ({d.prueba.ms} ms){d.prueba.sin_pensamiento ? ' — solo con el pensamiento apagado' : ''}</b>
               : d.prueba.error
                 ? <b className="text-red-700">no</b>
                 : <span className="text-gray-400">no se intentó</span>}</li>
