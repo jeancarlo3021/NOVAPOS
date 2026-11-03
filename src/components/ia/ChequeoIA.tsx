@@ -23,6 +23,8 @@ export interface DiagnosticoIA {
   proveedor: string;
   modelo: string;
   llave: { presente: boolean; largo: number };
+  /** ¿Se LLEGA al proveedor? Es lo que separa «no hay internet» de «tarda». */
+  alcance?: { ok: boolean; ms: number; estado: number | null; error: string | null };
   prueba: { ok: boolean; ms: number; respuesta: string | null; error: string | null };
   que_hacer: string | null;
   usos: string[];
@@ -75,6 +77,18 @@ export const ChequeoIA: React.FC<{ compacto?: boolean }> = ({ compacto }) => {
             <li>Llave: {d.llave.presente
               ? <b className="text-emerald-700">puesta ({d.llave.largo} caracteres)</b>
               : <b className="text-red-700">no está</b>}</li>
+            {/* Las dos pruebas por separado: «llegar» y «generar» fallan por
+                motivos distintos y se arreglan distinto. */}
+            {d.alcance && (
+              <li>Salida hacia el proveedor: {d.alcance.ok
+                ? <b className="text-emerald-700">sí ({d.alcance.ms} ms)</b>
+                : <b className="text-red-700">no — {d.alcance.error}</b>}</li>
+            )}
+            <li>Generar una respuesta: {d.prueba.ok
+              ? <b className="text-emerald-700">sí ({d.prueba.ms} ms)</b>
+              : d.prueba.error
+                ? <b className="text-red-700">no</b>
+                : <span className="text-gray-400">no se intentó</span>}</li>
             {d.prueba.error && (
               /* El mensaje del proveedor, tal cual: es lo que dice qué arreglar. */
               <li className="text-red-700">Respuesta del proveedor: <span className="font-mono">{d.prueba.error}</span></li>
