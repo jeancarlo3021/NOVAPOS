@@ -50,8 +50,30 @@ export interface Gasto {
 
 export interface Corte { clave: string; monto: number; cuantos: number }
 
+/** Un día del período: lo que entró y lo que salió ese día. */
+export interface DiaCorte { fecha: string; ventas: number; gastos: number; queda: number }
+
+/**
+ * La comisión del período, con el cálculo completo.
+ *
+ * Se guarda el desglose y no solo el monto a propósito: una comisión que no se
+ * puede recalcular a mano no se discute, se pelea.
+ */
+export interface Comision {
+  porcentaje_ventas: number; porcentaje_gastos: number;
+  ventas: number; gastos: number;
+  /** El 15 % de los gastos, lo que se le resta a las ventas. */
+  gastos_descontados: number;
+  /** Ventas menos ese descuento: sobre esto se saca el porcentaje. */
+  base: number;
+  monto: number;
+}
+
 export interface Resumen {
   desde: string; hasta: string;
+  /** Día por día, para el reporte de la semana. */
+  por_dia?: DiaCorte[];
+  comision?: Comision;
   ventas: {
     total: number; cuantas: number;
     /** Lo cobrado por las piezas, sin el envío. */
@@ -62,6 +84,61 @@ export interface Resumen {
   };
   gastos: { total: number; cuantos: number; por_categoria: Corte[]; por_medio: Corte[] };
   queda: number;
+}
+
+/** Un artículo del encargo. */
+export interface EntregaItem {
+  id?: string;
+  producto_id: string | null;
+  descripcion: string;
+  variante: string | null;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+}
+
+export type EstadoPago = 'sin_pago' | 'adelanto' | 'pagado';
+export type EstadoEntrega = 'pendiente' | 'entregado' | 'cancelado';
+
+/**
+ * Una ENTREGA PENDIENTE: lo que se prometió, para cuándo y cuánto falta cobrar.
+ *
+ * No es una venta. La venta es plata que ya entró; esto es un compromiso, y lo
+ * que importa de él es el saldo.
+ */
+export interface Entrega {
+  id: string; fecha_entrega: string;
+  cliente: string; telefono: string | null; customer_id?: string | null;
+  total: number;
+  /** Lo que el cliente ya dejó pagado. */
+  adelanto: number;
+  /** Derivado de los montos en el servidor, nunca escrito a mano. */
+  estado_pago: EstadoPago;
+  /** total - adelanto. Lo calcula el servidor. */
+  saldo?: number;
+  medio_pago: MedioPago | null;
+  estado: EstadoEntrega;
+  entregado_at: string | null; entregado_nombre: string | null;
+  notas: string | null; created_at: string;
+  items?: EntregaItem[];
+  /** Pendiente y con la fecha ya pasada. */
+  atrasada?: boolean;
+}
+
+export interface DiaEntregas {
+  fecha: string; items: Entrega[];
+  total: number; adelantos: number; saldo: number;
+}
+
+export interface CalendarioEntregas {
+  desde: string; hasta: string;
+  dias: DiaEntregas[];
+  /** Lo que se prometió y no salió. Va aparte para que no se pierda de vista. */
+  atrasadas: Entrega[];
+  totales: {
+    pendientes: number; atrasadas: number;
+    total: number; adelantos: number; saldo: number;
+  };
 }
 
 export interface Impresora { id: string; nombre: string; notas: string | null; activa: boolean }
@@ -88,6 +165,10 @@ export interface ConfigTaller {
   margen_horas: number;
   hora_corte_entrega: string;
   dias_entrega: number[];
+  /** Porcentaje de las ventas que es comisión. */
+  comision_ventas: number;
+  /** Porcentaje de los gastos que se le descuenta a las ventas antes. */
+  comision_gastos: number;
 }
 
 const qs = (o: Record<string, string | undefined>) => {
@@ -154,6 +235,22 @@ export const taller3d = {
 
   planificar: () => apiFetch<{ programados: number; tarde: number }>('/taller-3d/planificar', { method: 'POST' }),
   calendario: (desde?: string, hasta?: string) => apiFetch<Calendario>(`/taller-3d/calendario${qs({ desde, hasta })}`),
+
+  // ── Entregas pendientes ──
+  entregas: (desde?: string, hasta?: string, estado?: string) =>
+    apiFetch<Entrega[]>(`/taller-3d/entregas${qs({ desde, hasta, estado })}`),
+  calendarioEntregas: (desde?: string, hasta?: string) =>
+    apiFetch<CalendarioEntregas>(`/taller-3d/entregas/calendario${qs({ desde, hasta })}`),
+  nuevaEntrega: (e: Record<string, unknown>) =>
+    apiFetch<Entrega>('/taller-3d/entregas', { method: 'POST', body: JSON.stringify(e) }),
+  cambiarEntrega: (id: string, e: Record<string, unknown>) =>
+    apiFetch<Entrega>(`/taller-3d/entregas/${id}`, { method: 'PUT', body: JSON.stringify(e) }),
+  /** Entró plata: `monto` es lo que ACABA de pagar, no el acumulado. */
+  abonar: (id: string, p: { monto?: number; completo?: boolean; medio_pago?: MedioPago }) =>
+    apiFetch<Entrega>(`/taller-3d/entregas/${id}/pago`, { method: 'POST', body: JSON.stringify(p) }),
+  estadoEntrega: (id: string, estado: EstadoEntrega) =>
+    apiFetch<Entrega>(`/taller-3d/entregas/${id}/estado`, { method: 'POST', body: JSON.stringify({ estado }) }),
+  borrarEntrega: (id: string) => apiFetch(`/taller-3d/entregas/${id}`, { method: 'DELETE' }),
 
   config: () => apiFetch<ConfigTaller>('/taller-3d/config'),
   guardarConfig: (c: Partial<ConfigTaller>) =>

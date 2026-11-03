@@ -39,6 +39,51 @@ const CAL = {
   sin_programar: [],
   impresoras: IMPRESORAS,
 };
+const masDias = (f: string, n: number) => {
+  const [y, m, d] = f.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d)); t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+};
+const LUNES = (() => {
+  const [y, m, d] = HOY.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return masDias(HOY, dow === 0 ? -6 : 1 - dow);
+})();
+let ENTREGAS: any[] = [
+  { id: 'e1', fecha_entrega: HOY, cliente: 'Don Beto', telefono: '88887777',
+    total: 18000, adelanto: 9000, estado_pago: 'adelanto', saldo: 9000, medio_pago: 'sinpe',
+    estado: 'pendiente', entregado_at: null, entregado_nombre: null, notas: null, created_at: '',
+    items: [
+      { id: 'ei1', descripcion: 'Llavero personalizado', variante: 'Grande', cantidad: 4, precio_unitario: 3500, subtotal: 14000 },
+      { id: 'ei2', descripcion: 'Buje de nylon', variante: null, cantidad: 1, precio_unitario: 4000, subtotal: 4000 },
+    ] },
+  { id: 'e2', fecha_entrega: masDias(HOY, 2), cliente: 'Super El Roble', telefono: null,
+    total: 25000, adelanto: 25000, estado_pago: 'pagado', saldo: 0, medio_pago: 'transferencia',
+    estado: 'pendiente', entregado_at: null, entregado_nombre: null, notas: 'Retira en el local', created_at: '',
+    items: [{ id: 'ei3', descripcion: 'Soporte de celular', variante: null, cantidad: 10, precio_unitario: 2500, subtotal: 25000 }] },
+  { id: 'e3', fecha_entrega: masDias(HOY, -3), cliente: 'Doña Ana', telefono: '70001111',
+    total: 6000, adelanto: 0, estado_pago: 'sin_pago', saldo: 6000, medio_pago: null,
+    estado: 'pendiente', entregado_at: null, entregado_nombre: null, notas: null, created_at: '',
+    items: [{ id: 'ei4', descripcion: 'Reparación de pieza', variante: null, cantidad: 1, precio_unitario: 6000, subtotal: 6000 }] },
+];
+const calEntregas = () => {
+  const hoyMas = (n: number) => masDias(HOY, n);
+  const atrasadas = ENTREGAS.filter(e => e.estado === 'pendiente' && e.fecha_entrega < HOY)
+    .map(e => ({ ...e, atrasada: true }));
+  const dias = [HOY, hoyMas(2)].map(f => {
+    const items = ENTREGAS.filter(e => e.fecha_entrega === f && e.estado !== 'cancelado');
+    return { fecha: f, items, total: items.reduce((a, e) => a + e.total, 0),
+      adelantos: items.reduce((a, e) => a + e.adelanto, 0), saldo: items.reduce((a, e) => a + e.saldo, 0) };
+  }).filter(d => d.items.length > 0);
+  const pend = ENTREGAS.filter(e => e.estado === 'pendiente');
+  return { desde: HOY, hasta: hoyMas(30), dias, atrasadas, totales: {
+    pendientes: pend.length, atrasadas: atrasadas.length,
+    total: pend.reduce((a, e) => a + e.total, 0),
+    adelantos: pend.reduce((a, e) => a + e.adelanto, 0),
+    saldo: pend.reduce((a, e) => a + e.saldo, 0),
+  } };
+};
+const CFG = { margen_horas: 2, hora_corte_entrega: '16:00', dias_entrega: [1,2,3,4,5,6], comision_ventas: 30, comision_gastos: 15 };
 const resumen = () => ({
   desde: HOY, hasta: HOY,
   ventas: {
@@ -54,6 +99,22 @@ const resumen = () => ({
     por_medio: [{ clave: 'sinpe', monto: 12000, cuantos: 1 }, { clave: 'transferencia', monto: 8000, cuantos: 1 }],
   },
   queda: VENTAS.reduce((s, v) => s + v.total, 0) - GASTOS.reduce((s, g) => s + g.monto, 0),
+  /* Día por día y comisión, igual que los arma el servidor. */
+  por_dia: Array.from({ length: 7 }, (_, i) => {
+    const f = masDias(LUNES, i);
+    const v = VENTAS.filter(x => x.fecha === f).reduce((a, x) => a + x.total, 0);
+    const g = GASTOS.filter(x => x.fecha === f).reduce((a, x) => a + x.monto, 0);
+    return { fecha: f, ventas: v, gastos: g, queda: v - g };
+  }),
+  comision: (() => {
+    const v = VENTAS.reduce((s, x) => s + x.total, 0);
+    const g = GASTOS.reduce((s, x) => s + x.monto, 0);
+    const desc = Math.round(g * (CFG.comision_gastos / 100) * 100) / 100;
+    const base = v - desc;
+    return { porcentaje_ventas: CFG.comision_ventas, porcentaje_gastos: CFG.comision_gastos,
+      ventas: v, gastos: g, gastos_descontados: desc, base,
+      monto: Math.max(0, Math.round(base * (CFG.comision_ventas / 100) * 100) / 100) };
+  })(),
 });
 const CATALOGO = [
   { id: 'a1', nombre: 'Llavero personalizado', descripcion: null, categoria: 'impresion',
@@ -79,6 +140,35 @@ export async function apiFetch<T = any>(path: string, init?: any): Promise<T> {
     if (init?.method) { REG.enviado.push({ ruta: 'tarifa', cuerpo }); return { id: 't9', ...cuerpo } as any; }
     return TARIFAS as any;
   }
+  if (path.startsWith('/taller-3d/entregas/calendario')) return calEntregas() as any;
+  if (path.match(/\/taller-3d\/entregas\/[^/]+\/pago/)) {
+    REG.enviado.push({ ruta: 'pago-entrega', cuerpo, path });
+    const id = path.split('/')[3];
+    ENTREGAS = ENTREGAS.map(e => {
+      if (e.id !== id) return e;
+      const ade = cuerpo.completo ? e.total : Math.min(e.total, e.adelanto + (cuerpo.monto ?? 0));
+      return { ...e, adelanto: ade, saldo: e.total - ade,
+        estado_pago: ade <= 0 ? 'sin_pago' : ade >= e.total ? 'pagado' : 'adelanto' };
+    });
+    return ENTREGAS.find(e => e.id === id) as any;
+  }
+  if (path.match(/\/taller-3d\/entregas\/[^/]+\/estado/)) {
+    REG.enviado.push({ ruta: 'estado-entrega', cuerpo, path });
+    const id = path.split('/')[3];
+    ENTREGAS = ENTREGAS.map(e => e.id === id ? { ...e, estado: cuerpo.estado } : e);
+    return ENTREGAS.find(e => e.id === id) as any;
+  }
+  if (path.startsWith('/taller-3d/entregas') && init?.method === 'POST') {
+    REG.enviado.push({ ruta: 'entrega', cuerpo });
+    const its = (cuerpo.items ?? []).map((l: any) => ({ ...l, subtotal: (l.cantidad ?? 1) * (l.precio_unitario ?? 0) }));
+    const total = its.reduce((a: number, l: any) => a + l.subtotal, 0);
+    const ade = cuerpo.pago_completo ? total : Math.min(total, cuerpo.adelanto ?? 0);
+    const e = { id: 'e' + (ENTREGAS.length + 1), ...cuerpo, items: its, total, adelanto: ade,
+      saldo: total - ade, estado: 'pendiente', estado_pago: ade <= 0 ? 'sin_pago' : ade >= total ? 'pagado' : 'adelanto',
+      entregado_at: null, entregado_nombre: null, created_at: '' };
+    ENTREGAS = [...ENTREGAS, e]; return e as any;
+  }
+  if (path.startsWith('/taller-3d/entregas')) return ENTREGAS as any;
   if (path.startsWith('/taller-3d/resumen')) return resumen() as any;
   if (path.startsWith('/taller-3d/ventas') && init?.method === 'POST') {
     REG.enviado.push({ ruta: 'venta', cuerpo });
@@ -111,7 +201,10 @@ export async function apiFetch<T = any>(path: string, init?: any): Promise<T> {
     } } as any;
   }
   if (path.startsWith('/taller-3d/calendario')) return CAL as any;
-  if (path.startsWith('/taller-3d/config')) return { margen_horas: 2, hora_corte_entrega: '16:00', dias_entrega: [1,2,3,4,5,6] } as any;
+  if (path.startsWith('/taller-3d/config')) {
+    if (init?.method === 'PUT') { REG.enviado.push({ ruta: 'config', cuerpo }); Object.assign(CFG, cuerpo); }
+    return CFG as any;
+  }
   if (path.startsWith('/taller-3d/planificar')) return { programados: 2, tarde: 1 } as any;
   return [] as any;
 }

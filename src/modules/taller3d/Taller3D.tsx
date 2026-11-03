@@ -2,19 +2,25 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Printer, TrendingUp, TrendingDown, CalendarDays, Plus, Trash2, Loader2, X,
   AlertCircle, CheckCircle2, Clock, Play, Package, Settings2, RefreshCw, Zap,
-  BookOpen, Truck, Pencil, Power,
+  BookOpen, Truck, Pencil, Power, Wallet, BarChart3, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   taller3d, type Venta, type Gasto, type Resumen, type Impresora,
   type Impresion, type Calendario, type ConfigTaller, type Articulo,
   type Tarifa, type Variante, type VentaItem,
+  type Entrega, type EntregaItem, type CalendarioEntregas, type Comision,
 } from '@/services/taller3d/taller3dService';
 
 /**
  * TALLER 3D — el día del taller en una sola pantalla.
  *
- * Cuatro pestañas que son las cuatro preguntas del dueño: cuánto entró, cuánto
- * salió, qué hay que imprimir y con qué máquinas cuento.
+ * Las pestañas son las preguntas del dueño: cuánto entró hoy, qué tengo
+ * prometido y quién me debe, cuánto se gastó esta semana, cómo cerró la semana
+ * (con la comisión), qué vendo, qué hay que imprimir y con qué máquinas cuento.
+ *
+ * Las VENTAS se miran por día y los GASTOS por semana, a propósito: la venta
+ * del día es una bitácora que se revisa al cerrar, pero un gasto suelto no
+ * dice nada —el rollo de filamento del martes paga toda la semana—.
  *
  * Las ventas y los gastos se anotan A MANO porque en este negocio la venta no
  * pasa por la caja: se cotiza por WhatsApp y se cobra por SINPE. Lo que hace
@@ -26,6 +32,30 @@ const hoyCR = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/
 const dia = (f: string) => new Date(f + 'T12:00:00').toLocaleDateString('es-CR', { weekday: 'short', day: 'numeric', month: 'short' });
 const hora = (s?: string | null) =>
   s ? new Date(s).toLocaleString('es-CR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+
+/** Suma días a una fecha YYYY-MM-DD sin pasar por husos horarios. */
+const masDias = (f: string, n: number) => {
+  const [y, m, d] = f.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+};
+/**
+ * El lunes de la semana en que cae esa fecha.
+ *
+ * La semana del taller arranca el LUNES, no el domingo: el sábado y el domingo
+ * son parte de la misma semana de trabajo, y partirlos dejaría el fin de
+ * semana repartido entre dos cortes.
+ */
+const lunesDe = (f: string) => {
+  const [y, m, d] = f.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return masDias(f, dow === 0 ? -6 : 1 - dow);
+};
+const soloDia = (f: string) =>
+  new Date(f + 'T12:00:00').toLocaleDateString('es-CR', { day: 'numeric', month: 'short' });
+/** «Semana del 3 al 9 de nov» — el rótulo del período. */
+const rotuloSemana = (lun: string) => `Semana del ${soloDia(lun)} al ${soloDia(masDias(lun, 6))}`;
 
 const MEDIOS = [
   { v: 'efectivo', l: 'Efectivo' }, { v: 'sinpe', l: 'SINPE' }, { v: 'tarjeta', l: 'Tarjeta' },
@@ -42,13 +72,15 @@ const CAT_GASTO = [
 const ETIQUETA: Record<string, string> = Object.fromEntries(
   [...MEDIOS, ...CAT_VENTA, ...CAT_GASTO].map(x => [x.v, x.l]));
 
-type Pestania = 'ventas' | 'gastos' | 'catalogo' | 'impresiones' | 'maquinas';
+type Pestania = 'ventas' | 'entregas' | 'gastos' | 'semana' | 'catalogo' | 'impresiones' | 'maquinas';
 
 export const Taller3D: React.FC = () => {
   const [tab, setTab] = useState<Pestania>('ventas');
   const [fecha, setFecha] = useState(hoyCR());
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  /** El lunes del período que se está mirando. */
+  const lunes = lunesDe(fecha);
 
   useEffect(() => {
     if (!aviso) return;
@@ -61,11 +93,36 @@ export const Taller3D: React.FC = () => {
       <div className="flex items-center gap-2 flex-wrap">
         <Printer size={24} className="text-violet-600" />
         <h1 className="text-2xl font-black text-gray-900">Taller 3D</h1>
-        {(tab === 'ventas' || tab === 'gastos') && (
+        {/* Los gastos y el reporte se miran POR SEMANA: un gasto suelto no dice
+            nada —el rollo de filamento del martes paga las ventas de toda la
+            semana—, así que el período se navega de lunes a domingo. */}
+        {(tab === 'gastos' || tab === 'semana') && (
+          <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+            <button onClick={() => setFecha(masDias(lunes, -7))} aria-label="Semana anterior"
+              className="p-2 rounded-xl border-2 border-gray-200 bg-white text-gray-600">
+              <ChevronLeft size={15} />
+            </button>
+            <span className="px-3 py-2 rounded-xl bg-white border-2 border-gray-200 text-sm font-black text-gray-800">
+              {rotuloSemana(lunes)}
+            </span>
+            <button onClick={() => setFecha(masDias(lunes, 7))} aria-label="Semana siguiente"
+              className="p-2 rounded-xl border-2 border-gray-200 bg-white text-gray-600">
+              <ChevronRight size={15} />
+            </button>
+            {lunes !== lunesDe(hoyCR()) && (
+              <button onClick={() => setFecha(hoyCR())}
+                className="px-3 py-2 rounded-xl border-2 border-gray-200 bg-white text-xs font-black text-gray-600">
+                Esta semana
+              </button>
+            )}
+          </div>
+        )}
+        {tab === 'ventas' && (
           <input type="date" value={fecha} onChange={e => setFecha(e.target.value || hoyCR())}
+            aria-label="Día"
             className="ml-auto px-3 py-2 border-2 border-gray-200 rounded-xl text-sm font-black text-gray-800" />
         )}
-        {(tab === 'ventas' || tab === 'gastos') && fecha !== hoyCR() && (
+        {tab === 'ventas' && fecha !== hoyCR() && (
           <button onClick={() => setFecha(hoyCR())}
             className="px-3 py-2 rounded-xl border-2 border-gray-200 bg-white text-xs font-black text-gray-600">
             Hoy
@@ -75,7 +132,9 @@ export const Taller3D: React.FC = () => {
 
       <nav className="bg-white border border-gray-200 rounded-2xl p-1.5 flex gap-1 overflow-x-auto">
         <Tab on={tab === 'ventas'} onClick={() => setTab('ventas')} icon={TrendingUp} label="Ventas del día" />
+        <Tab on={tab === 'entregas'} onClick={() => setTab('entregas')} icon={Package} label="Entregas" />
         <Tab on={tab === 'gastos'} onClick={() => setTab('gastos')} icon={TrendingDown} label="Gastos" />
+        <Tab on={tab === 'semana'} onClick={() => setTab('semana')} icon={BarChart3} label="La semana" />
         <Tab on={tab === 'catalogo'} onClick={() => setTab('catalogo')} icon={BookOpen} label="Catálogo" />
         <Tab on={tab === 'impresiones'} onClick={() => setTab('impresiones')} icon={CalendarDays} label="Impresiones" />
         <Tab on={tab === 'maquinas'} onClick={() => setTab('maquinas')} icon={Settings2} label="Impresoras" />
@@ -95,7 +154,9 @@ export const Taller3D: React.FC = () => {
       )}
 
       {tab === 'ventas' && <PanelVentas fecha={fecha} onError={setError} onAviso={setAviso} />}
+      {tab === 'entregas' && <PanelEntregas onError={setError} onAviso={setAviso} />}
       {tab === 'gastos' && <PanelGastos fecha={fecha} onError={setError} onAviso={setAviso} />}
+      {tab === 'semana' && <PanelSemana fecha={fecha} onError={setError} onAviso={setAviso} />}
       {tab === 'catalogo' && <PanelCatalogo onError={setError} onAviso={setAviso} />}
       {tab === 'impresiones' && <PanelImpresiones onError={setError} onAviso={setAviso} />}
       {tab === 'maquinas' && <PanelMaquinas onError={setError} onAviso={setAviso} />}
@@ -388,26 +449,471 @@ function PanelVentas({ fecha, onError, onAviso }: {
   );
 }
 
-// ══════════════════════════ GASTOS ══════════════════════════
+// ══════════════════════════ ENTREGAS PENDIENTES ══════════════════════════
 
-function PanelGastos({ fecha, onError, onAviso }: {
-  fecha: string; onError: (s: string) => void; onAviso: (s: string) => void;
-}) {
-  const [gastos, setGastos] = useState<Gasto[]>([]);
-  const [resumen, setResumen] = useState<Resumen | null>(null);
+const PAGO_TEXTO: Record<string, { l: string; c: string }> = {
+  sin_pago: { l: 'Sin adelanto', c: 'bg-gray-100 text-gray-600' },
+  adelanto: { l: 'Adelantó', c: 'bg-amber-100 text-amber-800' },
+  pagado: { l: 'Pagada', c: 'bg-emerald-100 text-emerald-700' },
+};
+
+/**
+ * EL CALENDARIO DE LO PROMETIDO — qué hay que entregar y quién debe cuánto.
+ *
+ * Una entrega no es una venta: es un compromiso. Por eso tiene su propia
+ * pestaña y no se mezcla con el corte del día —la plata de un encargo a medio
+ * pagar todavía no entró, y meterla en lo vendido infla el día con plata que
+ * no está—.
+ *
+ * El pago se anota como UN MONTO, no como un «¿adelantó? sí/no»: lo que hace
+ * falta saber es cuánto falta. «Pagó completo» es ese monto igual al total.
+ */
+function PanelEntregas({ onError, onAviso }: { onError: (s: string) => void; onAviso: (s: string) => void }) {
+  const [cal, setCal] = useState<CalendarioEntregas | null>(null);
+  const [catalogo, setCatalogo] = useState<Articulo[]>([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
-  const vacio = { descripcion: '', proveedor: '', monto: '', medio_pago: 'efectivo', categoria: 'filamento' };
+  const vacio = {
+    cliente: '', telefono: '', fecha_entrega: hoyCR(),
+    descripcion: '', producto_id: '', variante: '', cantidad: '1', precio_unitario: '',
+    adelanto: '', medio_pago: 'sinpe', notas: '',
+  };
   const [f, setF] = useState<Record<string, string>>(vacio);
+  /** nada · adelanto · completo — lo que pagó al encargar. */
+  const [pago, setPago] = useState<'nada' | 'adelanto' | 'completo'>('nada');
+  /** Los artículos del encargo que se está armando. */
+  const [detalle, setDetalle] = useState<EntregaItem[]>([]);
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      const [g, r] = await Promise.all([taller3d.gastos(fecha), taller3d.resumen(fecha)]);
+      const [c, cat] = await Promise.all([
+        taller3d.calendarioEntregas(),
+        taller3d.catalogo().catch(() => [] as Articulo[]),
+      ]);
+      setCal(c); setCatalogo(cat);
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudieron cargar las entregas'); }
+    finally { setCargando(false); }
+  }, [onError]);
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  const articulo = catalogo.find(a => a.id === f.producto_id) ?? null;
+  const precios: Variante[] = articulo
+    ? (articulo.variantes.length > 0 ? articulo.variantes : [{ nombre: 'Precio', precio: articulo.precio }])
+    : [];
+
+  const elegirArticulo = (id: string) => {
+    const a = catalogo.find(x => x.id === id);
+    if (!a) { setF({ ...f, producto_id: '', variante: '' }); return; }
+    const v0 = a.variantes[0];
+    setF({
+      ...f, producto_id: a.id, descripcion: a.nombre, variante: v0?.nombre ?? '',
+      precio_unitario: String(v0?.precio ?? a.precio),
+    });
+  };
+  const elegirVariante = (nombre: string) => {
+    const p = precios.find(x => x.nombre === nombre);
+    setF({ ...f, variante: nombre, precio_unitario: String(p?.precio ?? f.precio_unitario) });
+  };
+
+  const enCurso = (Number(f.cantidad) || 0) * (Number(f.precio_unitario) || 0);
+  const total = detalle.reduce((s, l) => s + l.subtotal, 0) + enCurso;
+  const adelanto = pago === 'completo' ? total : pago === 'adelanto' ? (Number(f.adelanto) || 0) : 0;
+  const falta = Math.max(0, total - adelanto);
+
+  const lineaEscrita = (): EntregaItem | null => {
+    if (!f.descripcion.trim()) return null;
+    const cant = Number(f.cantidad) || 1;
+    const precio = Number(f.precio_unitario) || 0;
+    return {
+      producto_id: f.producto_id || null, descripcion: f.descripcion.trim(),
+      variante: f.variante || null, cantidad: cant, precio_unitario: precio,
+      subtotal: Math.round(cant * precio * 100) / 100,
+    };
+  };
+
+  const agregarArticulo = () => {
+    const l = lineaEscrita();
+    if (!l) { onError('¿Qué artículo?'); return; }
+    setDetalle(d => [...d, l]);
+    setF({ ...f, descripcion: '', cantidad: '1', precio_unitario: '', producto_id: '', variante: '' });
+  };
+
+  const anotar = async () => {
+    if (!f.cliente.trim()) { onError('¿Para quién es la entrega?'); return; }
+    /* Lo que quedó escrito cuenta como un artículo más: nadie debería perder
+       un encargo por no haber tocado «Agregar otro». */
+    const lineas = [...detalle];
+    const suelta = lineaEscrita();
+    if (suelta) lineas.push(suelta);
+    if (lineas.length === 0) { onError('¿Qué hay que entregar?'); return; }
+    setGuardando(true);
+    try {
+      await taller3d.nuevaEntrega({
+        fecha_entrega: f.fecha_entrega || hoyCR(),
+        cliente: f.cliente.trim(), telefono: f.telefono.trim() || null,
+        items: lineas.map(l => ({
+          producto_id: l.producto_id, descripcion: l.descripcion, variante: l.variante,
+          cantidad: l.cantidad, precio_unitario: l.precio_unitario,
+        })),
+        /* El total NO viaja: lo calcula el servidor con las líneas, igual que
+           el estado del pago. */
+        pago_completo: pago === 'completo',
+        adelanto: pago === 'adelanto' ? (Number(f.adelanto) || 0) : 0,
+        medio_pago: pago === 'nada' ? null : f.medio_pago,
+        notas: f.notas.trim() || null,
+      });
+      setF({ ...vacio, fecha_entrega: f.fecha_entrega, medio_pago: f.medio_pago });
+      setDetalle([]); setPago('nada');
+      onAviso('Entrega anotada');
+      await cargar();
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo anotar la entrega'); }
+    finally { setGuardando(false); }
+  };
+
+  const abonar = async (e: Entrega) => {
+    const saldo = Number(e.saldo ?? (e.total - e.adelanto));
+    const txt = prompt(`¿Cuánto abonó ${e.cliente}? Falta ${plata(saldo)}.`, String(saldo));
+    if (txt === null) return;
+    const monto = Number(txt) || 0;
+    if (monto <= 0) return;
+    try {
+      await taller3d.abonar(e.id, { monto, medio_pago: f.medio_pago as any });
+      onAviso(monto >= saldo ? 'Entrega pagada' : `Abonados ${plata(monto)}`);
+      await cargar();
+    } catch (err) { onError(err instanceof Error ? err.message : 'No se pudo abonar'); }
+  };
+
+  const mover = async (e: Entrega, estado: any) => {
+    const saldo = Number(e.saldo ?? (e.total - e.adelanto));
+    /* Entregar con saldo se puede —pasa todos los días—, pero se avisa: es la
+       última oportunidad de acordarse de cobrar. */
+    if (estado === 'entregado' && saldo > 0
+      && !confirm(`${e.cliente} todavía debe ${plata(saldo)}. ¿Marcar como entregada igual?`)) return;
+    try { await taller3d.estadoEntrega(e.id, estado); await cargar(); }
+    catch (err) { onError(err instanceof Error ? err.message : 'No se pudo cambiar'); }
+  };
+
+  const borrar = async (e: Entrega) => {
+    if (!confirm(`¿Borrar la entrega de ${e.cliente} por ${plata(e.total)}?`)) return;
+    try { await taller3d.borrarEntrega(e.id); await cargar(); }
+    catch (err) { onError(err instanceof Error ? err.message : 'No se pudo borrar'); }
+  };
+
+  const tot = cal?.totales;
+
+  return (
+    <div className="space-y-4">
+      {/* Lo que importa de las entregas: cuántas faltan y cuánto falta cobrar */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Tarjeta label="Por entregar" valor={String(tot?.pendientes ?? 0)} />
+        <Tarjeta label="Atrasadas" valor={String(tot?.atrasadas ?? 0)}
+          color={(tot?.atrasadas ?? 0) > 0 ? 'text-red-600' : 'text-gray-900'} />
+        <Tarjeta label="Adelantos recibidos" valor={plata(tot?.adelantos ?? 0)} color="text-emerald-700" />
+        <Tarjeta label="Falta cobrar" valor={plata(tot?.saldo ?? 0)}
+          color={(tot?.saldo ?? 0) > 0 ? 'text-amber-700' : 'text-gray-900'} />
+      </div>
+
+      {/* Anotar una entrega */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3">
+        <h2 className="font-black text-gray-900 flex items-center gap-2">
+          <Plus size={17} className="text-cyan-600" /> Anotar una entrega
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input value={f.cliente} onChange={e => setF({ ...f, cliente: e.target.value })}
+            placeholder="Para quién" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+          <input value={f.telefono} onChange={e => setF({ ...f, telefono: e.target.value })}
+            placeholder="Teléfono (opcional)" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+          {/* La fecha con su rótulo pegado: un campo de fecha suelto no dice
+              si es la de hoy, la de entrega o cuál. */}
+          <label className="flex items-center gap-2 px-3 py-1.5 border-2 border-cyan-200 bg-cyan-50/50 rounded-xl">
+            <span className="text-xs font-black text-cyan-800 shrink-0">Se entrega el</span>
+            <input type="date" value={f.fecha_entrega} aria-label="Fecha de entrega"
+              onChange={e => setF({ ...f, fecha_entrega: e.target.value })}
+              className="flex-1 min-w-0 py-1 text-sm font-bold outline-none bg-transparent" />
+          </label>
+        </div>
+
+        {catalogo.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            <select value={f.producto_id} onChange={e => elegirArticulo(e.target.value)}
+              aria-label="Artículo de la entrega"
+              className="flex-1 min-w-[200px] px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold bg-white">
+              <option value="">Del catálogo…</option>
+              {catalogo.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.nombre}{a.variantes.length > 1 ? ` (${a.variantes.length} precios)` : ` · ${plata(a.precio)}`}
+                </option>
+              ))}
+            </select>
+            {precios.length > 1 && (
+              <select value={f.variante} onChange={e => elegirVariante(e.target.value)}
+                aria-label="Precio de la entrega"
+                className="px-3 py-2.5 border-2 border-violet-200 bg-violet-50 rounded-xl text-sm font-black text-violet-800">
+                {precios.map(p => <option key={p.nombre} value={p.nombre}>{p.nombre} · {plata(p.precio)}</option>)}
+              </select>
+            )}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+          <input value={f.descripcion} onChange={e => setF({ ...f, descripcion: e.target.value, producto_id: '', variante: '' })}
+            placeholder="Qué hay que entregar" className="sm:col-span-2 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+          <input type="number" inputMode="decimal" value={f.cantidad} onChange={e => setF({ ...f, cantidad: e.target.value })}
+            placeholder="Cantidad" aria-label="Cantidad"
+            className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right" />
+          <input type="number" inputMode="decimal" value={f.precio_unitario} onChange={e => setF({ ...f, precio_unitario: e.target.value })}
+            placeholder="Precio c/u" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right" />
+          <div className="flex flex-col items-end justify-center">
+            <span className="font-black text-lg tabular-nums text-gray-900">{plata(total)}</span>
+            {adelanto > 0 && (
+              <span className="text-[11px] font-bold text-gray-500">
+                {plata(adelanto)} adelantado{falta > 0 ? ` · falta ${plata(falta)}` : ' · queda pagada'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <button onClick={agregarArticulo} disabled={!f.descripcion.trim()}
+          className="text-xs font-black text-cyan-700 disabled:text-gray-300 flex items-center gap-1">
+          <Plus size={13} /> Agregar otro artículo a esta misma entrega
+        </button>
+
+        {detalle.length > 0 && (
+          <div className="rounded-xl border-2 border-cyan-100 bg-cyan-50/40 divide-y divide-cyan-100">
+            {detalle.map((l, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-2">
+                <span className="min-w-0 flex-1 text-sm">
+                  <b className="text-gray-900">{l.descripcion}</b>
+                  {l.variante ? <span className="text-gray-500"> · {l.variante}</span> : null}
+                  <span className="text-gray-500"> · {l.cantidad} × {plata(l.precio_unitario)}</span>
+                </span>
+                <span className="font-black tabular-nums text-sm">{plata(l.subtotal)}</span>
+                <button onClick={() => setDetalle(d => d.filter((_, j) => j !== i))}
+                  aria-label={`Quitar ${l.descripcion}`}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-3 py-2 text-sm font-black">
+              <span>{detalle.length} artículo(s) en esta entrega</span>
+              <span className="tabular-nums">{plata(detalle.reduce((a, l) => a + l.subtotal, 0))}</span>
+            </div>
+          </div>
+        )}
+
+        {/* El pago. Tres casos, porque son los tres que pasan en el mostrador. */}
+        <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2">
+          <p className="text-xs font-black text-gray-700 flex items-center gap-1.5">
+            <Wallet size={13} /> ¿Pagó algo al encargar?
+          </p>
+          <div className="flex gap-1.5 flex-wrap">
+            {([['nada', 'No adelantó'], ['adelanto', 'Dejó un adelanto'], ['completo', 'Pagó completo']] as const).map(([v, l]) => (
+              <button key={v} onClick={() => setPago(v)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black border-2 ${
+                  pago === v ? 'bg-cyan-600 border-cyan-600 text-white' : 'bg-white border-gray-200 text-gray-500'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+          {pago !== 'nada' && (
+            <div className="flex gap-2 flex-wrap items-center">
+              {pago === 'adelanto' && (
+                <input type="number" inputMode="decimal" value={f.adelanto}
+                  onChange={e => setF({ ...f, adelanto: e.target.value })}
+                  placeholder="Cuánto adelantó" aria-label="Monto del adelanto"
+                  className="w-40 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right font-black" />
+              )}
+              <select value={f.medio_pago} onChange={e => setF({ ...f, medio_pago: e.target.value })}
+                aria-label="Con qué pagó"
+                className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold bg-white">
+                {MEDIOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+              </select>
+              <span className="text-xs font-bold text-gray-500">
+                {pago === 'completo'
+                  ? `Paga ${plata(total)} y queda sin saldo`
+                  : falta > 0 ? `Queda debiendo ${plata(falta)}` : 'Con eso queda pagada'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2 flex-wrap items-center">
+          <input value={f.notas} onChange={e => setF({ ...f, notas: e.target.value })}
+            placeholder="Notas (opcional)" className="flex-1 min-w-[180px] px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+          <button onClick={() => void anotar()} disabled={guardando}
+            className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-black text-sm flex items-center gap-1.5 disabled:opacity-50">
+            {guardando ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+            {total > 0 ? `Anotar la entrega (${plata(total)})` : 'Anotar la entrega'}
+          </button>
+        </div>
+      </div>
+
+      {/* El calendario */}
+      {cargando && !cal ? (
+        <div className="flex items-center justify-center py-14 text-gray-400 gap-2">
+          <Loader2 size={18} className="animate-spin" /> Cargando…
+        </div>
+      ) : (
+        <>
+          {/* Lo atrasado va PRIMERO y no se recorta por el rango: una entrega
+              prometida para el martes no puede desaparecer el miércoles. */}
+          {(cal?.atrasadas.length ?? 0) > 0 && (
+            <DiaEntregas fecha={null} items={cal!.atrasadas}
+              onAbonar={abonar} onMover={mover} onBorrar={borrar} />
+          )}
+          {(cal?.dias.length ?? 0) === 0 && (cal?.atrasadas.length ?? 0) === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-2xl text-center py-14">
+              <CalendarDays size={40} className="mx-auto text-gray-200 mb-2" />
+              <p className="text-sm text-gray-400">No hay entregas pendientes.</p>
+            </div>
+          ) : (cal?.dias ?? []).map(d => (
+            <DiaEntregas key={d.fecha} fecha={d.fecha} items={d.items} saldo={d.saldo}
+              onAbonar={abonar} onMover={mover} onBorrar={borrar} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Un día del calendario de entregas. `fecha` en null = lo atrasado. */
+function DiaEntregas({ fecha, items, saldo, onAbonar, onMover, onBorrar }: {
+  fecha: string | null; items: Entrega[]; saldo?: number;
+  onAbonar: (e: Entrega) => void;
+  onMover: (e: Entrega, estado: string) => void;
+  onBorrar: (e: Entrega) => void;
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      <div className={`px-4 py-2.5 font-black text-sm flex items-center gap-2 flex-wrap ${
+        fecha ? 'bg-cyan-50 text-cyan-900' : 'bg-red-50 text-red-800'}`}>
+        <CalendarDays size={15} />
+        {fecha ? dia(fecha) : 'Atrasadas'}
+        <span className="ml-auto text-xs font-bold opacity-70">{items.length} entrega(s)</span>
+        {(saldo ?? 0) > 0 && (
+          <span className="text-xs font-black">· falta cobrar {plata(saldo!)}</span>
+        )}
+      </div>
+      <div className="divide-y divide-gray-100">
+        {items.map(e => {
+          const pend = Number(e.saldo ?? (e.total - e.adelanto));
+          return (
+            <div key={e.id} className="px-4 py-3 flex items-start gap-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-gray-900">
+                  {e.cliente}
+                  {e.atrasada && (
+                    <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                      ATRASADA
+                    </span>
+                  )}
+                  {e.estado === 'entregado' && (
+                    <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                      ENTREGADA
+                    </span>
+                  )}
+                </p>
+                {/* El detalle, artículo por artículo: es lo que hay que sacar
+                    de la bodega, no un total. */}
+                <ul className="mt-0.5 space-y-0.5">
+                  {(e.items ?? []).map((l, i) => (
+                    <li key={l.id ?? i} className="text-xs text-gray-600">
+                      · {l.cantidad} × {l.descripcion}{l.variante ? ` (${l.variante})` : ''} — {plata(l.subtotal)}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  {[e.telefono, e.notas, e.entregado_nombre ? `entregó ${e.entregado_nombre}` : null]
+                    .filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="font-black tabular-nums text-gray-900">{plata(e.total)}</p>
+                {/* El saldo, en palabras: «debe» es la pregunta, no «adelanto». */}
+                <p className={`text-[11px] font-black ${pend > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {pend > 0
+                    ? (e.adelanto > 0 ? `adelantó ${plata(e.adelanto)} · debe ${plata(pend)}` : `debe ${plata(pend)}`)
+                    : 'pagada'}
+                </p>
+              </div>
+              <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${PAGO_TEXTO[e.estado_pago]?.c ?? ''}`}>
+                {PAGO_TEXTO[e.estado_pago]?.l ?? e.estado_pago}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {pend > 0 && (
+                  <button onClick={() => onAbonar(e)}
+                    className="px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-800 text-xs font-black flex items-center gap-1">
+                    <Wallet size={12} /> Abonar
+                  </button>
+                )}
+                {e.estado === 'pendiente' ? (
+                  <button onClick={() => onMover(e, 'entregado')}
+                    className="px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-black flex items-center gap-1">
+                    <Package size={12} /> Entregada
+                  </button>
+                ) : (
+                  <button onClick={() => onMover(e, 'pendiente')}
+                    className="px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 text-xs font-black">
+                    Reabrir
+                  </button>
+                )}
+                <button onClick={() => onBorrar(e)} title="Borrar la entrega"
+                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════ GASTOS ══════════════════════════
+
+/**
+ * GASTOS — POR SEMANA, no por día.
+ *
+ * Un gasto suelto no dice nada: el rollo de filamento que se compró el martes
+ * paga las ventas de toda la semana, y la luz llega una vez al mes. Mirarlos
+ * día por día daba martes catastróficos y miércoles perfectos que no
+ * significaban nada.
+ *
+ * Cada gasto sigue teniendo SU día —eso no se pierde, y se ve en la lista
+ * agrupada—, pero los totales y el desglose son de la semana.
+ */
+function PanelGastos({ fecha, onError, onAviso }: {
+  fecha: string; onError: (s: string) => void; onAviso: (s: string) => void;
+}) {
+  const desde = lunesDe(fecha);
+  const hasta = masDias(desde, 6);
+  const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  /* El gasto se anota con SU día. Por defecto hoy si hoy cae en la semana que
+     se está mirando; si no, el lunes de esa semana: anotar un gasto de una
+     semana pasada con la fecha de hoy lo pondría en el corte equivocado. */
+  const diaPorDefecto = () => {
+    const h = hoyCR();
+    return h >= desde && h <= hasta ? h : desde;
+  };
+  const vacio = { descripcion: '', proveedor: '', monto: '', medio_pago: 'efectivo', categoria: 'filamento', fecha: diaPorDefecto() };
+  const [f, setF] = useState<Record<string, string>>(vacio);
+  useEffect(() => { setF(x => ({ ...x, fecha: diaPorDefecto() })); }, [desde]);
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const [g, r] = await Promise.all([taller3d.gastos(desde, hasta), taller3d.resumen(desde, hasta)]);
       setGastos(g); setResumen(r);
     } catch (e) { onError(e instanceof Error ? e.message : 'No se pudieron cargar los gastos'); }
     finally { setCargando(false); }
-  }, [fecha, onError]);
+  }, [desde, hasta, onError]);
   useEffect(() => { void cargar(); }, [cargar]);
 
   const agregar = async () => {
@@ -415,10 +921,11 @@ function PanelGastos({ fecha, onError, onAviso }: {
     setGuardando(true);
     try {
       await taller3d.nuevoGasto({
-        fecha, descripcion: f.descripcion.trim(), proveedor: f.proveedor.trim() || null,
+        fecha: f.fecha || diaPorDefecto(), descripcion: f.descripcion.trim(),
+        proveedor: f.proveedor.trim() || null,
         monto: Number(f.monto) || 0, medio_pago: f.medio_pago as any, categoria: f.categoria as any,
       });
-      setF({ ...vacio, medio_pago: f.medio_pago, categoria: f.categoria });
+      setF({ ...vacio, medio_pago: f.medio_pago, categoria: f.categoria, fecha: f.fecha });
       onAviso('Gasto anotado');
       await cargar();
     } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo anotar'); }
@@ -431,18 +938,29 @@ function PanelGastos({ fecha, onError, onAviso }: {
     catch (e) { onError(e instanceof Error ? e.message : 'No se pudo borrar'); }
   };
 
+  /** Los gastos agrupados por su día. El día sigue estando, solo no manda. */
+  const porDia = useMemo(() => {
+    const m = new Map<string, Gasto[]>();
+    for (const g of gastos) m.set(g.fecha, [...(m.get(g.fecha) ?? []), g]);
+    return [...m.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1);
+  }, [gastos]);
+
+  const total = resumen?.gastos.total ?? 0;
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Tarjeta label="Gastado" valor={plata(resumen?.gastos.total ?? 0)} color="text-red-600" />
-        <Tarjeta label="Gastos" valor={String(resumen?.gastos.cuantos ?? 0)} />
-        <Tarjeta label="Vendido" valor={plata(resumen?.ventas.total ?? 0)} color="text-emerald-700" />
+        <Tarjeta label="Gastado en la semana" valor={plata(total)} color="text-red-600" />
+        {/* El promedio por día es lo que hace comparable una semana con otra,
+            que es para lo que uno mira los gastos. */}
+        <Tarjeta label="Por día" valor={plata(total / 7)} />
+        <Tarjeta label="Vendido en la semana" valor={plata(resumen?.ventas.total ?? 0)} color="text-emerald-700" />
         <Tarjeta label="Queda" valor={plata(resumen?.queda ?? 0)}
           color={(resumen?.queda ?? 0) >= 0 ? 'text-gray-900' : 'text-red-600'} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Desglose titulo="En qué se fue" filas={resumen?.gastos.por_categoria ?? []} />
+        <Desglose titulo="En qué se fue (la semana)" filas={resumen?.gastos.por_categoria ?? []} />
         <Desglose titulo="Con qué se pagó" filas={resumen?.gastos.por_medio ?? []} />
       </div>
 
@@ -457,7 +975,15 @@ function PanelGastos({ fecha, onError, onAviso }: {
             placeholder="Monto" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right font-black" />
           <div className="flex items-center justify-end font-black text-lg tabular-nums text-red-600">{plata(Number(f.monto) || 0)}</div>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          {/* El día del gasto, con su rótulo: los totales son de la semana,
+              pero cada gasto cayó un día y hay que poder decir cuál. */}
+          <label className="flex items-center gap-2 px-3 py-1.5 border-2 border-gray-200 rounded-xl">
+            <span className="text-xs font-bold text-gray-500 shrink-0">Qué día</span>
+            <input type="date" value={f.fecha} min={desde} max={hasta} aria-label="Día del gasto"
+              onChange={e => setF({ ...f, fecha: e.target.value || diaPorDefecto() })}
+              className="py-1 text-sm font-bold outline-none bg-transparent" />
+          </label>
           <select value={f.categoria} onChange={e => setF({ ...f, categoria: e.target.value })}
             className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold bg-white">
             {CAT_GASTO.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
@@ -473,15 +999,223 @@ function PanelGastos({ fecha, onError, onAviso }: {
         </div>
       </div>
 
-      <Listado
-        cargando={cargando} vacio="Sin gastos anotados este día."
-        filas={gastos.map(g => ({
-          id: g.id,
-          titulo: g.descripcion,
-          sub: [g.proveedor, ETIQUETA[g.categoria], ETIQUETA[g.medio_pago]].filter(Boolean).join(' · '),
-          monto: plata(g.monto), color: 'text-red-600',
-          onBorrar: () => void borrar(g),
-        }))} />
+      {/* La lista, agrupada por día con su subtotal. */}
+      {cargando && gastos.length === 0 ? (
+        <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+          <Loader2 size={18} className="animate-spin" /> Cargando…
+        </div>
+      ) : porDia.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-2xl text-center py-12 text-sm text-gray-400">
+          Sin gastos en esta semana.
+        </div>
+      ) : porDia.map(([d, filas]) => (
+        <div key={d} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 font-black text-sm text-gray-700 flex items-center gap-2">
+            <CalendarDays size={15} /> {dia(d)}
+            <span className="ml-auto tabular-nums text-red-600">
+              {plata(filas.reduce((a, g) => a + Number(g.monto ?? 0), 0))}
+            </span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {filas.map(g => (
+              <div key={g.id} className="px-4 py-3 flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-gray-900 truncate">{g.descripcion}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {[g.proveedor, ETIQUETA[g.categoria], ETIQUETA[g.medio_pago]].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+                <span className="font-black tabular-nums text-red-600">{plata(g.monto)}</span>
+                <button onClick={() => void borrar(g)} className="p-1.5 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ══════════════════════════ LA SEMANA ══════════════════════════
+
+/**
+ * EL REPORTE DE LA SEMANA — las ventas día por día, los gastos y la comisión.
+ *
+ * Es la misma plata del corte del día, sumada de lunes a domingo. Los totales
+ * y el día por día los arma el SERVIDOR: si el total de arriba y el detalle de
+ * abajo los calculara cada uno por su lado, tarde o temprano dejarían de
+ * coincidir, y el que paga la comisión es el que nota la diferencia.
+ */
+function PanelSemana({ fecha, onError, onAviso }: {
+  fecha: string; onError: (s: string) => void; onAviso: (s: string) => void;
+}) {
+  const desde = lunesDe(fecha);
+  const hasta = masDias(desde, 6);
+  const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [cfg, setCfg] = useState<ConfigTaller | null>(null);
+  const [cargando, setCargando] = useState(true);
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const [r, c] = await Promise.all([taller3d.resumen(desde, hasta), taller3d.config()]);
+      setResumen(r); setCfg(c);
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo cargar la semana'); }
+    finally { setCargando(false); }
+  }, [desde, hasta, onError]);
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  const guardarPct = async (patch: Partial<ConfigTaller>) => {
+    try {
+      const c = await taller3d.guardarConfig({ ...cfg, ...patch });
+      setCfg(c); onAviso('Guardado');
+      // La comisión la calcula el servidor: hay que volver a preguntarla.
+      await cargar();
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo guardar'); }
+  };
+
+  const dias = resumen?.por_dia ?? [];
+  const pico = Math.max(1, ...dias.map(d => Math.max(d.ventas, d.gastos)));
+
+  if (cargando && !resumen) {
+    return (
+      <div className="flex items-center justify-center py-16 text-gray-400 gap-2">
+        <Loader2 size={18} className="animate-spin" /> Cargando la semana…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <Tarjeta label="Vendido" valor={plata(resumen?.ventas.total ?? 0)} color="text-emerald-700" />
+        <Tarjeta label="Piezas" valor={plata(resumen?.ventas.piezas ?? 0)} />
+        <Tarjeta label="Envíos cobrados" valor={plata(resumen?.ventas.envios ?? 0)} color="text-cyan-700" />
+        <Tarjeta label="Gastado" valor={plata(resumen?.gastos.total ?? 0)} color="text-red-600" />
+        <Tarjeta label="Queda" valor={plata(resumen?.queda ?? 0)}
+          color={(resumen?.queda ?? 0) >= 0 ? 'text-gray-900' : 'text-red-600'} />
+      </div>
+
+      {resumen?.comision && <CajaComision c={resumen.comision} cfg={cfg} onGuardar={guardarPct} />}
+
+      {/* Día por día: es lo que dice qué día se vende y qué día no. */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4">
+        <h3 className="font-black text-gray-900 text-sm mb-3">Día por día</h3>
+        <div className="space-y-2.5">
+          {dias.map(d => (
+            <div key={d.fecha}>
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="font-bold text-gray-700">{dia(d.fecha)}</span>
+                <span className="tabular-nums text-xs text-gray-500">
+                  <b className="text-emerald-700">{plata(d.ventas)}</b>
+                  {d.gastos > 0 ? <> · <span className="text-red-600">−{plata(d.gastos)}</span></> : null}
+                  {' · '}<b className={d.queda >= 0 ? 'text-gray-900' : 'text-red-600'}>{plata(d.queda)}</b>
+                </span>
+              </div>
+              {/* Dos barras sobre la misma escala: así se ve de un vistazo el
+                  día en que se gastó más de lo que se vendió. */}
+              <div className="mt-1 space-y-0.5">
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(d.ventas / pico) * 100}%` }} />
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-red-300 rounded-full" style={{ width: `${(d.gastos / pico) * 100}%` }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-[11px] text-gray-400 mt-3">
+          Barra verde: lo vendido. Barra roja: lo gastado. Las dos en la misma escala.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Desglose titulo="Qué se vendió (la semana)" filas={resumen?.ventas.por_producto ?? []} />
+        <Desglose titulo="Por medio de pago" filas={resumen?.ventas.por_medio ?? []} />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Desglose titulo="Por tipo de trabajo" filas={resumen?.ventas.por_categoria ?? []} />
+        <Desglose titulo="En qué se fueron los gastos" filas={resumen?.gastos.por_categoria ?? []} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * LA COMISIÓN, con el cálculo entero a la vista.
+ *
+ * No se muestra solo el monto: se muestran las ventas, el descuento por gastos
+ * y la base. Una comisión que el que la cobra no puede recalcular a mano no se
+ * discute, se pelea.
+ */
+function CajaComision({ c, cfg, onGuardar }: {
+  c: Comision; cfg: ConfigTaller | null; onGuardar: (p: Partial<ConfigTaller>) => void;
+}) {
+  const [pv, setPv] = useState(String(c.porcentaje_ventas));
+  const [pg, setPg] = useState(String(c.porcentaje_gastos));
+  useEffect(() => { setPv(String(c.porcentaje_ventas)); setPg(String(c.porcentaje_gastos)); },
+    [c.porcentaje_ventas, c.porcentaje_gastos]);
+
+  return (
+    <div className="bg-white border-2 border-violet-200 rounded-2xl p-4 space-y-3">
+      <h3 className="font-black text-gray-900 text-sm flex items-center gap-2">
+        <Wallet size={16} className="text-violet-600" /> Comisión de la semana
+      </h3>
+
+      <div className="flex items-end gap-4 flex-wrap">
+        <p className="text-3xl font-black tabular-nums text-violet-700">{plata(c.monto)}</p>
+        <p className="text-xs text-gray-500 pb-1">
+          {c.porcentaje_ventas}% de {plata(c.base)}
+        </p>
+      </div>
+
+      {/* El cálculo, línea por línea. */}
+      <div className="rounded-xl bg-violet-50/60 border border-violet-100 divide-y divide-violet-100 text-sm">
+        <div className="flex justify-between px-3 py-2">
+          <span className="text-gray-600">Vendido en la semana</span>
+          <span className="font-black tabular-nums">{plata(c.ventas)}</span>
+        </div>
+        <div className="flex justify-between px-3 py-2">
+          <span className="text-gray-600">
+            Menos el {c.porcentaje_gastos}% de los gastos ({plata(c.gastos)})
+          </span>
+          <span className="font-black tabular-nums text-red-600">−{plata(c.gastos_descontados)}</span>
+        </div>
+        <div className="flex justify-between px-3 py-2">
+          <span className="font-bold text-gray-700">Base de la comisión</span>
+          <span className="font-black tabular-nums">{plata(c.base)}</span>
+        </div>
+        <div className="flex justify-between px-3 py-2 bg-violet-100/60">
+          <span className="font-black text-violet-900">{c.porcentaje_ventas}% de esa base</span>
+          <span className="font-black tabular-nums text-violet-900">{plata(c.monto)}</span>
+        </div>
+      </div>
+
+      {/* Los dos porcentajes se cambian acá: el trato cambia, y pedir un
+          cambio de código para eso no es razonable. */}
+      {cfg && (
+        <div className="flex items-center gap-3 flex-wrap text-xs font-bold text-gray-500">
+          <label className="flex items-center gap-1.5">
+            Comisión sobre ventas
+            <input type="number" min={0} max={100} value={pv} aria-label="Porcentaje de comisión"
+              onChange={e => setPv(e.target.value)}
+              onBlur={() => Number(pv) !== c.porcentaje_ventas && onGuardar({ comision_ventas: Number(pv) || 0 })}
+              className="w-16 px-2 py-1.5 border-2 border-gray-200 rounded-lg text-right font-black text-gray-800" />
+            %
+          </label>
+          <label className="flex items-center gap-1.5">
+            Se descuenta de gastos
+            <input type="number" min={0} max={100} value={pg} aria-label="Porcentaje de gastos descontado"
+              onChange={e => setPg(e.target.value)}
+              onBlur={() => Number(pg) !== c.porcentaje_gastos && onGuardar({ comision_gastos: Number(pg) || 0 })}
+              className="w-16 px-2 py-1.5 border-2 border-gray-200 rounded-lg text-right font-black text-gray-800" />
+            %
+          </label>
+        </div>
+      )}
     </div>
   );
 }
