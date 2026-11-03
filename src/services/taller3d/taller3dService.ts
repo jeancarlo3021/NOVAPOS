@@ -11,7 +11,23 @@ export interface Venta {
   id: string; fecha: string; descripcion: string; cliente: string | null;
   cantidad: number; precio_unitario: number; total: number;
   medio_pago: MedioPago; categoria: CatVenta; notas: string | null; created_at: string;
+  /** De qué artículo del catálogo salió, y con cuál de sus precios. */
+  producto_id: string | null; variante: string | null;
+  /** El envío se cobra aparte de la pieza. */
+  envio: number; envio_etiqueta: string | null;
 }
+
+/** Un precio del MISMO artículo: «Chico ₡2.000», «Grande ₡3.500». */
+export interface Variante { nombre: string; precio: number }
+
+export interface Articulo {
+  id: string; nombre: string; descripcion: string | null; categoria: CatVenta;
+  precio: number; variantes: Variante[];
+  horas: number | null; material: string | null; color: string | null;
+  activo: boolean;
+}
+
+export interface Tarifa { id: string; nombre: string; monto: number; activo: boolean }
 
 export interface Gasto {
   id: string; fecha: string; descripcion: string; categoria: CatGasto;
@@ -22,7 +38,12 @@ export interface Corte { clave: string; monto: number; cuantos: number }
 
 export interface Resumen {
   desde: string; hasta: string;
-  ventas: { total: number; cuantas: number; por_medio: Corte[]; por_categoria: Corte[] };
+  ventas: {
+    total: number; cuantas: number;
+    /** Lo cobrado por las piezas, sin el envío. */
+    piezas: number; envios: number; cuantos_envios: number;
+    por_medio: Corte[]; por_categoria: Corte[]; por_producto: Corte[];
+  };
   gastos: { total: number; cuantos: number; por_categoria: Corte[]; por_medio: Corte[] };
   queda: number;
 }
@@ -31,6 +52,8 @@ export interface Impresora { id: string; nombre: string; notas: string | null; a
 
 export interface Impresion {
   id: string; pieza: string; cliente: string | null; cantidad: number; horas: number;
+  /** Si salió del catálogo, de cuál artículo. */
+  producto_id?: string | null;
   material: string | null; color: string | null; prioridad: number;
   estado: EstadoImpresion; impresora_id: string | null; impresora?: string | null;
   inicio: string | null; fin: string | null;
@@ -76,6 +99,22 @@ export const taller3d = {
   borrarGasto: (id: string) => apiFetch(`/taller-3d/gastos/${id}`, { method: 'DELETE' }),
 
   resumen: (fecha?: string, hasta?: string) => apiFetch<Resumen>(`/taller-3d/resumen${qs({ fecha, hasta })}`),
+
+  // ── Catálogo ──
+  catalogo: (todos = false) => apiFetch<Articulo[]>(`/taller-3d/catalogo${todos ? '?todos=1' : ''}`),
+  nuevoArticulo: (a: Partial<Articulo>) =>
+    apiFetch<Articulo>('/taller-3d/catalogo', { method: 'POST', body: JSON.stringify(a) }),
+  cambiarArticulo: (id: string, a: Partial<Articulo>) =>
+    apiFetch<Articulo>(`/taller-3d/catalogo/${id}`, { method: 'PUT', body: JSON.stringify(a) }),
+  borrarArticulo: (id: string) => apiFetch(`/taller-3d/catalogo/${id}`, { method: 'DELETE' }),
+
+  // ── Tarifas de envío ──
+  tarifas: () => apiFetch<Tarifa[]>('/taller-3d/tarifas'),
+  nuevaTarifa: (nombre: string, monto: number) =>
+    apiFetch<Tarifa>('/taller-3d/tarifas', { method: 'POST', body: JSON.stringify({ nombre, monto }) }),
+  cambiarTarifa: (id: string, t: Partial<Tarifa>) =>
+    apiFetch<Tarifa>(`/taller-3d/tarifas/${id}`, { method: 'PUT', body: JSON.stringify(t) }),
+  borrarTarifa: (id: string) => apiFetch(`/taller-3d/tarifas/${id}`, { method: 'DELETE' }),
 
   // ── Impresoras ──
   impresoras: () => apiFetch<Impresora[]>('/taller-3d/impresoras'),

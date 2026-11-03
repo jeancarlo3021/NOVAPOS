@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Printer, TrendingUp, TrendingDown, CalendarDays, Plus, Trash2, Loader2, X,
   AlertCircle, CheckCircle2, Clock, Play, Package, Settings2, RefreshCw, Zap,
+  BookOpen, Truck, Pencil, Power,
 } from 'lucide-react';
 import {
   taller3d, type Venta, type Gasto, type Resumen, type Impresora,
-  type Impresion, type Calendario, type ConfigTaller,
+  type Impresion, type Calendario, type ConfigTaller, type Articulo,
+  type Tarifa, type Variante,
 } from '@/services/taller3d/taller3dService';
 
 /**
@@ -40,7 +42,7 @@ const CAT_GASTO = [
 const ETIQUETA: Record<string, string> = Object.fromEntries(
   [...MEDIOS, ...CAT_VENTA, ...CAT_GASTO].map(x => [x.v, x.l]));
 
-type Pestania = 'ventas' | 'gastos' | 'impresiones' | 'maquinas';
+type Pestania = 'ventas' | 'gastos' | 'catalogo' | 'impresiones' | 'maquinas';
 
 export const Taller3D: React.FC = () => {
   const [tab, setTab] = useState<Pestania>('ventas');
@@ -74,6 +76,7 @@ export const Taller3D: React.FC = () => {
       <nav className="bg-white border border-gray-200 rounded-2xl p-1.5 flex gap-1 overflow-x-auto">
         <Tab on={tab === 'ventas'} onClick={() => setTab('ventas')} icon={TrendingUp} label="Ventas del día" />
         <Tab on={tab === 'gastos'} onClick={() => setTab('gastos')} icon={TrendingDown} label="Gastos" />
+        <Tab on={tab === 'catalogo'} onClick={() => setTab('catalogo')} icon={BookOpen} label="Catálogo" />
         <Tab on={tab === 'impresiones'} onClick={() => setTab('impresiones')} icon={CalendarDays} label="Impresiones" />
         <Tab on={tab === 'maquinas'} onClick={() => setTab('maquinas')} icon={Settings2} label="Impresoras" />
       </nav>
@@ -93,6 +96,7 @@ export const Taller3D: React.FC = () => {
 
       {tab === 'ventas' && <PanelVentas fecha={fecha} onError={setError} onAviso={setAviso} />}
       {tab === 'gastos' && <PanelGastos fecha={fecha} onError={setError} onAviso={setAviso} />}
+      {tab === 'catalogo' && <PanelCatalogo onError={setError} onAviso={setAviso} />}
       {tab === 'impresiones' && <PanelImpresiones onError={setError} onAviso={setAviso} />}
       {tab === 'maquinas' && <PanelMaquinas onError={setError} onAviso={setAviso} />}
     </div>
@@ -106,22 +110,61 @@ function PanelVentas({ fecha, onError, onAviso }: {
 }) {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [catalogo, setCatalogo] = useState<Articulo[]>([]);
+  const [tarifas, setTarifas] = useState<Tarifa[]>([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
-  const vacio = { descripcion: '', cliente: '', cantidad: '1', precio_unitario: '', medio_pago: 'sinpe', categoria: 'impresion' };
+  const vacio = {
+    descripcion: '', cliente: '', cantidad: '1', precio_unitario: '',
+    medio_pago: 'sinpe', categoria: 'impresion',
+    producto_id: '', variante: '', envio: '0', envio_etiqueta: '',
+  };
   const [f, setF] = useState<Record<string, string>>(vacio);
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      const [v, r] = await Promise.all([taller3d.ventas(fecha), taller3d.resumen(fecha)]);
-      setVentas(v); setResumen(r);
+      const [v, r, cat, tar] = await Promise.all([
+        taller3d.ventas(fecha), taller3d.resumen(fecha),
+        taller3d.catalogo().catch(() => [] as Articulo[]),
+        taller3d.tarifas().catch(() => [] as Tarifa[]),
+      ]);
+      setVentas(v); setResumen(r); setCatalogo(cat); setTarifas(tar.filter(t => t.activo));
     } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo cargar el día'); }
     finally { setCargando(false); }
   }, [fecha, onError]);
   useEffect(() => { void cargar(); }, [cargar]);
 
-  const total = (Number(f.cantidad) || 0) * (Number(f.precio_unitario) || 0);
+  const articulo = catalogo.find(a => a.id === f.producto_id) ?? null;
+  const precios: Variante[] = articulo
+    ? (articulo.variantes.length > 0 ? articulo.variantes : [{ nombre: 'Precio', precio: articulo.precio }])
+    : [];
+
+  /** Elegir del catálogo llena la descripción y el precio: para eso existe. */
+  const elegirArticulo = (id: string) => {
+    const a = catalogo.find(x => x.id === id);
+    if (!a) { setF({ ...f, producto_id: '', variante: '' }); return; }
+    const v0 = a.variantes[0];
+    setF({
+      ...f, producto_id: a.id, descripcion: a.nombre,
+      categoria: a.categoria, variante: v0?.nombre ?? '',
+      precio_unitario: String(v0?.precio ?? a.precio),
+    });
+  };
+
+  const elegirVariante = (nombre: string) => {
+    const p = precios.find(x => x.nombre === nombre);
+    setF({ ...f, variante: nombre, precio_unitario: String(p?.precio ?? f.precio_unitario) });
+  };
+
+  const elegirTarifa = (id: string) => {
+    const t = tarifas.find(x => x.id === id);
+    setF({ ...f, envio: String(t?.monto ?? 0), envio_etiqueta: t?.nombre ?? '' });
+  };
+
+  const envio = Number(f.envio) || 0;
+  const piezas = (Number(f.cantidad) || 0) * (Number(f.precio_unitario) || 0);
+  const total = piezas + envio;
 
   const agregar = async () => {
     if (!f.descripcion.trim()) { onError('¿Qué se vendió?'); return; }
@@ -131,6 +174,8 @@ function PanelVentas({ fecha, onError, onAviso }: {
         fecha, descripcion: f.descripcion.trim(), cliente: f.cliente.trim() || null,
         cantidad: Number(f.cantidad) || 1, precio_unitario: Number(f.precio_unitario) || 0,
         medio_pago: f.medio_pago as any, categoria: f.categoria as any,
+        producto_id: f.producto_id || null, variante: f.variante || null,
+        envio, envio_etiqueta: f.envio_etiqueta || null,
       });
       setF({ ...vacio, medio_pago: f.medio_pago, categoria: f.categoria });
       onAviso('Venta anotada');
@@ -148,9 +193,12 @@ function PanelVentas({ fecha, onError, onAviso }: {
   return (
     <div className="space-y-4">
       {/* El día en números */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Tarjeta label="Vendido" valor={plata(resumen?.ventas.total ?? 0)} color="text-emerald-700" />
-        <Tarjeta label="Ventas" valor={String(resumen?.ventas.cuantas ?? 0)} />
+        {/* El envío aparte: es la respuesta a «¿cuánto cobré de envíos?», que
+            del total mezclado no se puede sacar. */}
+        <Tarjeta label="Piezas" valor={plata(resumen?.ventas.piezas ?? 0)} />
+        <Tarjeta label="Envíos cobrados" valor={plata(resumen?.ventas.envios ?? 0)} color="text-cyan-700" />
         <Tarjeta label="Gastado" valor={plata(resumen?.gastos.total ?? 0)} color="text-red-600" />
         <Tarjeta label="Queda" valor={plata(resumen?.queda ?? 0)}
           color={(resumen?.queda ?? 0) >= 0 ? 'text-gray-900' : 'text-red-600'} />
@@ -159,14 +207,40 @@ function PanelVentas({ fecha, onError, onAviso }: {
       {/* El desglose: por dónde entró y de qué fue */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Desglose titulo="Por medio de pago" filas={resumen?.ventas.por_medio ?? []} />
-        <Desglose titulo="Por tipo de trabajo" filas={resumen?.ventas.por_categoria ?? []} />
+        <Desglose titulo="Por artículo" filas={resumen?.ventas.por_producto ?? []} />
       </div>
 
       {/* Anotar una venta */}
       <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3">
         <h2 className="font-black text-gray-900 flex items-center gap-2"><Plus size={17} className="text-emerald-600" /> Anotar una venta</h2>
+
+        {/* Del catálogo: llena la descripción y el precio de una. El campo de
+            texto sigue ahí para lo que no está en el catálogo. */}
+        {catalogo.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            <select value={f.producto_id} onChange={e => elegirArticulo(e.target.value)}
+              aria-label="Artículo del catálogo"
+              className="flex-1 min-w-[200px] px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold bg-white">
+              <option value="">Del catálogo…</option>
+              {catalogo.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.nombre}{a.variantes.length > 1 ? ` (${a.variantes.length} precios)` : ` · ${plata(a.precio)}`}
+                </option>
+              ))}
+            </select>
+            {/* Los varios precios del MISMO artículo. */}
+            {precios.length > 1 && (
+              <select value={f.variante} onChange={e => elegirVariante(e.target.value)}
+                aria-label="Precio"
+                className="px-3 py-2.5 border-2 border-violet-200 bg-violet-50 rounded-xl text-sm font-black text-violet-800">
+                {precios.map(p => <option key={p.nombre} value={p.nombre}>{p.nombre} · {plata(p.precio)}</option>)}
+              </select>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
-          <input value={f.descripcion} onChange={e => setF({ ...f, descripcion: e.target.value })}
+          <input value={f.descripcion} onChange={e => setF({ ...f, descripcion: e.target.value, producto_id: '', variante: '' })}
             placeholder="Qué se vendió" className="sm:col-span-2 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
           <input value={f.cliente} onChange={e => setF({ ...f, cliente: e.target.value })}
             placeholder="Cliente (opcional)" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
@@ -174,8 +248,38 @@ function PanelVentas({ fecha, onError, onAviso }: {
             placeholder="Cant." className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right" />
           <input type="number" inputMode="decimal" value={f.precio_unitario} onChange={e => setF({ ...f, precio_unitario: e.target.value })}
             placeholder="Precio c/u" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right" />
-          <div className="flex items-center justify-end font-black text-lg tabular-nums text-emerald-700">{plata(total)}</div>
+          <div className="flex flex-col items-end justify-center">
+            <span className="font-black text-lg tabular-nums text-emerald-700">{plata(total)}</span>
+            {envio > 0 && (
+              <span className="text-[11px] font-bold text-gray-500">{plata(piezas)} + {plata(envio)} de envío</span>
+            )}
+          </div>
         </div>
+
+        {/* El envío, que acá se cobra aparte de la pieza. */}
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="flex items-center gap-1.5 text-xs font-black text-gray-500">
+            <Truck size={14} /> Envío
+          </span>
+          {tarifas.length > 0 && (
+            <select value={tarifas.find(t => t.nombre === f.envio_etiqueta)?.id ?? ''}
+              onChange={e => elegirTarifa(e.target.value)} aria-label="Tarifa de envío"
+              className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold bg-white">
+              <option value="">Sin envío</option>
+              {tarifas.map(t => <option key={t.id} value={t.id}>{t.nombre} · {plata(t.monto)}</option>)}
+            </select>
+          )}
+          <input type="number" inputMode="decimal" value={f.envio}
+            onChange={e => setF({ ...f, envio: e.target.value })}
+            placeholder="Monto del envío"
+            className="w-36 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right" />
+          {tarifas.length === 0 && (
+            <span className="text-[11px] text-gray-400">
+              Podés guardar tus tarifas en la pestaña «Catálogo» y elegirlas acá.
+            </span>
+          )}
+        </div>
+
         <div className="flex gap-2 flex-wrap">
           <select value={f.medio_pago} onChange={e => setF({ ...f, medio_pago: e.target.value })}
             className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold bg-white">
@@ -197,8 +301,9 @@ function PanelVentas({ fecha, onError, onAviso }: {
         filas={ventas.map(v => ({
           id: v.id,
           titulo: v.descripcion,
-          sub: [v.cliente, `${v.cantidad} × ${plata(v.precio_unitario)}`, ETIQUETA[v.medio_pago], ETIQUETA[v.categoria]]
-            .filter(Boolean).join(' · '),
+          sub: [v.cliente, v.variante, `${v.cantidad} × ${plata(v.precio_unitario)}`,
+            Number(v.envio) > 0 ? `+ ${plata(v.envio)} de envío${v.envio_etiqueta ? ` (${v.envio_etiqueta})` : ''}` : null,
+            ETIQUETA[v.medio_pago]].filter(Boolean).join(' · '),
           monto: plata(v.total), color: 'text-emerald-700',
           onBorrar: () => void borrar(v),
         }))} />
@@ -304,20 +409,322 @@ function PanelGastos({ fecha, onError, onAviso }: {
   );
 }
 
+// ══════════════════════════ CATÁLOGO ══════════════════════════
+
+/**
+ * EL CATÁLOGO — lo que el taller vende, con su precio.
+ *
+ * Un artículo puede tener VARIOS precios: el mismo llavero vale distinto en
+ * chico que en grande, en PLA que en resina. Por eso los precios son una lista
+ * y no una casilla: obligar a crear tres artículos llamados casi igual es lo
+ * que termina con un catálogo que nadie mantiene.
+ *
+ * Las tarifas de envío viven acá al lado porque son lo mismo: un precio que se
+ * repite y que no se tiene que escribir de memoria en cada venta.
+ */
+function PanelCatalogo({ onError, onAviso }: { onError: (s: string) => void; onAviso: (s: string) => void }) {
+  const [lista, setLista] = useState<Articulo[]>([]);
+  const [tarifas, setTarifas] = useState<Tarifa[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [editando, setEditando] = useState<Articulo | 'nuevo' | null>(null);
+  const [tNombre, setTNombre] = useState('');
+  const [tMonto, setTMonto] = useState('');
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const [c, t] = await Promise.all([taller3d.catalogo(true), taller3d.tarifas()]);
+      setLista(c); setTarifas(t);
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo cargar el catálogo'); }
+    finally { setCargando(false); }
+  }, [onError]);
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  const borrar = async (a: Articulo) => {
+    if (!confirm(`¿Quitar "${a.nombre}" del catálogo?`)) return;
+    try {
+      const r: any = await taller3d.borrarArticulo(a.id);
+      onAviso(r?.data?.desactivado || r?.desactivado
+        ? 'Ya tenía ventas: se desactivó en vez de borrarse, para no romper el historial'
+        : 'Artículo borrado');
+      await cargar();
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo'); }
+  };
+
+  const agregarTarifa = async () => {
+    if (!tNombre.trim()) return;
+    try {
+      await taller3d.nuevaTarifa(tNombre.trim(), Number(tMonto) || 0);
+      setTNombre(''); setTMonto(''); onAviso('Tarifa guardada'); await cargar();
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo'); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="font-black text-gray-900 flex items-center gap-2">
+            <BookOpen size={17} className="text-violet-600" /> Lo que vendés
+          </h2>
+          <button onClick={() => setEditando('nuevo')}
+            className="ml-auto px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-black text-sm flex items-center gap-1.5">
+            <Plus size={15} /> Artículo
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
+          Cada artículo puede tener varios precios —chico y grande, PLA y resina—. Al anotar
+          una venta se elige el artículo y el precio entra solo.
+        </p>
+
+        {cargando ? (
+          <p className="text-sm text-gray-400 py-6 text-center">Cargando…</p>
+        ) : lista.length === 0 ? (
+          <p className="text-sm text-gray-400 py-6 text-center">
+            El catálogo está vacío. Agregá lo que más vendés y dejá de escribir el precio cada vez.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {lista.map(a => (
+              <div key={a.id} className={`rounded-xl border p-3 ${a.activo ? 'border-gray-100' : 'border-gray-200 bg-gray-50 opacity-70'}`}>
+                <div className="flex items-start gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-gray-900">
+                      {a.nombre}
+                      {!a.activo && <span className="ml-2 text-[10px] font-black px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">INACTIVO</span>}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {[ETIQUETA[a.categoria], a.material, a.color, a.horas ? `${a.horas} h de impresión` : null]
+                        .filter(Boolean).join(' · ')}
+                    </p>
+                    {/* Los precios, todos a la vista: es la razón de ser del catálogo. */}
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {(a.variantes.length > 0 ? a.variantes : [{ nombre: 'Precio', precio: a.precio }]).map(v => (
+                        <span key={v.nombre} className="text-xs font-black px-2 py-1 rounded-lg bg-violet-50 text-violet-800">
+                          {v.nombre} · {plata(v.precio)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => setEditando(a)} title="Editar"
+                      className="p-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100"><Pencil size={14} /></button>
+                    <button onClick={() => void taller3d.cambiarArticulo(a.id, { activo: !a.activo }).then(cargar)}
+                      title={a.activo ? 'Desactivar' : 'Activar'}
+                      className={`p-2 rounded-lg ${a.activo ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <Power size={14} />
+                    </button>
+                    <button onClick={() => void borrar(a)}
+                      className="p-2 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Tarifas de envío */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3">
+        <h2 className="font-black text-gray-900 flex items-center gap-2">
+          <Truck size={17} className="text-cyan-600" /> Tarifas de envío
+        </h2>
+        <p className="text-xs text-gray-500">
+          Lo que cobrás por mandar. Se elige al anotar la venta y se suma aparte del precio de
+          la pieza, para poder saber después cuánto entró por envíos.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <input value={tNombre} onChange={e => setTNombre(e.target.value)}
+            placeholder="Ej. Correos GAM" className="flex-1 min-w-[160px] px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+          <input type="number" inputMode="decimal" value={tMonto} onChange={e => setTMonto(e.target.value)}
+            placeholder="Monto" className="w-32 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right" />
+          <button onClick={() => void agregarTarifa()} disabled={!tNombre.trim()}
+            className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-200 text-white font-black text-sm flex items-center gap-1.5">
+            <Plus size={15} /> Agregar
+          </button>
+        </div>
+        {tarifas.length === 0 ? (
+          <p className="text-sm text-gray-400 py-3 text-center">Sin tarifas todavía.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {tarifas.map(t => (
+              <div key={t.id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-100">
+                <Truck size={14} className={t.activo ? 'text-cyan-600' : 'text-gray-300'} />
+                <span className={`flex-1 font-bold ${t.activo ? 'text-gray-800' : 'text-gray-400 line-through'}`}>{t.nombre}</span>
+                <span className="font-black tabular-nums text-gray-900">{plata(t.monto)}</span>
+                <button onClick={() => void taller3d.cambiarTarifa(t.id, { activo: !t.activo }).then(cargar)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black ${
+                    t.activo ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {t.activo ? 'Activa' : 'Inactiva'}
+                </button>
+                <button onClick={async () => {
+                  if (!confirm(`¿Borrar la tarifa "${t.nombre}"?`)) return;
+                  try { await taller3d.borrarTarifa(t.id); await cargar(); }
+                  catch (e) { onError(e instanceof Error ? e.message : 'No se pudo'); }
+                }} className="p-1.5 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {editando && (
+        <ArticuloModal
+          articulo={editando === 'nuevo' ? null : editando}
+          onClose={() => setEditando(null)}
+          onGuardado={async () => { setEditando(null); onAviso('Guardado'); await cargar(); }}
+          onError={onError}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Alta y edición de un artículo, con su lista de precios. */
+function ArticuloModal({ articulo, onClose, onGuardado, onError }: {
+  articulo: Articulo | null; onClose: () => void; onGuardado: () => void; onError: (s: string) => void;
+}) {
+  const [f, setF] = useState({
+    nombre: articulo?.nombre ?? '', descripcion: articulo?.descripcion ?? '',
+    categoria: articulo?.categoria ?? 'impresion',
+    horas: articulo?.horas != null ? String(articulo.horas) : '',
+    material: articulo?.material ?? '', color: articulo?.color ?? '',
+  });
+  const [variantes, setVariantes] = useState<Variante[]>(
+    articulo?.variantes?.length ? articulo.variantes : [{ nombre: 'Precio', precio: articulo?.precio ?? 0 }]);
+  const [guardando, setGuardando] = useState(false);
+
+  const guardar = async () => {
+    if (!f.nombre.trim()) { onError('¿Cómo se llama el artículo?'); return; }
+    const limpias = variantes
+      .map(v => ({ nombre: v.nombre.trim() || 'Precio', precio: Number(v.precio) || 0 }))
+      .filter((v, i, a) => a.findIndex(x => x.nombre === v.nombre) === i);
+    setGuardando(true);
+    try {
+      const datos: any = {
+        nombre: f.nombre.trim(), descripcion: f.descripcion.trim() || null,
+        categoria: f.categoria as any, variantes: limpias, precio: limpias[0]?.precio ?? 0,
+        horas: f.horas ? Number(f.horas) : null,
+        material: f.material.trim() || null, color: f.color.trim() || null,
+      };
+      if (articulo) await taller3d.cambiarArticulo(articulo.id, datos);
+      else await taller3d.nuevoArticulo(datos);
+      onGuardado();
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo guardar'); }
+    finally { setGuardando(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+          <BookOpen size={18} className="text-violet-600" />
+          <h2 className="font-black text-gray-900 flex-1">{articulo ? 'Editar artículo' : 'Nuevo artículo'}</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          <input value={f.nombre} onChange={e => setF({ ...f, nombre: e.target.value })}
+            placeholder="Nombre (ej. Llavero personalizado)"
+            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+          <input value={f.descripcion} onChange={e => setF({ ...f, descripcion: e.target.value })}
+            placeholder="Descripción (opcional)"
+            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+          <div className="grid grid-cols-2 gap-2">
+            <select value={f.categoria} onChange={e => setF({ ...f, categoria: e.target.value as any })}
+              className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold bg-white">
+              {CAT_VENTA.map(x => <option key={x.v} value={x.v}>{x.l}</option>)}
+            </select>
+            <input type="number" inputMode="decimal" step="0.5" value={f.horas}
+              onChange={e => setF({ ...f, horas: e.target.value })}
+              placeholder="Horas de impresión"
+              className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm text-right" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input value={f.material} onChange={e => setF({ ...f, material: e.target.value })}
+              placeholder="Material" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+            <input value={f.color} onChange={e => setF({ ...f, color: e.target.value })}
+              placeholder="Color" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2">
+            <p className="text-xs font-black text-gray-700">Precios</p>
+            <p className="text-[11px] text-gray-500">
+              Uno por tamaño, material o lo que cambie el precio. Si solo hay uno, dejalo como
+              está y listo.
+            </p>
+            {variantes.map((v, i) => (
+              <div key={i} className="flex gap-2">
+                <input value={v.nombre}
+                  onChange={e => setVariantes(vs => vs.map((x, j) => j === i ? { ...x, nombre: e.target.value } : x))}
+                  placeholder="Ej. Grande"
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                <input type="number" inputMode="decimal" value={v.precio}
+                  onChange={e => setVariantes(vs => vs.map((x, j) => j === i ? { ...x, precio: Number(e.target.value) || 0 } : x))}
+                  className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm text-right font-black" />
+                {variantes.length > 1 && (
+                  <button onClick={() => setVariantes(vs => vs.filter((_, j) => j !== i))}
+                    className="p-2 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50"><Trash2 size={14} /></button>
+                )}
+              </div>
+            ))}
+            <button onClick={() => setVariantes(vs => [...vs, { nombre: '', precio: 0 }])}
+              className="text-xs font-black text-violet-700 flex items-center gap-1">
+              <Plus size={13} /> Otro precio
+            </button>
+          </div>
+        </div>
+        <div className="border-t border-gray-100 p-4 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl border-2 border-gray-200 text-gray-600 font-bold text-sm">
+            Cancelar
+          </button>
+          <button onClick={() => void guardar()} disabled={guardando}
+            className="flex-[2] py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-black text-sm flex items-center justify-center gap-2 disabled:opacity-50">
+            {guardando ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════ IMPRESIONES ══════════════════════════
 
 function PanelImpresiones({ onError, onAviso }: { onError: (s: string) => void; onAviso: (s: string) => void }) {
   const [cal, setCal] = useState<Calendario | null>(null);
+  const [catalogo, setCatalogo] = useState<Articulo[]>([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
-  const vacio = { pieza: '', cliente: '', cantidad: '1', horas: '', material: '', color: '', fecha_limite: '', urgente: false };
+  const vacio = { pieza: '', cliente: '', cantidad: '1', horas: '', material: '', color: '', fecha_limite: '', urgente: false, producto_id: '' };
   const [f, setF] = useState<any>(vacio);
+
+  /**
+   * Elegir del catálogo trae TAMBIÉN las horas.
+   *
+   * Es la mitad del valor de tener catálogo: lo que uno no se acuerda de un
+   * mes para otro no es el precio, es cuánto tardó la última vez.
+   */
+  const elegirArticulo = (id: string) => {
+    const a = catalogo.find(x => x.id === id);
+    if (!a) { setF({ ...f, producto_id: '' }); return; }
+    setF({
+      ...f, producto_id: a.id, pieza: a.nombre,
+      horas: a.horas != null ? String(a.horas) : f.horas,
+      material: a.material ?? f.material, color: a.color ?? f.color,
+    });
+  };
   /** Lo que el planificador respondió al meter la última pieza. */
   const [recien, setRecien] = useState<{ pieza: string; impresora: string; entrega: string; fin: string; tarde: boolean } | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    try { setCal(await taller3d.calendario()); }
+    try {
+      const [c, cat] = await Promise.all([
+        taller3d.calendario(),
+        taller3d.catalogo().catch(() => [] as Articulo[]),
+      ]);
+      setCal(c); setCatalogo(cat);
+    }
     catch (e) { onError(e instanceof Error ? e.message : 'No se pudo cargar el calendario'); }
     finally { setCargando(false); }
   }, [onError]);
@@ -336,6 +743,7 @@ function PanelImpresiones({ onError, onAviso }: { onError: (s: string) => void; 
     try {
       const r = await taller3d.nuevaImpresion({
         pieza: f.pieza.trim(), cliente: f.cliente.trim() || null,
+        producto_id: f.producto_id || null,
         cantidad: Number(f.cantidad) || 1, horas: Number(f.horas),
         material: f.material.trim() || null, color: f.color.trim() || null,
         prioridad: f.urgente ? 1 : 0, fecha_limite: f.fecha_limite || null,
@@ -389,8 +797,20 @@ function PanelImpresiones({ onError, onAviso }: { onError: (s: string) => void; 
         <h2 className="font-black text-gray-900 flex items-center gap-2">
           <Plus size={17} className="text-violet-600" /> Nueva pieza
         </h2>
+        {catalogo.length > 0 && (
+          <select value={f.producto_id} onChange={e => elegirArticulo(e.target.value)}
+            aria-label="Pieza del catálogo"
+            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold bg-white">
+            <option value="">Del catálogo…</option>
+            {catalogo.map(a => (
+              <option key={a.id} value={a.id}>
+                {a.nombre}{a.horas != null ? ` · ${a.horas} h` : ' · sin horas guardadas'}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
-          <input value={f.pieza} onChange={e => setF({ ...f, pieza: e.target.value })}
+          <input value={f.pieza} onChange={e => setF({ ...f, pieza: e.target.value, producto_id: '' })}
             placeholder="Qué pieza" className="sm:col-span-2 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />
           <input value={f.cliente} onChange={e => setF({ ...f, cliente: e.target.value })}
             placeholder="Cliente" className="px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm" />

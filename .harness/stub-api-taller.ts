@@ -39,6 +39,8 @@ const resumen = () => ({
   desde: HOY, hasta: HOY,
   ventas: {
     total: VENTAS.reduce((s, v) => s + v.total, 0), cuantas: VENTAS.length,
+    piezas: 25000, envios: 2500, cuantos_envios: 1,
+    por_producto: [{ clave: 'Llavero personalizado · Grande', monto: 7000, cuantos: 1 }, { clave: 'Suelto', monto: 18000, cuantos: 1 }],
     por_medio: [{ clave: 'efectivo', monto: 20000, cuantos: 1 }, { clave: 'sinpe', monto: 7500, cuantos: 1 }],
     por_categoria: [{ clave: 'diseno', monto: 20000, cuantos: 1 }, { clave: 'impresion', monto: 7500, cuantos: 1 }],
   },
@@ -49,12 +51,35 @@ const resumen = () => ({
   },
   queda: VENTAS.reduce((s, v) => s + v.total, 0) - GASTOS.reduce((s, g) => s + g.monto, 0),
 });
+const CATALOGO = [
+  { id: 'a1', nombre: 'Llavero personalizado', descripcion: null, categoria: 'impresion',
+    precio: 2000, variantes: [{ nombre: 'Chico', precio: 2000 }, { nombre: 'Grande', precio: 3500 }],
+    horas: 0.5, material: 'PLA', color: null, activo: true },
+  { id: 'a2', nombre: 'Buje de nylon', descripcion: null, categoria: 'impresion',
+    precio: 4500, variantes: [], horas: 3, material: 'Nylon', color: 'Natural', activo: true },
+  { id: 'a3', nombre: 'Molde viejo', descripcion: null, categoria: 'otro',
+    precio: 1000, variantes: [], horas: null, material: null, color: null, activo: false },
+];
+const TARIFAS = [
+  { id: 't1', nombre: 'Correos GAM', monto: 2500, activo: true },
+  { id: 't2', nombre: 'Uber', monto: 3500, activo: true },
+  { id: 't3', nombre: 'Retiro en el local', monto: 0, activo: true },
+];
 export async function apiFetch<T = any>(path: string, init?: any): Promise<T> {
   const cuerpo = init?.body ? JSON.parse(init.body) : null;
+  if (path.startsWith('/taller-3d/catalogo')) {
+    if (init?.method === 'POST' || init?.method === 'PUT') { REG.enviado.push({ ruta: 'articulo', cuerpo }); return { id: 'a9', ...cuerpo } as any; }
+    return (path.includes('todos=1') ? CATALOGO : CATALOGO.filter(a => a.activo)) as any;
+  }
+  if (path.startsWith('/taller-3d/tarifas')) {
+    if (init?.method) { REG.enviado.push({ ruta: 'tarifa', cuerpo }); return { id: 't9', ...cuerpo } as any; }
+    return TARIFAS as any;
+  }
   if (path.startsWith('/taller-3d/resumen')) return resumen() as any;
   if (path.startsWith('/taller-3d/ventas') && init?.method === 'POST') {
     REG.enviado.push({ ruta: 'venta', cuerpo });
-    const v = { id: 'v' + (VENTAS.length + 1), fecha: HOY, ...cuerpo, total: (cuerpo.cantidad ?? 1) * (cuerpo.precio_unitario ?? 0) };
+    // El total lo arma el servidor: piezas + envío (ver routes/taller3d.ts).
+    const v = { id: 'v' + (VENTAS.length + 1), fecha: HOY, ...cuerpo, total: (cuerpo.cantidad ?? 1) * (cuerpo.precio_unitario ?? 0) + (cuerpo.envio ?? 0) };
     VENTAS = [v, ...VENTAS]; return v as any;
   }
   if (path.startsWith('/taller-3d/ventas')) return VENTAS as any;
