@@ -5,6 +5,7 @@ import {
 import { createProduct, categoriesService, unitTypesService } from '@/services/Inventory/InventoryProductsService';
 import { apiFetch } from '@/lib/api';
 import { BULK_CHUNK_SIZE, chunked, mapWithConcurrency } from '@/utils/bulkChunks';
+import { ChequeoIA } from '@/components/ia/ChequeoIA';
 
 interface Props {
   tenantId: string;
@@ -1353,6 +1354,10 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
                       apagado las sugerencias son solo del buscador local, y
                       eso cambia cuánto hay que revisarlas: decirlo es la
                       diferencia entre revisar y confiar. */}
+                  {/* El chequeo va ACÁ, pegado a donde se usa la IA: es el
+                      momento en que uno se pregunta si está conectada. */}
+                  <ChequeoIA compacto />
+
                   {ia && (
                     <p className="text-[11px] text-gray-700">
                       {ia.encendido

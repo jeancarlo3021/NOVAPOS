@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Bot, X, Send, Loader2, Sparkles, Eraser, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useTenantId } from '@/hooks/useTenant';
+import { useAuth } from '@/context/AuthContext';
+import { ChequeoIA } from '@/components/ia/ChequeoIA';
 
 interface Mensaje {
   rol: 'usuario' | 'asistente';
@@ -58,6 +60,10 @@ const TOPE_HISTORIAL = 20;
 export const ChatbotMenu: React.FC = () => {
   const navigate = useNavigate();
   const { tenantId } = useTenantId();
+  /* La prueba de conexión la ve el dueño: el servidor la rechaza para los
+     demás, y ofrecer un botón que va a dar «no podés» es peor que no tenerlo. */
+  const { user } = useAuth();
+  const esDueno = user?.role === 'owner' || user?.role === 'admin';
   const [abierto, setAbierto] = useState(false);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -193,6 +199,15 @@ export const ChatbotMenu: React.FC = () => {
                       </button>
                     ))}
                   </div>
+
+                  {/* Probar la conexión desde acá: si el modelo está caído, el
+                      asistente contesta igual con los datos del negocio y no
+                      hay forma de notarlo desde afuera. */}
+                  {esDueno && (
+                    <div className="mt-4 text-left border-t border-gray-100 pt-3">
+                      <ChequeoIA compacto />
+                    </div>
+                  )}
                 </div>
               )}
 
