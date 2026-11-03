@@ -450,6 +450,8 @@ export default function Plans() {
     if ((pf as any).demo_requests)    a.push('Solicitudes de demo');
     if ((pf as any).accountant_portal) a.push('Portal del contador');
     if ((pf as any).customer_portal)  a.push('Portal del cliente');
+    if ((pf as any).taller_3d)        a.push('Taller 3D');
+    if ((pf as any).envios_equipo)    a.push('Envíos del equipo');
     if ((pf as any).businesses_panel)  a.push('Panel de negocios');
     if ((pf as any).warranties)       a.push('Garantías');
     if ((pf as any).sales_agents)     a.push('Agentes de venta');
@@ -1140,6 +1142,19 @@ export default function Plans() {
                     description="Terminal dedicada de facturación electrónica (catálogo + precio/IVA editable)"
                     checked={(features as any).fe_pos ?? false}
                     onChange={v => set({ fe_pos: v } as any)} />
+                </section>
+
+                {/* ── Taller 3D ── */}
+                <section className="space-y-3">
+                  <SectionTitle>Taller 3D</SectionTitle>
+                  <FeatureRow icon={Printer} color="bg-violet-600" title="Taller 3D"
+                    description="Ventas y gastos del día anotados a mano, y la cola de impresión con planificador automático por impresora"
+                    checked={(features as any).taller_3d ?? false}
+                    onChange={v => set({ taller_3d: v } as any)} />
+                  <FeatureRow icon={Send} color="bg-cyan-500" title="Envíos del equipo"
+                    description="Lo que cada empleado deja anotado para mandar y a quién hay que contactar, firmado por quien lo anotó"
+                    checked={(features as any).envios_equipo ?? false}
+                    onChange={v => set({ envios_equipo: v } as any)} />
                 </section>
 
                 {/* ── Portal del cliente ── */}

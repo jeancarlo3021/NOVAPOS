@@ -42,6 +42,8 @@ const TruckTrackingMap         = lazy(() => import('./modules/distribution/Truck
 const TrackingSettings         = lazy(() => import('./modules/distribution/TrackingSettings').then(m => ({ default: m.TrackingSettings })));
 const DriverView               = lazy(() => import('./modules/distribution/DriverView').then(m => ({ default: m.DriverView })));
 const ExpensesDashboard        = lazy(() => import('./modules/expenses/ExpensesDashboard').then(m => ({ default: m.ExpensesDashboard })));
+const Taller3D                 = lazy(() => import('./modules/taller3d/Taller3D').then(m => ({ default: m.Taller3D })));
+const EnviosEquipo             = lazy(() => import('./modules/envios/EnviosEquipo').then(m => ({ default: m.EnviosEquipo })));
 const AccountingDashboard     = lazy(() => import('./modules/accounting/AccountingDashboard').then(m => ({ default: m.AccountingDashboard })));
 const PurchasesDashboard       = lazy(() => import('./modules/purchases/PurchasesDashboard').then(m => ({ default: m.PurchasesDashboard })));
 const HRDashboard              = lazy(() => import('./modules/hr/HRDashboard').then(m => ({ default: m.HRDashboard })));
@@ -151,6 +153,15 @@ function AppContent() {
               } />
               <Route path="/proformas" element={
                 <PlanGuard feature="proformas"><ProformasDashboard /></PlanGuard>
+              } />
+              {/* Taller 3D: ventas y gastos del día, y la cola de impresión
+                  con su planificador. */}
+              <Route path="/taller-3d" element={
+                <PlanGuard feature="taller_3d"><Taller3D /></PlanGuard>
+              } />
+              {/* Lo que el equipo deja anotado para mandar y para contactar. */}
+              <Route path="/envios" element={
+                <PlanGuard feature="envios_equipo"><EnviosEquipo /></PlanGuard>
               } />
               <Route path="/settings" element={
                 <PlanGuard feature="settings"><SettingsPage /></PlanGuard>

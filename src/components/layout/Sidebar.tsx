@@ -28,7 +28,7 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeInfo,
-  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store, CalendarDays, CalendarPlus, ShieldCheck, TrendingUp, MonitorPlay, Crosshair, Users2, Bookmark } from 'lucide-react';
+  Inbox, Layers, Send, UserCheck, Undo2, Calculator, Building2, Smartphone, QrCode, Store, CalendarDays, CalendarPlus, ShieldCheck, TrendingUp, MonitorPlay, Crosshair, Users2, Bookmark, Printer } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import type { PlanFeatures } from '@/context/AuthContext';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
@@ -130,6 +130,8 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Cuentas por Pagar', to: '/accounts-payable',  icon: Wallet,        feature: 'accounts_payable', module: 'accounts_payable' },
       { name: 'Cuentas por Cobrar', to: '/accounts-receivable', icon: HandCoins,  feature: 'accounts_receivable', module: 'accounts_payable' },
       { name: 'Gastos',            to: '/expenses',          icon: TrendingDown,  feature: 'expenses',         module: 'expenses'         },
+      { name: 'Taller 3D',         to: '/taller-3d',         icon: Printer,       feature: 'taller_3d',        module: 'taller_3d'        },
+      { name: 'Envíos del equipo', to: '/envios',            icon: Send,          feature: 'envios_equipo',    module: 'envios_equipo'    },
       { name: 'Contabilidad',      to: '/accounting',        icon: BookOpen,      feature: 'accounting',       module: 'accounting'       },
       { name: 'Reportes',          to: '/reports',           icon: FileText,      feature: 'reports',          module: 'reports'          },
       { name: 'D-150 Retenciones', to: '/d150',              icon: FileText,      feature: 'owner_only'        },

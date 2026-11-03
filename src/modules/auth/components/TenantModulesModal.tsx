@@ -40,6 +40,7 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
     { key: 'customers', label: 'Clientes' },
     { key: 'customer_prices', label: 'Precios personalizados (por cliente)' },
     { key: 'customer_portal', label: 'Portal del cliente (enlace: pide y ve su cuenta)' },
+    { key: 'envios_equipo', label: 'Envíos del equipo (lo que hay que mandar y contactar)' },
     { key: 'accounts_receivable', label: 'Cuentas por Cobrar (crédito)' },
     { key: 'exclude_from_close', label: 'Excluir clientes del cierre (ej. empleados)' },
     { key: 'reservations', label: 'Apartados (separar mercadería con abonos)' },
@@ -74,6 +75,9 @@ const MODULE_GROUPS: { group: string; items: { key: string; label: string }[] }[
   { group: 'Reportes y finanzas', items: [
     { key: 'reports', label: 'Reportes' },
     { key: 'expenses', label: 'Gastos' },
+  ]},
+  { group: 'Taller 3D', items: [
+    { key: 'taller_3d', label: 'Taller 3D (ventas del día, gastos y cola de impresión)' },
   ]},
   { group: 'Otros módulos', items: [
     { key: 'promotions', label: 'Promociones' },

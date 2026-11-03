@@ -6,7 +6,7 @@ import {
   ShoppingCart, Package, BarChart2, TrendingDown, ClipboardList,
   Wallet, Tag, Users, UserCog, Truck, Inbox, Send, CalendarDays, HandCoins,
   FileText, Undo2, ShieldCheck, QrCode, Store, Receipt, Building2, MapPin, Settings, TrendingUp, Monitor,
-  Link2,
+  Link2, Printer,
 } from 'lucide-react';
 import { rolePermissionsService } from '@/services/users/rolePermissionsService';
 import { ROLE_META, USER_ROLES } from '@/types/Types_Users';
@@ -34,6 +34,8 @@ const MODULES: ModuleMeta[] = [
   { key: 'hr',               label: 'Recursos Humanos',  description: 'Empleados y nómina',             icon: UserCog,       color: 'bg-fuchsia-500' },
   { key: 'customers',        label: 'Clientes',          description: 'Gestión de clientes',            icon: Users,         color: 'bg-teal-500' },
   { key: 'portal_cliente',   label: 'Portal del cliente', description: 'Crear el enlace del cliente y la hora de corte', icon: Link2, color: 'bg-cyan-600' },
+  { key: 'taller_3d',        label: 'Taller 3D',         description: 'Ventas y gastos del día, y la cola de impresión', icon: Printer, color: 'bg-violet-600' },
+  { key: 'envios_equipo',    label: 'Envíos del equipo', description: 'Lo que hay que mandar y a quién contactar',       icon: Send,    color: 'bg-cyan-500' },
   { key: 'restaurant',       label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa',       icon: ShoppingCart,  color: 'bg-orange-500' },
   { key: 'recipes',          label: 'Recetas',           description: 'Recetas e ingredientes',         icon: Package,       color: 'bg-lime-500' },
   { key: 'distribution',     label: 'Distribución',      description: 'Rutas de reparto y repartidor',  icon: Truck,         color: 'bg-cyan-500' },
