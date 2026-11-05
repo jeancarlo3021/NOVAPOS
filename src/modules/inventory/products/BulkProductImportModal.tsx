@@ -860,6 +860,10 @@ export const BulkProductImportModal: React.FC<Props> = ({ tenantId, onClose, onD
              mira para saber cuánto desconfiar de la fila. */
           _cabys_origen: x.fuente === 'ia'
             ? 'elegido por la IA entre los candidatos'
+            /* De TU catálogo es la señal más confiable: el código lo elegiste
+               vos para un producto tuyo. Se nombra distinto para que se note. */
+            : x.fuente === 'mi_catalogo'
+              ? (x.exacto ? 'ya lo tenías clasificado así' : `parecido ${x.parecido ?? '?'}% a uno tuyo`)
             : x.fuente === 'otros_negocios'
               ? (x.exacto ? 'otro negocio, producto igual' : `otro negocio, parecido ${x.parecido ?? '?'}%`)
               : 'catálogo de Hacienda',
