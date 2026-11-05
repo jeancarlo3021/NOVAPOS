@@ -85,9 +85,14 @@ export function ReceiveReviewModal({ purchase, tenantId, canUpdateStock, onClose
     setSaving(true);
     setError('');
     try {
+      /* El precio corregido viaja también. Antes solo iba la cantidad: la
+         corrección de precio se mostraba en pantalla, se usaba para el total
+         de la revisión… y se tiraba. La orden quedaba con el precio viejo y
+         la cuenta por pagar, con un monto que el proveedor nunca facturó. */
       const itemsData = items.map(it => ({
         product_id: it.product_id,
         quantity: it.qty_received,
+        unit_price: it.price_received,
       }));
 
       if (!navigator.onLine) {
@@ -224,6 +229,18 @@ export function ReceiveReviewModal({ purchase, tenantId, canUpdateStock, onClose
                   <span className={`text-sm font-black ${totalReceived > totalOrdered ? 'text-red-600' : 'text-emerald-700'}`}>
                     {totalReceived > totalOrdered ? '+' : ''}{fmt(totalReceived - totalOrdered)}
                   </span>
+                </div>
+              )}
+
+              {/* SIN INVENTARIO, SE DICE ANTES DE CONFIRMAR.
+                  Con un plan que no mueve existencias, la orden se marcaba
+                  recibida y el inventario no cambiaba nada —en silencio—. El
+                  resultado es mercadería que entró, un sistema que dice cero,
+                  y nadie con una pista de por qué. */}
+              {!canUpdateStock && (
+                <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900">
+                  Tu plan no mueve existencias: la orden va a quedar <b>recibida</b>, pero el inventario
+                  <b> no va a cambiar</b>. Las cantidades de arriba quedan registradas en la orden.
                 </div>
               )}
 

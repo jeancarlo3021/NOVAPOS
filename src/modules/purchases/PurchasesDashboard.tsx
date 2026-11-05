@@ -5,7 +5,7 @@ import {
   ShoppingCart, Plus, Search, RefreshCw, Truck,
   CheckCircle2, Clock, XCircle, DollarSign, Eye,
   ChevronDown, Calendar, Filter, Package, ClipboardCheck,
-  Loader, Printer, PackagePlus,
+  Loader, Printer, PackagePlus, Pencil,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -52,6 +52,9 @@ export const PurchasesDashboard: React.FC = () => {
   const [reviewPurchase, setReviewPurchase] = useState<any | null>(null);
   /** Orden que se va a volver a cargar al inventario. */
   const [reloadPurchase, setReloadPurchase] = useState<any | null>(null);
+  /** La orden que se está corrigiendo, ya con sus líneas. */
+  const [editPurchase, setEditPurchase] = useState<any | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
   const [error, setError]                   = useState('');
   const syncRef = useRef(false);
 
@@ -214,6 +217,24 @@ export const PurchasesDashboard: React.FC = () => {
       setPrintingId(null);
     }
   }, [tenantId, user]);
+
+  /**
+   * Abre la corrección con las LÍNEAS de la orden.
+   *
+   * La lista no las trae —serían miles de filas para pintar una tabla—, así
+   * que se piden al abrir. Sin esto el formulario se abriría vacío y guardar
+   * dejaría la orden sin artículos.
+   */
+  const abrirEdicion = useCallback(async (p: any) => {
+    setLoadingEdit(p.id);
+    try {
+      const completa: any = await inventoryPurchasesService.getPurchaseById(p.id);
+      setEditPurchase(completa ?? p);
+    } catch {
+      /* Sin detalle no se abre: editar a ciegas borraría las líneas. */
+      alert('No se pudo cargar el detalle de la orden. Probá de nuevo.');
+    } finally { setLoadingEdit(null); }
+  }, []);
 
   const handleCancel = useCallback(async (p: any) => {
     if (!confirm('¿Cancelar esta orden de compra?')) return;
@@ -410,6 +431,15 @@ export const PurchasesDashboard: React.FC = () => {
                                 {printingId === p.id ? <Loader size={15} className="animate-spin" /> : <Printer size={15} />}
                               </button>
                             )}
+                            {/* CORREGIR la orden. Hasta ahora una orden mal
+                                armada no tenía arreglo: se cancelaba y se
+                                hacía de nuevo, con sus veinte líneas. */}
+                            {p.status === 'pending' && !isLocal && (
+                              <button onClick={() => void abrirEdicion(p)} disabled={busy || loadingEdit === p.id}
+                                className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40 rounded-lg transition" title="Editar la orden">
+                                {loadingEdit === p.id ? <Loader size={15} className="animate-spin" /> : <Pencil size={15} />}
+                              </button>
+                            )}
                             {p.status === 'pending' && !isLocal && (
                               <button onClick={() => setReviewPurchase(p)} disabled={busy}
                                 className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-100 disabled:opacity-40 transition">
@@ -451,6 +481,19 @@ export const PurchasesDashboard: React.FC = () => {
           </p>
         )}
       </div>
+
+      {/* Corregir una orden pendiente: el MISMO formulario que la crea. */}
+      {editPurchase && (
+        <PurchaseForm
+          isOpen
+          orden={editPurchase}
+          onClose={() => setEditPurchase(null)}
+          onSuccess={async () => {
+            setEditPurchase(null);
+            if (tenantId) await loadPurchases(tenantId);
+          }}
+        />
+      )}
 
       {/* New Order Modal */}
       <PurchaseForm

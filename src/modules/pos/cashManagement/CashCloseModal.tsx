@@ -45,6 +45,48 @@ interface CashCloseModalProps {
 /** A partir de esta hora (CR) se ofrece el cierre del día al cerrar una caja. */
 const DAILY_CLOSE_FROM_HOUR = 18;
 
+/**
+ * EL BORRADOR DEL ARQUEO.
+ *
+ * Contar una caja lleva varios minutos: billetes por denominación, vouchers de
+ * tarjeta, cada SINPE con su referencia. Si la pantalla se cierra en el medio
+ * —se cierra sola, se recarga la tablet, se va la batería, alguien toca
+ * «Cancelar» sin querer— todo eso se perdía y había que contar de nuevo. Lo
+ * que pasa cuando hay que recontar es que se teclea «más o menos lo que daba»,
+ * y ahí el arqueo deja de servir para lo único que sirve.
+ *
+ * Se guarda en el navegador, atado a la SESIÓN de caja: es el conteo de este
+ * turno y no tiene sentido en otro. Al cerrar de verdad, se borra.
+ */
+const LLAVE_BORRADOR = (sessionId: string) => `cierre-caja:borrador:${sessionId}`;
+
+interface BorradorCierre {
+  simpleAmount: string;
+  quantities: Record<number, number>;
+  cardAmount: string;
+  usd: string;
+  sinpeEntries: SinpeEntry[];
+  guardado: string;
+}
+
+function leerBorrador(sessionId: string): BorradorCierre | null {
+  try {
+    const crudo = localStorage.getItem(LLAVE_BORRADOR(sessionId));
+    if (!crudo) return null;
+    const b = JSON.parse(crudo) as BorradorCierre;
+    return b && typeof b === 'object' ? b : null;
+  } catch { return null; }   // sin espacio o modo privado: se sigue sin borrador
+}
+
+/** ¿Hay algo escrito? Un borrador en blanco no se guarda ni se avisa. */
+function tieneAlgo(b: Omit<BorradorCierre, 'guardado'>): boolean {
+  return !!(Number(b.simpleAmount) > 0
+    || Number(b.cardAmount) > 0
+    || Number(b.usd) > 0
+    || Object.values(b.quantities ?? {}).some(n => Number(n) > 0)
+    || (b.sinpeEntries ?? []).some(e => Number(e.amount) > 0 || String(e.reference ?? '').trim()));
+}
+
 export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSuccess, onCancel }) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('cash');
@@ -74,6 +116,35 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   const [sinpeEntries, setSinpeEntries] = useState<SinpeEntry[]>([
     { id: Date.now(), reference: '', amount: '' },
   ]);
+
+  /** Cuándo se guardó el borrador, para poder decirlo en pantalla. */
+  const [borradorDe, setBorradorDe] = useState<string | null>(null);
+
+  /* RECUPERAR lo que había quedado a medio contar. Se hace una sola vez, al
+     abrir: pisar lo tecleado después sería peor que no tener borrador. */
+  useEffect(() => {
+    const b = leerBorrador(session.id);
+    if (!b) return;
+    if (b.simpleAmount) setSimpleAmount(b.simpleAmount);
+    if (b.quantities) setQuantities(q => ({ ...q, ...b.quantities }));
+    if (b.cardAmount) setCardAmount(b.cardAmount);
+    if (b.usd) setUsd(b.usd);
+    if (Array.isArray(b.sinpeEntries) && b.sinpeEntries.length > 0) setSinpeEntries(b.sinpeEntries);
+    setBorradorDe(b.guardado ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
+  /* GUARDAR en cada cambio. Es barato y es lo único que garantiza que un
+     cierre inesperado no se lleve el conteo: guardar «al salir» no sirve
+     cuando la pantalla se cierra sola. */
+  useEffect(() => {
+    const datos = { simpleAmount, quantities, cardAmount, usd, sinpeEntries };
+    try {
+      if (!tieneAlgo(datos)) { localStorage.removeItem(LLAVE_BORRADOR(session.id)); return; }
+      localStorage.setItem(LLAVE_BORRADOR(session.id),
+        JSON.stringify({ ...datos, guardado: new Date().toISOString() }));
+    } catch { /* sin espacio: el cierre sigue funcionando igual */ }
+  }, [session.id, simpleAmount, quantities, cardAmount, usd, sinpeEntries]);
 
   // ── Ventas del sistema (lo que el POS registró en esta sesión) ──
   interface SysMovement { type: 'in' | 'out'; amount: number; reason: string }
@@ -658,6 +729,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       const hora = Number(new Date().toLocaleString('en-US', {
         timeZone: 'America/Costa_Rica', hour: '2-digit', hour12: false,
       }));
+      /* La caja QUEDÓ cerrada: el borrador ya no es un conteo a medias, es
+         basura que aparecería la próxima vez que se abra esta pantalla. */
+      try { localStorage.removeItem(LLAVE_BORRADOR(session.id)); } catch { /* da igual */ }
+
       if (hora >= DAILY_CLOSE_FROM_HOUR) {
         setAskDaily(updatedSession);
         return;   // el modal del día se encarga de cerrar esta pantalla
@@ -876,6 +951,32 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                   Reintentar
                 </button>
               )}
+            </div>
+          )}
+
+          {/* LO QUE SE HABÍA CONTADO ANTES. Se dice que viene de un intento
+              anterior: un campo lleno que uno no recuerda haber escrito es
+              peor que un campo vacío. */}
+          {borradorDe && (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl px-4 py-3 flex items-center gap-3 flex-wrap">
+              <span className="flex-1 min-w-0 text-sm font-bold text-amber-900">
+                Se recuperó lo que habías contado
+                {(() => {
+                  const d = new Date(borradorDe);
+                  return isNaN(d.getTime()) ? '' : ` (guardado a las ${d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })})`;
+                })()}. Revisalo antes de cerrar.
+              </span>
+              <button type="button"
+                onClick={() => {
+                  if (!window.confirm('¿Empezar el conteo de cero?')) return;
+                  setSimpleAmount(''); setCardAmount(''); setUsd('');
+                  setQuantities(Object.fromEntries(DENOMINATIONS.map(d => [d.value, 0])));
+                  setSinpeEntries([{ id: Date.now(), reference: '', amount: '' }]);
+                  setBorradorDe(null);
+                }}
+                className="shrink-0 px-3 py-1.5 rounded-xl border-2 border-amber-400 text-amber-900 text-xs font-black">
+                Empezar de cero
+              </button>
             </div>
           )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff, PackageCheck, ClipboardList } from 'lucide-react';
-import type { InventorySupplier } from '@/services/Inventory/inventorySuppliersService';
+import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff } from 'lucide-react';
+import { inventorySuppliersService, type InventorySupplier } from '@/services/Inventory/inventorySuppliersService';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
@@ -25,11 +25,21 @@ interface PurchaseFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  /**
+   * La orden a CORREGIR. Sin esto, el formulario crea una nueva.
+   *
+   * Es el mismo formulario a propósito: una pantalla aparte para editar
+   * terminaría con dos buscadores de productos distintos y dos formas de
+   * sumar el total, que es como se llega a que el que edita y el que crea no
+   * calculen igual.
+   */
+  orden?: { id: string; [k: string]: any } | null;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onSuccess }) => {
+export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onSuccess, orden = null }) => {
+  const editando = !!orden;
   const { user } = useAuth();
   const { tenantId: resolvedTenantId } = useTenantId();
   const isMountedRef = useRef(true);
@@ -41,18 +51,18 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
   const [purchaseDate, setPurchaseDate]     = useState(new Date().toISOString().slice(0, 10));
   const [expectedDelivery, setExpectedDelivery] = useState('');
   /**
-   * ¿La mercadería YA llegó, o es un pedido que todavía no?
+   * LA COMPRA SIEMPRE NACE PENDIENTE. Ya no hay atajo.
    *
-   * Antes solo existía el pedido: había que crear la orden y después entrar al
-   * detalle y «recibirla». Ese segundo paso es el que se olvida —hay 48 compras
-   * atascadas en «pendiente», o sea mercadería que entró y un inventario que
-   * nunca se enteró— y encima es puro trámite: de las compras que sí se
-   * recibieron, 23 de 29 se crearon y recibieron el mismo día.
+   * Existió un «ya la recibí» que creaba y recibía de un saque: la mercadería
+   * entraba al inventario en el mismo clic en que se tecleaba la orden. Es
+   * cómodo y es justo donde se cuelan los errores caros —una línea mal
+   * copiada de la factura ya movió existencias y creó una cuenta por pagar
+   * antes de que nadie la mirara—, y deshacer eso cuesta mucho más que el
+   * paso que ahorraba.
    *
-   * Por eso el valor por omisión es «ya la recibí», que es lo que pasa casi
-   * siempre: uno registra la compra con la factura del proveedor en la mano.
+   * Ahora toda orden pasa por «Revisar y Recibir», que muestra cantidades y
+   * precios línea por línea antes de que entre nada.
    */
-  const [yaRecibida, setYaRecibida] = useState(true);
   const [notes, setNotes]                   = useState('');
   const [items, setItems]                   = useState<LineItem[]>([]);
 
@@ -78,6 +88,42 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
   const [listaAbierta, setListaAbierta] = useState(false);
   /** El producto elegido, completo: el de la lista puede no estar en `products`. */
   const [elegido, setElegido]     = useState<Product | null>(null);
+
+  /**
+   * ALTA RÁPIDA DE PROVEEDOR, sin salir de la orden.
+   *
+   * Un proveedor nuevo aparece justo cuando se está tecleando su factura. Ir
+   * a otra pantalla a crearlo significa perder la orden a medio llenar, así
+   * que lo que pasaba era elegir cualquier proveedor parecido —y después
+   * nadie sabe a quién se le compró—.
+   */
+  const [nuevoProv, setNuevoProv] = useState(false);
+  const [provNombre, setProvNombre] = useState('');
+  const [provPlazo, setProvPlazo] = useState('Contado');
+  const [provTelefono, setProvTelefono] = useState('');
+  const [guardandoProv, setGuardandoProv] = useState(false);
+
+  const crearProveedor = async () => {
+    const nombre = provNombre.trim();
+    if (!nombre || !tenantId) return;
+    setGuardandoProv(true);
+    setError('');
+    try {
+      const creado: any = await inventorySuppliersService.createSupplier(tenantId, {
+        name: nombre,
+        payment_terms: provPlazo || null,
+        phone: provTelefono.trim() || null,
+      } as any);
+      const prov = (creado?.data ?? creado) as InventorySupplier;
+      /* Se agrega a la lista y queda ELEGIDO: si hubiera que buscarlo otra vez
+         en el desplegable, el atajo no ahorraría nada. */
+      setSuppliers(prev => [...prev, prov].sort((a, b) => a.name.localeCompare(b.name)));
+      setSupplierId(String(prov.id));
+      setNuevoProv(false); setProvNombre(''); setProvTelefono(''); setProvPlazo('Contado');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo crear el proveedor');
+    } finally { setGuardandoProv(false); }
+  };
 
   // Add-item row
   const [newProductId, setNewProductId]   = useState('');
@@ -110,8 +156,27 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
   useEffect(() => {
     if (!isOpen || !tenantId) return;
     loadData(tenantId);
-    autoNumber(tenantId);
-  }, [isOpen, tenantId]);
+    /* Editando no se pide número nuevo: la orden ya tiene el suyo y cambiarlo
+       rompería el rastro con la factura del proveedor. */
+    if (!editando) autoNumber(tenantId);
+  }, [isOpen, tenantId, editando]);
+
+  /** Los datos de la orden que se está corrigiendo entran al formulario. */
+  useEffect(() => {
+    if (!isOpen || !orden) return;
+    setPurchaseNumber(String(orden.purchase_number ?? ''));
+    setSupplierId(String(orden.supplier_id ?? ''));
+    setPurchaseDate(String(orden.purchase_date ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10));
+    setExpectedDelivery(String(orden.expected_delivery_date ?? '').slice(0, 10));
+    setNotes(String(orden.notes ?? ''));
+    setItems((orden.purchase_items ?? orden.items ?? []).map((it: any) => ({
+      product_id:   String(it.product_id),
+      product_name: it.products?.name ?? it.product_name ?? 'Producto',
+      quantity:     Number(it.quantity) || 0,
+      unit_price:   Number(it.unit_price) || 0,
+      total:        Math.round(((Number(it.quantity) || 0) * (Number(it.unit_price) || 0)) * 100) / 100,
+    })));
+  }, [isOpen, orden]);
 
   const loadData = async (tid: string) => {
     setLoadingData(true);
@@ -324,6 +389,26 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
 
     setSubmitting(true);
     try {
+      if (editando && orden) {
+        /* El total NO viaja: lo recalcula el servidor desde las líneas. Si lo
+           mandara la pantalla, una orden podría quedar con líneas que suman
+           una cosa y un total que dice otra, y esa diferencia termina siendo
+           una cuenta por pagar equivocada. */
+        await inventoryPurchasesService.updatePurchase(orden.id, {
+          supplier_id:            supplierId,
+          purchase_date:          purchaseDate,
+          expected_delivery_date: expectedDelivery || null,
+          notes:                  notes || null,
+          items: items.map(i => ({
+            product_id: i.product_id,
+            quantity:   i.quantity,
+            unit_price: i.unit_price,
+          })),
+        });
+        onSuccess();
+        handleClose();
+        return;
+      }
       if (!navigator.onLine) {
         // Queue for offline sync
         const supplier = suppliers.find(s => s.id === supplierId);
@@ -334,11 +419,9 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             supplier_name:          supplier?.name ?? '—',
             purchase_number:        num,
             purchase_date:          purchaseDate,
-            expected_delivery_date: yaRecibida ? null : (expectedDelivery || null),
+            expected_delivery_date: expectedDelivery || null,
             total_amount:           totalAmount,
             notes:                  notes || null,
-            // Al sincronizar entra recibida, si así se registró.
-            receive_now:            yaRecibida,
           },
           items: items.map(i => ({
             product_id:   i.product_id,
@@ -355,10 +438,9 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             supplier_id:            supplierId,
             purchase_number:        num,
             purchase_date:          purchaseDate,
-            expected_delivery_date: yaRecibida ? null : (expectedDelivery || null),
+            expected_delivery_date: expectedDelivery || null,
             total_amount:           totalAmount,
             notes:                  notes || null,
-            receive_now:            yaRecibida,
             items: items.map(i => ({
               product_id: i.product_id,
               quantity:   i.quantity,
@@ -405,7 +487,9 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
         {/* Header */}
         <div className="bg-linear-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold text-white">Nueva Compra</h2>
+            <h2 className="text-xl font-bold text-white">
+              {editando ? `Editar orden ${purchaseNumber}` : 'Nueva Compra'}
+            </h2>
             {isOffline && (
               <span className="flex items-center gap-1 text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">
                 <WifiOff size={10} /> offline
@@ -427,34 +511,25 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
             </div>
           )}
 
-          {/* ¿Ya llegó o es un pedido? Lo primero que hay que decidir, porque
-              cambia lo que el sistema hace al guardar. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button type="button" onClick={() => setYaRecibida(true)} disabled={submitting}
-              className={`text-left px-4 py-3 rounded-xl border-2 transition ${
-                yaRecibida ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
-              <span className="flex items-center gap-2 font-black text-gray-900 text-sm">
-                <PackageCheck size={16} className={yaRecibida ? 'text-emerald-600' : 'text-gray-400'} />
-                Ya la recibí
-              </span>
-              <span className="block text-[11px] text-gray-500 mt-0.5">
-                Entra al inventario al guardar: sube el stock, actualiza el costo y, si el proveedor
-                es a crédito, crea la cuenta por pagar.
-              </span>
-            </button>
-            <button type="button" onClick={() => setYaRecibida(false)} disabled={submitting}
-              className={`text-left px-4 py-3 rounded-xl border-2 transition ${
-                !yaRecibida ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}>
-              <span className="flex items-center gap-2 font-black text-gray-900 text-sm">
-                <ClipboardList size={16} className={!yaRecibida ? 'text-blue-600' : 'text-gray-400'} />
-                Es un pedido
-              </span>
-              <span className="block text-[11px] text-gray-500 mt-0.5">
-                Queda pendiente y no toca el inventario. Cuando llegue, se recibe desde el detalle
-                de la compra.
-              </span>
-            </button>
-          </div>
+          {/* Editando no se pregunta: una orden que se puede editar está
+              pendiente por definición, y recibirla es otro botón —el que
+              mueve inventario y crea la cuenta por pagar—. */}
+          {editando && (
+            <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3 text-[11px] font-bold text-amber-900">
+              Estás corrigiendo una orden pendiente. Al guardar NO se mueve inventario: para eso está
+              «Revisar y Recibir», que es donde entra la mercadería y se crea la cuenta por pagar.
+            </div>
+          )}
+
+          {/* La orden nace PENDIENTE y la mercadería entra en otro paso: se
+              dice acá para que nadie se quede esperando que suba el stock. */}
+          {!editando && (
+            <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-[11px] font-bold text-blue-900">
+              La orden queda <b>pendiente</b> y no toca el inventario. Cuando llegue la mercadería,
+              se usa «Revisar y Recibir»: ahí se confirman cantidades y precios línea por línea, y
+              recién entonces entra al stock y se crea la cuenta por pagar.
+            </div>
+          )}
 
           {/* General info */}
           <div>
@@ -490,6 +565,52 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
                   </select>
                   <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 </div>
+                {/* Crear uno sin salir de acá: el proveedor nuevo aparece
+                    justo cuando se está tecleando su primera factura. */}
+                {!nuevoProv && (
+                  <button type="button" onClick={() => setNuevoProv(true)} disabled={submitting}
+                    className="mt-1.5 text-xs font-black text-blue-700 hover:underline flex items-center gap-1">
+                    <Plus size={12} /> Proveedor nuevo
+                  </button>
+                )}
+                {nuevoProv && (
+                  <div className="mt-2 rounded-xl border-2 border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                    <input value={provNombre} onChange={e => setProvNombre(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void crearProveedor(); } }}
+                      autoFocus placeholder="Nombre del proveedor *"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={provTelefono} onChange={e => setProvTelefono(e.target.value)}
+                        placeholder="Teléfono (opcional)"
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                      {/* El plazo no es un detalle: decide si la compra crea
+                          una cuenta por pagar al recibirla. */}
+                      <select value={provPlazo} onChange={e => setProvPlazo(e.target.value)}
+                        aria-label="Plazo de pago"
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+                        <option value="Contado">Contado</option>
+                        <option value="8 días">8 días</option>
+                        <option value="15 días">15 días</option>
+                        <option value="30 días">30 días</option>
+                        <option value="60 días">60 días</option>
+                      </select>
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      Con un plazo distinto de «Contado», al recibir la compra se crea la cuenta por pagar sola.
+                    </p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => { setNuevoProv(false); setProvNombre(''); }}
+                        className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-bold text-gray-600">
+                        Cancelar
+                      </button>
+                      <button type="button" onClick={() => void crearProveedor()}
+                        disabled={!provNombre.trim() || guardandoProv}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-black disabled:opacity-40">
+                        {guardandoProv ? 'Guardando…' : 'Crear y usar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {selectedSupplier?.payment_terms && (
                   <div className="mt-1.5 flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-1.5">
                     <Clock size={11} />
@@ -510,7 +631,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
                 />
               </div>
               {/* Una compra que ya llegó no tiene «entrega esperada». */}
-              {!yaRecibida && (
+              {(
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Entrega Esperada</label>
                   <input
@@ -737,7 +858,8 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
               ? <><Loader size={16} className="animate-spin" /> Guardando...</>
               : isOffline
                 ? <><WifiOff size={16} /> Guardar (offline)</>
-                : (yaRecibida ? '📦 Guardar y recibir' : '💾 Guardar pedido')
+                : editando ? '💾 Guardar cambios'
+                : '💾 Guardar pedido'
             }
           </button>
         </div>

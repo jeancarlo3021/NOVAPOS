@@ -68,11 +68,32 @@ export const inventoryPurchasesService = {
     });
   },
 
-  // Actualizar estado de compra
-  async updatePurchaseStatus(id: string, status: 'pending' | 'received' | 'cancelled') {
+  // Actualizar estado de compra. Recibir NO va por acá: mueve inventario y
+  // crea cuentas por pagar, así que tiene su propio camino (`receivePurchase`).
+  async updatePurchaseStatus(id: string, status: 'pending' | 'cancelled') {
     return apiFetch<InventoryPurchase>('/purchases/' + id, {
       method: 'PUT',
       body: JSON.stringify({ status }),
+    });
+  },
+
+  /**
+   * Corregir una orden PENDIENTE: proveedor, fechas, notas y sus líneas.
+   *
+   * El total no viaja: lo calcula el servidor desde las líneas. Si lo mandara
+   * la pantalla, una orden podría terminar con líneas que suman ₡90.000 y un
+   * total de ₡100.000, y esa diferencia después es una cuenta por pagar mal.
+   */
+  async updatePurchase(id: string, cambios: {
+    supplier_id?: string;
+    purchase_date?: string;
+    expected_delivery_date?: string | null;
+    notes?: string | null;
+    items?: Array<{ product_id: string; quantity: number; unit_price: number }>;
+  }) {
+    return apiFetch<InventoryPurchase>('/purchases/' + id, {
+      method: 'PUT',
+      body: JSON.stringify(cambios),
     });
   },
 
@@ -80,7 +101,8 @@ export const inventoryPurchasesService = {
   // si es false, el backend solo marca la compra como recibida sin tocar inventario.
   async receivePurchase(
     id: string,
-    items: Array<{ product_id: string; quantity: number }>,
+    /** `unit_price` va cuando la factura trajo otro precio que la orden. */
+    items: Array<{ product_id: string; quantity: number; unit_price?: number }>,
     canUpdateStock = true,
     notes?: string,
   ) {
