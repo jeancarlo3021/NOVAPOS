@@ -3,6 +3,7 @@ import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff } fro
 import { inventorySuppliersService, type InventorySupplier } from '@/services/Inventory/inventorySuppliersService';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
+import { createProduct } from '@/services/Inventory/InventoryProductsService';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -169,7 +170,18 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     setPurchaseDate(String(orden.purchase_date ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10));
     setExpectedDelivery(String(orden.expected_delivery_date ?? '').slice(0, 10));
     setNotes(String(orden.notes ?? ''));
-    setItems((orden.purchase_items ?? orden.items ?? []).map((it: any) => ({
+    setItems((orden.purchase_items ?? orden.items ?? []).map((it: any, i: number) => ({
+      /**
+       * CADA LÍNEA NECESITA SU `rowId`, y acá faltaba.
+       *
+       * Es el identificador con el que la tabla borra una línea, abre el
+       * precio de UNA y la vuelve a cerrar. Sin él, todas las líneas de una
+       * orden cargada valían `undefined`: borrar una las borraba TODAS y
+       * tocar un precio abría todos los precios a la vez. La edición existía
+       * pero era inusable, y TypeScript no lo vio porque las líneas entran
+       * como `any` desde la respuesta del servidor.
+       */
+      rowId:        `${it.id ?? 'linea'}-${i}`,
       product_id:   String(it.product_id),
       product_name: it.products?.name ?? it.product_name ?? 'Producto',
       quantity:     Number(it.quantity) || 0,
@@ -347,6 +359,51 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     setNewQuantity('1');
     setNewUnitPrice('');
     setError('');
+  };
+
+  /**
+   * CREAR EL PRODUCTO SIN SALIR DE LA ORDEN.
+   *
+   * Media factura de proveedor trae cosas que todavía no están en el
+   * catálogo. Hasta ahora había que abandonar la orden a medio teclear, ir a
+   * Inventario, crear el producto y volver a empezar; lo que pasa de verdad
+   * es que se elige «el que más se le parece» —y ahí se arruinan el costo y
+   * el inventario de dos productos a la vez—.
+   *
+   * Se crea con lo mínimo: nombre, costo y, si se sabe, precio de venta. Lo
+   * demás se completa después en Inventario; lo que no se puede es frenar la
+   * orden por un formulario largo.
+   */
+  const [creandoProd, setCreandoProd] = useState(false);
+  const [precioVenta, setPrecioVenta] = useState('');
+
+  const crearProductoRapido = async () => {
+    const nombre = busqueda.trim();
+    if (!nombre || !tenantId) return;
+    setCreandoProd(true);
+    setError('');
+    try {
+      const costo = Number(newUnitPrice) || 0;
+      const creado: any = await createProduct(tenantId, {
+        name: nombre,
+        sku: '',
+        cost_price: costo,
+        /* Sin precio de venta el producto no se puede cobrar. Si no lo
+           pusieron, se deja en el costo: es un valor provisional honesto y
+           visible, mejor que un cero que en caja se ve como producto gratis. */
+        unit_price: Number(precioVenta) || costo,
+        stock_quantity: 0,
+        supplier_id: supplierId || null,
+        tracks_stock: true,
+      } as any);
+      const prod = (creado?.data ?? creado) as Product;
+      setOpciones(prev => [prod, ...prev]);
+      handleProductSelect(prod);
+      setNewUnitPrice(String(costo || ''));
+      setPrecioVenta('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo crear el producto');
+    } finally { setCreandoProd(false); }
   };
 
   const handleRemoveItem = (rowId: string) => setItems(prev => prev.filter(i => i.rowId !== rowId));
@@ -694,9 +751,47 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
                         )}
 
                         {!buscando && opciones.length === 0 && (
-                          <p className="px-3 py-3 text-xs text-gray-400">
-                            {busqueda.trim() ? 'Ningún producto con ese nombre o código.' : 'Sin productos.'}
-                          </p>
+                          <div className="px-3 py-3 space-y-2">
+                            <p className="text-xs text-gray-400">
+                              {busqueda.trim() ? 'Ningún producto con ese nombre o código.' : 'Sin productos.'}
+                            </p>
+                            {/* Crearlo acá mismo. Lo otro es abandonar la orden
+                                a medio teclear o elegir «el que más se parece»,
+                                que arruina el costo de dos productos. */}
+                            {busqueda.trim().length >= 2 && (
+                              <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50 p-2.5 space-y-2">
+                                <p className="text-[11px] font-black text-emerald-900">
+                                  Crear «{busqueda.trim()}» como producto nuevo
+                                </p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <label className="block">
+                                    <span className="block text-[10px] font-bold text-gray-600 mb-0.5">Costo (lo que pagás)</span>
+                                    <input type="number" step="0.01" min="0" value={newUnitPrice}
+                                      onChange={e => setNewUnitPrice(e.target.value)}
+                                      placeholder="0.00"
+                                      className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-xs" />
+                                  </label>
+                                  <label className="block">
+                                    <span className="block text-[10px] font-bold text-gray-600 mb-0.5">Precio de venta</span>
+                                    <input type="number" step="0.01" min="0" value={precioVenta}
+                                      onChange={e => setPrecioVenta(e.target.value)}
+                                      placeholder="opcional"
+                                      className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-xs" />
+                                  </label>
+                                </div>
+                                <p className="text-[10px] text-gray-500">
+                                  Sin precio de venta queda al costo, para que no aparezca en caja como gratis.
+                                  Lo demás se completa en Inventario.
+                                </p>
+                                <button type="button" onClick={() => void crearProductoRapido()}
+                                  disabled={creandoProd}
+                                  className="w-full px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black disabled:opacity-40 flex items-center justify-center gap-1">
+                                  {creandoProd ? <Loader size={12} className="animate-spin" /> : <Plus size={12} />}
+                                  Crear y usar
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         )}
 
                         {hayMas && !buscando && (
