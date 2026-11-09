@@ -29,6 +29,9 @@ interface FormData {
   supplier_id: string;
   /** Unidad en que está expresado el costo (para costear recetas). */
   recipe_unit_code: string;
+  /** Cuánto mide una unidad de este producto (para cruzar peso ↔ conteo). */
+  equiv_qty: string;
+  equiv_unit_code: string;
   unit_price: string;
   delivery_price: string;
   cost_price: string;
@@ -82,6 +85,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
     unit_type_id: '',
     supplier_id: '',
     recipe_unit_code: '',
+    equiv_qty: '',
+    equiv_unit_code: '',
     unit_price: '',
     delivery_price: '',
     cost_price: '',
@@ -202,6 +207,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   // Catálogo de unidades de medida (solo si se van a usar). Si la migración 84
   // no corrió, la lista viene vacía y el campo simplemente no ofrece opciones.
   const [measureUnits, setMeasureUnits] = useState<Array<{ code: string; name: string }>>([]);
+  /** El nombre de una unidad, en minúscula, para escribir la pregunta. */
+  const unidadNombre = (code: string) =>
+    (measureUnits.find(u => u.code === code)?.name ?? 'unidad').toLowerCase();
   useEffect(() => {
     if (!recipeUnitsEnabled) return;
     let alive = true;
@@ -233,6 +241,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           unit_type_id: product.unit_type_id || '',
           supplier_id: (product as any).supplier_id || '',
           recipe_unit_code: (product as any).recipe_unit_code || '',
+          equiv_qty: (product as any).equiv_qty != null ? String((product as any).equiv_qty) : '',
+          equiv_unit_code: (product as any).equiv_unit_code || '',
           unit_price: product.unit_price?.toString() || '',
           delivery_price: (product as any).delivery_price != null ? String((product as any).delivery_price) : '',
           cost_price: product.cost_price?.toString() || '',
@@ -387,6 +397,10 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         delivery_price: deliveryEnabled && formData.delivery_price ? parseFloat(formData.delivery_price) : null,
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
         recipe_unit_code: formData.recipe_unit_code || null,
+        /* Las dos van juntas o no va ninguna: media equivalencia no sirve
+           para convertir y dejaría un dato suelto que confunde. */
+        equiv_qty: (formData.equiv_qty && formData.equiv_unit_code) ? Number(formData.equiv_qty) : null,
+        equiv_unit_code: (formData.equiv_qty && formData.equiv_unit_code) ? formData.equiv_unit_code : null,
         image_url: imageUrl ? imageUrl.split('?')[0] : null,
         tracks_stock: finalTracksStock,
         warranty_months: parseInt(formData.warranty_months, 10) || 0,
@@ -738,6 +752,41 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                       </select>
                       <p className="text-[10px] text-gray-400 mt-0.5">
                         ¿A qué unidad corresponde el precio de costo? Si lo comprás por kilo, elegí Kilogramo.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* CUÁNTO MIDE UNA UNIDAD.
+                      Es lo único que permite pasar de kilos a unidades: no
+                      existe «cuántas unidades hay en un kilo», existe cuánto
+                      pesa una unidad DE ESTE producto. Un pollo, 1,8 kg; una
+                      tajada de queso, 25 g. Sin esto el costeo se niega a
+                      convertir —y hace bien, porque inventarlo daría un costo
+                      que parece correcto y no lo es—. */}
+                  {recipeUnitsEnabled && formData.recipe_unit_code && (
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                        Cuánto mide una {unidadNombre(formData.recipe_unit_code)}
+                        <span className="text-gray-400 font-normal text-xs"> (opcional)</span>
+                      </label>
+                      <div className="flex gap-2">
+                        <input type="number" step="0.001" min="0" name="equiv_qty"
+                          value={formData.equiv_qty} onChange={handleChange} disabled={submitting}
+                          placeholder="1.8"
+                          className="flex-1 px-4 py-2.5 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" />
+                        <select name="equiv_unit_code" value={formData.equiv_unit_code}
+                          onChange={handleChange} disabled={submitting}
+                          className="w-40 px-3 py-2.5 border-2 border-gray-300 rounded-xl bg-white">
+                          <option value="">— unidad —</option>
+                          {measureUnits
+                            .filter(u => u.code !== formData.recipe_unit_code)
+                            .map(u => <option key={u.code} value={u.code}>{u.name}</option>)}
+                        </select>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        Llenalo solo si comprás en una medida y cocinás en otra. Ej.: el producto se cuenta por
+                        unidad pero se compra por kilo → «1.8 Kilogramo» (un pollo). Con esto, una receta que pide
+                        «2 unidades» descuenta 3,6 kg.
                       </p>
                     </div>
                   )}

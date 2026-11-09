@@ -101,6 +101,8 @@ export const invoicesService = {
     currencyInfo?: {
       currency?: 'CRC' | 'USD'; exchangeRate?: number; changeCurrency?: 'CRC' | 'USD';
       isDelivery?: boolean; deliveryCommissionPct?: number; deliveryNet?: number; deliveryPlatform?: string;
+      /** Reparto propio: quién repartió y a qué zona. */
+      deliveryPerson?: string; deliveryZone?: string;
     },
     /**
      * Id local de una venta hecha SIN CONEXIÓN.
@@ -174,6 +176,11 @@ export const invoicesService = {
         delivery_commission_pct: currencyInfo?.deliveryCommissionPct ?? 0,
         delivery_net: currencyInfo?.deliveryNet ?? null,
         delivery_platform: currencyInfo?.deliveryPlatform ?? null,
+        /* Reparto propio: el cobro va como LÍNEA (el artículo «Entrega a
+           domicilio»); acá solo viaja lo que la línea no puede decir — quién
+           lo llevó y a qué zona—, que es de lo que vive el reporte. */
+        delivery_person: (currencyInfo as any)?.deliveryPerson ?? null,
+        delivery_zone: (currencyInfo as any)?.deliveryZone ?? null,
         // Hora LOCAL de la máquina (la columna no guarda zona horaria, así el
         // ticket y los reportes muestran la misma hora que el cajero ve).
         issued_at: localNowISO(),

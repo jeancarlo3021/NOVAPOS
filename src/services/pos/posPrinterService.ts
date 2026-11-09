@@ -971,6 +971,11 @@ export class POSPrinterService {
     delivery_count?: number;
     delivery_total?: number;
     delivery_net?: number;
+    /* Reparto propio: al revés que el delivery de plataformas, esta plata SÍ
+       está en la caja —ya contada dentro de las ventas—. Se imprime para
+       poder contestar «¿cuánto de lo de hoy fue domicilio?». */
+    reparto_count?: number;
+    reparto_total?: number;
     excluded_count?: number;
     excluded_total?: number;
     cash_movements?: Array<{ type: 'in' | 'out'; amount: number; reason: string }>;
@@ -1109,6 +1114,10 @@ export class POSPrinterService {
     truck?: string; route_date?: string;
     sales_count: number; sales_total: number; voids_count: number;
     by_method?: { cash: number; card: number; sinpe: number; credit: number };
+    /** Lo que el chofer TRAE: efectivo + tarjeta + SINPE. Sin el crédito. */
+    cobrado?: number;
+    /** Lo que quedó a crédito. Se informa, pero no se le cuadra al chofer. */
+    credito?: number;
     returned?: Array<{ name: string; quantity: number }>;
     /** 'truck' | 'stored' | 'reconstructed' | 'none': de dónde salió el sobrante. */
     returned_source?: string;
@@ -1133,7 +1142,11 @@ export class POSPrinterService {
         { t: 'row', a: 'Efectivo', b: money(bm.cash) },
         { t: 'row', a: 'Tarjeta', b: money(bm.card) },
         { t: 'row', a: 'SINPE', b: money(bm.sinpe) },
-        { t: 'row', a: 'Crédito', b: money(bm.credit) },
+        /* LO QUE TRAE, en grande y aparte: es el número contra el que se le
+           cuadra al chofer. El crédito va debajo y fuera de esa suma, porque
+           esa mercadería salió pero la plata no entró. */
+        { t: 'row', a: 'COBRADO (lo que trae)', b: money(summary.cobrado ?? (bm.cash + bm.card + bm.sinpe)) },
+        { t: 'row', a: 'Crédito (no cobrado)', b: money(summary.credito ?? bm.credit) },
       ];
       if (summary.ar_payments && summary.ar_payments.total > 0) {
         lines.push({ t: 'sep' }, { t: 'title', a: 'ABONOS CxC' });
@@ -1338,14 +1351,32 @@ export class POSPrinterService {
     sep();
     center('VENTAS');
     const bm = summary.by_method ?? { cash: 0, card: 0, sinpe: 0, credit: 0 };
+    const cobrado = Number(summary.cobrado ?? (bm.cash + bm.card + bm.sinpe));
+    const credito = Number(summary.credito ?? bm.credit);
     row('Efectivo:', money(bm.cash));
     row('Tarjeta:', money(bm.card));
     row('SINPE:', money(bm.sinpe));
-    row('Credito:', money(bm.credit));
+    sep();
+    /**
+     * EL NÚMERO GRANDE ES LO QUE TRAE, NO LO QUE VENDIÓ.
+     *
+     * Acá decía «*** TOTAL ***» con el total vendido —crédito incluido— y es
+     * contra ese número que se le cuadra la plata al chofer. Una venta a
+     * crédito no trae un cinco: la mercadería salió y el cliente paga
+     * después, así que esa diferencia aparecía como un descuadre que no
+     * existe.
+     *
+     * El crédito se sigue imprimiendo —alguien tiene que ir a cobrarlo— pero
+     * abajo, fuera de la suma y dicho con todas las letras.
+     */
+    center(`*** TRAE: ${money(cobrado)} ***`);
+    if (credito > 0) {
+      row('Credito (no cobrado):', money(credito));
+      row('Total vendido:', money(summary.sales_total));
+    }
     sep();
     row('Ventas:', String(summary.sales_count ?? 0));
     row('Anulaciones:', String(summary.voids_count ?? 0));
-    center(`*** TOTAL: ${money(summary.sales_total)} ***`);
     sep();
 
     // Abonos de CxC del día (efectivo/tarjeta/SINPE por aparte + detalle).
@@ -1469,6 +1500,13 @@ export class POSPrinterService {
       }
     }
     if ((report.voids_count ?? 0) > 0) row('Anulaciones:', `${report.voids_count} · ${fmt(report.voids_total ?? 0)}`);
+    /* El reparto va ANTES del delivery de plataformas y dice «incluido»: son
+       dos cosas opuestas —una ya está en la caja, la otra no— y en un tiquete
+       de 58 mm, dos bloques parecidos sin esa palabra se confunden. */
+    if ((report.reparto_count ?? 0) > 0) {
+      row('Cobros de reparto:', `${report.reparto_count} · ${fmt(report.reparto_total ?? 0)}`);
+      row('', '(ya incluido arriba)');
+    }
     if ((report.delivery_count ?? 0) > 0) {
       sep();
       centerText('DELIVERY (aparte)');

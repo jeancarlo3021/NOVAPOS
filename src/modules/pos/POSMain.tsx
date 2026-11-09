@@ -45,6 +45,7 @@ import { POSDesktopBar } from './POSDesktopBar';
 import { CashMovementModal } from './cashManagement/CashMovementModal';
 import { POSProductsPanel } from './POSProducts';
 import { POSCartPanel } from './POSCart';
+import { RepartoControl, type RepartoElegido } from './delivery/RepartoControl';
 import { POSModals } from './POSModals';
 import { VoidInvoiceModal } from './VoidInvoiceModal';
 import { ReprintInvoiceModal } from './ReprintInvoiceModal';
@@ -339,6 +340,38 @@ export const POSMain = () => {
   // aparecer el selector de plataformas al cobrar. Sigue necesitando el plan de
   // delivery para que las comisiones tengan sentido.
   const isDeliveryMode = deliveryEnabled && saleMode === 'delivery';
+
+  /**
+   * REPARTO PROPIO: el domicilio que cobra el muchacho de la moto.
+   *
+   * Nada que ver con el delivery de plataformas de arriba —ese cobra comisión
+   * y la plata no entra a la caja—. Acá el cobro entra con la venta, así que
+   * se agrega al carrito como una línea más (el artículo que se configura en
+   * Ajustes → Delivery) y el cliente lo ve en su tiquete.
+   */
+  const [reparto, setReparto] = useState<RepartoElegido | null>(null);
+
+  /* La línea del domicilio sigue a lo elegido: se agrega, se cambia de monto
+     o se quita, sin que el cajero tenga que acordarse de borrarla. */
+  useEffect(() => {
+    setCartItems(prev => {
+      const sinReparto = prev.filter(i => !(i as any).__reparto);
+      if (!reparto) return sinReparto.length === prev.length ? prev : sinReparto;
+      const prod = products.find(p => p.id === reparto.producto_id)
+        ?? ({ id: reparto.producto_id, name: 'Entrega a domicilio', unit_price: reparto.monto,
+              stock_quantity: 0, tracks_stock: false } as any);
+      return [...sinReparto, {
+        product_id: reparto.producto_id,
+        product: prod,
+        quantity: 1,
+        unit_price: round2(reparto.monto),
+        subtotal: round2(reparto.monto),
+        notes: reparto.zona ?? undefined,
+        __reparto: true,
+      } as any];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reparto, products]);
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
@@ -1197,7 +1230,7 @@ export const POSMain = () => {
     payments?: { method: 'cash' | 'card' | 'sinpe'; amount: number; voucher_number?: string }[],
     fe?: { clave?: string; consecutivo?: string; tipoLabel?: string; qrDataUrl?: string; qrContent?: string; customerEmail?: string },
     rounding: number = 0,
-    currencyInfo?: { currency?: 'CRC' | 'USD'; exchangeRate?: number; amountReceived?: number; change?: number; changeCurrency?: 'CRC' | 'USD'; isDelivery?: boolean; deliveryCommissionPct?: number; deliveryNet?: number; deliveryPlatform?: string; bipper?: string },
+    currencyInfo?: { currency?: 'CRC' | 'USD'; exchangeRate?: number; amountReceived?: number; change?: number; changeCurrency?: 'CRC' | 'USD'; isDelivery?: boolean; deliveryCommissionPct?: number; deliveryNet?: number; deliveryPlatform?: string; bipper?: string; deliveryPerson?: string; deliveryZone?: string },
   ) => {
     if (!tenantId) return;
     try {
@@ -1532,6 +1565,11 @@ export const POSMain = () => {
           currency: data.currency, exchangeRate: data.exchangeRate, changeCurrency: data.changeCurrency,
           isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryPlatform: data.deliveryPlatform,
           deliveryNet: data.isDelivery ? Math.round(totSnapshot * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined,
+          /* Reparto propio: el MONTO ya va como línea de la factura; acá
+             viajan quién lo llevó y a qué zona, que es lo que la línea no
+             puede decir y de lo que vive el reporte. */
+          deliveryPerson: reparto?.repartidor ?? undefined,
+          deliveryZone: reparto?.zona ?? undefined,
         },
       } as any);
 
@@ -1609,12 +1647,17 @@ export const POSMain = () => {
           selectedCustomer?.id ?? null,
           { currency: data.currency, exchangeRate: data.exchangeRate, changeCurrency: data.changeCurrency,
             isDelivery: data.isDelivery, deliveryCommissionPct: data.deliveryCommissionPct, deliveryPlatform: data.deliveryPlatform,
-            deliveryNet: data.isDelivery ? Math.round(total * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined },
+            deliveryNet: data.isDelivery ? Math.round(total * (1 - (data.deliveryCommissionPct ?? 0) / 100)) : undefined,
+            deliveryPerson: reparto?.repartidor ?? undefined,
+            deliveryZone: reparto?.zona ?? undefined },
         );
 
         // Limpiar UI INMEDIATAMENTE — resetActive vacía cart + cliente del tab
         // actual de una sola llamada (más limpio que setCartItems([]) + setCustomerName('')).
         resetActive();
+        /* El domicilio es de ESA venta: dejarlo puesto cobraría el reparto
+           anterior en la siguiente, que es plata que el cliente no pidió. */
+        setReparto(null);
         setBipper('');
         setShowPaymentModal(false);
         setCartOpen(false);
@@ -2028,6 +2071,7 @@ export const POSMain = () => {
             deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
             windowMode={windowMode}
+            repartoSlot={<RepartoControl valor={reparto} onCambio={setReparto} />}
 
             onSaleModeChange={setSaleMode}
           />
@@ -2073,6 +2117,7 @@ export const POSMain = () => {
             deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
             windowMode={windowMode}
+            repartoSlot={<RepartoControl valor={reparto} onCambio={setReparto} />}
 
             onSaleModeChange={setSaleMode}
           />

@@ -110,6 +110,14 @@ interface POSCartPanelProps {
    * cobrar. Es el mismo estado interno; solo cambia cómo se llama.
    */
   windowMode?: boolean;
+  /**
+   * El control del cobro de domicilio (reparto propio).
+   *
+   * Entra como un pedazo de pantalla y no como cinco propiedades sueltas
+   * —monto, zona, repartidor, tarifas, artículo— porque el carrito no tiene
+   * nada que opinar sobre el reparto: solo le hace lugar arriba del total.
+   */
+  repartoSlot?: React.ReactNode;
 }
 
 export const POSCartPanel: React.FC<POSCartPanelProps> = ({
@@ -141,6 +149,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   saleMode = 'mesa',
   onSaleModeChange,
   windowMode = false,
+  repartoSlot,
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
   /** Descuento que se pasó del tope y espera el PIN del supervisor. */
@@ -609,6 +618,10 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
             <p className="text-red-700 text-sm font-bold">La caja está cerrada</p>
           </div>
         ) : null}
+
+        {/* El cobro del domicilio, arriba del total: hay que decidirlo ANTES de
+            cobrar, porque entra al total que el cliente va a pagar. */}
+        {repartoSlot && cartItems.length > 0 && <div className="mb-2">{repartoSlot}</div>}
 
         {/* Resumen compacto de la venta (subtotal, IVA, descuentos, combos, redondeo).
             En formato lista se oculta: los totales ya se ven en la barra verde de arriba. */}

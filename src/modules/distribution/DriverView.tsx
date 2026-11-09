@@ -309,15 +309,40 @@ export const DriverView: React.FC = () => {
             </div>
             <div className="p-5 space-y-2 text-sm max-h-[50vh] overflow-y-auto">
               <div className="flex justify-between"><span className="text-gray-500">Ventas</span><span className="font-bold">{closeSummary.sales_count ?? 0}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Total vendido</span><span className="font-black text-emerald-600">{fmt(closeSummary.sales_total ?? 0)}</span></div>
-              {closeSummary.by_method && (
-                <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-1 text-xs">
-                  <div className="flex justify-between"><span className="text-gray-500">Efectivo</span><span>{fmt(closeSummary.by_method.cash)}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(closeSummary.by_method.card)}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(closeSummary.by_method.sinpe)}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Crédito</span><span>{fmt(closeSummary.by_method.credit)}</span></div>
-                </div>
-              )}
+              {/* LO QUE TRAE va primero y en grande; lo vendido, abajo y chico.
+                  Es contra lo que trae que se le cuadra la plata: una venta a
+                  crédito salió del camión pero no trajo un cinco. */}
+              {(() => {
+                const bm = closeSummary.by_method;
+                const cobrado = Number((closeSummary as any).cobrado
+                  ?? (bm ? bm.cash + bm.card + bm.sinpe : closeSummary.sales_total ?? 0));
+                const credito = Number((closeSummary as any).credito ?? bm?.credit ?? 0);
+                return (
+                  <>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-gray-500">Trae (cobrado)</span>
+                      <span className="font-black text-emerald-600 text-lg">{fmt(cobrado)}</span>
+                    </div>
+                    {bm && (
+                      <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-1 text-xs">
+                        <div className="flex justify-between"><span className="text-gray-500">Efectivo</span><span>{fmt(bm.cash)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(bm.card)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(bm.sinpe)}</span></div>
+                      </div>
+                    )}
+                    {credito > 0 && (
+                      <div className="flex justify-between text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <span className="text-amber-800 font-bold">Crédito (no cobrado)</span>
+                        <span className="font-black text-amber-800">{fmt(credito)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Total vendido</span>
+                      <span className="text-gray-500">{fmt(closeSummary.sales_total ?? 0)}</span>
+                    </div>
+                  </>
+                );
+              })()}
               <div className="flex justify-between"><span className="text-gray-500">Anulaciones</span><span className="font-bold text-rose-600">{closeSummary.voids_count ?? 0}</span></div>
 
               {/* Abonos de CxC del día (efectivo/tarjeta/SINPE por aparte + detalle) */}

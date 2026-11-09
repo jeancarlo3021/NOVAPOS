@@ -28,6 +28,7 @@ import { ReceivablesReport } from './views/ReceivablesReport';
 import { TaxReport } from './views/TaxReport';
 import { VouchersReport } from './views/VouchersReport';
 import { DeliveryReport } from './views/DeliveryReport';
+import { RepartoReport } from './views/RepartoReport';
 import { MenuEngineeringReport } from './views/MenuEngineeringReport';
 import { FoodCostReport } from './views/FoodCostReport';
 import { UserActivityReport } from './views/UserActivityReport';
@@ -48,6 +49,7 @@ function getDateRange(days: number) {
 
 type TabId =
   | 'basic' | 'advanced' | 'hourly' | 'purchases' | 'stock' | 'stock_adjustments'
+  | 'reparto'
   | 'sellers' | 'expenses' | 'products' | 'products_ranking' | 'cash' | 'cash_movements' | 'profit' | 'distribution' | 'receivables' | 'taxes' | 'vouchers' | 'delivery' | 'menu_engineering' | 'food_cost' | 'user_activity';
 
 interface Tab {
@@ -65,6 +67,9 @@ const TABS: Tab[] = [
   { id: 'advanced', label: 'Ventas Avanzadas',  description: 'Análisis completo',         icon: BarChart2,     featureKey: 'report_advanced_sales', group: 'ventas' },
   { id: 'hourly',   label: 'Ventas por Hora',   description: 'Patrones horarios',         icon: Clock,         featureKey: 'report_hourly_sales',   group: 'ventas' },
   { id: 'delivery', label: 'Delivery',          description: 'Ventas por delivery (semanal)', icon: Truck,     featureKey: 'pos_delivery',          group: 'ventas' },
+  // Reparto PROPIO: el domicilio que cobra el repartidor del negocio. Va
+  // aparte del de plataformas porque esta plata sí entra a la caja del día.
+  { id: 'reparto',  label: 'Reparto',           description: 'Domicilios: viajes, repartidor y zona', icon: Truck, featureKey: 'pos_delivery',    group: 'ventas' },
   // Análisis de menú: cruza el costo de la receta con las ventas del plato.
   { id: 'menu_engineering', label: 'Análisis de menú', description: 'Estrella, vaca, enigma o perro por plato', icon: ChefHat, featureKey: 'recipe_menu_engineering', group: 'ventas' },
   // Food cost: lo que las recetas dicen que debió salir contra lo que salió.
@@ -408,6 +413,7 @@ const ReportsDashboard: React.FC = () => {
               case 'taxes':             return <TaxReport key={`tax-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'vouchers':          return <VouchersReport key={`vou-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'delivery':          return <DeliveryReport key={`del-${refreshKey}`} from={range.from} to={range.to} />;
+              case 'reparto':           return <RepartoReport key={`rep-${refreshKey}`} from={range.from} to={range.to} />;
               case 'menu_engineering':  return <MenuEngineeringReport key={`menu-${refreshKey}`} from={range.from} to={range.to} />;
               case 'food_cost':         return <FoodCostReport key={`fc-${refreshKey}`} from={range.from} to={range.to} />;
               case 'user_activity':     return <UserActivityReport key={`act-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;

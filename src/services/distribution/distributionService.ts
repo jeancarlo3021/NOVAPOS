@@ -21,6 +21,15 @@ export interface DeliveryRoute {
 
 export interface RouteCloseSummary {
   route_id: string; sales_count: number; sales_total: number;
+  /**
+   * Lo que el chofer TRAE: efectivo + tarjeta + SINPE.
+   *
+   * Es contra esto que se le cuadra la plata, no contra `sales_total`: una
+   * venta a crédito salió del camión pero no trajo un cinco.
+   */
+  cobrado?: number;
+  /** Lo que quedó a crédito. Se informa; no entra en la suma del cierre. */
+  credito?: number;
   voids_count: number; returned_items: number;
   returned?: Array<{ name: string; quantity: number }>;
   by_method?: { cash: number; card: number; sinpe: number; credit: number };

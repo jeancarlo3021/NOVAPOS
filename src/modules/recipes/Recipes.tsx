@@ -445,8 +445,30 @@ function RecipeEditor({
     if (i.unit_code === target) return { qty: q };
     const a = unitByCode.get(i.unit_code); const b = unitByCode.get(target);
     if (!a || !b) return { qty: q, problem: 'unidad desconocida' };
-    if (a.dimension !== b.dimension) return { qty: q, problem: `${a.name} → ${b.name}` };
-    return { qty: (q * a.to_base) / b.to_base };
+    if (a.dimension === b.dimension) return { qty: (q * a.to_base) / b.to_base };
+
+    /* Dimensiones distintas: solo si el producto dijo cuánto mide una de sus
+       unidades. «1 unidad = 1,8 kg» es un puente que vale para ESE producto;
+       sin él no se inventa un número, se avisa. (La misma regla que aplica el
+       servidor al costear: si acá dijera otra cosa, la ficha y el descuento de
+       inventario darían distinto.) */
+    const prod: any = products.find(p => p.id === i.product_id);
+    const eq = Number(prod?.equiv_qty) > 0 && prod?.equiv_unit_code
+      ? { qty: Number(prod.equiv_qty), code: String(prod.equiv_unit_code) } : null;
+    const u = eq ? unitByCode.get(eq.code) : null;
+    if (eq && u) {
+      if (i.unit_code === target && b.dimension === u.dimension) return { qty: q };
+      if (target === i.unit_code) return { qty: q };
+      if (a.dimension === u.dimension && target) {
+        // De afuera (kg) a la unidad del producto (und).
+        return { qty: ((q * a.to_base) / u.to_base) / eq.qty };
+      }
+      if (b.dimension === u.dimension) {
+        // De la unidad del producto (und) hacia afuera (kg).
+        return { qty: ((q * eq.qty) * u.to_base) / b.to_base };
+      }
+    }
+    return { qty: q, problem: `${a.name} → ${b.name}` };
   };
 
   // Costo de un ingrediente (producto = costo × qty convertida × merma;

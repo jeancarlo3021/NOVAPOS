@@ -105,10 +105,16 @@ export const DistributionDashboard: React.FC = () => {
         const m = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
         const bm = sum.by_method ?? { cash: 0, card: 0, sinpe: 0, credit: 0 };
         const sections: any[] = [
+          /* Lo que TRAE primero y aparte de lo vendido: el crédito salió del
+             camión pero no trajo plata, y cuadrarle al chofer contra el total
+             vendido le inventa un descuadre por ese monto. */
           { heading: 'Ventas de la ruta', rows: [
-            ['Ventas', `${sum.sales_count} · ${m(sum.sales_total)}`],
+            ['Ventas', String(sum.sales_count)],
+            ['Trae (cobrado)', m((sum as any).cobrado ?? (bm.cash + bm.card + bm.sinpe))],
+            ['Efectivo', m(bm.cash)], ['Tarjeta', m(bm.card)], ['SINPE', m(bm.sinpe)],
+            ...(bm.credit > 0 ? [['Crédito (no cobrado)', m(bm.credit)]] : []),
+            ['Total vendido', m(sum.sales_total)],
             ...(sum.voids_count > 0 ? [['Anulaciones', String(sum.voids_count)]] : []),
-            ['Efectivo', m(bm.cash)], ['Tarjeta', m(bm.card)], ['SINPE', m(bm.sinpe)], ['Crédito', m(bm.credit)],
           ] },
           ...(sum.ar_payments ? [{ heading: 'Abonos', rows: [['Total abonos', m(sum.ar_payments.total)]] }] : []),
           ...(sum.expenses ? [{ heading: 'Gastos', rows: [['Total gastos', m(sum.expenses.total)]] }] : []),
@@ -398,16 +404,40 @@ export const DistributionDashboard: React.FC = () => {
             </div>
             <div className="p-5 space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-gray-500">Ventas</span><span className="font-bold">{closeSummary.sum.sales_count}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Total vendido</span><span className="font-black text-emerald-600">{fmt(closeSummary.sum.sales_total)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Anulaciones</span><span className="font-bold text-red-600">{closeSummary.sum.voids_count}</span></div>
-              {closeSummary.sum.by_method && (
-                <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-1 text-xs">
-                  <div className="flex justify-between"><span className="text-gray-500">Efectivo</span><span>{fmt(closeSummary.sum.by_method.cash)}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(closeSummary.sum.by_method.card)}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(closeSummary.sum.by_method.sinpe)}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Crédito</span><span>{fmt(closeSummary.sum.by_method.credit)}</span></div>
-                </div>
-              )}
+              {(() => {
+                const bm2 = closeSummary.sum.by_method;
+                const cobrado = Number((closeSummary.sum as any).cobrado
+                  ?? (bm2 ? bm2.cash + bm2.card + bm2.sinpe : closeSummary.sum.sales_total));
+                const credito = Number((closeSummary.sum as any).credito ?? bm2?.credit ?? 0);
+                return (
+                  <>
+                    {/* Lo que el chofer TRAE: es el número contra el que se le
+                        cuadra. El crédito salió del camión pero no trajo plata. */}
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-gray-500">Trae (cobrado)</span>
+                      <span className="font-black text-emerald-600 text-lg">{fmt(cobrado)}</span>
+                    </div>
+                    {bm2 && (
+                      <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-1 text-xs">
+                        <div className="flex justify-between"><span className="text-gray-500">Efectivo</span><span>{fmt(bm2.cash)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(bm2.card)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(bm2.sinpe)}</span></div>
+                      </div>
+                    )}
+                    {credito > 0 && (
+                      <div className="flex justify-between text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <span className="text-amber-800 font-bold">Crédito (no cobrado)</span>
+                        <span className="font-black text-amber-800">{fmt(credito)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Total vendido</span>
+                      <span className="text-gray-500">{fmt(closeSummary.sum.sales_total)}</span>
+                    </div>
+                    <div className="flex justify-between"><span className="text-gray-500">Anulaciones</span><span className="font-bold text-red-600">{closeSummary.sum.voids_count}</span></div>
+                  </>
+                );
+              })()}
               {closeSummary.sum.ar_payments && closeSummary.sum.ar_payments.total > 0 && (
                 <div className="border border-blue-100 bg-blue-50/50 rounded-lg px-3 py-2 text-xs">
                   <p className="font-black text-blue-700 mb-1">Abonos CxC — {fmt(closeSummary.sum.ar_payments.total)}</p>

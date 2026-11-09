@@ -159,6 +159,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     invoicesCount: number; invoicesTotal: number;
     voidsCount: number; voidsTotal: number;
     deliveryCount: number; deliveryTotal: number; deliveryNet: number;
+    /** Reparto propio: cuántos domicilios y cuánto se cobró por ellos. */
+    repartoCount: number; repartoTotal: number; repartoPendientes: number;
     excludedCount: number; excludedTotal: number;   // clientes excluidos del cierre (ej. empleados)
     cashIn: number; cashOut: number; movements: SysMovement[];
     /** Detalle de las ventas del turno, para imprimirlo en el cierre. */
@@ -182,6 +184,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     cash: 0, card: 0, sinpe: 0, credit: 0, transfer: 0, other: 0,
     invoicesCount: 0, invoicesTotal: 0,
     voidsCount: 0, voidsTotal: 0, deliveryCount: 0, deliveryTotal: 0, deliveryNet: 0,
+    repartoCount: 0, repartoTotal: 0, repartoPendientes: 0,
     excludedCount: 0, excludedTotal: 0,
     cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, usdCrc: 0,
     abonos: [], abonosTotal: 0, loaded: false,
@@ -325,6 +328,22 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         const deliveryCount = deliveryInv.length;
         const deliveryTotal = deliveryInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
         const deliveryNet = deliveryInv.reduce((s: number, i: any) => s + Number(i.delivery_net ?? i.total ?? 0), 0);
+        /**
+         * REPARTO PROPIO: sí entra a la caja, y por eso se cuenta aparte.
+         *
+         * No es delivery de plataforma: el muchacho sale, cobra el domicilio
+         * y vuelve con la plata. Ya está DENTRO de lo vendido (es una línea
+         * más de la factura), así que esto no se suma al total — se separa,
+         * para poder contestar «¿cuánto de lo de hoy fue reparto?».
+         *
+         * El monto lo calcula el servidor desde la línea del artículo
+         * configurado; las ventas que todavía están en la cola de esta
+         * máquina no lo traen, y en ese caso se dice en vez de inventarlo.
+         */
+        const repartoInv = invoices.filter((i: any) => Number(i.reparto ?? 0) > 0);
+        const repartoCount = repartoInv.length;
+        const repartoTotal = repartoInv.reduce((s: number, i: any) => s + Number(i.reparto || 0), 0);
+        const repartoPendientes = invoices.filter((i: any) => i.__pendiente).length;
         const voidedInv = allInv.filter((i: any) => i.status === 'cancelled');
         const voidsCount = voidedInv.length;
         const voidsTotal = voidedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
@@ -423,6 +442,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           invoicesTotal: invoices.reduce((s: number, i: any) => s + Number(i.total || 0), 0),
           voidsCount, voidsTotal,
           deliveryCount, deliveryTotal, deliveryNet,
+          repartoCount, repartoTotal, repartoPendientes,
           excludedCount, excludedTotal,
           cashIn, cashOut, movements, sales: salesDetail,
           abonos, abonosTotal,
@@ -644,6 +664,8 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             voids_total: sys.voidsTotal,
             delivery_count: sys.deliveryCount,
             delivery_total: sys.deliveryTotal,
+            reparto_count: sys.repartoCount,
+            reparto_total: sys.repartoTotal,
             delivery_net: sys.deliveryNet,
             excluded_count: sys.excludedCount,
             excluded_total: sys.excludedTotal,
@@ -702,6 +724,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             ['Recibido en ventas', `$${sys.usdReceived.toFixed(2)}`],
             ['Esperado', `$${(Number((session as any).opening_usd ?? 0) + sys.usdReceived - sys.usdChangeOut).toFixed(2)}`],
             ['Contado', `$${closingUsd.toFixed(2)}`],
+          ] }] : []),
+          ...(sys.repartoCount > 0 ? [{ heading: 'Reparto propio (ya incluido en las ventas)', rows: [
+            ['Domicilios cobrados', `${sys.repartoCount} · ${m(sys.repartoTotal)}`],
           ] }] : []),
           ...(sys.deliveryCount > 0 ? [{ heading: 'Delivery (aparte, no en caja)', rows: [
             ['Ventas delivery', `${sys.deliveryCount} · ${m(sys.deliveryTotal)}`],
@@ -1148,6 +1173,23 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                 <span className="block text-[11px] text-orange-500">{sys.deliveryCount} venta{sys.deliveryCount === 1 ? '' : 's'} · Neto ₡{sys.deliveryNet.toLocaleString('es-CR')}</span>
               </span>
               <span className="text-orange-700 text-xl font-black tabular-nums">₡{sys.deliveryTotal.toLocaleString('es-CR')}</span>
+            </div>
+          )}
+
+          {/* REPARTO PROPIO. Al revés que el delivery de plataformas: esta
+              plata SÍ está en la caja, ya contada dentro de las ventas. Se
+              muestra para poder contestar «¿cuánto de lo de hoy fue
+              domicilio?» — por eso dice «ya incluido», no se suma aparte. */}
+          {sys.repartoCount > 0 && (
+            <div className="flex items-center justify-between gap-3 bg-emerald-50 border-2 border-emerald-200 rounded-2xl px-4 py-2.5">
+              <span className="text-emerald-800 font-bold text-sm">
+                🛵 Cobros de reparto <span className="text-emerald-500 font-normal">(ya incluido en las ventas)</span>
+                <span className="block text-[11px] text-emerald-600">
+                  {sys.repartoCount} domicilio{sys.repartoCount === 1 ? '' : 's'}
+                  {sys.repartoPendientes > 0 && ' · hay ventas sin subir: pueden faltar domicilios'}
+                </span>
+              </span>
+              <span className="text-emerald-800 text-xl font-black tabular-nums">₡{Math.round(sys.repartoTotal).toLocaleString('es-CR')}</span>
             </div>
           )}
 
