@@ -62,9 +62,13 @@ export interface DiaCorte { fecha: string; ventas: number; gastos: number; queda
 export interface Comision {
   porcentaje_ventas: number; porcentaje_gastos: number;
   ventas: number; gastos: number;
+  /** El transporte cobrado, que NO se comisiona. */
+  envios?: number;
+  /** Lo cobrado por las piezas: ventas menos el transporte. */
+  ventas_sin_envio?: number;
   /** El 15 % de los gastos, lo que se le resta a las ventas. */
   gastos_descontados: number;
-  /** Ventas menos ese descuento: sobre esto se saca el porcentaje. */
+  /** Piezas menos ese descuento: sobre esto se saca el porcentaje. */
   base: number;
   monto: number;
 }

@@ -1178,6 +1178,15 @@ function CajaComision({ c, cfg, onGuardar }: {
           <span className="text-gray-600">Vendido en la semana</span>
           <span className="font-black tabular-nums">{plata(c.ventas)}</span>
         </div>
+        {/* El transporte sale de la base y se ve que sale: si el número de
+            arriba no cuadra con la base, lo primero que se piensa es que la
+            comisión está mal calculada. */}
+        {!!c.envios && (
+          <div className="flex justify-between px-3 py-2">
+            <span className="text-gray-600">Menos el transporte cobrado (no se comisiona)</span>
+            <span className="font-black tabular-nums text-red-600">−{plata(c.envios)}</span>
+          </div>
+        )}
         <div className="flex justify-between px-3 py-2">
           <span className="text-gray-600">
             Menos el {c.porcentaje_gastos}% de los gastos ({plata(c.gastos)})
