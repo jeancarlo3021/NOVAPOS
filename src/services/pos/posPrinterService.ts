@@ -1630,6 +1630,13 @@ export class POSPrinterService {
     const areaMM = imprimibleMM(cfg);
 
     const storeName = general?.businessName || 'CIERRE DE CAJA';
+
+    /* Renglones del cierre: encabezado, ventas por método, arqueo, el detalle
+       de movimientos y el espacio de la firma. A 13 px con interlineado 1,35
+       cada renglón son ~4,6 mm. */
+    const altoCierreMM = Math.max(80, Math.ceil(
+      (34 + (report.cash_movements?.length ?? 0) + (report.sales?.length ?? 0)
+        + (report.reservations?.length ?? 0)) * 4.6 + 20));
     const diffColor = report.difference === 0 ? '#000' : report.difference > 0 ? '#16a34a' : '#dc2626';
     const diffLabel = report.difference === 0 ? 'CUADRADO' : report.difference > 0 ? 'SOBRANTE' : 'FALTANTE';
 
@@ -1662,7 +1669,11 @@ export class POSPrinterService {
        carta en vez de en el rollo. Misma causa que tenía el tiquete de venta;
        acá el alto va generoso y fijo porque estos documentos son de largo
        acotado y no vale la pena medirlos con un guion. */
-    @page { size: ${widthMM} 300mm; margin: 0; }   /* estimación: el guion del final la ajusta al alto real */
+    /* El alto se ESTIMA por renglones y el guion del final lo ajusta al real.
+       Estaba fijo en 300 mm: cuando el navegador no aplica un `@page` puesto
+       después de maquetar —depende del driver—, el rollo avanzaba los 30 cm
+       completos aunque el cierre midiera ocho. */
+    @page { size: ${widthMM} ${altoCierreMM}mm; margin: 0; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     /* Interlineado 1.35, no 1.7: el cierre de caja es el documento más largo
@@ -1865,6 +1876,9 @@ export class POSPrinterService {
     const fmtDate = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('es-CR', { dateStyle: 'short' });
     const widthMM = papelMM(cfg);
     const areaMM = imprimibleMM(cfg);
+    /* Encabezado, proveedor, totales y firma: unos 22 renglones, más uno por
+       artículo (dos si el nombre es largo y se parte). */
+    const altoOrdenMM = Math.max(70, Math.ceil((22 + order.items.length * 1.4) * 4.6 + 16));
 
     const rows = order.items.map(i => `
       <tr>
@@ -1885,7 +1899,10 @@ export class POSPrinterService {
        carta en vez de en el rollo. Misma causa que tenía el tiquete de venta;
        acá el alto va generoso y fijo porque estos documentos son de largo
        acotado y no vale la pena medirlos con un guion. */
-    @page { size: ${widthMM} 300mm; margin: 0; }   /* estimación: el guion del final la ajusta al alto real */
+    /* Mismo criterio que el cierre: estimado por renglones y ajustado al final.
+       Los 300 mm fijos se imprimían enteros cada vez que el navegador ignoraba
+       la regla puesta por el guion. */
+    @page { size: ${widthMM} ${altoOrdenMM}mm; margin: 0; }
     *, *::before, *::after {
       box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important;
@@ -2546,10 +2563,41 @@ export class POSPrinterService {
      * quedarse corto parte el tiquete en dos hojas y la segunda sale con el
      * total solo, que es peor.
      */
-    const altoInicialMM = Math.max(
-      120,
-      Math.round(80 + (receiptData.items?.length ?? 0) * 12),
-    );
+    /**
+     * LA ESTIMACIÓN, CALCULADA EN RENGLONES, NO A OJO.
+     *
+     * Era `max(120, 80 + items*12)`: 12 mm por producto y un piso de 12 cm.
+     * Un tiquete de dos artículos mide unos 7 cm y declaraba 12; uno de diez,
+     * 20 cm contra 12 reales. El guion del final lo corrige, pero cuando el
+     * navegador no aplica un `@page` puesto después de maquetar —pasa según el
+     * driver— lo que sale es esa estimación, y el rollo avanza hasta
+     * completarla. De ahí el papel de más.
+     *
+     * Acá se cuenta en RENGLONES, que es lo que de verdad ocupa un tiquete
+     * monoespaciado: cada uno mide `fontMM × 1,25` (el `line-height` de abajo).
+     * Sigue quedando un poco larga a propósito —quedarse corto parte el
+     * tiquete en dos hojas, que es peor— pero por milímetros, no por
+     * centímetros.
+     */
+    const altoInicialMM = (() => {
+      const renglonMM = fontMM * 1.25;
+      const items = receiptData.items ?? [];
+      /* Encabezado (nombre, cédula, dirección, teléfono, número, fecha…),
+         totales con su desglose, medio de pago y pie. */
+      let renglones = 18;
+      for (const it of items) {
+        renglones += 1;                                   // la línea del producto
+        if ((it as any).notes || (it as any).modifiers) renglones += 1;
+      }
+      if ((receiptData as any).payments?.length > 1) renglones += (receiptData as any).payments.length;
+      let mm = renglones * renglonMM + 8;                 // 8 mm: paddings y separadores
+      if (verEnTicket(cfg).logo && (receiptData.logoUrl || cfg.logoUrl)) mm += 20;   // el logo
+      if (receiptData.feClave) mm += 42;                  // QR (130 px) + clave + resolución
+      if ((receiptData as any).bipper) mm += 10;
+      /* Un piso bajo pero no cero: por debajo de 50 mm no existe un tiquete
+         con encabezado y total. */
+      return Math.max(50, Math.ceil(mm));
+    })();
 
 
     const fmt = (n: number) => n.toLocaleString('es-CR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });

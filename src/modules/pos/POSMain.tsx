@@ -28,6 +28,7 @@ import {
   getProductPromotion,
   calcPromoSubtotal,
   computeCartCombos,
+  computeCartRegalias,
   computeSegundaUnidad,
 } from '@/services/promotions/promotionsService';
 import { invoicesService, localNowISO } from '@/services/invoice/invoiceService';
@@ -757,9 +758,28 @@ export const POSMain = () => {
     activePromotions,
   );
 
-  /** Los dos descuentos de carrito, sumados por producto. */
+  /**
+   * REGALÍAS por promoción: «llevate esto y te regalo aquello».
+   *
+   * El precio de lo comprado no se toca; lo que se pone en cero es el regalo,
+   * así que —como el combo— hay que mirar el carrito entero. Cuando la compra
+   * se cumplió pero el regalo no está en el carrito, vuelve `falta_regalo`
+   * para poder ofrecerlo en vez de aplicar algo a ciegas.
+   */
+  const { applied: regaliasAplicadas, basePorProducto: baseRegalias } = computeCartRegalias(
+    cartItems.map(it => ({
+      product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity,
+      iva_pct: ivaPctDe(it),
+    })),
+    activePromotions,
+  );
+
+  /** Los descuentos de carrito, sumados por producto. */
   const basePorProducto: Record<string, number> = { ...baseCombos };
   for (const [pid, monto] of Object.entries(baseSegundas)) {
+    basePorProducto[pid] = round2((basePorProducto[pid] ?? 0) + monto);
+  }
+  for (const [pid, monto] of Object.entries(baseRegalias)) {
     basePorProducto[pid] = round2((basePorProducto[pid] ?? 0) + monto);
   }
 
@@ -772,6 +792,22 @@ export const POSMain = () => {
    * impuesto de lo que el cliente pagó.
    */
   const cartItemsNetos = cartItems.map(item => {
+    /**
+     * REGALÍA MARCADA A MANO: la línea va a la factura en CERO.
+     *
+     * Sale en el tiquete —el cliente tiene que ver qué se le dio— y descuenta
+     * inventario, pero no se cobra. Se resuelve como un descuento del 100 % de
+     * la línea y no borrando el precio: así el comprobante declara el precio
+     * real y la cortesía como descuento, que es lo que corresponde ante
+     * Hacienda y lo que después deja contar cuánto se regaló.
+     */
+    if ((item as any).__regalia) {
+      return {
+        ...item,
+        discount_amount: round2((Number((item as any).discount_amount) || 0) + item.subtotal),
+        subtotal: 0,
+      };
+    }
     const b = basePorProducto[item.product_id] ?? 0;
     if (!b) return item;
     return {
@@ -795,7 +831,16 @@ export const POSMain = () => {
       promo: c.promo, label: c.label, sets: c.pares,
       discount: c.discount_base, discount_base: c.discount_base,
     })),
+    /* Las regalías que SÍ se aplicaron. Las que esperan el regalo se avisan
+       aparte: no son un descuento todavía. */
+    ...regaliasAplicadas.filter(r => !r.falta_regalo).map(r => ({
+      promo: r.promo, label: `🎁 ${r.label}`, sets: r.veces,
+      discount: r.discount_base, discount_base: r.discount_base,
+    })),
   ];
+
+  /** Compras que ya califican y les falta meter el regalo al carrito. */
+  const regaliasPendientes = regaliasAplicadas.filter(r => r.falta_regalo);
 
   // IVA por producto sobre la línea NETA (usa el iva_rate de cada producto; si no
   // tiene, el IVA global). Desglosado por tasa para mostrarlo en el carrito.
@@ -1200,6 +1245,21 @@ export const POSMain = () => {
   const handleSetItemNotes = (productId: string, notes: string) => {
     setCartItems(prev => prev.map(item =>
       item.product_id === productId ? { ...item, notes: notes.trim() || undefined } : item));
+  };
+
+  /**
+   * Marca o desmarca una línea como REGALÍA.
+   *
+   * No borra el precio: la línea conserva su valor y se cobra en cero. Así el
+   * tiquete puede decir cuánto costaba lo que se regaló, el comprobante
+   * declara el descuento en vez de un producto de ₡0, y después se puede
+   * contar cuánto se dio de cortesía.
+   */
+  const handleToggleRegalia = (productId: string) => {
+    setCartItems(prev => prev.map(item =>
+      item.product_id === productId
+        ? ({ ...item, __regalia: !(item as any).__regalia } as any)
+        : item));
   };
 
   const handleApplyDiscount = (productId: string, discount_percent: number) => {
@@ -2048,6 +2108,10 @@ export const POSMain = () => {
             total={total}
             comboDiscount={comboDiscount}
             appliedCombos={appliedCombos}
+            regaliasPendientes={regaliasPendientes.map(r => ({
+              label: r.label,
+              gift_name: products.find(p => p.id === r.promo.gift_product_id)?.name,
+            }))}
             roundingAdjust={roundingAdjust}
             taxEnabled={taxEnabled}
             taxRate={taxRate}
@@ -2062,6 +2126,7 @@ export const POSMain = () => {
             onChangeQuantity={handleChangeQuantity}
             onApplyDiscount={handleApplyDiscount}
             onSetItemNotes={handleSetItemNotes}
+            onToggleRegalia={handleToggleRegalia}
             onPayment={startCobro}
             onPreTicket={printPreTicket}
             onSendKitchen={(windowMode || !isCaja) ? sendKitchen : undefined}
@@ -2094,6 +2159,10 @@ export const POSMain = () => {
             total={total}
             comboDiscount={comboDiscount}
             appliedCombos={appliedCombos}
+            regaliasPendientes={regaliasPendientes.map(r => ({
+              label: r.label,
+              gift_name: products.find(p => p.id === r.promo.gift_product_id)?.name,
+            }))}
             roundingAdjust={roundingAdjust}
             taxEnabled={taxEnabled}
             taxRate={taxRate}
@@ -2108,6 +2177,7 @@ export const POSMain = () => {
             onChangeQuantity={handleChangeQuantity}
             onApplyDiscount={handleApplyDiscount}
             onSetItemNotes={handleSetItemNotes}
+            onToggleRegalia={handleToggleRegalia}
             onPayment={startCobro}
             onPreTicket={printPreTicket}
             onSendKitchen={(windowMode || !isCaja) ? sendKitchen : undefined}

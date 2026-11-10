@@ -37,7 +37,7 @@ function enqueuePromoOp(tid: string, op: Record<string, unknown>) {
 
 const EMPTY: PromotionPayload = {
   name: '', description: null, type: 'percentage', value: 10, combo_mode: 'price', bundle_qty: 2,
-  second_rule: 'barato',
+  second_rule: 'barato', gift_product_id: null, gift_qty: 1,
   applies_to: 'all', category_id: null, product_ids: [],
   starts_at: today(), ends_at: today(), is_active: true,
 };
@@ -51,6 +51,8 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
         value: editing.value, combo_mode: editing.combo_mode ?? 'price',
         bundle_qty: editing.bundle_qty ?? 2,
         second_rule: editing.second_rule ?? 'barato',
+        gift_product_id: (editing as any).gift_product_id ?? null,
+        gift_qty: (editing as any).gift_qty ?? 1,
         applies_to: editing.applies_to, category_id: editing.category_id,
         product_ids: editing.product_ids ?? [], starts_at: editing.starts_at,
         ends_at: editing.ends_at ?? '', is_active: editing.is_active,
@@ -116,6 +118,10 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
     if (!form.name.trim()) { setError('El nombre es requerido'); return; }
     if (form.type !== '2x1' && form.value <= 0) { setError('El valor del descuento debe ser mayor a 0'); return; }
     if (form.type === 'combo' && form.product_ids.length < 2) { setError('Un combo necesita al menos 2 productos'); return; }
+    if (form.type === 'gift') {
+      if (form.product_ids.length === 0) { setError('Elegí qué hay que comprar para llevarse la regalía'); return; }
+      if (!form.gift_product_id) { setError('Elegí cuál es el artículo de regalía'); return; }
+    }
     if (form.type === 'qty_bundle') {
       if (!(Number(form.bundle_qty) > 0)) { setError('Indicá cuántas unidades forman el paquete (ej. 2 kg).'); return; }
       if (form.applies_to === 'all') {
@@ -123,8 +129,8 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
         return;
       }
     }
-    if (form.type !== 'combo' && form.applies_to === 'category' && !form.category_id) { setError('Selecciona una categoría'); return; }
-    if (form.type !== 'combo' && form.applies_to === 'products' && form.product_ids.length === 0) { setError('Selecciona al menos un producto'); return; }
+    if (form.type !== 'combo' && form.type !== 'gift' && form.applies_to === 'category' && !form.category_id) { setError('Selecciona una categoría'); return; }
+    if (form.type !== 'combo' && form.type !== 'gift' && form.applies_to === 'products' && form.product_ids.length === 0) { setError('Selecciona al menos un producto'); return; }
     if (form.ends_at && form.starts_at > form.ends_at) { setError('La fecha de inicio no puede ser posterior a la de fin'); return; }
     setSaving(true);
     setError('');
@@ -163,6 +169,8 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
                sin la regla del par y cobraba al más barato hasta el próximo
                refresco, aunque se hubiera elegido al más caro. */
             second_rule: form.type === 'second_half' ? (form.second_rule ?? 'barato') : null,
+            gift_product_id: form.type === 'gift' ? (form.gift_product_id ?? null) : null,
+            gift_qty: form.type === 'gift' ? Math.max(1, Number(form.gift_qty) || 1) : null,
             applies_to: form.applies_to,
             category_id: form.category_id ?? null,
             product_ids: form.product_ids ?? [],
@@ -194,6 +202,8 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
         bundle_qty: form.type === 'qty_bundle' ? Number(form.bundle_qty) : null,
         // La regla del par solo tiene sentido en la promo de segunda unidad.
         second_rule: form.type === 'second_half' ? (form.second_rule ?? 'barato') : null,
+        gift_product_id: form.type === 'gift' ? (form.gift_product_id ?? null) : null,
+        gift_qty: form.type === 'gift' ? Math.max(1, Number(form.gift_qty) || 1) : null,
       };
       const guardada = editing
         ? await promotionsService.update(editing.id, payload)
@@ -306,7 +316,7 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-2">Tipo de descuento *</label>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {(['percentage', 'fixed', '2x1', 'combo', 'qty_bundle', 'second_half'] as PromoType[]).map(t => {
+              {(['percentage', 'fixed', '2x1', 'combo', 'qty_bundle', 'second_half', 'gift'] as PromoType[]).map(t => {
                 const cfg = TYPE_CFG[t];
                 return (
                   <button key={t} type="button" onClick={() => elegirTipo(t)}
@@ -344,8 +354,9 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
             </div>
           )}
 
-          {/* Valor (porcentaje, fijo y combo) */}
-          {form.type !== '2x1' && (
+          {/* Valor (porcentaje, fijo y combo). La regalía no lleva monto: lo que
+              vale es el artículo que se regala. */}
+          {form.type !== '2x1' && form.type !== 'gift' && (
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1">
                 {form.type === 'combo'
@@ -504,8 +515,74 @@ export function FormModal({ editing, tenantId, onClose, onSaved }: FormModalProp
             </div>
           )}
 
-          {/* Aplica a (no aplica a combos: el combo define su propio grupo de productos) */}
-          {form.type !== 'combo' && (
+          {/* REGALÍA: qué hay que comprar y qué se lleva de cortesía. */}
+          {form.type === 'gift' && (
+            <div className="space-y-3">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-900">
+                El precio de lo que se compra <b>no cambia</b>: lo que sale en cero es el artículo de
+                regalía. Elegí abajo qué hay que llevar —uno solo, o varios si es un conjunto— y cuál es
+                el regalo.
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">
+                  ¿Qué hay que comprar? * <span className="font-normal text-gray-400">({form.product_ids.length} seleccionado{form.product_ids.length === 1 ? '' : 's'})</span>
+                </label>
+                <p className="text-[11px] text-gray-400 mb-2">
+                  Con uno solo, la regalía va con ese artículo. Con varios, hay que llevarlos TODOS
+                  —es un conjunto— para que aplique.
+                </p>
+                <input type="text" value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                  placeholder="Buscar producto..."
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 mb-2" />
+                <div className="border border-gray-200 rounded-xl overflow-y-auto max-h-40 divide-y divide-gray-50">
+                  {filteredProducts.map(p => (
+                    <label key={p.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                      <input type="checkbox" checked={form.product_ids.includes(p.id)} onChange={() => toggleProduct(p.id)}
+                        className="w-4 h-4 rounded text-emerald-600" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
+                        {p.sku && <p className="text-xs text-gray-400">{p.sku}</p>}
+                      </div>
+                      {precioDe(p) > 0 && <span className="text-xs font-mono text-gray-400">{col(precioDe(p))}</span>}
+                    </label>
+                  ))}
+                  {filteredProducts.length === 0 && (
+                    <p className="text-center py-4 text-sm text-gray-400">Sin resultados</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-gray-600 mb-1">¿Qué se regala? *</label>
+                  <select value={form.gift_product_id ?? ''}
+                    onChange={e => set('gift_product_id', e.target.value || null)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                    <option value="">— elegir el artículo de regalía —</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}{precioDe(p) > 0 ? ` · ${col(precioDe(p))}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">¿Cuántos?</label>
+                  <input type="number" min="1" step="1" value={form.gift_qty ?? 1}
+                    onChange={e => set('gift_qty', Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                </div>
+              </div>
+
+              <p className="text-[11px] text-gray-400">
+                En la caja, el regalo tiene que estar en el carrito para que se ponga en cero: el sistema
+                no lo agrega solo —movería inventario sin que nadie lo pida— pero avisa cuando la compra
+                ya califica.
+              </p>
+            </div>
+          )}
+
+          {/* Aplica a (no aplica a combos ni regalías: definen su propio grupo). */}
+          {form.type !== 'combo' && form.type !== 'gift' && (
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-2">¿A qué aplica? *</label>
             <div className="grid grid-cols-3 gap-2">

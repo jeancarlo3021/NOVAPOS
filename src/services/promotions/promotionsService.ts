@@ -23,7 +23,7 @@ import { apiFetch } from '@/lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type PromoType    = 'percentage' | 'fixed' | '2x1' | 'combo' | 'qty_bundle' | 'second_half';
+export type PromoType    = 'percentage' | 'fixed' | '2x1' | 'combo' | 'qty_bundle' | 'second_half' | 'gift';
 /**
  * A CUÁL del par se le descuenta, cuando los dos productos no valen lo mismo.
  *
@@ -49,6 +49,9 @@ export interface Promotion {
   bundle_qty?: number | null;
   /** Segunda unidad: a cuál del par se le descuenta. Por defecto, al más barato. */
   second_rule?: SecondRule | null;
+  /** Regalía: qué artículo se regala y cuántos por cada compra cumplida. */
+  gift_product_id?: string | null;
+  gift_qty?: number | null;
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
@@ -69,6 +72,9 @@ export interface PromotionPayload {
   combo_mode?: ComboMode | null;
   bundle_qty?: number | null;
   second_rule?: SecondRule | null;
+  /** Regalía: qué se regala y cuántos por compra cumplida. */
+  gift_product_id?: string | null;
+  gift_qty?: number | null;
   applies_to:  PromoScope;
   category_id: string | null;
   product_ids: string[];
@@ -144,6 +150,11 @@ export function promoLabel(promo: Promotion): string {
   if (promo.type === 'combo')      return promo.combo_mode === 'percent'
                                      ? `Combo -${promo.value}%`
                                      : `Combo ₡${Number(promo.value).toLocaleString('es-CR')}`;
+  if (promo.type === 'gift') {
+    const n = Math.max(1, Number(promo.gift_qty) || 1);
+    const compra = (promo.product_ids?.length ?? 0) > 1 ? 'el conjunto' : 'el artículo';
+    return n > 1 ? `${n} de regalía con ${compra}` : `Regalía con ${compra}`;
+  }
   return '';
 }
 
@@ -451,3 +462,117 @@ export const promotionsService = {
     await apiFetch('/promotions/' + id, { method: 'DELETE' });
   },
 };
+
+/** Una línea del carrito, para resolver las regalías. */
+export interface RegaliaCartItem {
+  product_id: string;
+  unit_price: number;
+  quantity: number;
+  iva_pct?: number;
+}
+
+export interface AppliedRegalia {
+  promo: Promotion;
+  label: string;
+  /** Cuántas veces se cumplió la compra. */
+  veces: number;
+  /** Cuántas unidades se regalaron de verdad (puede ser menos de lo prometido). */
+  regaladas: number;
+  /** Lo que se deja de cobrar, SIN IVA (es lo que baja la base imponible). */
+  discount_base: number;
+  /** Faltó el regalo en el carrito: hay que agregarlo para que se aplique. */
+  falta_regalo?: boolean;
+}
+
+/**
+ * REGALÍAS: «llevate esto y te regalo aquello».
+ *
+ * El precio de lo comprado no se toca; lo que se pone en cero es el REGALO.
+ * Por eso no se puede resolver línea por línea: hay que mirar el carrito
+ * entero para saber si lo que pide la promo está, y cuántas veces.
+ *
+ * ── El regalo tiene que estar en el carrito ───────────────────────────────
+ * No se agrega solo. Meter un producto en la venta sin que el cajero lo pida
+ * mueve inventario y cambia el total por su cuenta; y si el negocio se quedó
+ * sin el refresco de cortesía, el sistema estaría facturando algo que no
+ * salió. Cuando falta, se devuelve `falta_regalo` para que la pantalla lo
+ * ofrezca y lo agregue quien está cobrando.
+ *
+ * ── Si el regalo es el MISMO producto que se compra ───────────────────────
+ * «Comprá 2 y llevate 1» del mismo artículo: las unidades regaladas se cuentan
+ * aparte de las exigidas. Con 2 en el carrito no hay regalo —esas 2 son el
+ * requisito—; con 3 sí. Sin esta cuenta, dos unidades se regalarían a sí
+ * mismas y el negocio vendería a mitad de precio sin saberlo.
+ */
+export function computeCartRegalias(
+  items: RegaliaCartItem[],
+  promotions: Promotion[],
+): { discount: number; applied: AppliedRegalia[]; basePorProducto: Record<string, number> } {
+  const hoy = todayCR();
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const promos = promotions.filter(
+    p => p.type === 'gift' && p.is_active && p.gift_product_id
+      && Array.isArray(p.product_ids) && p.product_ids.length >= 1
+      && p.starts_at <= hoy && (!p.ends_at || p.ends_at >= hoy),
+  );
+
+  const applied: AppliedRegalia[] = [];
+  const basePorProducto: Record<string, number> = {};
+  let discount = 0;
+  /* Una unidad regalada no se regala dos veces: si dos promos alcanzan al
+     mismo producto, la primera se lleva las unidades que usó. */
+  const yaRegaladas: Record<string, number> = {};
+
+  for (const promo of promos) {
+    const regaloId = String(promo.gift_product_id);
+    const porVez = Math.max(1, Number(promo.gift_qty) || 1);
+
+    /* ¿Cuántas veces se cumple la compra? Es el mínimo entre los productos
+       exigidos: un conjunto incompleto no es un conjunto. */
+    let veces = Infinity;
+    for (const pid of promo.product_ids) {
+      const it = items.find(i => i.product_id === pid);
+      if (!it || it.quantity < 1) { veces = 0; break; }
+      /* Si el regalo es uno de los exigidos, sus unidades no pueden contar
+         para las dos cosas: se reservan las que hacen falta como requisito. */
+      const disponible = pid === regaloId
+        ? Math.floor(it.quantity / (1 + porVez)) * 1
+        : Math.floor(it.quantity);
+      veces = Math.min(veces, disponible);
+    }
+    if (!isFinite(veces) || veces < 1) continue;
+
+    const enCarrito = items.find(i => i.product_id === regaloId);
+    const prometidas = veces * porVez;
+    if (!enCarrito) {
+      /* La compra está hecha pero el regalo no se agregó: se avisa en vez de
+         aplicarlo a ciegas o de callarlo. */
+      applied.push({
+        promo, label: promoLabel(promo), veces, regaladas: 0,
+        discount_base: 0, falta_regalo: true,
+      });
+      continue;
+    }
+
+    /* Nunca se regala más de lo que hay en el carrito: si el cliente lleva una
+       sola gaseosa, se regala esa y no dos. */
+    const libres = Math.max(0, Math.floor(enCarrito.quantity) - (yaRegaladas[regaloId] ?? 0)
+      - (promo.product_ids.includes(regaloId) ? veces : 0));
+    const regaladas = Math.min(prometidas, libres);
+    if (regaladas <= 0) continue;
+
+    const factor = 1 + (Number(enCarrito.iva_pct) || 0) / 100;
+    /* El descuento se guarda SIN IVA, igual que el de los combos: es lo que
+       baja la base imponible, y así el impuesto se cobra sobre lo que de
+       verdad se cobró. */
+    const conIva = r2(enCarrito.unit_price * factor * regaladas);
+    const base = r2(conIva / factor);
+
+    basePorProducto[regaloId] = r2((basePorProducto[regaloId] ?? 0) + base);
+    yaRegaladas[regaloId] = (yaRegaladas[regaloId] ?? 0) + regaladas;
+    discount = r2(discount + base);
+    applied.push({ promo, label: promoLabel(promo), veces, regaladas, discount_base: base });
+  }
+
+  return { discount, applied, basePorProducto };
+}

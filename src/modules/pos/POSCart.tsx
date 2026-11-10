@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer, StickyNote, ChefHat } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Tag, Printer, StickyNote, ChefHat, Gift } from 'lucide-react';
 import { CartItem, CashSession } from '@/types/Types_POS';
 import type { AppliedCombo } from '@/services/promotions/promotionsService';
 import { displayPrice, productIvaPct } from '@/utils/priceUtils';
@@ -52,6 +52,14 @@ interface POSCartPanelProps {
   comboDiscount?: number;
   /** Combos armados en el carrito (para mostrar cada uno). */
   appliedCombos?: AppliedCombo[];
+  /**
+   * Regalías que YA se ganaron y a las que les falta el regalo en el carrito.
+   *
+   * Se avisa en vez de agregarlo solo: meter un producto en la venta sin que
+   * nadie lo pida mueve inventario y cambia el total por su cuenta. Y callarlo
+   * sería peor —el cliente se va sin lo que la promo le prometía—.
+   */
+  regaliasPendientes?: Array<{ label: string; gift_name?: string }>;
   /** Ajuste por redondeo de caja (total cobrado − total exacto). */
   roundingAdjust?: number;
   taxEnabled?: boolean;
@@ -73,6 +81,15 @@ interface POSCartPanelProps {
   onApplyDiscount?: (productId: string, discountPct: number) => void;
   /** Guarda la nota de una línea (comidas: "sin cebolla", "para llevar"). */
   onSetItemNotes?: (productId: string, notes: string) => void;
+  /**
+   * Marca una línea como REGALÍA: aparece en el tiquete y no se cobra.
+   *
+   * Es la cortesía que decide el cajero en el momento —el refresco que se le
+   * va al cliente de siempre—, distinta de la promoción de regalía, que es una
+   * regla del negocio. Sale en la factura con su línea y en cero: así descuenta
+   * inventario y queda constancia de qué se regaló.
+   */
+  onToggleRegalia?: (productId: string) => void;
   onPayment: () => void;
   /** Imprime un pre-ticket (proforma, sin cobrar). */
   onPreTicket?: () => void;
@@ -126,6 +143,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   taxAmount,
   total,
   appliedCombos = [],
+  regaliasPendientes = [],
   roundingAdjust = 0,
   taxEnabled = true,
   taxRate = 0.13,
@@ -140,6 +158,7 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   maxDiscountPercent = 100,
   onApplyDiscount,
   onSetItemNotes,
+  onToggleRegalia,
   onPayment,
   onPreTicket,
   onSendKitchen,
@@ -166,7 +185,12 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   const showAmount = (item: CartItem, amount: number) =>
     displayPrice(amount, ivaPctOf(item), { taxEnabled, withTax: showPricesWithTax });
   const showUnit = (item: CartItem) => showAmount(item, item.unit_price);
-  const showLine = (item: CartItem) => showAmount(item, item.subtotal);
+  /* Una regalía se MUESTRA en cero: es lo que el cliente va a ver en el
+     tiquete y lo que no se le va a cobrar. Si mostrara el precio y después no
+     lo sumara, el carrito no cuadraría contra el total y el cajero no sabría
+     a quién creerle. */
+  const showLine = (item: CartItem) =>
+    (item as any).__regalia ? 0 : showAmount(item, item.subtotal);
   /** ¿Los importes de línea llevan el IVA adentro? (para rotular el resumen) */
   const linesWithTax = taxEnabled && showPricesWithTax;
 
@@ -374,6 +398,26 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                             <Tag size={9} />
                             {item.promo!.type === '2x1' ? '2×1' : item.promo!.type === 'percentage' ? `${item.promo!.value}%` : `-₡${item.promo!.value}`}
                           </span>
+                        )}
+                        {(item as any).__regalia && (
+                          <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] bg-emerald-100 text-emerald-700 font-black px-1.5 py-0.5 rounded">
+                            🎁 REGALÍA
+                          </span>
+                        )}
+                        {/* Marcar/desmarcar la línea como cortesía. */}
+                        {onToggleRegalia && (
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); onToggleRegalia(item.product_id); }}
+                            title={(item as any).__regalia
+                              ? 'Quitar la regalía: se vuelve a cobrar'
+                              : 'Marcar como regalía: sale en el tiquete pero no se cobra'}
+                            className={`shrink-0 p-1 rounded transition ${
+                              (item as any).__regalia ? 'text-emerald-600 hover:bg-emerald-100' : 'text-gray-300 hover:text-emerald-600 hover:bg-emerald-50'
+                            }`}
+                          >
+                            <Gift size={14} />
+                          </button>
                         )}
                         {/* Nota de la línea: se abre con el botón y se guarda con Enter. */}
                         {onSetItemNotes && notingId !== item.product_id && (
@@ -670,6 +714,14 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                 <div key={i} className="flex justify-between text-rose-600 font-bold">
                   <span className="inline-flex items-center gap-1"><Tag size={11} /> {c.label}{c.sets > 1 ? ` ×${c.sets}` : ''}</span>
                   <span>{c.discount >= 0 ? '-' : '+'}₡{money(Math.abs(c.discount))}</span>
+                </div>
+              ))}
+              {regaliasPendientes.map((r, i) => (
+                <div key={`reg-${i}`} className="flex items-start gap-1.5 text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5">
+                  <span>🎁</span>
+                  <span className="flex-1">
+                    {r.label}: agregá {r.gift_name ? <b>{r.gift_name}</b> : 'el artículo de regalía'} al carrito y se cobra en cero.
+                  </span>
                 </div>
               ))}
               {roundingAdjust !== 0 && (
