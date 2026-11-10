@@ -571,6 +571,31 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
                       </span>
                     )}
                   </span>
+                  {/* REGALÍA, también en este formato de carrito.
+                      Es el que se usa por omisión —el panel de la derecha—, así
+                      que el botón tiene que estar acá y no solo en el modo
+                      lista: estaba en uno de los dos y no se veía. */}
+                  {(item as any).__regalia && (
+                    <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] bg-emerald-100 text-emerald-700 font-black px-1.5 py-0.5 rounded self-center">
+                      🎁 REGALÍA
+                    </span>
+                  )}
+                  {onToggleRegalia && (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); onToggleRegalia(item.product_id); }}
+                      title={(item as any).__regalia
+                        ? 'Quitar la regalía: se vuelve a cobrar'
+                        : 'Marcar como regalía: sale en el tiquete pero no se cobra'}
+                      className={`w-7 h-7 rounded-md flex items-center justify-center transition shrink-0 ${
+                        (item as any).__regalia
+                          ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
+                          : 'text-gray-300 hover:text-emerald-600 hover:bg-emerald-50'
+                      }`}
+                    >
+                      <Gift size={14} />
+                    </button>
+                  )}
                   {showOriginal && (
                     <span className="text-gray-300 text-xs line-through shrink-0">₡{money(showAmount(item, originalSubtotal))}</span>
                   )}
