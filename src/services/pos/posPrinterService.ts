@@ -1670,9 +1670,9 @@ export class POSPrinterService {
        acá el alto va generoso y fijo porque estos documentos son de largo
        acotado y no vale la pena medirlos con un guion. */
     /* El alto se ESTIMA por renglones y el guion del final lo ajusta al real.
-       Estaba fijo en 300 mm: cuando el navegador no aplica un `@page` puesto
-       después de maquetar —depende del driver—, el rollo avanzaba los 30 cm
-       completos aunque el cierre midiera ocho. */
+       Estaba fijo en 300 mm: cuando el navegador no aplica una regla de
+       página puesta después de maquetar —depende del driver—, el rollo
+       avanzaba los 30 cm completos aunque el cierre midiera ocho. */
     @page { size: ${widthMM} ${altoCierreMM}mm; margin: 0; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -1901,7 +1901,7 @@ export class POSPrinterService {
        acotado y no vale la pena medirlos con un guion. */
     /* Mismo criterio que el cierre: estimado por renglones y ajustado al final.
        Los 300 mm fijos se imprimían enteros cada vez que el navegador ignoraba
-       la regla puesta por el guion. */
+       la regla que pone el guion del final. */
     @page { size: ${widthMM} ${altoOrdenMM}mm; margin: 0; }
     *, *::before, *::after {
       box-sizing: border-box; margin: 0; padding: 0;
