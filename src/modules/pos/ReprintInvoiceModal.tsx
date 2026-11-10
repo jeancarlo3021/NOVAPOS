@@ -8,7 +8,8 @@ import { posOfflineService } from '@/services/pos/posOfflineService';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { ticketGuardado } from '@/services/pos/ticketSnapshots';
 import { useTenantId } from '@/hooks/useTenant';
-import { formatWallClock } from '@/utils/datetime';
+import { formatWallClock, wallClockDate } from '@/utils/datetime';
+import { parseServerDate } from '@/utils/crDate';
 
 interface InvoiceRow {
   id: string;
@@ -173,7 +174,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
         }
         await downloadInvoicePdf({
           invoiceNumber: copia.invoiceNumber,
-          date: new Date(row.issued_at ?? Date.now()),
+          date: wallClockDate(row.issued_at) ?? new Date(),
           customerName: copia.customerName ?? null,
           customerPhone: copia.customerPhone ?? null,
           items: (copia.items ?? []).map(it => ({
@@ -189,7 +190,9 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
       }
       await downloadInvoicePdf({
         invoiceNumber: full.invoice_number ?? '',
-        date: new Date(full.issued_at ?? full.created_at ?? Date.now()),
+        /* Misma regla que el tiquete: `issued_at` se lee literal (es hora de
+           pared) y `created_at` solo como respaldo, interpretado como UTC. */
+        date: wallClockDate(full.issued_at) ?? parseServerDate(full.created_at) ?? new Date(),
         customerName: full.customer_name ?? null,
         customerPhone: full.customer_phone ?? null,
         items: (full.items ?? []).map((it: any) => ({
@@ -264,7 +267,26 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
         ?? cacheGet<any>(cacheKey(tenantId, 'general_settings'));
       const general = cachedGeneral?.config ?? cachedGeneral;
 
-      const date = new Date(full.created_at);
+      /**
+       * LA FECHA DE LA FACTURA ES `issued_at`, NO `created_at`.
+       *
+       * `issued_at` es el reloj de pared del cajero —la hora que salió en el
+       * tiquete original—. `created_at` es cuándo la fila entró al servidor,
+       * en UTC y en una columna sin zona, así que llega como
+       * "2026-11-10T00:06:21" y el navegador la lee como hora local.
+       *
+       * Resultado medido en producción (CROQUETIKAS): una venta de las 18:04
+       * del 9 de noviembre se reimprimía con fecha **10 de noviembre, 12:06
+       * a. m.** Toda venta después de las 6 de la tarde salía reimpresa con
+       * la fecha del día siguiente — 9 de las últimas 60 facturas— y no
+       * dependía de la zona horaria del aparato: la cuenta ya venía corrida
+       * desde la base.
+       *
+       * `wallClockDate` lee los dígitos tal cual, que es lo que corresponde a
+       * una hora de pared; si faltara `issued_at` (ventas viejas), se cae a
+       * `created_at` interpretándolo como lo que es: UTC.
+       */
+      const date = wallClockDate(full.issued_at) ?? parseServerDate(full.created_at) ?? new Date();
 
       await posPrinterService.printAuto(
         {

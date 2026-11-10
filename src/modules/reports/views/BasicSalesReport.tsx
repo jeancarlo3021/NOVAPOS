@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { TrendingUp, ShoppingBag, CreditCard, Receipt, Download, FileText } from 'lucide-react';
 import { useReportsData } from '@/hooks/reports/useReportsData';
+import { formatWallClock } from '@/utils/datetime';
 
 const fmt = (n: number) =>
   `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
@@ -133,7 +134,11 @@ export const BasicSalesReport: React.FC<Props> = ({ tenantId }) => {
                   <tr key={f.id} className="border-t border-gray-50 hover:bg-gray-50/60">
                     <td className="px-6 py-2 font-bold text-gray-800">#{f.invoice_number}</td>
                     <td className="px-3 py-2 text-gray-500">
-                      {new Date(f.issued_at).toLocaleString('es-CR', {
+                      {/* `issued_at` es hora de pared: se lee literal. Con
+                          `new Date()` quedaba a merced de que la API devuelva
+                          o no el offset — y el día que lo devuelva, todas las
+                          ventas de la tarde se corren al día siguiente. */}
+                      {formatWallClock(f.issued_at, {
                         day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
                       })}
                     </td>
