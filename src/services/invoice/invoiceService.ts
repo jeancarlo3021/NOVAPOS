@@ -128,7 +128,15 @@ export const invoicesService = {
     const isMixed = !!payments && payments.length > 1;
     if (!isMixed) {
       if (paymentMethod === 'cash') {
-        if (!amountReceived || amountReceived < total) {
+        /* UNA FACTURA EN CERO SE PUEDE COBRAR. Pasa cuando toda la venta es
+           regalía o cortesía: no entra plata, pero la factura tiene que salir
+           para que el inventario baje y quede el registro de lo que se dio.
+           Esto decía `!amountReceived`, y con un total de ₡0 el recibido
+           también es ₡0 —que es correcto— así que la venta se caía con
+           «Monto recibido inválido». La tolerancia de medio colón es la misma
+           que usa el modal de cobro, por el redondeo de caja. */
+        const recibido = Number(amountReceived) || 0;
+        if (total > 0 && recibido < total - 0.5) {
           throw new Error('Monto recibido inválido para pago en efectivo');
         }
       }
