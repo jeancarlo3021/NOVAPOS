@@ -1195,6 +1195,17 @@ export default function Plans() {
                     description="Vitrina pública de productos, con código y disponibilidad — para negocios que no venden comida"
                     checked={(features as any).digital_catalog ?? false}
                     onChange={v => set({ digital_catalog: v } as any)} />
+                  {/* MESA DIGITAL (ColónTab). La pantalla, el módulo de
+                      permisos y la llave del plan existían desde el principio,
+                      pero esta casilla nunca se puso: sin forma de encender
+                      `mesa_digital` en ningún plan, la entrada del menú no le
+                      aparecía a NADIE y el módulo quedaba inalcanzable. Es la
+                      diferencia entre el menú (la carta, que solo se lee) y la
+                      mesa (los avisos del cliente), así que son dos llaves. */}
+                  <FeatureRow icon={BellRing} color="bg-cyan-500" title="Mesa digital (ColónTab)"
+                    description="El cliente escanea el QR de SU mesa y avisa: listo para ordenar, llamar al mesero, pedir la cuenta. Los avisos suenan en el mapa del salón."
+                    checked={(features as any).mesa_digital ?? false}
+                    onChange={v => set({ mesa_digital: v } as any)} />
                   <FeatureRow icon={UtensilsCrossed} color="bg-emerald-500" title="Menú por recetas"
                     description="En el salón se ofrecen las recetas, no el catálogo completo de inventario"
                     checked={(features as any).restaurant_menu_recipes ?? false}

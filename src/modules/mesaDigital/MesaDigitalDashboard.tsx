@@ -67,9 +67,9 @@ export const MesaDigitalDashboard: React.FC = () => {
               <QrCode size={20} />
             </div>
             <div>
-              <h1 className="text-xl font-black text-gray-900">Mesa digital</h1>
+              <h1 className="text-xl font-black text-gray-900">ColónTab</h1>
               <p className="text-xs text-gray-400">
-                El cliente escanea el QR de su mesa y avisa sin levantar la mano
+                Mesa digital: el cliente escanea el QR de su mesa y avisa sin levantar la mano
               </p>
             </div>
           </div>
