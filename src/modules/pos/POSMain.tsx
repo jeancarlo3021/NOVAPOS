@@ -189,6 +189,8 @@ export const POSMain = () => {
     try {
       const pending = JSON.parse(raw) as {
         order_id: string; table_label?: string; customer_name?: string | null;
+        /** La cuenta venía marcada «para llevar» en el salón. */
+        is_delivery?: boolean;
         items: Array<{ product_id?: string | null; product_name: string; quantity: number; unit_price: number; subtotal: number; notes?: string | null; is_adhoc?: boolean; iva_rate?: number }>;
       };
       const cart = (pending.items ?? []).map(it => {
@@ -217,13 +219,40 @@ export const POSMain = () => {
           quantity: it.quantity,
           subtotal: it.subtotal,
           notes: it.notes ?? undefined,
+          /**
+           * EL PRECIO VIENE DADO y no se vuelve a calcular.
+           *
+           * El de la mesa ya trae los adicionales adentro («+ extra queso»), y
+           * el reprecio del carrito —que corre al cambiar de modo o al cargar
+           * los precios del cliente— lo reemplazaba por el de lista: los
+           * adicionales desaparecían de la factura y el cliente pagaba menos
+           * de lo que consumió.
+           */
+          __precioFijo: true,
+          /* Las promos de estas líneas se resuelven aparte: cuando la cuenta
+             llega, la lista de promociones puede no haber cargado todavía. */
+          __promoPendiente: !suelto || undefined,
         };
       });
       if (cart.length === 0) return;
       setCartItems(cart as any);
       if (pending.customer_name) setTabCustomerName(pending.customer_name);
       tableOrderToClose.current = { id: pending.order_id, label: pending.table_label ?? 'Mesa' };
-      setSuccess(`Cuenta de ${pending.table_label ?? 'la mesa'} cargada — completá el cobro para cerrarla`);
+      /**
+       * «PARA LLEVAR» en el salón NO es el modo Delivery del POS.
+       *
+       * Acá «delivery» significa plataforma (Uber, Didi): reemplaza los medios
+       * de pago, da por cobrado el total y la venta queda FUERA del cierre de
+       * caja. Un pedido para llevar que el cliente paga en efectivo en el
+       * mostrador tiene que entrar al cierre como cualquier venta, así que
+       * forzar el modo le descuadraría la gaveta al cajero.
+       *
+       * Lo que sí corresponde es ofrecer el DOMICILIO: se destaca el control
+       * de reparto para que el cajero le ponga la tarifa y el repartidor si el
+       * pedido sale en moto. Si es plataforma, el cajero cambia el modo a mano.
+       */
+      if (pending.is_delivery) setRepartoSugerido(true);
+      setSuccess(`Cuenta de ${pending.table_label ?? 'la mesa'} cargada${pending.is_delivery ? ' (para llevar)' : ''} — completá el cobro para cerrarla`);
     } catch { /* json corrupto: se ignora */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productsLoading, products.length]);
@@ -351,6 +380,8 @@ export const POSMain = () => {
    * Ajustes → Delivery) y el cliente lo ve en su tiquete.
    */
   const [reparto, setReparto] = useState<RepartoElegido | null>(null);
+  /** La cuenta llegó marcada «para llevar»: hay que preguntar por el domicilio. */
+  const [repartoSugerido, setRepartoSugerido] = useState(false);
 
   /* La línea del domicilio sigue a lo elegido: se agrega, se cambia de monto
      o se quita, sin que el cajero tenga que acordarse de borrarla. */
@@ -759,6 +790,45 @@ export const POSMain = () => {
   );
 
   /**
+   * PROMOS DE LAS LÍNEAS QUE LLEGAN DE OTRA PANTALLA (la cuenta de una mesa).
+   *
+   * Las líneas que el cajero toca reciben su promo al agregarse al carrito.
+   * Las que llegan armadas —el consumo de una mesa— nunca pasaban por ahí, así
+   * que un «20 % en cervezas» se aplicaba cobrando en el POS y NO cobrando la
+   * misma cerveza desde el salón. Se resuelven acá, con la misma función, en
+   * cuanto hay promociones cargadas: la lista llega por su cuenta y puede
+   * tardar más que la cuenta.
+   *
+   * Las promos de carrito (combos, segunda unidad, regalías) no necesitan
+   * esto: miran el carrito entero y ya corrían para cualquier línea.
+   */
+  useEffect(() => {
+    if (activePromotions.length === 0) return;
+    setCartItems(prev => {
+      if (!prev.some(it => (it as any).__promoPendiente)) return prev;
+      return prev.map(item => {
+        if (!(item as any).__promoPendiente) return item;
+        const promo = getProductPromotion(
+          item.product_id, (item.product as any)?.category_id ?? null, activePromotions);
+        const sinMarca: any = { ...item };
+        delete sinMarca.__promoPendiente;
+        if (!promo) return sinMarca;
+        return {
+          ...sinMarca,
+          subtotal: round2(calcPromoSubtotal(item.unit_price, item.quantity, promo)),
+          promo: {
+            id: promo.id, name: promo.name, type: promo.type, value: promo.value,
+            bundle_qty: promo.bundle_qty ?? null,
+          },
+        };
+      });
+    });
+    /* Depende también del carrito: la cuenta puede llegar DESPUÉS de las
+       promociones. Cuando no hay nada pendiente se devuelve el mismo arreglo,
+       así que esto no se muerde la cola. */
+  }, [activePromotions, cartItems]);
+
+  /**
    * REGALÍAS por promoción: «llevate esto y te regalo aquello».
    *
    * El precio de lo comprado no se toca; lo que se pone en cero es el regalo,
@@ -992,6 +1062,10 @@ export const POSMain = () => {
   // Re-precificar el carrito cuando cambian los precios del cliente o el modo.
   useEffect(() => {
     setCartItems(prev => prev.map(item => {
+      /* Las líneas que llegan con precio dado (la cuenta de una mesa, con sus
+         adicionales adentro) NO se reprecian: tomar el precio de lista les
+         borraba los adicionales. */
+      if ((item as any).__precioFijo) return item;
       const dp = Number((item.product as any)?.delivery_price ?? 0);
       const base = (isDeliveryMode && dp > 0)
         ? dp
@@ -1718,6 +1792,7 @@ export const POSMain = () => {
         /* El domicilio es de ESA venta: dejarlo puesto cobraría el reparto
            anterior en la siguiente, que es plata que el cliente no pidió. */
         setReparto(null);
+        setRepartoSugerido(false);
         setBipper('');
         setShowPaymentModal(false);
         setCartOpen(false);
@@ -2136,7 +2211,8 @@ export const POSMain = () => {
             deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
             windowMode={windowMode}
-            repartoSlot={<RepartoControl valor={reparto} onCambio={setReparto} />}
+            repartoSlot={<RepartoControl valor={reparto} onCambio={setReparto}
+              destacado={repartoSugerido && !reparto} />}
 
             onSaleModeChange={setSaleMode}
           />
@@ -2187,7 +2263,8 @@ export const POSMain = () => {
             deliveryEnabled={deliveryEnabled || windowMode}
             saleMode={saleMode}
             windowMode={windowMode}
-            repartoSlot={<RepartoControl valor={reparto} onCambio={setReparto} />}
+            repartoSlot={<RepartoControl valor={reparto} onCambio={setReparto}
+              destacado={repartoSugerido && !reparto} />}
 
             onSaleModeChange={setSaleMode}
           />

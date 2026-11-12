@@ -1,12 +1,15 @@
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { billSubtotal, billItemTotal, billService, type Bill } from './types';
+import { estimarPromosDeCuenta, type Promotion } from '@/services/promotions/promotionsService';
 
 interface PrintOpts {
   taxEnabled: boolean;
   taxRate: number;          // ej. 0.13
   cashierName?: string;
   partLabel?: string;       // "Parte 1 de 3" en cuentas divididas
+  /** Promociones vigentes: el papel tiene que decir lo mismo que la pantalla. */
+  promociones?: Promotion[];
 }
 
 /**
@@ -25,9 +28,24 @@ export async function printBillTicket(tenantId: string, bill: Bill, opts: PrintO
   const simplificadoFooter = !!(feConfig?.simplificado || general?.simplificado);
 
   const subtotal = billSubtotal(bill);
-  const service = billService(subtotal, bill.is_delivery);   // 10% en mesa, 0 en delivery
-  const tax = opts.taxEnabled ? Math.round(subtotal * opts.taxRate) : 0;
-  const total = subtotal + service + tax;
+  /* Las promociones de ESTA cuenta (o de esta parte, si se dividió: la promo
+     aplica a lo que lleva cada quien). Mismo motor que la pantalla y que el
+     POS; sin esto el papel cantaba un total y la caja cobraba otro. */
+  const promos = estimarPromosDeCuenta(
+    bill.items.map(it => ({
+      product_id: it.product_id ?? '',
+      category_id: it.category_id ?? null,
+      unit_price: it.quantity ? billItemTotal(it) / it.quantity : 0,
+      quantity: it.quantity,
+      iva_pct: opts.taxEnabled ? Math.round(opts.taxRate * 100) : 0,
+      suelta: !it.product_id,
+    })),
+    opts.promociones ?? [],
+  );
+  const neto = Math.max(0, subtotal - promos.descuento);
+  const service = billService(neto, bill.is_delivery);   // 10% en mesa, 0 en delivery
+  const tax = opts.taxEnabled ? Math.round(neto * opts.taxRate) : 0;
+  const total = neto + service + tax;
 
   const now = new Date();
 
@@ -45,6 +63,12 @@ export async function printBillTicket(tenantId: string, bill: Bill, opts: PrintO
     };
   });
 
+  /* Con promociones en el papel, el 10 % baja a ser una línea del detalle: el
+     único renglón de descuento ya está ocupado por ellas. */
+  if (promos.descuento > 0 && service > 0) {
+    items.push({ name: 'Servicio 10%', quantity: 1, unitPrice: service, subtotal: service });
+  }
+
   await posPrinterService.printAuto(
     {
       invoiceNumber: opts.partLabel ? `${bill.id.slice(-6)} · ${opts.partLabel}` : bill.id.slice(-6),
@@ -53,9 +77,12 @@ export async function printBillTicket(tenantId: string, bill: Bill, opts: PrintO
       items,
       subtotal,
       tax,
-      // Servicio 10% (mesa): se muestra como cargo con "+" en el ticket.
-      discount: service > 0 ? -service : 0,
-      discountLabel: 'Servicio 10%',
+      /* El renglón de descuento es UNO solo. Con promociones se usa para
+         ellas —que es la plata que el cliente quiere ver— y el servicio pasa a
+         ser una línea más, igual que viaja a la factura desde el POS: así el
+         papel de la mesa y la factura final se leen iguales. */
+      discount: promos.descuento > 0 ? promos.descuento : (service > 0 ? -service : 0),
+      discountLabel: promos.descuento > 0 ? 'Promociones' : 'Servicio 10%',
       total,
       paymentMethod: bill.is_delivery ? 'Delivery' : 'Mesa',
       storeName: general?.businessName,

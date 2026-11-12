@@ -15,6 +15,8 @@ import type { Bill, BillItem, CobrableKind, SpotRef } from './types';
 import { billSubtotal, billService, billItemTotal, itemsSinMandar, proximaRonda, SERVICE_RATE } from './types';
 import { cacheGet, cacheKey } from '@/utils/offlineCache';
 import { useLlamadasMesa, numeroDeEtiqueta } from './useLlamadasMesa';
+import { usePOSPromotions } from '@/hooks/POS/usePOSPromotions';
+import { estimarPromosDeCuenta } from '@/services/promotions/promotionsService';
 import { BarraLlamadas } from './BarraLlamadas';
 
 const MAP_KEY    = (tenantId: string) => `novapos_tables_map_${tenantId}`;
@@ -146,6 +148,9 @@ export function BillingDashboard() {
    * en otra pantalla, que nadie tiene abierta mientras atiende. Acá sale sobre
    * el mapa, suena, y se cierra de un toque.
    */
+  /* Las promociones vigentes: el salón las MUESTRA y el POS las cobra, con el
+     mismo motor, para que la precuenta y la factura digan lo mismo. */
+  const promociones = usePOSPromotions(tenantId ?? undefined);
   const mesaDigitalOn = !!(planFeatures as any)?.mesa_digital;
   const { llamadas, porSpot, atender } = useLlamadasMesa(tenantId ?? undefined, mesaDigitalOn, mapItems);
 
@@ -283,7 +288,22 @@ export function BillingDashboard() {
   const charge = async () => {
     if (!activeBill || activeBill.items.length === 0 || !tenantId) return;
     const sub = billSubtotal(activeBill);
-    const servicio = billService(sub, activeBill.is_delivery);
+    /* El 10 % va sobre lo que de verdad se consume, ya descontadas las
+       promociones: es el mismo neto que el panel mostró en la mesa. El
+       DESCUENTO en sí no viaja —lo aplica el POS con su propio motor— porque
+       restarlo acá también lo cobraría dos veces menos. */
+    const promosCuenta = estimarPromosDeCuenta(
+      activeBill.items.map(it => ({
+        product_id: it.product_id ?? '',
+        category_id: it.category_id ?? null,
+        unit_price: it.quantity ? billItemTotal(it) / it.quantity : 0,
+        quantity: it.quantity,
+        iva_pct: taxCfg.enabled ? Math.round(taxCfg.rate * 100) : 0,
+        suelta: !it.product_id,
+      })),
+      promociones,
+    );
+    const servicio = billService(Math.max(0, sub - promosCuenta.descuento), activeBill.is_delivery);
 
     // Primero se GUARDA: el POS cierra la cuenta por su id, así que tiene que
     // existir en la base con sus líneas antes de salir de esta pantalla.
@@ -333,6 +353,11 @@ export function BillingDashboard() {
         table_id: activeBill.spots[0]?.id,
         table_label: activeSpotLabel || 'Mesa',
         customer_name: activeBill.customer_name ?? null,
+        /* PARA LLEVAR viaja con la cuenta: el POS abre en modo delivery, con
+           el repartidor y la zona a mano. Antes el dato se quedaba acá y en la
+           caja había que volver a marcarlo —o se cobraba como consumo en el
+           salón un pedido que salió en moto—. */
+        is_delivery: !!activeBill.is_delivery,
         items: lineas,
       }));
     } catch {
@@ -489,6 +514,7 @@ export function BillingDashboard() {
         taxRate: taxCfg.rate,
         cashierName: user?.email ?? undefined,
         partLabel: `Parte ${idx + 1} de ${parts.length}`,
+        promociones,
       }).catch(() => {});
     });
     // Cerrar la cuenta original como pagada
@@ -711,6 +737,7 @@ export function BillingDashboard() {
             addingSpot={addingSpot}
             taxEnabled={taxCfg.enabled}
             taxRate={taxCfg.rate}
+            promociones={promociones}
             onUpdate={updateBill}
             onAddItem={addItem}
             onSplit={() => setShowSplit(true)}
@@ -887,6 +914,7 @@ export function BillingDashboard() {
           addingSpot={addingSpot}
           taxEnabled={taxCfg.enabled}
           taxRate={taxCfg.rate}
+          promociones={promociones}
           onStartBill={selectedSpotId && !activeBill && spotsById.get(selectedSpotId) && isCobrable(spotsById.get(selectedSpotId)!) ? handleStartBill : undefined}
           onUpdate={updateBill}
           onAddItem={addItem}

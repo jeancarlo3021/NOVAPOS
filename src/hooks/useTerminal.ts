@@ -21,6 +21,20 @@ export function readTerminal(): number {
   return Number.isFinite(n) && n >= 1 && n <= 99999 ? n : 1;
 }
 
+/**
+ * Dejar la terminal de este equipo, sin pasar por el hook.
+ *
+ * La necesita `useCaja`: elegir qué caja es esta máquina tiene que mover
+ * también su terminal, y eso pasa fuera de un componente.
+ */
+export function writeTerminal(n: number): void {
+  const clean = Math.max(1, Math.min(99999, Math.floor(Number(n) || 1)));
+  try {
+    localStorage.setItem(STORAGE_KEY, String(clean));
+    window.dispatchEvent(new CustomEvent(EVENT_NAME));
+  } catch { /* localStorage bloqueado */ }
+}
+
 export function useTerminal() {
   const [terminal, setState] = useState<number>(() => readTerminal());
 
@@ -35,13 +49,7 @@ export function useTerminal() {
     };
   }, []);
 
-  const setTerminal = useCallback((n: number) => {
-    const clean = Math.max(1, Math.min(99999, Math.floor(Number(n) || 1)));
-    try {
-      localStorage.setItem(STORAGE_KEY, String(clean));
-      window.dispatchEvent(new CustomEvent(EVENT_NAME));
-    } catch { /* localStorage bloqueado */ }
-  }, []);
+  const setTerminal = useCallback((n: number) => { writeTerminal(n); }, []);
 
   return { terminal, setTerminal };
 }

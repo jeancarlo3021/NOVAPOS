@@ -3,7 +3,9 @@ import { apiFetch } from '@/lib/api';
 import { useTenantId } from './useTenant';
 import { cacheSet, cacheGet, cacheKey } from '@/utils/offlineCache';
 
-type SettingType = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'delivery' | 'electronic-invoice' | 'customer-display';
+type SettingType = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'delivery' | 'electronic-invoice' | 'customer-display'
+  /** Las cajas (máquinas) del negocio: nombre y número de cada una. */
+  | 'cajas';
 
 export const useSettings = (type: SettingType) => {
   const [settings, setSettings] = useState<any>(null);

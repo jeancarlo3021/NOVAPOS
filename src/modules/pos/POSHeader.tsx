@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Home, AlertCircle, CheckCircle, X, DollarSign, LockKeyhole, RefreshCw, Ban, ArrowDownCircle, ArrowUpCircle, Printer, Inbox, Package } from 'lucide-react';
 import { CashSession } from '@/types/Types_POS';
+import { readCaja } from '@/hooks/useCaja';
 import brandLogo from '@/assets/brand/logo.svg';
 
 interface POSHeaderProps {
@@ -59,6 +60,12 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   onOpenDrawer,
 }) => {
   const navigate = useNavigate();
+  /* El nombre de la caja: primero el que quedó guardado en la sesión, y si no
+     el de este equipo. Null = el negocio no usa cajas por máquina. */
+  const nombreCaja = (currentSession as any)?.caja_nombre
+    || ((currentSession as any)?.terminal ? `Caja ${(currentSession as any).terminal}` : null)
+    || readCaja()?.nombre
+    || null;
 
   return (
     <div className="bg-white border-b border-gray-200 px-3 sm:px-4 py-1.5 shrink-0 shadow-sm">
@@ -140,7 +147,13 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center">
               <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 min-h-9">
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                <span className="text-emerald-700 text-sm font-semibold">Caja abierta</span>
+                {/* CUÁL caja. Con dos gavetas en el local, «Caja abierta» no
+                    alcanza: el cajero tiene que ver que está parado en la que
+                    cree. El nombre viene de la sesión —copiado al abrirla— y
+                    si no lo trae, de lo que este equipo tiene configurado. */}
+                <span className="text-emerald-700 text-sm font-semibold">
+                  {nombreCaja ? `${nombreCaja} abierta` : 'Caja abierta'}
+                </span>
                 <span className="text-emerald-600 text-sm font-medium hidden sm:inline">
                   ₡{currentSession.opening_amount?.toLocaleString()}
                 </span>

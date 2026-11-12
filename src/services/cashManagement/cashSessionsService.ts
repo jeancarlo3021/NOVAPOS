@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api';
 import { CashSession, CreateCashSessionInput, CloseCashSessionInput } from '@/types/Types_POS';
+import { readCaja } from '@/hooks/useCaja';
 
 // ============================================
 // CONFIGURACIÓN
@@ -60,7 +61,13 @@ export async function getOpenCashSession(
 
   return withRetry(async () => {
     try {
-      const data = await apiFetch<CashSession | null>('/cash-sessions/active');
+      /* Si este equipo es una caja, se pregunta por LA CAJA DE ESTA MÁQUINA:
+         el relevo de turno sigue la gaveta que está abierta en vez de abrir
+         otra encima. Sin caja elegida se pregunta por la del usuario, que es
+         como funcionó siempre. */
+      const caja = readCaja();
+      const data = await apiFetch<CashSession | null>(
+        caja ? `/cash-sessions/active?terminal=${caja.terminal}` : '/cash-sessions/active');
 
       if (data) {
       } else {
@@ -109,6 +116,13 @@ export async function createCashSession(
           opening_amount: input.opening_amount,
           opening_usd: (input as any).opening_usd ?? 0,
           notes: input.notes || null,
+          /* La máquina viaja con la apertura: es lo que hace que la caja sea
+             de la gaveta y no del cajero. Sin caja elegida va en nulo y el
+             servidor se comporta como antes. */
+          ...(() => {
+            const caja = readCaja();
+            return caja ? { terminal: caja.terminal, caja_nombre: caja.nombre } : {};
+          })(),
         }),
       });
 

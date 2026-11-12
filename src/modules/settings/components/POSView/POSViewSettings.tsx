@@ -8,6 +8,7 @@ import { usePOSLayout, type POSLayout } from '@/hooks/usePOSLayout';
 import { useAssistedMode } from '@/hooks/useAssistedMode';
 import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
 import { useTerminal } from '@/hooks/useTerminal';
+import { useCaja, useCajasDelNegocio, type CajaDelNegocio } from '@/hooks/useCaja';
 import { useDeviceRole } from '@/hooks/useDeviceRole';
 import { useAuth } from '@/context/AuthContext';
 
@@ -147,6 +148,9 @@ export function POSViewSettings() {
       </>
       )}
 
+      {/* ── Qué caja es ESTA máquina ───────────────────────────────────── */}
+      <PanelCajas />
+
       {/* ── Terminal (caja) de este equipo ─────────────────────────────── */}
       <div className="border-t border-gray-200 pt-6">
         <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
@@ -156,6 +160,7 @@ export function POSViewSettings() {
         <p className="text-gray-500 text-sm mt-1">
           Si varias computadoras facturan al mismo tiempo, cada una necesita su
           propio número. Es lo que evita que dos equipos generen el mismo consecutivo.
+          Al elegir arriba qué caja es este equipo, este número se acomoda solo.
         </p>
       </div>
 
@@ -313,6 +318,167 @@ export function POSViewSettings() {
           <li>El cambio aplica al instante, no necesitas reiniciar.</li>
           <li>Para acceder a un módulo que no esté en el menú reducido, usa el botón <strong>Más</strong>.</li>
         </ul>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * LAS CAJAS DEL NEGOCIO, y cuál es ESTE equipo.
+ *
+ * Son dos cosas distintas en una sola pantalla porque se configuran juntas:
+ * la LISTA es del negocio —el mismo nombre en todos los equipos y en los
+ * reportes— y la ELECCIÓN es de este aparato.
+ *
+ * Mientras no se elija ninguna, la caja sigue siendo del USUARIO, como siempre:
+ * cada cajero abre la suya. Eso es lo correcto en un negocio de una sola
+ * computadora donde dos cajeros se turnan con su propia gaveta. Elegir una
+ * caja es lo que cambia el modo, y se dice en la pantalla para que nadie lo
+ * cambie sin saber qué cambió.
+ */
+function PanelCajas() {
+  const { caja, setCaja } = useCaja();
+  const { lista, guardar, loading } = useCajasDelNegocio();
+  const [editando, setEditando] = useState(false);
+  const [borrador, setBorrador] = useState<CajaDelNegocio[]>([]);
+  const [guardando, setGuardando] = useState(false);
+
+  const abrirEdicion = () => {
+    setBorrador(lista.length > 0
+      ? lista
+      : [{ terminal: 1, nombre: 'Caja 1' }, { terminal: 2, nombre: 'Caja 2' }]);
+    setEditando(true);
+  };
+
+  const guardarLista = async () => {
+    setGuardando(true);
+    try {
+      const limpia = borrador
+        .map(c => ({ terminal: Math.max(1, Math.floor(Number(c.terminal) || 1)), nombre: c.nombre.trim() }))
+        .filter(c => c.nombre !== '');
+      await guardar(limpia);
+      /* Si la caja que tenía elegida este equipo ya no está en la lista, se
+         suelta: dejarla puesta lo ataría a una caja que ya no existe. */
+      if (caja && !limpia.some(c => c.terminal === caja.terminal)) setCaja(null);
+      setEditando(false);
+    } finally { setGuardando(false); }
+  };
+
+  return (
+    <div className="border-t border-gray-200 pt-6 space-y-4">
+      <div>
+        <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+          <Banknote size={24} className="text-emerald-600" />
+          ¿Qué caja es este equipo?
+        </h2>
+        <p className="text-gray-500 text-sm mt-1">
+          Al elegir una caja, la <b>apertura y el cierre</b> son de esta máquina y no del
+          cajero: el que entra a relevar el turno sigue la caja que está abierta acá, y
+          la caja de la barra no se le aparece a la de la entrada.
+        </p>
+      </div>
+
+      {/* La lista del negocio */}
+      <div className="rounded-2xl border-2 border-gray-200 bg-white p-5 space-y-3">
+        <div className="flex items-center gap-3">
+          <p className="flex-1 font-black text-gray-900 text-base">Las cajas del negocio</p>
+          {!editando && (
+            <button type="button" onClick={abrirEdicion}
+              className="px-3 h-9 rounded-xl border-2 border-gray-200 text-sm font-black text-gray-600 hover:border-emerald-300">
+              {lista.length > 0 ? 'Cambiar' : 'Definir las cajas'}
+            </button>
+          )}
+        </div>
+
+        {!editando && lista.length === 0 && (
+          <p className="text-sm text-gray-500">
+            Todavía no hay cajas definidas: la caja es de cada cajero, como siempre.
+          </p>
+        )}
+
+        {!editando && lista.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {lista.map(c => {
+              const elegida = caja?.terminal === c.terminal;
+              return (
+                <button key={c.terminal} type="button"
+                  onClick={() => setCaja(elegida ? null : { terminal: c.terminal, nombre: c.nombre })}
+                  className={`px-4 py-2.5 rounded-xl border-2 text-left transition ${
+                    elegida ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
+                  <span className="block text-sm font-black text-gray-900">{c.nombre}</span>
+                  <span className="block text-[11px] font-bold text-gray-500">
+                    terminal {c.terminal}{elegida ? ' · este equipo' : ''}
+                  </span>
+                </button>
+              );
+            })}
+            <button type="button" onClick={() => setCaja(null)}
+              className={`px-4 py-2.5 rounded-xl border-2 text-left transition ${
+                !caja ? 'border-gray-400 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
+              <span className="block text-sm font-black text-gray-900">Ninguna</span>
+              <span className="block text-[11px] font-bold text-gray-500">la caja es de cada cajero</span>
+            </button>
+          </div>
+        )}
+
+        {editando && (
+          <div className="space-y-2">
+            {borrador.map((c, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input type="number" min={1} max={99999} value={c.terminal}
+                  aria-label="Número de terminal"
+                  onChange={e => setBorrador(b => b.map((x, k) =>
+                    k === i ? { ...x, terminal: Number(e.target.value) || 1 } : x))}
+                  className="w-20 text-center font-black border-2 border-gray-200 rounded-xl px-2 py-2 tabular-nums" />
+                <input value={c.nombre} placeholder="Caja 1 / Barra / Terraza"
+                  aria-label="Nombre de la caja"
+                  onChange={e => setBorrador(b => b.map((x, k) =>
+                    k === i ? { ...x, nombre: e.target.value } : x))}
+                  className="flex-1 border-2 border-gray-200 rounded-xl px-3 py-2 text-sm font-bold" />
+                <button type="button" onClick={() => setBorrador(b => b.filter((_, k) => k !== i))}
+                  className="w-10 h-10 rounded-xl border-2 border-gray-200 text-gray-400 hover:text-red-600">×</button>
+              </div>
+            ))}
+            <button type="button"
+              onClick={() => setBorrador(b => [...b, {
+                terminal: b.reduce((m, x) => Math.max(m, x.terminal), 0) + 1, nombre: '',
+              }])}
+              className="text-sm font-black text-emerald-700">+ Agregar otra caja</button>
+            <div className="flex items-center gap-2 pt-1">
+              <button type="button" onClick={() => void guardarLista()} disabled={guardando || loading}
+                className="px-4 h-10 rounded-xl bg-emerald-600 text-white font-black text-sm disabled:opacity-50">
+                {guardando ? 'Guardando…' : 'Guardar las cajas'}
+              </button>
+              <button type="button" onClick={() => setEditando(false)}
+                className="px-4 h-10 rounded-xl border-2 border-gray-200 font-black text-sm text-gray-600">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Qué implica lo elegido, dicho sin rodeos. */}
+      <div className={`rounded-2xl border-2 p-4 text-sm ${
+        caja ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-gray-200 bg-gray-50 text-gray-700'}`}>
+        {caja ? (
+          <>
+            <p className="font-black">Este equipo es «{caja.nombre}» (terminal {caja.terminal}).</p>
+            <ul className="text-xs mt-1 space-y-0.5">
+              <li>• La caja que se abre acá es de esta máquina: cualquier cajero que entre la sigue.</li>
+              <li>• El cierre cuenta la plata de ESTA gaveta, no la de las otras cajas.</li>
+              <li>• Otro equipo con otra caja trabaja en paralelo sin mezclarse.</li>
+            </ul>
+          </>
+        ) : (
+          <>
+            <p className="font-black">Este equipo no es ninguna caja en particular.</p>
+            <p className="text-xs mt-1">
+              La apertura y el cierre son de cada cajero, como siempre. Elegí una caja arriba
+              si en este local hay más de una gaveta.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

@@ -819,9 +819,12 @@ export const CreateOwner: React.FC = () => {
    */
   const cargarDemoRestaurante = async (o: OwnerData) => {
     if (!confirm(
-      `Cargar el menú de demostración en «${o.name}».\n\n`
+      `Cargar la demostración de restaurante en «${o.name}».\n\n`
       + 'Se crean 12 platos con su estación de cocina, 10 insumos con existencias, '
       + '2 preparaciones base y el salón con 8 mesas.\n\n'
+      + 'Además: los extras de cada plato (término, agregados, sabor), 4 promociones '
+      + '(porcentaje, combo, 2x1 y regalía), ColónTab configurado con sus 8 QR, y el '
+      + 'cobro del domicilio con tres zonas y dos repartidores.\n\n'
       + 'No borra ni cambia nada de lo que ya tenga: lo que ya existe se respeta. '
       + '¿Seguir?',
     )) return;
@@ -832,7 +835,9 @@ export const CreateOwner: React.FC = () => {
       setSuccess(r.yaEstaba
         ? `«${o.name}» ya tenía el menú de demostración: no se duplicó nada.`
         : `✅ ${o.name}: ${r.platos} plato(s), ${r.insumos} insumo(s), `
-          + `${r.subrecetas + r.recetas} receta(s) y ${r.mesas} mesa(s).`
+          + `${r.subrecetas + r.recetas} receta(s), ${r.mesas} mesa(s), `
+          + `${r.extras ?? 0} grupo(s) de extras, ${r.promos ?? 0} promoción(es)`
+          + `${r.colontab ? ', ColónTab listo' : ''}${r.reparto ? ', domicilio listo' : ''}.`
           + ((r.avisos ?? []).length ? ` · Avisos: ${r.avisos.join(' · ')}` : ''));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar la demo');

@@ -24,6 +24,15 @@ export interface CashSession {
   closed_at?: string;
   status: 'open' | 'closed';
   notes?: string;
+  /**
+   * LA MÁQUINA que opera esta caja, y cómo se llamaba al abrirla.
+   *
+   * Nulos cuando el negocio no usa cajas por máquina: ahí la caja es del
+   * usuario, como siempre. El nombre va copiado a propósito —si le cambian el
+   * nombre a la caja, un arqueo viejo tiene que seguir diciendo el de entonces—.
+   */
+  terminal?: number | null;
+  caja_nombre?: string | null;
   created_at: string;
   updated_at: string;
 }

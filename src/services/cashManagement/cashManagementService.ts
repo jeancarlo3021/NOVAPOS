@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api';
+import { rutaCajaActiva } from '@/hooks/useCaja';
 
 export interface CashSession {
   id: string;
@@ -37,7 +38,7 @@ export const cashSessionsService = {
 
   // Obtener sesión de caja abierta
   async getActiveCashSession(tenantId: string) {
-    return apiFetch<CashSession | null>(`/cash-sessions/active?tenant_id=${tenantId}`);
+    return apiFetch<CashSession | null>(rutaCajaActiva());
   },
 
   // Obtener sesión por ID

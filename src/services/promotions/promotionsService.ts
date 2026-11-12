@@ -576,3 +576,92 @@ export function computeCartRegalias(
 
   return { discount, applied, basePorProducto };
 }
+
+/* ══════════════════════ PROMOS DE UNA CUENTA DE MESA ══════════════════════ */
+
+/** Una línea de una cuenta, con lo justo para resolverle las promociones. */
+export interface LineaParaPromos {
+  product_id: string;
+  category_id?: string | null;
+  /** Precio unitario SIN IVA, ya con los adicionales del plato adentro. */
+  unit_price: number;
+  quantity: number;
+  iva_pct?: number;
+  /** Línea que no es del catálogo (el «Servicio 10%»): no entra en promos. */
+  suelta?: boolean;
+}
+
+export interface PromosDeCuenta {
+  /** Lo que se deja de cobrar en total, sobre la base SIN IVA. */
+  descuento: number;
+  /** Para mostrarlo desglosado: una entrada por promoción aplicada. */
+  detalle: Array<{ label: string; monto: number }>;
+  /** Compras que ya califican y les falta meter el regalo en la cuenta. */
+  faltanRegalos: string[];
+}
+
+/**
+ * LAS PROMOCIONES DE UNA CUENTA, calculadas igual que en el punto de venta.
+ *
+ * El salón tiene que poder decirle al cliente cuánto se le bajó ANTES de
+ * mandarlo a la caja: una precuenta que dice ₡20.000 y una factura que cobra
+ * ₡18.000 obliga a explicar la diferencia en la mesa, y una que dice menos de
+ * lo que después se cobra es peor.
+ *
+ * Es el MISMO cálculo del POS, con las mismas funciones, para que los dos
+ * números coincidan: las promos por línea (porcentaje, monto, 2x1, paquete por
+ * cantidad) y las que se resuelven mirando la cuenta entera (combos, la
+ * segunda unidad, las regalías). Lo que se devuelve es una ESTIMACIÓN para
+ * mostrar: el descuento se aplica de verdad una sola vez, al facturar, y
+ * aplicarlo acá también lo cobraría dos veces menos.
+ */
+export function estimarPromosDeCuenta(
+  lineas: LineaParaPromos[],
+  promociones: Promotion[],
+): PromosDeCuenta {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const detalle: Array<{ label: string; monto: number }> = [];
+  let descuento = 0;
+
+  /* Las líneas sueltas (el servicio, un producto escrito a mano) quedan
+     afuera: una promo «a todo el catálogo» le estaría descontando al 10 %. */
+  const delCatalogo = lineas.filter(l => !l.suelta && l.product_id);
+
+  // ── 1) Por línea ──────────────────────────────────────────────────────────
+  for (const l of delCatalogo) {
+    const promo = getProductPromotion(l.product_id, l.category_id, promociones);
+    if (!promo) continue;
+    const lleno = l.unit_price * l.quantity;
+    const conPromo = calcPromoSubtotal(l.unit_price, l.quantity, promo);
+    const baja = r2(lleno - conPromo);
+    if (baja > 0.009) { descuento += baja; detalle.push({ label: promoLabel(promo), monto: baja }); }
+  }
+
+  // ── 2) Mirando la cuenta entera ───────────────────────────────────────────
+  const paraCarrito = delCatalogo.map(l => ({
+    product_id: l.product_id, unit_price: l.unit_price,
+    quantity: l.quantity, iva_pct: l.iva_pct, category_id: l.category_id,
+  }));
+
+  const combos = computeCartCombos(paraCarrito, promociones);
+  for (const c of combos.applied) {
+    descuento += c.discount_base;
+    detalle.push({ label: c.label, monto: c.discount_base });
+  }
+
+  const segundas = computeSegundaUnidad(paraCarrito, promociones);
+  for (const s of segundas.applied) {
+    descuento += s.discount_base;
+    detalle.push({ label: s.label, monto: s.discount_base });
+  }
+
+  const regalias = computeCartRegalias(paraCarrito, promociones);
+  const faltanRegalos: string[] = [];
+  for (const g of regalias.applied) {
+    if (g.falta_regalo) { faltanRegalos.push(g.label); continue; }
+    descuento += g.discount_base;
+    detalle.push({ label: `🎁 ${g.label}`, monto: g.discount_base });
+  }
+
+  return { descuento: r2(descuento), detalle, faltanRegalos };
+}

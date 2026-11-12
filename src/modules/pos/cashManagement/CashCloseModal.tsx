@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { parseServerDate, fmtCRDateTime } from '@/utils/crDate';
 import { LockKeyhole, X, Plus, Trash2, CreditCard, Smartphone, Banknote, CloudUpload, AlertTriangle, Loader2 } from 'lucide-react';
 import { cashSessionService } from '@/services/cashManagement/cashSessionsService';
+import { readCaja } from '@/hooks/useCaja';
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
@@ -89,6 +90,19 @@ function tieneAlgo(b: Omit<BorradorCierre, 'guardado'>): boolean {
 
 export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSuccess, onCancel }) => {
   const { user } = useAuth();
+  /**
+   * El nombre de la caja que se está cerrando.
+   *
+   * Sale de la SESIÓN —el nombre quedó copiado al abrirla— y no de la
+   * configuración de hoy: si le cambiaron el nombre a la caja, el cierre de
+   * una sesión vieja tiene que seguir diciendo cómo se llamaba. Si la sesión
+   * no lo trae (se abrió antes de que existieran las cajas), se usa la de este
+   * equipo como referencia.
+   */
+  const nombreDeLaCaja = (session as any)?.caja_nombre
+    || ((session as any)?.terminal ? `Caja ${(session as any).terminal}` : null)
+    || readCaja()?.nombre
+    || null;
   const [activeTab, setActiveTab] = useState<Tab>('cash');
   const [loading, setLoading] = useState(false);
   /** Cierre del día pendiente de ofrecer (sesión ya cerrada). */
@@ -820,7 +834,11 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             <LockKeyhole size={20} className="text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-gray-900 font-black text-xl sm:text-2xl leading-tight">Cierre de Caja</h2>
+            {/* El NOMBRE de la caja en el título: con dos gavetas abiertas, un
+                modal que dice solo «Cierre de Caja» no dice cuál se cuenta. */}
+            <h2 className="text-gray-900 font-black text-xl sm:text-2xl leading-tight">
+              {nombreDeLaCaja ? `Cierre de ${nombreDeLaCaja}` : 'Cierre de Caja'}
+            </h2>
             <p className="text-gray-400 text-xs sm:text-sm truncate">Ingresa los montos por método de pago</p>
           </div>
           <button onClick={onCancel} className="w-12 h-12 rounded-xl bg-gray-100 hover:bg-gray-200 active:bg-gray-300 flex items-center justify-center transition text-gray-500">

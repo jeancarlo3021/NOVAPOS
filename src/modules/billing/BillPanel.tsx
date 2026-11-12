@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { Bill } from './types';
 import { billSubtotal, billItemTotal, billService, SERVICE_RATE } from './types';
+import { estimarPromosDeCuenta, type Promotion } from '@/services/promotions/promotionsService';
 import type { MapItem } from '@/modules/tables/types';
 
 const fmt = (n: number) =>
@@ -17,6 +18,11 @@ interface Props {
   spotsById: Map<string, MapItem>;
   /** Activa modo "selecciona otro spot para unir a esta cuenta" */
   addingSpot: boolean;
+  /**
+   * Las promociones vigentes, para poder DECIR en la mesa lo que se va a
+   * descontar. El descuento se aplica al facturar, no acá.
+   */
+  promociones?: Promotion[];
   taxEnabled?: boolean;
   taxRate?: number;          // ej. 0.13
   onStartBill?: () => void;             // crear cuenta para el spot seleccionado
@@ -74,7 +80,7 @@ function spotLabel(item: MapItem | undefined): string {
 }
 
 export function BillPanel({
-  bill, spotsById, addingSpot, taxEnabled = false, taxRate = 0,
+  bill, spotsById, addingSpot, taxEnabled = false, taxRate = 0, promociones = [],
   onStartBill, onUpdate, onAddItem, onOpenCatalog, onSplit, onSendKitchen, onUpdateItemQty, onRemoveItem,
   onRemoveSpot, onStartAddSpot, onCancelAddSpot, onCharge, onCancelBill,
   emptyMessage = 'Selecciona una mesa o silla en el mapa',
@@ -153,9 +159,35 @@ export function BillPanel({
 
   const ocupado = guardando !== null;
   const subtotal = billSubtotal(bill);
-  const service = billService(subtotal, bill.is_delivery);   // 10% en mesa, 0 en delivery
-  const tax = taxEnabled ? Math.round(subtotal * taxRate) : 0;
-  const total = subtotal + service + tax;
+  /**
+   * LAS PROMOCIONES, en la mesa.
+   *
+   * Se calculan con el mismo motor del punto de venta y se MUESTRAN; el
+   * descuento se aplica una sola vez, al facturar. Antes la precuenta cantaba
+   * el precio de lista y la factura cobraba menos: el mesero tenía que
+   * explicar la diferencia en la mesa.
+   *
+   * El 10 % de servicio se calcula sobre lo que de verdad se consume —ya
+   * descontado—: cobrarlo sobre el precio de lista sería cobrar servicio por
+   * plata que el cliente no paga.
+   */
+  const promos = estimarPromosDeCuenta(
+    bill.items.map(it => ({
+      product_id: it.product_id ?? '',
+      category_id: it.category_id ?? null,
+      /* El precio que entra lleva los adicionales adentro, igual que el que
+         viaja al POS: si no, un «extra queso» quedaría sin su descuento. */
+      unit_price: it.quantity ? billItemTotal(it) / it.quantity : 0,
+      quantity: it.quantity,
+      iva_pct: taxEnabled ? Math.round(taxRate * 100) : 0,
+      suelta: !it.product_id,
+    })),
+    promociones,
+  );
+  const neto = Math.max(0, subtotal - promos.descuento);
+  const service = billService(neto, bill.is_delivery);   // 10% en mesa, 0 en delivery
+  const tax = taxEnabled ? Math.round(neto * taxRate) : 0;
+  const total = neto + service + tax;
 
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();
@@ -416,12 +448,25 @@ export function BillPanel({
           <span className="truncate">{bill.is_delivery ? '🛵 Para llevar' : '🍽️ Mesa · servicio 10%'}</span>
           <span className="text-[10px] font-black uppercase shrink-0">{bill.is_delivery ? 'sin 10%' : 'cambiar'}</span>
         </button>
-        {(taxEnabled && tax > 0) || service > 0 ? (
+        {(taxEnabled && tax > 0) || service > 0 || promos.descuento > 0 ? (
           <div className="flex items-center justify-between text-sm text-gray-500">
             <span>Subtotal</span>
             <span className="font-mono">{fmt(subtotal)}</span>
           </div>
         ) : null}
+        {/* Las promociones, una por una: «−₡2.000» sin decir por qué obliga a
+            discutirlo con el cliente sin tener el dato a mano. */}
+        {promos.detalle.map((d, i) => (
+          <div key={i} className="flex items-center justify-between text-sm text-violet-600">
+            <span className="truncate pr-2">{d.label}</span>
+            <span className="font-mono shrink-0">−{fmt(d.monto)}</span>
+          </div>
+        ))}
+        {promos.faltanRegalos.length > 0 && (
+          <p className="text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-2 py-1.5">
+            🎁 Falta agregar el regalo: {promos.faltanRegalos.join(' · ')}
+          </p>
+        )}
         {service > 0 && (
           <div className="flex items-center justify-between text-sm text-gray-500">
             <span>Servicio ({Math.round(SERVICE_RATE * 100)}%)</span>

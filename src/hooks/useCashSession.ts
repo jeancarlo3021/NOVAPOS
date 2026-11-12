@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { rutaCajaActiva } from '@/hooks/useCaja';
 import { CashSession } from '@/types/Types_POS';
 import { apiFetch } from '@/lib/api';
 import { useTenant } from './useTenant';
@@ -49,7 +50,7 @@ export function useCashSession() {
     // 1. Try API when online
     if (navigator.onLine) {
       try {
-        let session = await apiFetch<CashSession | null>('/cash-sessions/active');
+        let session = await apiFetch<CashSession | null>(rutaCajaActiva());
 
         // Sin sesión abierta y el negocio no lleva control de caja: se abre sola.
         if (!session && await shouldAutoOpen()) {
@@ -69,7 +70,7 @@ export function useCashSession() {
           } catch (e) {
             // 409 = otro dispositivo la abrió primero: se toma la que ya existe.
             console.warn('[useCashSession] No se pudo abrir la caja automáticamente', e);
-            session = await apiFetch<CashSession | null>('/cash-sessions/active').catch(() => null);
+            session = await apiFetch<CashSession | null>(rutaCajaActiva()).catch(() => null);
           } finally { autoOpening = null; }
         }
 

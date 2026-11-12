@@ -27,7 +27,14 @@ export interface RepartoElegido {
 export const RepartoControl: React.FC<{
   valor: RepartoElegido | null;
   onCambio: (v: RepartoElegido | null) => void;
-}> = ({ valor, onCambio }) => {
+  /**
+   * La venta ya se sabe que sale de la casa (una cuenta del salón marcada
+   * «para llevar»): el botón se destaca para que el domicilio no se olvide.
+   * No se pone solo: el monto depende de la distancia y solo lo sabe quien
+   * cobra, y una tarifa puesta por el sistema es una tarifa que nadie revisa.
+   */
+  destacado?: boolean;
+}> = ({ valor, onCambio, destacado = false }) => {
   const { settings } = useSettings('delivery');
   const [abierto, setAbierto] = useState(false);
 
@@ -60,13 +67,17 @@ export const RepartoControl: React.FC<{
     <>
       <button type="button" onClick={() => setAbierto(true)}
         className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border-2 text-sm font-bold transition ${
-          valor ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300'}`}>
+          valor ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+          : destacado ? 'border-amber-400 bg-amber-50 text-amber-800 animate-pulse'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300'}`}>
         <span className="flex items-center gap-2"><Bike size={15} /> Reparto</span>
         {valor
           ? <span className="tabular-nums font-black">
               {crc(valor.monto)}{valor.repartidor ? ` · ${valor.repartidor}` : ''}
             </span>
-          : <span className="text-xs text-gray-400">agregar domicilio</span>}
+          : <span className={`text-xs ${destacado ? 'font-black text-amber-700' : 'text-gray-400'}`}>
+              {destacado ? 'es para llevar · ¿cobra domicilio?' : 'agregar domicilio'}
+            </span>}
       </button>
 
       {abierto && (

@@ -40,16 +40,38 @@ export const DEMO_GROUPS: Array<{ group: string; modules: DemoModule[] }> = [
       { key: 'promotions', label: 'Promociones' },
     ],
   },
+  /**
+   * RESTAURANTE, completo.
+   *
+   * Acá faltaba la mitad del salón: el mapa de mesas, las cuentas por mesa,
+   * los extras, la comanda por estación, ColónTab, el domicilio. Un vendedor
+   * que marcaba «Mesas y salón» abría la demo y no tenía plano que mostrar
+   * —`restaurant` prende el cobro, `tables` prende el editor del plano—, así
+   * que la demo enseñaba menos de lo que el sistema hace. Están de a una
+   * porque no todos los locales quieren todo, y agrupadas para que el preset
+   * de abajo las prenda de un golpe.
+   */
   {
     group: 'Restaurante',
     modules: [
-      { key: 'restaurant', label: 'Mesas y salón' },
-      { key: 'recipes', label: 'Recetas y modificadores' },
+      { key: 'restaurant', label: 'Mesas y salón', hint: 'Cobro por mesa, toma de pedido, dividir cuenta y comandas' },
+      { key: 'tables', label: 'Diseño del salón', hint: 'El plano: mesas, sillas y zonas' },
+      { key: 'table_orders', label: 'Cuentas por mesa', hint: 'Abrir cuenta, sumar rondas y cobrarla al final' },
+      { key: 'modifiers', label: 'Extras y modificadores', hint: 'Término, extras, «sin cebolla»' },
+      { key: 'recipes', label: 'Recetas', hint: 'Platos con ingredientes y costo' },
+      { key: 'recipe_inventory', label: 'Recetas con inventario' },
+      { key: 'recipe_consumption', label: 'Descontar ingredientes al vender' },
+      { key: 'recipe_units', label: 'Unidades y conversión en recetas' },
+      { key: 'recipe_stations', label: 'Comanda por estación', hint: 'Cocina, barra, parrilla' },
+      { key: 'recipe_production', label: 'Producción de subrecetas' },
+      { key: 'recipe_menu_engineering', label: 'Análisis de menú', hint: 'Estrella, vaca, enigma o perro' },
       { key: 'restaurant_menu_recipes', label: 'POS por recetas' },
       { key: 'digital_menu', label: 'Menú digital con QR' },
-      { key: 'mesa_digital', label: 'Mesa digital (ColónTab)' },
+      { key: 'mesa_digital', label: 'Mesa digital (ColónTab)', hint: 'El cliente avisa desde la mesa' },
       { key: 'digital_catalog', label: 'Catálogo digital con QR' },
       { key: 'window_service', label: 'Ventanita' },
+      { key: 'pos_delivery', label: 'Delivery y domicilio', hint: 'Modo delivery, plataformas y reparto propio' },
+      { key: 'pos_bipper', label: 'Bipper / localizador' },
     ],
   },
   {
@@ -95,9 +117,20 @@ export const DEMO_PRESETS: Array<{ label: string; modules: string[] }> = [
     label: 'Pulpería / abarrotes',
     modules: ['pos', 'pos_card', 'pos_sinpe', 'pos_cash_management', 'inventory', 'customers', 'reports'],
   },
+  /* RESTAURANTE: la demo completa. Es la que más se pide y la que más tenía
+     que enseñar; iba con siete llaves y el vendedor se topaba con pantallas
+     vacías o botones que no estaban. */
   {
     label: 'Restaurante',
-    modules: ['pos', 'restaurant', 'recipes', 'restaurant_menu_recipes', 'digital_menu', 'inventory', 'reports'],
+    modules: [
+      'pos', 'pos_card', 'pos_sinpe', 'pos_discount', 'pos_cash_management', 'pos_bipper',
+      'restaurant', 'tables', 'table_orders', 'modifiers',
+      'recipes', 'recipe_inventory', 'recipe_consumption', 'recipe_units', 'recipe_stations',
+      'restaurant_menu_recipes',
+      'digital_menu', 'mesa_digital',
+      'promotions', 'pos_delivery', 'window_service',
+      'inventory', 'customers', 'purchases', 'expenses', 'reports',
+    ],
   },
   {
     label: 'Distribuidora con ruta',

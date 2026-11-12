@@ -373,6 +373,7 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase">Caja</th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase">Vendedor</th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase">Apertura</th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase">Cierre</th>
@@ -398,6 +399,12 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
                   const discColor  = s.discrepancy === null ? '' : s.discrepancy < 0 ? 'text-red-600' : s.discrepancy > 0 ? 'text-amber-600' : 'text-emerald-600';
                   return (
                     <tr key={s.id} className={`hover:bg-gray-50/50 transition ${hasDisc ? 'bg-red-50/20' : ''}`}>
+                      {/* QUÉ CAJA fue. Con dos gavetas, un arqueo sin la caja
+                          obliga a adivinar de cuál era el faltante. */}
+                      <td className="px-4 py-3 text-gray-800 font-semibold whitespace-nowrap text-xs">
+                        {(s as any).caja_nombre
+                          || ((s as any).terminal ? `Caja ${(s as any).terminal}` : <span className="text-gray-300">—</span>)}
+                      </td>
                       <td className="px-4 py-3 text-gray-800 font-semibold whitespace-nowrap text-xs">{s.cashier_name ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{fmtDt(s.opening_date)}</td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">

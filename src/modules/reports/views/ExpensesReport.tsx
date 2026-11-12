@@ -3,9 +3,14 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { TrendingDown, DollarSign, Calendar, Tag, RefreshCw } from 'lucide-react';
+import { TrendingDown, DollarSign, Calendar, Tag, RefreshCw, Download, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { expensesService } from '@/services/expenses/expensesService';
-import type { ExpenseSummary } from '@/types/Types_Expenses';
+import {
+  PAYMENT_METHOD_LABELS, EXPENSE_TYPE_LABELS,
+  type ExpenseSummary, type Expense,
+} from '@/types/Types_Expenses';
+import { downloadCsv } from '@/utils/csv';
+import { downloadXlsx } from '@/utils/xlsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,6 +83,17 @@ export const ExpensesReport: React.FC<Props> = ({ tenantId, from, to }) => {
   const [summary, setSummary] = useState<ExpenseSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  /** Qué descarga se está armando (el detalle se pide al servidor). */
+  const [bajando, setBajando] = useState<null | 'xlsx' | 'csv'>(null);
+  /**
+   * El error de la DESCARGA va aparte del error de CARGA.
+   *
+   * `error` hace que la pantalla se reemplace por el aviso —correcto cuando el
+   * reporte no cargó—. Si una descarga fallida escribiera ahí, el reporte que
+   * el usuario ya estaba viendo desaparecería por no haber podido bajar un
+   * archivo.
+   */
+  const [errorBaja, setErrorBaja] = useState('');
 
   useEffect(() => {
     if (!tenantId) return;
@@ -91,6 +107,109 @@ export const ExpensesReport: React.FC<Props> = ({ tenantId, from, to }) => {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [tenantId, from, to]);
+
+  /**
+   * LA DESCARGA.
+   *
+   * El detalle NO se trae con el reporte: esta pantalla son gráficos y un
+   * negocio con un año de gastos no tiene por qué bajar miles de filas para
+   * mirar una torta. Se piden al tocar el botón.
+   *
+   * Los montos van como NÚMERO, no como «₡45.000»: una columna de textos no se
+   * suma, y un Excel de gastos que no se puede sumar no sirve para nada —es la
+   * primera cosa que hace quien lo abre—.
+   */
+  const bajarDetalle = async (): Promise<Expense[]> => {
+    if (!tenantId) return [];
+    const filas = await expensesService.getAll(tenantId, { from, to });
+    /* Del más viejo al más nuevo: el orden en que se leen las cuentas. La
+       pantalla de Gastos los muestra al revés, que es lo correcto ahí. */
+    return [...filas].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  };
+
+  const hojaDetalle = (filas: Expense[]) => {
+    const encabezado = [
+      'Fecha', 'Categoría', 'Descripción', 'Tipo', 'Método de pago',
+      'Referencia', 'Notas', 'Origen', 'Monto',
+    ];
+    const cuerpo = filas.map(g => [
+      g.date,
+      g.category?.name ?? (g.origen === 'caja' ? 'Salida de caja' : 'Sin categoría'),
+      g.description ?? '',
+      EXPENSE_TYPE_LABELS[g.type] ?? g.type ?? '',
+      PAYMENT_METHOD_LABELS[g.payment_method] ?? g.payment_method ?? '',
+      g.reference ?? '',
+      g.notes ?? '',
+      /* De dónde salió la plata: un gasto anotado en el módulo y una salida
+         del cajón se suman igual, pero no se revisan igual. */
+      g.origen === 'caja' ? 'Salida de caja' : 'Gastos',
+      Math.round((Number(g.amount) || 0) * 100) / 100,
+    ]);
+    const total = Math.round(filas.reduce((t, g) => t + (Number(g.amount) || 0), 0) * 100) / 100;
+    return [encabezado, ...cuerpo, [], ['', '', '', '', '', '', '', 'TOTAL', total]];
+  };
+
+  const hojasResumen = () => {
+    const pct = (n: number) => (summary && summary.total > 0
+      ? Math.round((n / summary.total) * 1000) / 10 : 0);
+    return [
+      {
+        name: 'Resumen',
+        rows: [
+          ['Reporte de gastos'],
+          ['Desde', from],
+          ['Hasta', to],
+          [],
+          ['Total de gastos', summary?.total ?? 0],
+          ['Cantidad de registros', summary?.count ?? 0],
+          ['Promedio por día', summary?.avgPerDay ?? 0],
+          ['Categorías con gasto', summary?.byCategory.length ?? 0],
+          [],
+          ['Generado', new Date().toLocaleString('es-CR')],
+        ] as Array<Array<string | number>>,
+      },
+      {
+        name: 'Por categoría',
+        rows: [
+          ['Categoría', 'Registros', 'Monto', '% del total'],
+          ...(summary?.byCategory ?? []).map(c => [c.name, c.count, c.total, pct(c.total)]),
+        ] as Array<Array<string | number>>,
+      },
+      {
+        name: 'Por día',
+        rows: [
+          ['Fecha', 'Monto'],
+          ...(summary?.byDay ?? []).map(d => [d.date, d.total]),
+        ] as Array<Array<string | number>>,
+      },
+      {
+        name: 'Por método de pago',
+        rows: [
+          ['Método', 'Monto', '% del total'],
+          ...(summary?.byPaymentMethod ?? []).map(m => [m.label, m.total, pct(m.total)]),
+        ] as Array<Array<string | number>>,
+      },
+    ];
+  };
+
+  const descargar = async (formato: 'xlsx' | 'csv') => {
+    setBajando(formato);
+    setErrorBaja('');
+    try {
+      const filas = await bajarDetalle();
+      const nombre = `gastos_${from}_${to}`;
+      if (formato === 'csv') {
+        /* El CSV lleva SOLO el detalle: es un archivo de una sola tabla, y
+           pegarle los resúmenes abajo lo vuelve ilegible para quien lo abre
+           con un lector de texto o lo importa a otro sistema. */
+        downloadCsv(nombre, hojaDetalle(filas));
+      } else {
+        downloadXlsx(nombre, [...hojasResumen(), { name: 'Detalle', rows: hojaDetalle(filas) }]);
+      }
+    } catch (e) {
+      setErrorBaja(e instanceof Error ? e.message : 'No se pudo generar la descarga');
+    } finally { setBajando(null); }
+  };
 
   if (loading) {
     return (
@@ -110,6 +229,36 @@ export const ExpensesReport: React.FC<Props> = ({ tenantId, from, to }) => {
 
   return (
     <div className="space-y-6">
+      {/* Descargas. Arriba a la derecha, como en los demás reportes. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="font-black text-gray-900 text-base">Gastos del período</h2>
+          <p className="text-xs text-gray-400">
+            El Excel trae el detalle gasto por gasto y los resúmenes en hojas aparte.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => void descargar('csv')} disabled={bajando !== null}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-gray-200 text-gray-700 text-sm font-bold hover:bg-gray-50 disabled:opacity-40">
+            {bajando === 'csv' ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} CSV
+          </button>
+          <button type="button" onClick={() => void descargar('xlsx')} disabled={bajando !== null}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-40">
+            {bajando === 'xlsx' ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
+            {bajando === 'xlsx' ? 'Armando…' : 'Excel'}
+          </button>
+        </div>
+      </div>
+
+      {/* Un error de la descarga no puede borrar el reporte que ya está en
+          pantalla: se avisa acá arriba y los gráficos siguen. */}
+      {errorBaja && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+          <span className="flex-1">{errorBaja}</span>
+          <button type="button" onClick={() => setErrorBaja('')} className="font-black px-2">×</button>
+        </div>
+      )}
+
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard icon={TrendingDown} label="Total Gastos" value={fmt(summary.total)} sub={`${summary.count} registro${summary.count !== 1 ? 's' : ''}`} color="bg-red-500" />

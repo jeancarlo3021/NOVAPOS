@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { DollarSign, X, Wifi, WifiOff } from 'lucide-react';
 import { cashSessionService } from '@/services/cashManagement/cashSessionsService';
+import { readCaja } from '@/hooks/useCaja';
 import { cashSessionCacheService } from '@/services/cache/cashSessionCacheService';
 import { cashSessionOfflineService } from '@/services/cashManagement/cashSessionOfflineService';
 import { CashSession } from '@/types/Types_POS';
@@ -35,6 +36,9 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
   onSuccess,
   onCancel,
 }) => {
+  /* Qué caja es este equipo (si se eligió una). Se lee una vez: la apertura
+     dura un minuto y nadie reconfigura la máquina en el medio. */
+  const [cajaDeEsteEquipo] = useState(() => readCaja());
   const [quantities, setQuantities] = useState<Record<number, number>>(
     Object.fromEntries(DENOMINATIONS.map(d => [d.value, 0]))
   );
@@ -134,10 +138,14 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
         onSuccess(abierta as CashSession);
         return;
       }
-      if (/ya ten[eé]s una caja abierta/i.test(errorMsg)) {
+      /* El servidor dice «ya tenés una caja abierta» cuando la caja es del
+         usuario, y «la Caja 2 ya está abierta» cuando es de la máquina: las
+         dos formas tienen que caer acá. */
+      if (/ya ten[eé]s una caja abierta|ya est[áa] abierta/i.test(errorMsg)) {
         try {
           const { apiFetch } = await import('@/lib/api');
-          const activa = await apiFetch<CashSession | null>('/cash-sessions/active');
+          const { rutaCajaActiva } = await import('@/hooks/useCaja');
+          const activa = await apiFetch<CashSession | null>(rutaCajaActiva());
           if (activa?.id) { onSuccess(activa); return; }
         } catch { /* si tampoco se puede, se muestra el error de abajo */ }
         setError('Ya tenías una caja abierta. Recargá la pantalla para trabajar con esa.');
@@ -225,7 +233,9 @@ export const CashOpenModal: React.FC<CashOpenModalProps> = ({
             <DollarSign size={24} className="text-white" />
           </div>
           <div className="flex-1">
-            <h2 className="text-gray-900 font-black text-2xl leading-tight">Apertura de Caja</h2>
+            <h2 className="text-gray-900 font-black text-2xl leading-tight">
+              {cajaDeEsteEquipo ? `Apertura de ${cajaDeEsteEquipo.nombre}` : 'Apertura de Caja'}
+            </h2>
             <p className="text-gray-400 text-sm">
               {simpleCash ? 'Escribí el monto de efectivo con el que abrís la caja' : 'Cuenta el efectivo y toca + para cada denominación'}
             </p>
