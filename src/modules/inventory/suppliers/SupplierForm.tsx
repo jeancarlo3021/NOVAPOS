@@ -6,6 +6,16 @@ import { Alert } from '@/components/ui/uiComponents';
 
 interface SupplierFormProps {
   supplierId?: string | null;
+  /**
+   * El proveedor que la lista YA tiene cargado.
+   *
+   * Con esto el formulario abre lleno al instante y no depende de volver a
+   * pedirlo: si el servidor contesta mal —o no hay conexión— se puede editar
+   * igual, en vez de quedarse en «Error al cargar el proveedor» sin nada que
+   * hacer. La consulta se sigue haciendo para traer lo más reciente, pero deja
+   * de ser la única fuente.
+   */
+  supplier?: Record<string, any> | null;
   onSuccess: () => void;
   onCancel: () => void;
 }
@@ -22,22 +32,24 @@ interface SupplierData {
 
 const PRESET_TERMS = ['', 'Contado', '7 días', '15 días', '30 días', '45 días', '60 días', '90 días', '120 días'];
 
-export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSuccess, onCancel }) => {
+export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, supplier, onSuccess, onCancel }) => {
   const { user } = useAuth();
   const isMountedRef = useRef(true);
 
-  const [formData, setFormData] = useState<SupplierData>({
-    name: '',
-    email: '',
-    phone: '',
-    address: '',
-    city: '',
-    country: '',
-    payment_terms: '',
+  const desdeFila = (s: Record<string, any> | null | undefined): SupplierData => ({
+    name: s?.name ?? '',
+    email: s?.email ?? '',
+    phone: s?.phone ?? '',
+    address: s?.address ?? '',
+    city: s?.city ?? '',
+    country: s?.country ?? '',
+    payment_terms: s?.payment_terms ?? '',
   });
 
+  const [formData, setFormData] = useState<SupplierData>(() => desdeFila(supplier));
+
   const [loading, setLoading] = useState(false);
-  const [loadingData, setLoadingData] = useState(supplierId ? true : false);
+  const [loadingData, setLoadingData] = useState(supplierId && !supplier ? true : false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [customTerm, setCustomTerm] = useState(false);
@@ -49,36 +61,38 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ supplierId, onSucces
   }, []);
 
   useEffect(() => {
-    if (supplierId) {
-      fetchSupplier();
+    if (!supplierId) return;
+    /* La fila conocida primero —el formulario abre lleno— y después lo que
+       diga el servidor. */
+    if (supplier) {
+      const pt = supplier.payment_terms || '';
+      setFormData(desdeFila(supplier));
+      if (pt && !PRESET_TERMS.includes(pt)) setCustomTerm(true);
     }
+    fetchSupplier();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supplierId]);
 
   const fetchSupplier = async () => {
     try {
-      setLoadingData(true);
-      const supplier = await inventorySuppliersService.getSupplierById(supplierId!);
-      if (isMountedRef.current) {
-        const pt = supplier.payment_terms || '';
-        setFormData({
-          name: supplier.name || '',
-          email: supplier.email || '',
-          phone: supplier.phone || '',
-          address: supplier.address || '',
-          city: supplier.city || '',
-          country: supplier.country || '',
-          payment_terms: pt,
-        });
+      if (!supplier) setLoadingData(true);
+      const fresco = await inventorySuppliersService.getSupplierById(supplierId!);
+      if (isMountedRef.current && fresco) {
+        const pt = (fresco as any).payment_terms || '';
+        setFormData(desdeFila(fresco as any));
         if (pt && !PRESET_TERMS.includes(pt)) setCustomTerm(true);
       }
     } catch (err) {
+      /* Con la fila que trajo la lista se puede editar igual: solo se avisa
+         que no se pudo refrescar. Quedarse en un error con el formulario
+         vacío era dejar al usuario sin forma de corregir el proveedor. */
       if (isMountedRef.current) {
-        setError('Error al cargar el proveedor');
+        setError(supplier
+          ? 'No se pudo traer lo último del servidor: se está editando lo que ya estaba en pantalla.'
+          : 'Error al cargar el proveedor');
       }
     } finally {
-      if (isMountedRef.current) {
-        setLoadingData(false);
-      }
+      if (isMountedRef.current) setLoadingData(false);
     }
   };
 

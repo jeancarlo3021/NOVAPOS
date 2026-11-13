@@ -113,6 +113,9 @@ export const SuppliersList: React.FC = () => {
       {showForm && (
         <SupplierForm
           supplierId={editingId}
+          /* La fila que la lista ya tiene: el formulario abre lleno sin
+             depender de otra consulta. */
+          supplier={editingId ? (suppliers.find(s => s.id === editingId) ?? null) : null}
           onSuccess={() => retry()}
           onCancel={() => {
             setShowForm(false);
