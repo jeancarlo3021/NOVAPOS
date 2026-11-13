@@ -5,7 +5,7 @@ import {
   ShoppingCart, Plus, Search, RefreshCw, Truck,
   CheckCircle2, Clock, XCircle, DollarSign, Eye,
   ChevronDown, Calendar, Filter, Package, ClipboardCheck,
-  Loader, Printer, PackagePlus, Pencil,
+  Loader, Printer, PackagePlus, Pencil, Ban,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenantId } from '@/hooks/useTenant';
@@ -22,6 +22,7 @@ import { KPICard } from './components/KPICard';
 import { StatusBadge } from './components/StatusBadge';
 import { ReceiveReviewModal } from './components/ReceiveReviewModal';
 import { ReloadStockModal } from './components/ReloadStockModal';
+import { VoidPurchaseModal } from './components/VoidPurchaseModal';
 import { Status, fmt, fmtDate } from './components/types';
 
 // ── Main dashboard ────────────────────────────────────────────────────────────
@@ -52,6 +53,8 @@ export const PurchasesDashboard: React.FC = () => {
   const [reviewPurchase, setReviewPurchase] = useState<any | null>(null);
   /** Orden que se va a volver a cargar al inventario. */
   const [reloadPurchase, setReloadPurchase] = useState<any | null>(null);
+  /** Orden que se está anulando (pendiente o ya recibida). */
+  const [voidPurchase, setVoidPurchase] = useState<any | null>(null);
   /** La orden que se está corrigiendo, ya con sus líneas. */
   const [editPurchase, setEditPurchase] = useState<any | null>(null);
   const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
@@ -464,6 +467,19 @@ export const PurchasesDashboard: React.FC = () => {
                                 <XCircle size={11} /> {isLocal ? 'Eliminar' : 'Cancelar'}
                               </button>
                             )}
+                            {/* ANULAR una orden ya recibida. Es la que de
+                                verdad se equivoca —se recibió dos veces, se
+                                cargó con la factura de otro— y no tenía
+                                arreglo: había que ajustar el inventario
+                                producto por producto y quedaba una cuenta por
+                                pagar que nadie se atrevía a borrar. */}
+                            {p.status === 'received' && !isLocal && (
+                              <button onClick={() => setVoidPurchase(p)} disabled={busy}
+                                title="Devuelve el inventario que metió esta orden y cancela su cuenta por pagar"
+                                className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-red-50 border border-red-200 text-red-600 rounded-lg hover:bg-red-100 disabled:opacity-40 transition">
+                                <Ban size={11} /> Anular
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -516,6 +532,22 @@ export const PurchasesDashboard: React.FC = () => {
       )}
 
       {/* Volver a cargar el inventario de una orden ya recibida */}
+      {voidPurchase && tenantId && (
+        <VoidPurchaseModal
+          purchase={voidPurchase}
+          onClose={() => setVoidPurchase(null)}
+          onDone={async () => {
+            setVoidPurchase(null);
+            await loadPurchases(tenantId);
+            await refreshPendingCount(tenantId);
+            /* El inventario cambió en la base: se re-cachea para que el POS y
+               la pantalla de productos no sigan mostrando las existencias que
+               la compra anulada había sumado. */
+            try { await getAllProducts(tenantId); } catch { /* el cache se rehará solo */ }
+          }}
+        />
+      )}
+
       {reloadPurchase && tenantId && (
         <ReloadStockModal
           purchase={reloadPurchase}

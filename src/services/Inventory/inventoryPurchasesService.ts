@@ -29,6 +29,24 @@ export interface PurchaseItem {
   subtotal: number;            // column: subtotal
 }
 
+/** Lo que deshizo una anulación de compra. */
+export interface AnulacionDeCompra {
+  numero: string;
+  estado_anterior: string;
+  motivo: string;
+  /** Cuántas líneas volvieron del inventario. */
+  stock_revertido: number;
+  unidades: number;
+  /** Líneas de productos que no llevan existencias: no se tocaron. */
+  sin_stock: number;
+  fallaron: number;
+  /** Quedaron en negativo porque la mercadería ya se había vendido. */
+  negativos: Array<{ producto: string; stock: number }>;
+  /** Su costo quedó con el precio de esta compra: conviene revisarlo. */
+  costos_a_revisar: string[];
+  cuenta_por_pagar: 'ninguna' | 'cancelada' | 'no_se_pudo';
+}
+
 export const inventoryPurchasesService = {
   // Obtener todas las compras
   async getAllPurchases(_tenantId: string) {
@@ -70,6 +88,22 @@ export const inventoryPurchasesService = {
 
   // Actualizar estado de compra. Recibir NO va por acá: mueve inventario y
   // crea cuentas por pagar, así que tiene su propio camino (`receivePurchase`).
+  /**
+   * ANULAR una compra, incluso ya recibida.
+   *
+   * Devuelve el resumen de lo que se deshizo: cuántas líneas volvieron del
+   * inventario, cuáles productos quedaron en negativo —porque la mercadería ya
+   * se vendió—, qué pasó con la cuenta por pagar y qué costos conviene
+   * revisar. Se muestra todo: una anulación que no dice qué movió obliga a ir
+   * a revisar el inventario producto por producto.
+   */
+  async voidPurchase(id: string, motivo: string) {
+    return apiFetch<AnulacionDeCompra>('/purchases/' + id + '/void', {
+      method: 'POST',
+      body: JSON.stringify({ motivo }),
+    });
+  },
+
   async updatePurchaseStatus(id: string, status: 'pending' | 'cancelled') {
     return apiFetch<InventoryPurchase>('/purchases/' + id, {
       method: 'PUT',

@@ -2372,6 +2372,47 @@ export const POSMain = () => {
             setShowVoidModal(false);
             setSuccess(`Factura ${invoiceNumber} anulada correctamente`);
           }}
+          /**
+           * ARREGLAR UNA FACTURA MAL PUESTA.
+           *
+           * Lo que llevaba la factura anulada vuelve al carrito, con los
+           * montos que de verdad se cobraron. El cajero corrige lo que estaba
+           * mal y cobra de nuevo; el inventario ya volvió con la anulación, y
+           * la venta corregida lo vuelve a descontar por el camino normal.
+           *
+           * Las líneas entran con precio FIJO: el reprecio del carrito les
+           * pondría el precio de lista de hoy y cambiaría el monto de una
+           * venta que solo había que corregir.
+           */
+          onRehacer={(lineas, datos) => {
+            const carrito = lineas.map(l => {
+              const suelto = !l.product_id;
+              const prod = (!suelto && products.find(p => p.id === l.product_id))
+                || ({
+                  id: l.product_id ?? '', name: l.product_name, unit_price: l.unit_price,
+                  stock_quantity: 0, tenant_id: tenantId ?? '',
+                  ...(suelto ? { is_adhoc: true } : {}),
+                  ...(l.iva_rate != null ? { iva_rate: l.iva_rate } : {}),
+                } as any);
+              return {
+                product_id: (l.product_id ?? prod.id) as string,
+                product_name: l.product_name,
+                product: prod,
+                is_adhoc: suelto || undefined,
+                quantity: l.quantity,
+                unit_price: l.unit_price,
+                subtotal: l.subtotal,
+                notes: l.notes ?? undefined,
+                __precioFijo: true,
+              };
+            });
+            setCartItems(carrito as any);
+            if (datos.customer_name) setTabCustomerName(datos.customer_name);
+            setShowVoidModal(false);
+            setCartOpen(true);
+            setSuccess(
+              `Factura ${datos.invoice_number} anulada. Quedó en el carrito: corregí lo que estaba mal y volvé a cobrar.`);
+          }}
         />
       )}
 

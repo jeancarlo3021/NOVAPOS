@@ -26,9 +26,25 @@ interface Props {
   sessionId: string | null;
   onClose: () => void;
   onVoided: (invoiceNumber: string) => void;
+  /**
+   * ARREGLARLA: devolver al carrito lo que tenía la factura anulada.
+   *
+   * La mayoría de las anulaciones no son una venta que se cayó: es una venta
+   * que se facturó mal —el producto equivocado, la cantidad, el cliente—. Sin
+   * esto, el cajero anula y tiene que volver a digitar la venta entera de
+   * memoria, con el cliente esperando; y lo que se vuelve a cobrar casi nunca
+   * es idéntico a lo que se anuló.
+   */
+  onRehacer?: (
+    lineas: Array<{
+      product_id?: string | null; product_name: string; quantity: number;
+      unit_price: number; subtotal: number; notes?: string | null; iva_rate?: number;
+    }>,
+    datos: { invoice_number: string; customer_name?: string | null },
+  ) => void;
 }
 
-export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided }) => {
+export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided, onRehacer }) => {
   const { tenantId } = useTenantId();
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -42,6 +58,8 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
   const [pinError, setPinError] = useState('');
   const [voiding, setVoiding] = useState(false);
   const [reason, setReason] = useState('Anulación por error en facturación');
+  /** Se puso mal: después de anular, vuelve al carrito para corregirla. */
+  const [rehacer, setRehacer] = useState(false);
 
   const load = useCallback(async () => {
     if (!tenantId) return;
@@ -165,6 +183,42 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
       // Si la NC falló, mantenemos el modal abierto con el aviso (la anulación sí ocurrió).
       if (ncWarning) { setPinError(ncWarning); setVoiding(false); return; }
       setPinError('');
+
+      /* ARREGLARLA: las líneas de la factura anulada vuelven al carrito para
+         corregir lo que estaba mal y volver a cobrar. Se piden DESPUÉS de
+         anular —no antes— porque si la anulación falla no hay nada que
+         rehacer; y si esto falla, la anulación ya quedó hecha y se avisa sin
+         deshacerla: una factura anulada a medias sería peor. */
+      if (rehacer && onRehacer) {
+        try {
+          const full = await invoicesService.getInvoiceById(selected.id) as any;
+          const lineas = ((full?.items ?? []) as any[]).map(it => ({
+            product_id: it.product_id ?? null,
+            product_name: it.product_name ?? it.product?.name ?? 'Artículo',
+            quantity: Number(it.quantity) || 1,
+            unit_price: Number(it.unit_price) || 0,
+            /* Lo que de verdad se cobró por la línea, con su descuento ya
+               adentro: devolver el precio de lista cambiaría el monto de una
+               venta que solo había que corregir. */
+            subtotal: Number(it.subtotal ?? (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)) || 0,
+            notes: it.notes ?? null,
+            iva_rate: it.iva_rate != null ? Number(it.iva_rate) : undefined,
+          }));
+          if (lineas.length === 0) throw new Error('la factura no trae líneas');
+          onRehacer(lineas, {
+            invoice_number: selected.invoice_number,
+            customer_name: full?.customer_name ?? null,
+          });
+          return;   // el POS cierra el modal y deja el carrito listo
+        } catch (e) {
+          setPinError(
+            `La factura ${selected.invoice_number} quedó anulada, pero no se pudo traer su detalle `
+            + `para corregirla (${e instanceof Error ? e.message : 'error'}). Volvé a digitarla.`);
+          setVoiding(false);
+          return;
+        }
+      }
+
       onVoided(selected.invoice_number);
     } catch (e) {
       setPinError(e instanceof Error ? e.message : 'Error al anular la factura');
@@ -252,6 +306,30 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
               )}
             </div>
 
+            {/* SE PUSO MAL → arreglarla.
+                La mayoría de las anulaciones son una venta facturada mal, no
+                una venta que se cayó. Sin esto el cajero anula y tiene que
+                volver a digitarla de memoria con el cliente enfrente. */}
+            {onRehacer && (
+              <button type="button" onClick={() => setRehacer(v => !v)}
+                className={`w-full flex items-start gap-2.5 text-left px-3 py-2.5 rounded-xl border-2 transition ${
+                  rehacer ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}>
+                <span className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
+                  rehacer ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'}`}>
+                  {rehacer ? '✓' : ''}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-black text-gray-900">
+                    Se puso mal: arreglarla y volver a cobrar
+                  </span>
+                  <span className="block text-xs text-gray-500">
+                    Al anular, lo que llevaba esta factura vuelve al carrito para corregir lo que
+                    estaba mal y cobrarla de nuevo.
+                  </span>
+                </span>
+              </button>
+            )}
+
             {storedPin ? (
               <div>
                 <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 mb-2">
@@ -299,7 +377,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                 disabled={voiding || (!!storedPin && pin.length === 0)}
                 className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl font-bold transition"
               >
-                {voiding ? '…' : 'Anular factura'}
+                {voiding ? '…' : rehacer ? 'Anular y arreglar' : 'Anular factura'}
               </button>
             </div>
             {/* Anular solo el pago → dejar a crédito (no anula la factura) */}
