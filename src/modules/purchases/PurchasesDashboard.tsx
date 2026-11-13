@@ -55,6 +55,8 @@ export const PurchasesDashboard: React.FC = () => {
   const [reloadPurchase, setReloadPurchase] = useState<any | null>(null);
   /** Orden que se está anulando (pendiente o ya recibida). */
   const [voidPurchase, setVoidPurchase] = useState<any | null>(null);
+  /** Orden anulada que se vuelve a cargar corregida (se copia como nueva). */
+  const [copiarPurchase, setCopiarPurchase] = useState<any | null>(null);
   /** La orden que se está corrigiendo, ya con sus líneas. */
   const [editPurchase, setEditPurchase] = useState<any | null>(null);
   const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
@@ -511,6 +513,25 @@ export const PurchasesDashboard: React.FC = () => {
         />
       )}
 
+      {/* La compra anulada, otra vez pero corregida. Es una orden NUEVA: la
+          anulada conserva su número, su motivo y los ajustes que revirtieron
+          el inventario. Nace pendiente, así que para que entre al inventario
+          hay que pasarla por «Revisar y Recibir» como cualquier otra. */}
+      {copiarPurchase && (
+        <PurchaseForm
+          isOpen
+          copiarDe={copiarPurchase}
+          onClose={() => setCopiarPurchase(null)}
+          onSuccess={async () => {
+            setCopiarPurchase(null);
+            if (tenantId) {
+              await loadPurchases(tenantId);
+              await refreshPendingCount(tenantId);
+            }
+          }}
+        />
+      )}
+
       {/* New Order Modal */}
       <PurchaseForm
         isOpen={showForm}
@@ -536,6 +557,18 @@ export const PurchasesDashboard: React.FC = () => {
         <VoidPurchaseModal
           purchase={voidPurchase}
           onClose={() => setVoidPurchase(null)}
+          onRehacer={async (completa) => {
+            setVoidPurchase(null);
+            setCopiarPurchase(completa);
+            /* La lista y el inventario ya cambiaron con la anulación: se
+               refrescan ahora, no al cerrar la orden nueva, para que nadie
+               mire existencias viejas mientras la corrige. */
+            if (tenantId) {
+              await loadPurchases(tenantId);
+              await refreshPendingCount(tenantId);
+              try { await getAllProducts(tenantId); } catch { /* el cache se rehará solo */ }
+            }
+          }}
           onDone={async () => {
             setVoidPurchase(null);
             await loadPurchases(tenantId);

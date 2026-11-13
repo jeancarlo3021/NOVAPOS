@@ -35,11 +35,24 @@ interface PurchaseFormProps {
    * calculen igual.
    */
   orden?: { id: string; [k: string]: any } | null;
+  /**
+   * COPIARLA COMO NUEVA: una orden anulada que hay que volver a cargar bien.
+   *
+   * No es editar: la anulada queda anulada —su número ya quedó ligado a una
+   * factura del proveedor y a los ajustes de inventario que la revirtieron—.
+   * Lo que se hace es abrir una orden NUEVA, con su propio número, ya llena
+   * con el proveedor y las líneas de la anulada, para corregir lo que estaba
+   * mal en vez de teclear quince líneas de nuevo.
+   */
+  copiarDe?: { [k: string]: any } | null;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onSuccess, orden = null }) => {
+export const PurchaseForm: React.FC<PurchaseFormProps> = ({
+  isOpen, onClose, onSuccess, orden = null, copiarDe = null,
+}) => {
+  /* Copiar NO es editar: la copia se guarda como orden nueva. */
   const editando = !!orden;
   const { user } = useAuth();
   const { tenantId: resolvedTenantId } = useTenantId();
@@ -162,15 +175,25 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
     if (!editando) autoNumber(tenantId);
   }, [isOpen, tenantId, editando]);
 
-  /** Los datos de la orden que se está corrigiendo entran al formulario. */
+  /** Los datos de la orden que se está corrigiendo (o copiando) entran al formulario. */
   useEffect(() => {
-    if (!isOpen || !orden) return;
-    setPurchaseNumber(String(orden.purchase_number ?? ''));
-    setSupplierId(String(orden.supplier_id ?? ''));
-    setPurchaseDate(String(orden.purchase_date ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10));
-    setExpectedDelivery(String(orden.expected_delivery_date ?? '').slice(0, 10));
-    setNotes(String(orden.notes ?? ''));
-    setItems((orden.purchase_items ?? orden.items ?? []).map((it: any, i: number) => ({
+    const base: any = orden ?? copiarDe;
+    if (!isOpen || !base) return;
+    /* Copiando se deja el número que `autoNumber` ya pidió: reusar el de la
+       anulada haría dos órdenes con el mismo número y el rastro con la factura
+       del proveedor dejaría de servir para las dos. */
+    if (orden) setPurchaseNumber(String(base.purchase_number ?? ''));
+    setSupplierId(String(base.supplier_id ?? ''));
+    setPurchaseDate(String(base.purchase_date ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10));
+    setExpectedDelivery(String(base.expected_delivery_date ?? '').slice(0, 10));
+    setNotes(copiarDe
+      /* Queda dicho de dónde viene: dos órdenes casi iguales en la lista, una
+         anulada y otra no, sin explicación, es lo que hace que alguien cargue
+         las dos al inventario. */
+      ? [`Corrige la orden anulada ${base.purchase_number ?? ''}`.trim(), String(base.notes ?? '')]
+          .filter(Boolean).join(' · ')
+      : String(base.notes ?? ''));
+    setItems((base.purchase_items ?? base.items ?? []).map((it: any, i: number) => ({
       /**
        * CADA LÍNEA NECESITA SU `rowId`, y acá faltaba.
        *
@@ -188,7 +211,8 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
       unit_price:   Number(it.unit_price) || 0,
       total:        Math.round(((Number(it.quantity) || 0) * (Number(it.unit_price) || 0)) * 100) / 100,
     })));
-  }, [isOpen, orden]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, orden, copiarDe]);
 
   const loadData = async (tid: string) => {
     setLoadingData(true);
@@ -545,7 +569,9 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({ isOpen, onClose, onS
         <div className="bg-linear-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-bold text-white">
-              {editando ? `Editar orden ${purchaseNumber}` : 'Nueva Compra'}
+              {editando ? `Editar orden ${purchaseNumber}`
+                : copiarDe ? `Volver a cargar ${copiarDe.purchase_number ?? 'la compra'} corregida`
+                : 'Nueva Compra'}
             </h2>
             {isOffline && (
               <span className="flex items-center gap-1 text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">

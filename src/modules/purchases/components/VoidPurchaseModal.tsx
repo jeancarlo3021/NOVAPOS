@@ -20,6 +20,19 @@ interface Props {
   purchase: any;
   onClose: () => void;
   onDone: () => void;
+  /**
+   * ARREGLARLA: volver a cargar la compra corregida.
+   *
+   * Casi ninguna compra se anula porque no existió: se anula porque se cargó
+   * mal —las cantidades, los precios, el proveedor equivocado—. Sin esto hay
+   * que anular y teclear otra vez las quince líneas de la factura, y lo que se
+   * vuelve a cargar casi nunca es idéntico a lo que se anuló.
+   *
+   * No se edita la anulada: queda anulada, con su número ligado a la factura
+   * del proveedor y a los ajustes que revirtieron el inventario. Se abre una
+   * orden NUEVA ya llena con sus líneas.
+   */
+  onRehacer?: (orden: any) => void;
 }
 
 const MOTIVOS = [
@@ -29,9 +42,12 @@ const MOTIVOS = [
   'La mercadería no llegó',
 ];
 
-export function VoidPurchaseModal({ purchase, onClose, onDone }: Props) {
+export function VoidPurchaseModal({ purchase, onClose, onDone, onRehacer }: Props) {
   const recibida = String(purchase?.status ?? '') === 'received';
   const [motivo, setMotivo] = useState('');
+  /** Se cargó mal: después de anular, se abre corregida. */
+  const [rehacer, setRehacer] = useState(false);
+  const [trayendo, setTrayendo] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [error, setError] = useState('');
   const [hecho, setHecho] = useState<AnulacionDeCompra | null>(null);
@@ -40,7 +56,30 @@ export function VoidPurchaseModal({ purchase, onClose, onDone }: Props) {
     setAplicando(true); setError('');
     try {
       const r = await inventoryPurchasesService.voidPurchase(purchase.id, motivo.trim());
-      setHecho((r as any)?.data ?? r);
+      const resumen = (r as any)?.data ?? r;
+
+      /* El detalle se pide DESPUÉS de anular —si la anulación falla no hay
+         nada que rehacer— y si esto falla, la anulación ya quedó hecha: se
+         muestra el resumen con el aviso en vez de deshacerla. */
+      if (rehacer && onRehacer) {
+        setTrayendo(true);
+        try {
+          const completa: any = await inventoryPurchasesService.getPurchaseById(purchase.id);
+          const lineas = completa?.purchase_items ?? completa?.items ?? [];
+          if (!lineas.length) throw new Error('la orden no trae líneas');
+          onRehacer(completa);
+          return;
+        } catch (e) {
+          setHecho({
+            ...resumen,
+            aviso_rehacer: `Se anuló, pero no se pudo traer el detalle para volver a cargarla `
+              + `(${e instanceof Error ? e.message : 'error'}). Hay que armarla a mano.`,
+          } as any);
+          return;
+        } finally { setTrayendo(false); }
+      }
+
+      setHecho(resumen);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo anular la compra');
     } finally { setAplicando(false); }
@@ -118,6 +157,12 @@ export function VoidPurchaseModal({ purchase, onClose, onDone }: Props) {
               </p>
             )}
 
+            {(hecho as any).aviso_rehacer && (
+              <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                {(hecho as any).aviso_rehacer}
+              </p>
+            )}
+
             <button onClick={onDone}
               className="w-full h-11 rounded-xl bg-gray-900 text-white font-black text-sm">
               Listo
@@ -142,6 +187,30 @@ export function VoidPurchaseModal({ purchase, onClose, onDone }: Props) {
                 <p className="text-xs">Solo se marca como anulada. Esta orden no movió inventario ni generó deuda.</p>
               )}
             </div>
+
+            {/* SE CARGÓ MAL → volver a cargarla corregida. Es el caso
+                normal: la compra existió, lo que estaba mal es cómo se
+                digitó. */}
+            {onRehacer && (
+              <button type="button" onClick={() => setRehacer(v => !v)}
+                className={`w-full flex items-start gap-2.5 text-left px-3 py-2.5 rounded-xl border-2 transition ${
+                  rehacer ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}>
+                <span className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 text-xs ${
+                  rehacer ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'}`}>
+                  {rehacer ? '✓' : ''}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-black text-gray-900">
+                    Se cargó mal: volver a cargarla corregida
+                  </span>
+                  <span className="block text-xs text-gray-500">
+                    Al anular se abre una orden nueva con el proveedor y las líneas de esta,
+                    para corregir lo que estaba mal sin volver a teclear la factura.
+                    La anulada queda anulada.
+                  </span>
+                </span>
+              </button>
+            )}
 
             <div>
               <label className="block text-xs font-black text-gray-600 mb-1.5">¿Por qué se anula?</label>
@@ -173,7 +242,9 @@ export function VoidPurchaseModal({ purchase, onClose, onDone }: Props) {
               </button>
               <button onClick={() => void anular()} disabled={aplicando || !motivo.trim()}
                 className="flex-1 h-11 rounded-xl bg-red-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-sm flex items-center justify-center gap-2">
-                {aplicando ? <><Loader size={15} className="animate-spin" /> Anulando…</> : <><Ban size={15} /> Anular la compra</>}
+                {aplicando || trayendo
+                  ? <><Loader size={15} className="animate-spin" /> {trayendo ? 'Abriendo la corregida…' : 'Anulando…'}</>
+                  : <><Ban size={15} /> {rehacer ? 'Anular y volver a cargar' : 'Anular la compra'}</>}
               </button>
             </div>
           </div>
