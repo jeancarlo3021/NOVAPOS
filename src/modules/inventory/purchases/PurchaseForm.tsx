@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff } from 'lucide-react';
+import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff, FileClock } from 'lucide-react';
 import { inventorySuppliersService, type InventorySupplier } from '@/services/Inventory/inventorySuppliersService';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
@@ -20,6 +20,53 @@ interface LineItem {
   unit_price: number;
   total: number;
   isEditingPrice?: boolean;
+}
+
+/**
+ * EL BORRADOR DE UNA COMPRA A MEDIO TECLEAR.
+ *
+ * Una factura de proveedor son veinte líneas, y digitarlas toma rato: se corta
+ * la conexión, entra una llamada, alguien necesita la pantalla para cobrar, o
+ * el navegador se recarga solo. Lo que pasaba era perder las veinte líneas y
+ * empezar de nuevo —o peor, no empezar y dejar la compra sin registrar—.
+ *
+ * Se guarda EN EL EQUIPO (localStorage) y no en el servidor a propósito: una
+ * orden a medio hacer no es una orden. Guardarla como fila en la base la
+ * pondría en la lista de compras, en los pendientes por recibir y en los
+ * reportes, y alguien terminaría recibiendo una compra que nadie terminó de
+ * escribir. Acá es lo que es: lo que este equipo tenía escrito.
+ *
+ * Es POR NEGOCIO porque el mismo equipo atiende varios: el borrador de uno no
+ * puede aparecer cuando se entra al otro.
+ */
+const LLAVE_BORRADOR = (tenantId: string) => `novapos_compra_borrador_${tenantId}`;
+
+interface BorradorCompra {
+  supplier_id: string;
+  purchase_date: string;
+  expected_delivery_date: string;
+  notes: string;
+  items: LineItem[];
+  guardado: string;
+}
+
+/** Lo que hay guardado en este equipo, si hay algo con sustancia. */
+export function leerBorradorCompra(tenantId: string | null | undefined): BorradorCompra | null {
+  if (!tenantId) return null;
+  try {
+    const crudo = localStorage.getItem(LLAVE_BORRADOR(tenantId));
+    if (!crudo) return null;
+    const b = JSON.parse(crudo) as BorradorCompra;
+    /* Un borrador vacío no es un borrador: sin líneas y sin proveedor no hay
+       nada que recuperar y avisarlo solo estorba. */
+    if (!Array.isArray(b?.items) || (b.items.length === 0 && !b.supplier_id)) return null;
+    return b;
+  } catch { return null; }
+}
+
+export function borrarBorradorCompra(tenantId: string | null | undefined): void {
+  if (!tenantId) return;
+  try { localStorage.removeItem(LLAVE_BORRADOR(tenantId)); } catch { /* bloqueado */ }
 }
 
 interface PurchaseFormProps {
@@ -148,6 +195,17 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState('');
 
+  /**
+   * El borrador SOLO en «Nueva Compra».
+   *
+   * Editando una orden o copiando una anulada, los datos vienen de esa orden:
+   * dejar que un borrador viejo los tapara sería cambiarle las líneas a una
+   * compra que el usuario abrió para corregir otra cosa.
+   */
+  const esNueva = !editando && !copiarDe;
+  /** Se recuperó lo que había escrito: hay que decirlo, no aplicarlo callado. */
+  const [recuperado, setRecuperado] = useState<string | null>(null);
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
@@ -174,6 +232,52 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
        rompería el rastro con la factura del proveedor. */
     if (!editando) autoNumber(tenantId);
   }, [isOpen, tenantId, editando]);
+
+  /**
+   * AL ABRIR: lo que había quedado a medio escribir vuelve.
+   *
+   * No se pregunta antes de recuperarlo —preguntar obliga a decidir sobre algo
+   * que todavía no se ve—: se recupera, se avisa arriba y se deja un botón
+   * para descartarlo y empezar en blanco.
+   */
+  useEffect(() => {
+    if (!isOpen || !esNueva || !tenantId) return;
+    const b = leerBorradorCompra(tenantId);
+    if (!b) return;
+    setSupplierId(b.supplier_id || '');
+    if (b.purchase_date) setPurchaseDate(b.purchase_date);
+    setExpectedDelivery(b.expected_delivery_date || '');
+    setNotes(b.notes || '');
+    setItems(Array.isArray(b.items) ? b.items.map(i => ({ ...i, isEditingPrice: false })) : []);
+    setRecuperado(b.guardado ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, esNueva, tenantId]);
+
+  /**
+   * MIENTRAS SE ESCRIBE: se guarda en cada cambio.
+   *
+   * No al cerrar: el caso que hay que cubrir es el que no pasa por cerrar —se
+   * recargó la pantalla, se cayó la tablet, se cerró el navegador—. Guardar al
+   * salir no habría salvado ninguno de esos.
+   */
+  useEffect(() => {
+    if (!isOpen || !esNueva || !tenantId) return;
+    const hayAlgo = items.length > 0 || !!supplierId || !!notes.trim() || !!expectedDelivery;
+    try {
+      if (!hayAlgo) { localStorage.removeItem(LLAVE_BORRADOR(tenantId)); return; }
+      const b: BorradorCompra = {
+        supplier_id: supplierId,
+        purchase_date: purchaseDate,
+        expected_delivery_date: expectedDelivery,
+        notes,
+        /* Sin `isEditingPrice`: es estado de la pantalla, no de la compra, y
+           al recuperar dejaría un precio abierto a medio editar. */
+        items: items.map(({ isEditingPrice: _x, ...resto }) => resto as LineItem),
+        guardado: new Date().toISOString(),
+      };
+      localStorage.setItem(LLAVE_BORRADOR(tenantId), JSON.stringify(b));
+    } catch { /* localStorage lleno o bloqueado: no se pierde la pantalla por esto */ }
+  }, [isOpen, esNueva, tenantId, supplierId, purchaseDate, expectedDelivery, notes, items]);
 
   /** Los datos de la orden que se está corrigiendo (o copiando) entran al formulario. */
   useEffect(() => {
@@ -532,6 +636,13 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
         });
       }
 
+      /* La compra quedó guardada (en el servidor o en la cola de sin
+         conexión): el borrador ya no tiene nada que salvar. Dejarlo haría que
+         la próxima «Nueva Compra» apareciera con la que se acaba de registrar
+         y alguien la cargue dos veces. */
+      borrarBorradorCompra(tenantId);
+      setRecuperado(null);
+
       onSuccess();
       handleClose();
     } catch (err) {
@@ -557,6 +668,18 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
     setNewUnitPrice('');
     setError('');
     onClose();
+  };
+
+  /** Descartar lo recuperado y empezar en blanco. */
+  const descartarBorrador = () => {
+    borrarBorradorCompra(tenantId);
+    setRecuperado(null);
+    setSupplierId('');
+    setPurchaseDate(new Date().toISOString().slice(0, 10));
+    setExpectedDelivery('');
+    setNotes('');
+    setItems([]);
+    setError('');
   };
 
   if (!isOpen) return null;
@@ -591,6 +714,27 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex justify-between">
               <span>{error}</span>
               <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 ml-3">✕</button>
+            </div>
+          )}
+
+          {/* SE RECUPERÓ UN BORRADOR. Se dice y se puede descartar: aparecer
+              con líneas que uno no acaba de escribir, sin explicación, se lee
+              como un error del sistema. */}
+          {recuperado && (
+            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3">
+              <FileClock size={18} className="text-amber-700 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0 text-[11px] font-bold text-amber-900">
+                Se recuperó la compra que habías dejado a medias
+                {(() => {
+                  const d = new Date(recuperado);
+                  return isNaN(d.getTime()) ? '' : ` (${d.toLocaleString('es-CR')})`;
+                })()}.
+                Seguí donde ibas, o descartala y empezá en blanco.
+              </div>
+              <button type="button" onClick={descartarBorrador}
+                className="shrink-0 px-3 py-1.5 rounded-lg border-2 border-amber-300 bg-white text-amber-800 text-[11px] font-black hover:bg-amber-100">
+                Descartar
+              </button>
             </div>
           )}
 

@@ -14,7 +14,7 @@ import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchas
 import { inventorySuppliersService } from '@/services/Inventory/inventorySuppliersService';
 import { getAllProducts } from '@/services/Inventory/InventoryProductsService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
-import { PurchaseForm } from '@/modules/inventory/purchases/PurchaseForm';
+import { PurchaseForm, leerBorradorCompra } from '@/modules/inventory/purchases/PurchaseForm';
 import { PurchaseDetailModal } from '@/modules/inventory/purchases/PurchaseDetailModal';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { OfflineBanner } from './components/OfflineBanner';
@@ -57,6 +57,9 @@ export const PurchasesDashboard: React.FC = () => {
   const [voidPurchase, setVoidPurchase] = useState<any | null>(null);
   /** Orden anulada que se vuelve a cargar corregida (se copia como nueva). */
   const [copiarPurchase, setCopiarPurchase] = useState<any | null>(null);
+  /** Quedó una compra a medio escribir en este equipo. */
+  const [hayBorrador, setHayBorrador] = useState(false);
+  useEffect(() => { setHayBorrador(!!leerBorradorCompra(tenantId)); }, [tenantId]);
   /** La orden que se está corrigiendo, ya con sus líneas. */
   const [editPurchase, setEditPurchase] = useState<any | null>(null);
   const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
@@ -285,8 +288,19 @@ export const PurchasesDashboard: React.FC = () => {
           </div>
           {canCreate && (
             <button onClick={() => setShowForm(true)}
+              title={hayBorrador
+                ? 'Tenés una compra a medio escribir en este equipo: se abre donde la dejaste'
+                : undefined}
               className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-sm">
               <Plus size={18} /> Nueva Orden
+              {/* UN BORRADOR QUE NO SE VE NO SIRVE. Si quedó una compra a
+                  medio teclear, el botón lo dice: si no, se queda guardada en
+                  el equipo esperando a que alguien entre de casualidad. */}
+              {hayBorrador && (
+                <span className="text-[10px] font-black bg-amber-300 text-amber-900 px-1.5 py-0.5 rounded-md">
+                  borrador
+                </span>
+              )}
             </button>
           )}
         </div>
@@ -535,8 +549,16 @@ export const PurchasesDashboard: React.FC = () => {
       {/* New Order Modal */}
       <PurchaseForm
         isOpen={showForm}
-        onClose={() => setShowForm(false)}
+        onClose={() => {
+          setShowForm(false);
+          /* Al salir sin guardar queda el borrador: el botón tiene que
+             enterarse para poder ofrecerlo. */
+          setHayBorrador(!!leerBorradorCompra(tenantId));
+        }}
         onSuccess={async () => {
+          /* Guardada: el borrador ya se borró en el formulario, así que el
+             rótulo del botón también se apaga. */
+          setHayBorrador(false);
           if (tenantId) {
             await loadPurchases(tenantId);
             await refreshPendingCount(tenantId);
