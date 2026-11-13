@@ -119,6 +119,17 @@ export const RepartoControl: React.FC<{
                   className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-right text-xl font-black" />
               </div>
 
+              {/* Lo que el cajero tiene que tener claro antes de aplicar:
+                  acá NO cambian los precios. El reparto propio cobra los
+                  artículos a precio normal y le SUMA el transporte; los
+                  precios delivery son de las plataformas (Uber, Didi), que es
+                  otro modo del POS. Confundirlos le cambia el precio a toda la
+                  venta por haber agregado un flete. */}
+              <p className="text-[11px] font-bold text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                Los artículos se cobran a <b>precio normal</b>: esto solo suma el transporte.
+                El precio delivery es para las plataformas.
+              </p>
+
               {repartidores.length > 0 && (
                 <div>
                   <p className="text-xs font-black text-gray-600 mb-1.5">¿Quién lo lleva?</p>

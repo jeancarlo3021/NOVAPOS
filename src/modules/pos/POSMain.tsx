@@ -400,6 +400,17 @@ export const POSMain = () => {
         subtotal: round2(reparto.monto),
         notes: reparto.zona ?? undefined,
         __reparto: true,
+        /**
+         * EL TRANSPORTE SE COBRA COMO SE ELIGIÓ, y no se le toca el precio.
+         *
+         * La tarifa depende de la distancia: la eligió quien cobra. El
+         * reprecio del carrito —que corre al cargar los precios del cliente o
+         * al cambiar de modo— la reemplazaba por el precio de lista del
+         * artículo «Entrega a domicilio», así que un viaje a carretera de
+         * ₡2.500 se facturaba en ₡1.000, o en el precio delivery del artículo
+         * si lo tenía. Esta línea es un monto, no un precio de catálogo.
+         */
+        __precioFijo: true,
       } as any];
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -764,8 +775,18 @@ export const POSMain = () => {
 
   // Combos / grupos de promos — varios productos juntos por un precio único o un
   // % de descuento. El precio del combo es CON IVA incluido.
+  /**
+   * EL TRANSPORTE NO ENTRA EN LAS PROMOCIONES.
+   *
+   * El domicilio es un servicio que se cobra aparte, no mercadería: una promo
+   * «10 % a todo el catálogo» le estaba descontando al flete, y un combo podía
+   * armarse con el domicilio adentro. Es la misma razón por la que el 10 % de
+   * servicio del restaurante queda afuera.
+   */
+  const lineasPromocionables = cartItems.filter(it => !(it as any).__reparto);
+
   const { applied: combosAplicados, basePorProducto: baseCombos } = computeCartCombos(
-    cartItems.map(it => ({
+    lineasPromocionables.map(it => ({
       product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity,
       iva_pct: ivaPctDe(it),
     })),
@@ -781,7 +802,7 @@ export const POSMain = () => {
    * hace que llegue a la factura y el IVA se cobre sobre lo que se cobró.
    */
   const { applied: segundasAplicadas, basePorProducto: baseSegundas } = computeSegundaUnidad(
-    cartItems.map(it => ({
+    lineasPromocionables.map(it => ({
       product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity,
       iva_pct: ivaPctDe(it),
       category_id: (it.product as any)?.category_id ?? null,
@@ -837,7 +858,7 @@ export const POSMain = () => {
    * para poder ofrecerlo en vez de aplicar algo a ciegas.
    */
   const { applied: regaliasAplicadas, basePorProducto: baseRegalias } = computeCartRegalias(
-    cartItems.map(it => ({
+    lineasPromocionables.map(it => ({
       product_id: it.product_id, unit_price: it.unit_price, quantity: it.quantity,
       iva_pct: ivaPctDe(it),
     })),
