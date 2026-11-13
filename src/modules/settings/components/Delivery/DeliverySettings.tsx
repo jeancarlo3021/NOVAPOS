@@ -115,19 +115,30 @@ export const DeliverySettings: React.FC = () => {
           </p>
         </div>
 
-        <div>
-          <label className="block text-sm font-bold text-gray-700 mb-1">Con qué artículo se cobra el domicilio</label>
-          <select value={productoId} onChange={e => setProductoId(e.target.value)} disabled={!isManager}
-            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm bg-white disabled:bg-gray-100">
-            <option value="">— elegir un artículo del catálogo —</option>
-            {productos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <p className="text-xs text-gray-500 mt-1">
-            Creá en Inventario un servicio tipo «Entrega a domicilio» (sin control de existencias y con su CAByS) y
-            elegilo acá. Va como una línea más en el tiquete: es lo que hace que funcione con factura electrónica y
-            que el reporte y el cliente vean el mismo número.
-          </p>
-        </div>
+        {/* El artículo ya NO hay que elegirlo para poder cobrar: el POS lo
+            resuelve la primera vez que alguien manda algo a domicilio. Esto
+            queda para el caso en que el negocio quiera usar otro artículo —el
+            suyo, con su propio CAByS o su propia cuenta contable—. */}
+        <details>
+          <summary className="text-sm font-bold text-gray-700 cursor-pointer">
+            Con qué artículo se cobra el transporte
+            <span className="font-normal text-gray-400"> — se resuelve solo; abrí solo si querés cambiarlo</span>
+          </summary>
+          <div className="mt-2">
+            <select value={productoId} onChange={e => setProductoId(e.target.value)} disabled={!isManager}
+              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm bg-white disabled:bg-gray-100">
+              <option value="">— lo crea el sistema («Entrega a domicilio») —</option>
+              {productos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              El transporte va como una línea más del tiquete: eso es lo que lo hace funcionar con factura
+              electrónica y lo que permite que el cierre y el reporte sepan cuál de las líneas es el flete.
+              La primera vez que se cobre un domicilio, el sistema crea o adopta un servicio
+              «Entrega a domicilio» (sin existencias, IVA 13 %) y lo deja puesto acá. Cambialo solo si
+              preferís usar otro artículo del catálogo.
+            </p>
+          </div>
+        </details>
 
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">Tarifas por zona o distancia</label>
