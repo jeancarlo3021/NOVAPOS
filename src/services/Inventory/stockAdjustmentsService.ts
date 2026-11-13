@@ -32,12 +32,18 @@ export const stockAdjustmentsService = {
     from?: string;
     to?: string;
     type?: AdjustmentType;
+    /** Nombre o código del producto: lo resuelve el servidor. */
+    search?: string;
+    /** Tope de filas. Por omisión 1000 (lo que el servidor devolvía callado). */
+    limit?: number;
   } = {}): Promise<StockAdjustment[]> {
     const qs = new URLSearchParams();
     if (params.productId) qs.set('product_id', params.productId);
     if (params.from) qs.set('from', params.from);
     if (params.to) qs.set('to', params.to);
     if (params.type) qs.set('type', params.type);
+    if (params.search?.trim()) qs.set('search', params.search.trim());
+    if (params.limit) qs.set('limit', String(params.limit));
     const url = `/stock-adjustments${qs.toString() ? '?' + qs.toString() : ''}`;
     return apiFetch<StockAdjustment[]>(url);
   },
