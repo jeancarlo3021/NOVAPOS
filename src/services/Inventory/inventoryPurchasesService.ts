@@ -29,6 +29,16 @@ export interface PurchaseItem {
   subtotal: number;            // column: subtotal
 }
 
+/** Lo que se agregó a una orden ya recibida. */
+export interface AgregadoACompra {
+  numero: string;
+  agregadas: number;
+  monto_agregado: number;
+  total_orden: number | null;
+  stock: { aplicados: number; unidades: number; sin_stock: number; fallaron: number };
+  cuenta_por_pagar: 'ninguna' | 'actualizada' | 'no_se_pudo';
+}
+
 /** Lo que deshizo una anulación de compra. */
 export interface AnulacionDeCompra {
   numero: string;
@@ -97,6 +107,21 @@ export const inventoryPurchasesService = {
    * revisar. Se muestra todo: una anulación que no dice qué movió obliga a ir
    * a revisar el inventario producto por producto.
    */
+  /**
+   * AGREGAR artículos a una orden YA RECIBIDA.
+   *
+   * Para el artículo que traía la factura del proveedor y no se digitó. Las
+   * líneas nuevas entran al inventario, suben el total y la cuenta por pagar.
+   * Lo que ya estaba recibido no se toca: para corregir una línea vieja hay
+   * que anular la compra y volverla a cargar.
+   */
+  async addItems(id: string, items: Array<{ product_id: string; quantity: number; unit_price: number }>) {
+    return apiFetch<AgregadoACompra>('/purchases/' + id + '/add-items', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+  },
+
   async voidPurchase(id: string, motivo: string) {
     return apiFetch<AnulacionDeCompra>('/purchases/' + id + '/void', {
       method: 'POST',

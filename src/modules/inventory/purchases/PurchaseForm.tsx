@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff, FileClock } from 'lucide-react';
+import { Plus, Trash2, Loader, X, AlertCircle, ChevronDown, Clock, WifiOff, FileClock, Lock } from 'lucide-react';
 import { inventorySuppliersService, type InventorySupplier } from '@/services/Inventory/inventorySuppliersService';
 import { inventoryPurchasesService } from '@/services/Inventory/inventoryPurchasesService';
 import { purchasesOfflineService } from '@/services/Inventory/purchasesOfflineService';
@@ -20,6 +20,15 @@ interface LineItem {
   unit_price: number;
   total: number;
   isEditingPrice?: boolean;
+  /**
+   * Esta línea YA ENTRÓ al inventario (la orden está recibida).
+   *
+   * No se puede cambiar ni borrar desde acá: su mercadería pudo venderse hace
+   * una semana y nadie puede decir qué parte de la existencia de hoy vino de
+   * ella. Para corregirla está anular la compra y volverla a cargar, que sí
+   * deshace inventario, costo y deuda en orden.
+   */
+  existente?: boolean;
 }
 
 /**
@@ -203,6 +212,16 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
    * compra que el usuario abrió para corregir otra cosa.
    */
   const esNueva = !editando && !copiarDe;
+  /**
+   * SOLO AGREGAR: la orden ya se recibió.
+   *
+   * Lo viejo queda a la vista pero congelado, y lo que se escribe se suma. Es
+   * el caso de «la factura traía un artículo que no digité»: antes había que
+   * inventar una orden de compra de un solo renglón —que no cuadra con
+   * ninguna factura— o ajustar el inventario a mano, que sube la existencia
+   * pero no registra lo que se le debe al proveedor.
+   */
+  const soloAgregar = editando && String((orden as any)?.status ?? '') === 'received';
   /** Se recuperó lo que había escrito: hay que decirlo, no aplicarlo callado. */
   const [recuperado, setRecuperado] = useState<string | null>(null);
 
@@ -309,6 +328,8 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
        * como `any` desde la respuesta del servidor.
        */
       rowId:        `${it.id ?? 'linea'}-${i}`,
+      /* Si la orden está recibida, lo que ya tiene no se toca. */
+      existente:    String(base.status ?? '') === 'received',
       product_id:   String(it.product_id),
       product_name: it.products?.name ?? it.product_name ?? 'Producto',
       quantity:     Number(it.quantity) || 0,
@@ -574,6 +595,28 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
 
     setSubmitting(true);
     try {
+      /* SOLO AGREGAR: viajan únicamente las líneas nuevas, por su propia ruta.
+         El PUT de edición reescribe TODAS las líneas de la orden, así que
+         usarlo acá borraría y recrearía lo ya recibido —y con eso se perdería
+         el `received_quantity` de cada línea, que es lo que una anulación usa
+         después para saber cuánto devolver—. */
+      if (soloAgregar && orden) {
+        const nuevas = items.filter(i => !i.existente);
+        if (nuevas.length === 0) {
+          setError('No agregaste ningún artículo nuevo. Lo que ya se recibió no se puede cambiar desde acá.');
+          setSubmitting(false);
+          return;
+        }
+        await inventoryPurchasesService.addItems(orden.id, nuevas.map(i => ({
+          product_id: i.product_id,
+          quantity:   i.quantity,
+          unit_price: i.unit_price,
+        })));
+        onSuccess();
+        handleClose();
+        return;
+      }
+
       if (editando && orden) {
         /* El total NO viaja: lo recalcula el servidor desde las líneas. Si lo
            mandara la pantalla, una orden podría quedar con líneas que suman
@@ -692,7 +735,8 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
         <div className="bg-linear-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-bold text-white">
-              {editando ? `Editar orden ${purchaseNumber}`
+              {soloAgregar ? `Agregar a la orden ${purchaseNumber}`
+                : editando ? `Editar orden ${purchaseNumber}`
                 : copiarDe ? `Volver a cargar ${copiarDe.purchase_number ?? 'la compra'} corregida`
                 : 'Nueva Compra'}
             </h2>
@@ -738,10 +782,31 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
             </div>
           )}
 
+          {/* ORDEN RECIBIDA: solo se agrega, y hay que decir qué implica.
+              A diferencia de una orden pendiente, acá guardar SÍ mueve
+              inventario: la orden ya está recibida, así que lo que se agrega
+              entra en el momento. */}
+          {soloAgregar && (
+            <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-[11px] font-bold text-blue-900 space-y-1">
+              <p>
+                Esta orden <b>ya se recibió</b>. Lo que está marcado como «ya recibido» no se puede
+                cambiar ni borrar: su mercadería pudo venderse hace una semana.
+              </p>
+              <p>
+                Lo que agregues <b>entra al inventario al guardar</b>, actualiza el costo del producto
+                y sube la cuenta por pagar: es plata que el proveedor va a cobrar.
+              </p>
+              <p className="text-blue-700">
+                ¿Hay que corregir una cantidad o un precio ya recibido? Eso se hace anulando la compra
+                y volviéndola a cargar corregida, que sí deshace inventario, costo y deuda en orden.
+              </p>
+            </div>
+          )}
+
           {/* Editando no se pregunta: una orden que se puede editar está
               pendiente por definición, y recibirla es otro botón —el que
               mueve inventario y crea la cuenta por pagar—. */}
-          {editando && (
+          {editando && !soloAgregar && (
             <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3 text-[11px] font-bold text-amber-900">
               Estás corrigiendo una orden pendiente. Al guardar NO se mueve inventario: para eso está
               «Revisar y Recibir», que es donde entra la mercadería y se crea la cuenta por pagar.
@@ -784,7 +849,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
                   <select
                     value={supplierId}
                     onChange={e => setSupplierId(e.target.value)}
-                    disabled={submitting || loadingData}
+                    disabled={submitting || loadingData || soloAgregar}
                     className="w-full px-4 py-2 pr-9 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 bg-white appearance-none"
                   >
                     <option value="">{loadingData ? 'Cargando...' : 'Seleccionar proveedor'}</option>
@@ -795,7 +860,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
                 {/* Crear uno sin salir de acá: el proveedor nuevo aparece
                     justo cuando se está tecleando su primera factura. */}
                 {!nuevoProv && (
-                  <button type="button" onClick={() => setNuevoProv(true)} disabled={submitting}
+                  <button type="button" onClick={() => setNuevoProv(true)} disabled={submitting || soloAgregar}
                     className="mt-1.5 text-xs font-black text-blue-700 hover:underline flex items-center gap-1">
                     <Plus size={12} /> Proveedor nuevo
                   </button>
@@ -853,7 +918,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
                   type="date"
                   value={purchaseDate}
                   onChange={e => setPurchaseDate(e.target.value)}
-                  disabled={submitting}
+                  disabled={submitting || soloAgregar}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 />
               </div>
@@ -865,7 +930,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
                     type="date"
                     value={expectedDelivery}
                     onChange={e => setExpectedDelivery(e.target.value)}
-                    disabled={submitting}
+                    disabled={submitting || soloAgregar}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                   />
                 </div>
@@ -1029,10 +1094,21 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
                   <tbody className="divide-y divide-gray-100">
                     {items.map(item => (
                       <tr key={item.rowId} className="hover:bg-gray-50">
-                        <td className="px-4 py-2.5 font-medium text-gray-900">{item.product_name}</td>
+                        <td className="px-4 py-2.5 font-medium text-gray-900">
+                          {item.product_name}
+                          {item.existente && (
+                            <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                              <Lock size={9} /> ya recibido
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-right text-gray-700">{item.quantity}</td>
                         <td className="px-4 py-2.5 text-right text-gray-700">
-                          {item.isEditingPrice ? (
+                          {/* Una línea ya recibida muestra su precio y nada
+                              más: no es un botón, para que nadie lo intente. */}
+                          {item.existente ? (
+                            <span className="text-gray-500">₡{item.unit_price.toLocaleString('es-CR')}</span>
+                          ) : item.isEditingPrice ? (
                             <input
                               type="number"
                               step="0.01"
@@ -1066,9 +1142,13 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
                         </td>
                         <td className="px-4 py-2.5 text-right font-bold text-gray-900">₡{item.total.toLocaleString('es-CR')}</td>
                         <td className="px-4 py-2.5 text-center">
-                          <button onClick={() => handleRemoveItem(item.rowId)} disabled={submitting} className="text-red-400 hover:text-red-600 disabled:opacity-40">
-                            <Trash2 size={15} />
-                          </button>
+                          {item.existente ? (
+                            <Lock size={13} className="text-gray-300 mx-auto" />
+                          ) : (
+                            <button onClick={() => handleRemoveItem(item.rowId)} disabled={submitting} className="text-red-400 hover:text-red-600 disabled:opacity-40">
+                              <Trash2 size={15} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1090,7 +1170,7 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
               value={notes}
               onChange={e => setNotes(e.target.value)}
               placeholder="Notas adicionales..."
-              disabled={submitting}
+              disabled={submitting || soloAgregar}
               rows={2}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 resize-none"
             />
@@ -1123,6 +1203,8 @@ export const PurchaseForm: React.FC<PurchaseFormProps> = ({
               ? <><Loader size={16} className="animate-spin" /> Guardando...</>
               : isOffline
                 ? <><WifiOff size={16} /> Guardar (offline)</>
+                : soloAgregar ? `📦 Agregar al inventario${items.filter(i => !i.existente).length > 0
+                    ? ` · ${items.filter(i => !i.existente).length}` : ''}`
                 : editando ? '💾 Guardar cambios'
                 : '💾 Guardar pedido'
             }

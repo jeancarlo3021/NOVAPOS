@@ -453,9 +453,14 @@ export const PurchasesDashboard: React.FC = () => {
                             {/* CORREGIR la orden. Hasta ahora una orden mal
                                 armada no tenía arreglo: se cancelaba y se
                                 hacía de nuevo, con sus veinte líneas. */}
-                            {p.status === 'pending' && !isLocal && (
+                            {(p.status === 'pending' || p.status === 'received') && !isLocal && (
                               <button onClick={() => void abrirEdicion(p)} disabled={busy || loadingEdit === p.id}
-                                className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40 rounded-lg transition" title="Editar la orden">
+                                className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40 rounded-lg transition"
+                                title={p.status === 'received'
+                                  /* Recibida solo se le AGREGA: lo que ya entró
+                                     al inventario no se toca desde acá. */
+                                  ? 'Agregar artículos que faltaron en la factura'
+                                  : 'Editar la orden'}>
                                 {loadingEdit === p.id ? <Loader size={15} className="animate-spin" /> : <Pencil size={15} />}
                               </button>
                             )}
