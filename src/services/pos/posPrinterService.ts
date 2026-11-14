@@ -1116,6 +1116,8 @@ export class POSPrinterService {
     by_method?: { cash: number; card: number; sinpe: number; credit: number };
     /** Lo que el chofer TRAE: efectivo + tarjeta + SINPE. Sin el crédito. */
     cobrado?: number;
+    /** Algo no se pudo calcular (p. ej. el sobrante): va impreso. */
+    aviso?: string | null;
     /** Lo que quedó a crédito. Se informa, pero no se le cuadra al chofer. */
     credito?: number;
     returned?: Array<{ name: string; quantity: number }>;
@@ -1148,6 +1150,12 @@ export class POSPrinterService {
         { t: 'row', a: 'COBRADO (lo que trae)', b: money(summary.cobrado ?? (bm.cash + bm.card + bm.sinpe)) },
         { t: 'row', a: 'Crédito (no cobrado)', b: money(summary.credito ?? bm.credit) },
       ];
+      /* Si algo del cierre no se pudo calcular, va IMPRESO. Un tiquete que
+         dice «sobrante: nada» cuando en realidad no se pudo calcular es un
+         tiquete que miente, y es el papel que se firma. */
+      if (summary.aviso) {
+        lines.push({ t: 'sep' }, { t: 'center', a: '** ' + String(summary.aviso) + ' **' });
+      }
       if (summary.ar_payments && summary.ar_payments.total > 0) {
         lines.push({ t: 'sep' }, { t: 'title', a: 'ABONOS CxC' });
         lines.push({ t: 'row', a: 'Efectivo', b: money(summary.ar_payments.by_method.cash) });

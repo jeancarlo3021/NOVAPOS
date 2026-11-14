@@ -111,12 +111,19 @@ export const DriverView: React.FC = () => {
       try {
         const m = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
         const bm = (summary as any).by_method ?? { cash: 0, card: 0, sinpe: 0, credit: 0 };
+        /* COBRADO va aparte y el crédito abajo, igual que en el tiquete: el
+           correo es lo que mira la oficina para cuadrarle al chofer, y
+           cuadrarlo contra «vendido» le cobra de más el crédito. */
+        const cobrado = summary.cobrado ?? (Number(bm.cash || 0) + Number(bm.card || 0) + Number(bm.sinpe || 0));
         const sections: any[] = [
           { heading: 'Ventas de la ruta', rows: [
             ['Ventas', `${summary.sales_count} · ${m(summary.sales_total)}`],
             ...(summary.voids_count > 0 ? [['Anulaciones', String(summary.voids_count)]] : []),
-            ['Efectivo', m(bm.cash)], ['Tarjeta', m(bm.card)], ['SINPE', m(bm.sinpe)], ['Crédito', m(bm.credit)],
+            ['Efectivo', m(bm.cash)], ['Tarjeta', m(bm.card)], ['SINPE', m(bm.sinpe)],
+            ['COBRADO (lo que trae)', m(cobrado)],
+            ['Crédito (no cobrado)', m(summary.credito ?? bm.credit)],
           ] },
+          ...((summary as any).aviso ? [{ heading: 'Atención', rows: [['Aviso', String((summary as any).aviso)]] }] : []),
           ...((summary as any).ar_payments ? [{ heading: 'Abonos', rows: [['Total abonos', m((summary as any).ar_payments.total)]] }] : []),
           ...((summary as any).expenses ? [{ heading: 'Gastos', rows: [['Total gastos', m((summary as any).expenses.total)]] }] : []),
         ];
@@ -130,6 +137,10 @@ export const DriverView: React.FC = () => {
       } catch { /* no bloquear el cierre */ }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'No se pudo cerrar la ruta');
+      /* Lo más común es un 409 porque ya la cerró otro (el teléfono del
+         chofer y la oficina a la vez). Sin recargar, la ruta se queda abierta
+         en pantalla y el chofer vuelve a intentarlo. */
+      await load().catch(() => {});
     } finally { setClosingId(null); }
   };
 

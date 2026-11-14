@@ -116,6 +116,9 @@ export const DistributionDashboard: React.FC = () => {
             ['Total vendido', m(sum.sales_total)],
             ...(sum.voids_count > 0 ? [['Anulaciones', String(sum.voids_count)]] : []),
           ] },
+          /* Si el cierre no pudo calcular algo —el sobrante, por ejemplo—, el
+             correo lo tiene que decir: es el que se archiva. */
+          ...((sum as any).aviso ? [{ heading: 'Atención', rows: [['Aviso', String((sum as any).aviso)]] }] : []),
           ...(sum.ar_payments ? [{ heading: 'Abonos', rows: [['Total abonos', m(sum.ar_payments.total)]] }] : []),
           ...(sum.expenses ? [{ heading: 'Gastos', rows: [['Total gastos', m(sum.expenses.total)]] }] : []),
         ];
@@ -133,6 +136,10 @@ export const DistributionDashboard: React.FC = () => {
       const detalle = e instanceof Error ? e.message : 'Error al cerrar';
       setError(`${r.warehouse?.name ?? 'Ruta'} (${r.route_date}): ${detalle}`);
       setCloseSummary(null);
+      /* Lo más común es un 409 porque el chofer ya la cerró desde el
+         teléfono: hay que recargar para que la ruta deje de verse abierta y
+         nadie la cierre «otra vez». */
+      await load().catch(() => {});
     }
   };
 
