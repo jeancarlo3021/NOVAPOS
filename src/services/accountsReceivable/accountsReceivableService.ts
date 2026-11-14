@@ -74,6 +74,28 @@ export const accountsReceivableService = {
     return apiFetch<Receivable[]>(`/accounts-receivable${qs ? '?' + qs : ''}`);
   },
   summary: () => apiFetch<ReceivableSummary>('/accounts-receivable/summary'),
+
+  /**
+   * CRÉDITOS SIN CUENTA POR COBRAR.
+   *
+   * Ventas a crédito cuya cuenta nunca se creó: la deuda no existe en ninguna
+   * parte, así que nadie la ve y nadie la cobra. `huerfanas()` las encuentra y
+   * `repararHuerfanas()` les crea la cuenta que les falta.
+   */
+  huerfanas: (from?: string, to?: string) => {
+    const q = new URLSearchParams();
+    if (from) q.set('from', from);
+    if (to) q.set('to', to);
+    const qs = q.toString();
+    return apiFetch<{
+      cuantas: number; total: number; de_ruta: number;
+      facturas: Array<{ id: string; invoice_number: string; customer_name: string | null; total: number; fecha: string; de_ruta: boolean }>;
+    }>(`/accounts-receivable/huerfanas${qs ? '?' + qs : ''}`);
+  },
+  repararHuerfanas: (from?: string, to?: string) =>
+    apiFetch<{ revisadas: number; creadas: number; lista_creadas: string[]; fallaron: Array<{ invoice_number: string; motivo: string }> }>(
+      '/accounts-receivable/huerfanas/reparar',
+      { method: 'POST', body: JSON.stringify({ from, to }) }),
   get: (id: string) => apiFetch<Receivable>(`/accounts-receivable/${id}`),
   create: (r: ReceivableInput) =>
     apiFetch<Receivable>('/accounts-receivable', { method: 'POST', body: JSON.stringify(r) }),

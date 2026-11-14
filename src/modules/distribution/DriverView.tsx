@@ -511,6 +511,10 @@ function VerifyDeliverModal({ order, onClose, onDelivered, onPrint }: {
       onDelivered();
       // Después de entregar el ticket, nunca antes: el aviso no debe demorarlo.
       if (avisoFe) alert(avisoFe);
+      /* LA CUENTA POR COBRAR NO SE CREÓ. El chofer tiene que saberlo en la
+         puerta del cliente: la mercadería ya salió del camión y, si nadie
+         anota el crédito, esa deuda no existe en ninguna parte. */
+      if (inv?.aviso_cxc) alert(inv.aviso_cxc);
     } finally { setSaving(false); }
   };
 

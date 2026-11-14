@@ -170,6 +170,9 @@ export const RouteRun: React.FC = () => {
     const d = new Date(); const p = (x: number) => String(x).padStart(2, '0');
     const issued_at = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
     const inv: any = await distributionOfflineService.deliverOrder(id ?? '', order.id, { payment_method: paymentMethod, issued_at });
+    /* La cuenta por cobrar no se creó: hay que decirlo ahora. La entrega ya
+       está hecha y ese crédito, si nadie lo anota, no existe para nadie. */
+    if (inv?.aviso_cxc) alert(inv.aviso_cxc);
     const now = new Date();
     const data = {
       invoiceNumber: inv?.invoice_number ?? '',

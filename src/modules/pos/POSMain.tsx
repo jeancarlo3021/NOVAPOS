@@ -1821,6 +1821,11 @@ export const POSMain = () => {
         setLastInvoice(invoice);
         setPaymentData(data);
         setSuccess(`Pago procesado — Factura ${invoice.invoice_number}`);
+        /* LA CUENTA POR COBRAR NO SE CREÓ. Una venta a crédito sin su cuenta
+           es una deuda que no existe para nadie: no sale en Cuentas por
+           cobrar, el cliente aparece al día y nadie la va a cobrar. Se avisa
+           acá y no en un log. */
+        if ((invoice as any)?.cxc_warning) setError(String((invoice as any).cxc_warning));
 
         // "Cobrar y descargar": la factura en A4 para el cliente que necesita
         // respaldo en hoja. No bloquea la venta si el PDF falla.

@@ -111,6 +111,25 @@ export const AccountsReceivableDashboard: React.FC = () => {
   // y desde la pantalla eso se veía igual que "faltan clientes".
   const [scope, setScope] = useState<{ zone: string | null; customers_total: number; customers_visible: number } | null>(null);
   useEffect(() => { accountsReceivableService.scope().then(setScope).catch(() => setScope(null)); }, []);
+
+  /**
+   * CRÉDITOS SIN CUENTA POR COBRAR.
+   *
+   * Ventas a crédito cuya cuenta nunca se creó: la deuda no está en esta
+   * pantalla, el cliente aparece al día y nadie va a cobrarla. Se revisa al
+   * abrir, porque es plata que se pierde callada —no algo que a alguien se le
+   * ocurra ir a buscar—.
+   */
+  const [huerfanas, setHuerfanas] = useState<{ cuantas: number; total: number; de_ruta: number } | null>(null);
+  const [reparando, setReparando] = useState(false);
+  const [avisoReparo, setAvisoReparo] = useState('');
+
+  const revisarHuerfanas = useCallback(() => {
+    accountsReceivableService.huerfanas()
+      .then(h => setHuerfanas(h.cuantas > 0 ? h : null))
+      .catch(() => setHuerfanas(null));   // sin el endpoint todavía: la pantalla sigue igual
+  }, []);
+  useEffect(() => { revisarHuerfanas(); }, [revisarHuerfanas]);
   const [search, setSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
   const [payTarget, setPayTarget] = useState<Receivable | null>(null);
@@ -216,6 +235,47 @@ export const AccountsReceivableDashboard: React.FC = () => {
             <span className="block text-xs font-semibold">
               La lista y las impresiones van a salir vacías hasta que cargue. Probá recargar.
             </span>
+          </div>
+        )}
+
+        {/* CRÉDITOS SIN CUENTA. Va acá arriba y en rojo porque es plata que
+            el negocio no sabe que le deben: no aparece en ninguna lista, el
+            cliente se ve al día y nadie la va a cobrar. */}
+        {huerfanas && (
+          <div className="mt-3 bg-red-50 border-2 border-red-300 rounded-xl px-4 py-3 text-red-900">
+            <p className="text-sm font-black">
+              {huerfanas.cuantas} venta(s) a crédito por ₡{Math.round(huerfanas.total).toLocaleString('es-CR')} quedaron
+              SIN cuenta por cobrar
+              {huerfanas.de_ruta > 0 && ` (${huerfanas.de_ruta} de ruta)`}.
+            </p>
+            <p className="text-xs font-semibold mt-0.5">
+              Esa deuda no está en esta pantalla: el cliente aparece al día y nadie la va a cobrar.
+              Se pueden rehacer con los datos de la factura; el vencimiento se cuenta desde el día de la venta.
+            </p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <button type="button" disabled={reparando}
+                onClick={async () => {
+                  setReparando(true); setAvisoReparo('');
+                  try {
+                    const r = await accountsReceivableService.repararHuerfanas();
+                    setAvisoReparo(
+                      `Se rehicieron ${r.creadas} de ${r.revisadas}.`
+                      + (r.fallaron.length
+                        /* El motivo de la base, visible: es lo que dice por qué
+                           fallaban desde el principio. */
+                        ? ` No se pudo con ${r.fallaron.length}: ${r.fallaron.map(f => `${f.invoice_number} (${f.motivo})`).join(' · ')}`
+                        : ''));
+                    revisarHuerfanas();
+                    await load();
+                  } catch (e) {
+                    setAvisoReparo(e instanceof Error ? e.message : 'No se pudieron rehacer');
+                  } finally { setReparando(false); }
+                }}
+                className="px-4 h-10 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-black">
+                {reparando ? 'Rehaciendo…' : 'Rehacer las cuentas que faltan'}
+              </button>
+              {avisoReparo && <span className="text-xs font-bold">{avisoReparo}</span>}
+            </div>
           </div>
         )}
 
