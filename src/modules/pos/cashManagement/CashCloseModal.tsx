@@ -45,6 +45,13 @@ interface CashCloseModalProps {
 
 /** A partir de esta hora (CR) se ofrece el cierre del día al cerrar una caja. */
 const DAILY_CLOSE_FROM_HOUR = 18;
+/**
+ * Hasta qué hora de la MADRUGADA se sigue considerando cierre de jornada.
+ *
+ * Los negocios de noche cierran después de medianoche: a la 1 a.m. están
+ * terminando el día de ayer, no empezando el de hoy.
+ */
+const DAILY_CLOSE_UNTIL_HOUR = 5;
 
 /**
  * EL BORRADOR DEL ARQUEO.
@@ -765,14 +772,26 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       // Cierre del día: se ofrece SOLO de tarde, cuando ya no se va a volver a
       // abrir caja. Antes de esa hora el consolidado estaría incompleto y
       // preguntarlo en cada cambio de turno sería puro ruido.
+      /**
+       * LA HORA, EN 0–23 SIN AMBIGÜEDAD.
+       *
+       * `hour12: false` no está definido del todo: según la versión de ICU
+       * devuelve «0» o «24» para las 00:xx. `hourCycle: 'h23'` es el que
+       * garantiza 0–23, y acá la diferencia decide si se ofrece el cierre del
+       * día justo en el horario en que estos negocios cierran.
+       */
       const hora = Number(new Date().toLocaleString('en-US', {
-        timeZone: 'America/Costa_Rica', hour: '2-digit', hour12: false,
-      }));
+        timeZone: 'America/Costa_Rica', hour: '2-digit', hourCycle: 'h23',
+      } as any));
       /* La caja QUEDÓ cerrada: el borrador ya no es un conteo a medias, es
          basura que aparecería la próxima vez que se abra esta pantalla. */
       try { localStorage.removeItem(LLAVE_BORRADOR(session.id)); } catch { /* da igual */ }
 
-      if (hora >= DAILY_CLOSE_FROM_HOUR) {
+      /* LA MADRUGADA ES EL FINAL DEL DÍA, NO EL PRINCIPIO. Un café o un bar
+         cierran a la una de la mañana: con la regla de «solo de tarde», a
+         ellos el cierre del día no se les ofrecía nunca. */
+      const finDeJornada = hora >= DAILY_CLOSE_FROM_HOUR || hora <= DAILY_CLOSE_UNTIL_HOUR;
+      if (finDeJornada) {
         setAskDaily(updatedSession);
         return;   // el modal del día se encarga de cerrar esta pantalla
       }
@@ -1248,6 +1267,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       {askDaily && (
         <DailyCloseAsk
           tenantId={user?.tenant_id ?? ''}
+          session={askDaily}
           onDone={() => { const ses = askDaily; setAskDaily(null); onSuccess(ses); }}
         />
       )}
@@ -1265,16 +1285,41 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
  */
 const DailyCloseAsk: React.FC<{
   tenantId: string;
+  /** La caja que se acaba de cerrar: define QUÉ DÍA se consolida. */
+  session: CashSession;
   onDone: () => void;
-}> = ({ tenantId, onDone }) => {
+}> = ({ tenantId, session, onDone }) => {
   const [printing, setPrinting] = useState(false);
   const [err, setErr] = useState('');
+  const [cajas, setCajas] = useState<number | null>(null);
+
+  /**
+   * EL DÍA QUE SE CONSOLIDA ES EL DE LA CAJA, NO «HOY».
+   *
+   * Un café que cierra a la una de la mañana cierra la caja que ABRIÓ ayer a
+   * las tres de la tarde. Pedir «el día de hoy» consolidaba el día que acababa
+   * de empezar —donde esa caja no está— y el tiquete salía vacío, o con el
+   * fondo de la caja que se abrió de madrugada. El día correcto es el día en
+   * que la caja se ABRIÓ, que además es como el servidor las agrupa.
+   */
+  const diaDeLaCaja = (() => {
+    const crudo = (session as any)?.opening_date ?? (session as any)?.opened_at;
+    if (!crudo) return undefined;
+    /* `opening_date` viene en UTC sin marca de zona: se le pone la Z para que
+       el día salga en hora de Costa Rica y no un día corrido. */
+    const iso = /Z|[+-]\d{2}:?\d{2}$/.test(String(crudo)) ? String(crudo) : `${crudo}Z`;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return undefined;
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
+  })();
 
   const print = async () => {
     setPrinting(true); setErr('');
     try {
-      const data = await apiFetch<any>('/cash-sessions/daily-summary');
-      if (!data?.totals) { setErr('Hoy no hay cierres de caja para consolidar.'); return; }
+      const data = await apiFetch<any>(
+        `/cash-sessions/daily-summary${diaDeLaCaja ? `?date=${diaDeLaCaja}` : ''}`);
+      if (!data?.totals) { setErr('No hay cierres de caja para consolidar en ese día.'); return; }
+      setCajas(Number(data?.totals?.sesiones ?? 0) || 0);
       await posPrinterService.printDailyClose(data, tenantId);
       onDone();
     } catch (e) {
@@ -1288,9 +1333,18 @@ const DailyCloseAsk: React.FC<{
         <div className="text-4xl mb-2">🌙</div>
         <h3 className="text-lg font-black text-gray-900">¿Imprimir el cierre del día?</h3>
         <p className="text-sm text-gray-600 mt-1">
-          Un consolidado de <b>todas las cajas de hoy</b> (00:00 a 24:00): ventas por método,
+          Un consolidado de <b>todas las cajas del {diaDeLaCaja ?? 'día'}</b>: ventas por método,
           arqueo y diferencia del día completo.
         </p>
+        {/* Con UNA sola caja el consolidado dice lo mismo que el cierre que
+            acaba de salir. Avisarlo evita el papel que parece duplicado —y que
+            alguien archive dos veces la misma plata—. */}
+        {cajas === 1 && (
+          <p className="mt-2 text-[11px] font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Ese día tuvo una sola caja: este consolidado repite los números del cierre que ya
+            imprimiste. No es una venta más.
+          </p>
+        )}
         {err && (
           <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>
         )}

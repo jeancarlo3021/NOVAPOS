@@ -3436,6 +3436,15 @@ ${isA4 ? '' : `<script>
     centerText('00:00 a 24:00');
     sep();
 
+    /* UNA SOLA CAJA: el consolidado repite el cierre que ya salió. Decirlo en
+       el papel es lo que evita que los dos tiquetes se archiven como si
+       fueran dos días —o dos ventas— distintos. */
+    if (Number(t.sesiones) === 1) {
+      centerText('(una sola caja: mismos numeros');
+      centerText('que su cierre de caja)');
+      sep();
+    }
+
     // Una línea por caja: es lo que permite ubicar de quién viene un descuadre.
     centerText(`CAJAS DEL DIA (${t.sesiones})`);
     for (const s2 of summary.sessions) {
