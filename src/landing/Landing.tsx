@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { traerContenido, enviarInteresado, contar } from './api';
 import { C, T, E, R, S, FUENTE, FUENTE_TITULO, ANCHO, ANCHO_TEXTO } from './estilos';
+import { Demos } from './Demos';
 
 /**
  * LA PÁGINA PÚBLICA.
@@ -576,6 +577,10 @@ export const Landing: React.FC = () => {
           </div>
         </section>
       )}
+
+      {/* ── CÓMO FUNCIONA: demostraciones para tocar. Fijas en el código, no
+          en el panel: son pequeños programas, no texto editable. ── */}
+      <Demos />
 
       {/* ── LO QUE OFRECE. Se edita desde el panel admin. ── */}
       {productos.length > 0 && (
