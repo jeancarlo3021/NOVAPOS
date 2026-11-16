@@ -1,5 +1,24 @@
-// Plantillas de etiquetas de producto. Por ahora se guardan en localStorage por
-// tenant (rápido, para iterar el diseño); luego se puede mover al backend.
+/**
+ * PLANTILLAS DE ETIQUETAS — guardadas en la BASE, no en el navegador.
+ *
+ * Vivían en el localStorage del equipo, y eso le costaba al negocio: la
+ * plantilla existía en UNA computadora —la del mostrador no la veía—, y se
+ * borraba con el caché del navegador, en una sesión privada o cuando alguien
+ * «limpiaba» la máquina. Diseñar una etiqueta de 40×30 con su código de barras
+ * bien puesto toma media hora.
+ *
+ * ── Lo que había en cada equipo NO se tira ───────────────────────────────
+ * La primera vez que se abren las etiquetas, si el negocio no tiene plantillas
+ * en la base y este equipo sí tiene en localStorage, se SUBEN. Si se cambiara
+ * de golpe, el negocio abriría la pantalla y encontraría sus plantillas
+ * borradas, que es exactamente el problema que se está arreglando.
+ *
+ * ── Y el equipo sigue teniendo una copia ─────────────────────────────────
+ * Lo que viene del servidor se guarda también en localStorage: una rotuladora
+ * en una bodega sin señal tiene que poder imprimir igual. La base es la verdad;
+ * la copia local es para seguir trabajando sin internet.
+ */
+import { apiFetch } from '@/lib/api';
 
 export type LabelElementType = 'product_name' | 'price' | 'barcode' | 'qr' | 'sku' | 'text' | 'image';
 
@@ -48,22 +67,93 @@ export const DESIGN_SCALE = 6;
 const KEY = (tid: string) => `label_templates_${tid}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+/** La copia local (lo que permite imprimir sin señal). */
+const leerLocal = (tenantId: string): LabelTemplate[] => {
+  try { return JSON.parse(localStorage.getItem(KEY(tenantId)) || '[]'); } catch { return []; }
+};
+const escribirLocal = (tenantId: string, list: LabelTemplate[]) => {
+  try { localStorage.setItem(KEY(tenantId), JSON.stringify(list)); } catch { /* modo privado o lleno */ }
+};
+
+/** Al servidor van en milímetros y snake_case; de vuelta ya vienen en camel. */
+const aCuerpo = (t: Partial<LabelTemplate>) => ({
+  ...(t.name !== undefined ? { name: t.name } : {}),
+  ...(t.widthMm !== undefined ? { width_mm: t.widthMm } : {}),
+  ...(t.heightMm !== undefined ? { height_mm: t.heightMm } : {}),
+  ...(t.border !== undefined ? { border: !!t.border } : {}),
+  ...(t.elements !== undefined ? { elements: t.elements } : {}),
+});
+
+/** Para no subir dos veces lo que había en este equipo. */
+const LLAVE_SUBIDO = (tid: string) => `label_templates_subidas_${tid}`;
+
 export const labelTemplatesService = {
-  list(tenantId: string): LabelTemplate[] {
-    try { return JSON.parse(localStorage.getItem(KEY(tenantId)) || '[]'); } catch { return []; }
+  /**
+   * Las plantillas del NEGOCIO.
+   *
+   * Sin conexión —o si el servidor contesta mal— devuelve la copia de este
+   * equipo: quedarse sin poder imprimir una etiqueta porque se cayó internet
+   * no es aceptable en un mostrador.
+   */
+  async list(tenantId: string): Promise<LabelTemplate[]> {
+    try {
+      const delServidor = await apiFetch<LabelTemplate[]>('/label-templates');
+      const lista = Array.isArray(delServidor) ? delServidor : [];
+
+      /* LO QUE HABÍA EN ESTE EQUIPO SE SUBE, una sola vez. Si el negocio no
+         tiene ninguna arriba y acá hay, son las de siempre: subirlas es lo que
+         evita que el dueño abra la pantalla y las vea desaparecidas. */
+      if (lista.length === 0) {
+        let yaSubido = false;
+        try { yaSubido = localStorage.getItem(LLAVE_SUBIDO(tenantId)) === '1'; } catch { /* da igual */ }
+        const locales = leerLocal(tenantId);
+        if (!yaSubido && locales.length > 0) {
+          const subidas: LabelTemplate[] = [];
+          for (const t of locales) {
+            try { subidas.push(await apiFetch<LabelTemplate>('/label-templates', {
+              method: 'POST', body: JSON.stringify(aCuerpo(t)),
+            })); } catch { /* si una falla, se intenta de nuevo la próxima vez */ }
+          }
+          if (subidas.length === locales.length) {
+            try { localStorage.setItem(LLAVE_SUBIDO(tenantId), '1'); } catch { /* da igual */ }
+          }
+          if (subidas.length > 0) { escribirLocal(tenantId, subidas); return subidas; }
+          /* No se pudo subir ninguna: se siguen usando las locales en vez de
+             mostrar la pantalla vacía. */
+          return locales;
+        }
+      }
+
+      escribirLocal(tenantId, lista);
+      return lista;
+    } catch {
+      return leerLocal(tenantId);
+    }
   },
-  get(tenantId: string, id: string): LabelTemplate | null {
-    return this.list(tenantId).find(t => t.id === id) ?? null;
+
+  async get(tenantId: string, id: string): Promise<LabelTemplate | null> {
+    const local = leerLocal(tenantId).find(t => t.id === id) ?? null;
+    try { return await apiFetch<LabelTemplate>(`/label-templates/${id}`); }
+    catch { return local; }
   },
-  save(tenantId: string, tpl: LabelTemplate): LabelTemplate {
-    const list = this.list(tenantId);
-    const next = { ...tpl, updatedAt: new Date().toISOString() };
-    const i = list.findIndex(t => t.id === tpl.id);
-    if (i >= 0) list[i] = next; else list.unshift(next);
-    localStorage.setItem(KEY(tenantId), JSON.stringify(list));
-    return next;
+
+  /** Guarda el diseño. Devuelve la plantilla como quedó en la base. */
+  async save(tenantId: string, tpl: LabelTemplate): Promise<LabelTemplate> {
+    /* `id` corto = plantilla que nació en localStorage y nunca se subió: va
+       como nueva. Los ids de la base son UUID. */
+    const esDeLaBase = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tpl.id);
+    const guardada = esDeLaBase
+      ? await apiFetch<LabelTemplate>(`/label-templates/${tpl.id}`, {
+          method: 'PUT', body: JSON.stringify(aCuerpo(tpl)) })
+      : await apiFetch<LabelTemplate>('/label-templates', {
+          method: 'POST', body: JSON.stringify(aCuerpo(tpl)) });
+
+    const list = leerLocal(tenantId).filter(t => t.id !== tpl.id && t.id !== guardada.id);
+    escribirLocal(tenantId, [guardada, ...list]);
+    return guardada;
   },
-  create(tenantId: string, name: string, widthMm: number, heightMm: number): LabelTemplate {
+
+  async create(tenantId: string, name: string, widthMm: number, heightMm: number): Promise<LabelTemplate> {
     // Plantilla inicial con nombre, precio y código de barras ya colocados.
     const tpl: LabelTemplate = {
       id: uid(), name, widthMm, heightMm, updatedAt: new Date().toISOString(),
@@ -77,7 +167,19 @@ export const labelTemplatesService = {
     };
     return this.save(tenantId, tpl);
   },
-  remove(tenantId: string, id: string) {
-    localStorage.setItem(KEY(tenantId), JSON.stringify(this.list(tenantId).filter(t => t.id !== id)));
+
+  async remove(tenantId: string, id: string): Promise<void> {
+    try { await apiFetch(`/label-templates/${id}`, { method: 'DELETE' }); }
+    finally {
+      /* La copia local se limpia igual: si el borrado falló por red, la
+         plantilla vuelve en la próxima lista del servidor —y si se borró, no
+         puede seguir apareciendo acá—. */
+      escribirLocal(tenantId, leerLocal(tenantId).filter(t => t.id !== id));
+    }
+  },
+
+  /** Lo que este equipo tiene guardado, sin pedir nada (para pintar al instante). */
+  cache(tenantId: string): LabelTemplate[] {
+    return leerLocal(tenantId);
   },
 };

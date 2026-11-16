@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Home, Plus, Tag, Trash2, Pencil, X, Check } from 'lucide-react';
 import { useTenantId } from '@/hooks/useTenant';
@@ -16,8 +16,20 @@ export const LabelsDashboard: React.FC = () => {
   const [editing, setEditing] = useState<LabelTemplate | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
-  const reload = () => { if (tenantId) setTemplates(labelTemplatesService.list(tenantId)); };
-  useEffect(() => { reload(); }, [tenantId]);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState('');
+  /* Las del equipo se pintan al instante y la lista del servidor las
+     reemplaza: abrir la pantalla en blanco mientras viaja la consulta se ve
+     como «se perdieron mis plantillas». */
+  const reload = useCallback(async () => {
+    if (!tenantId) return;
+    setTemplates(labelTemplatesService.cache(tenantId));
+    setCargando(true); setError('');
+    try { setTemplates(await labelTemplatesService.list(tenantId)); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron traer las plantillas'); }
+    finally { setCargando(false); }
+  }, [tenantId]);
+  useEffect(() => { void reload(); }, [reload]);
 
   if (editing && tenantId) {
     return (
@@ -46,6 +58,13 @@ export const LabelsDashboard: React.FC = () => {
             <Plus size={16} /> Nueva plantilla
           </button>
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm font-bold text-red-700 flex items-center justify-between gap-3">
+            <span>{error}</span>
+            <button onClick={() => setError('')} className="text-red-400"><X size={14} /></button>
+          </div>
+        )}
 
         {/* Lista */}
         {templates.length === 0 ? (
@@ -77,7 +96,12 @@ export const LabelsDashboard: React.FC = () => {
                     className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 text-blue-700 font-bold py-2 rounded-lg text-sm hover:bg-blue-100">
                     <Pencil size={13} /> Editar
                   </button>
-                  <button onClick={() => { if (tenantId && confirm(`¿Eliminar "${t.name}"?`)) { labelTemplatesService.remove(tenantId, t.id); reload(); } }}
+                  <button onClick={async () => {
+                    if (!tenantId || !confirm(`¿Eliminar "${t.name}"?`)) return;
+                    try { await labelTemplatesService.remove(tenantId, t.id); }
+                    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo eliminar'); }
+                    void reload();
+                  }}
                     className="px-3 rounded-lg bg-red-50 text-red-600 hover:bg-red-100">
                     <Trash2 size={14} />
                   </button>
@@ -91,9 +115,18 @@ export const LabelsDashboard: React.FC = () => {
       {showCreate && tenantId && (
         <CreateModal
           onClose={() => setShowCreate(false)}
-          onCreate={(name, w, h) => {
-            const tpl = labelTemplatesService.create(tenantId, name, w, h);
-            setShowCreate(false); reload(); setEditing(tpl);
+          onCreate={async (name, w, h) => {
+            try {
+              const tpl = await labelTemplatesService.create(tenantId, name, w, h);
+              setShowCreate(false);
+              void reload();
+              setEditing(tpl);
+            } catch (e) {
+              /* Si no se pudo crear en la base, NO se abre el editor: diseñar
+                 media hora sobre una plantilla que no existe es peor que el
+                 error. */
+              setError(e instanceof Error ? e.message : 'No se pudo crear la plantilla');
+            }
           }}
         />
       )}
@@ -101,7 +134,7 @@ export const LabelsDashboard: React.FC = () => {
   );
 };
 
-function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, w: number, h: number) => void }) {
+function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, w: number, h: number) => void | Promise<void> }) {
   const [name, setName] = useState('');
   const [preset, setPreset] = useState(0);
   const [custom, setCustom] = useState(false);

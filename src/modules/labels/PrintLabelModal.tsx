@@ -19,9 +19,23 @@ interface Props {
 }
 
 export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose }) => {
-  const [templates, setTemplates] = useState<LabelTemplate[]>(() => labelTemplatesService.list(tenantId));
+  /* La copia de este equipo primero —imprimir no puede esperar una consulta—
+     y la lista del negocio en cuanto llegue. */
+  const [templates, setTemplates] = useState<LabelTemplate[]>(() => labelTemplatesService.cache(tenantId));
   const [tplId, setTplId] = useState<string>(() =>
-    labelPrinterConfig.getDefaultTemplate(tenantId) || labelTemplatesService.list(tenantId)[0]?.id || '');
+    labelPrinterConfig.getDefaultTemplate(tenantId) || labelTemplatesService.cache(tenantId)[0]?.id || '');
+
+  const traerPlantillas = useCallback(async () => {
+    try {
+      const ls = await labelTemplatesService.list(tenantId);
+      setTemplates(ls);
+      /* Si la plantilla elegida ya no existe (la borraron desde otra
+         computadora), se cae a la primera en vez de imprimir con una que no
+         está. */
+      setTplId(prev => (prev && ls.some(t => t.id === prev)) ? prev : (ls[0]?.id ?? ''));
+    } catch { /* se sigue con la copia local */ }
+  }, [tenantId]);
+  useEffect(() => { void traerPlantillas(); }, [traerPlantillas]);
   const [printers, setPrinters] = useState<string[]>([]);
   const [printer, setPrinter] = useState<string>(() => labelPrinterConfig.getPrinter());
   const [qty, setQty] = useState(1);
@@ -112,7 +126,7 @@ export const PrintLabelModal: React.FC<Props> = ({ tenantId, product, onClose })
           template={tpl}
           sample={product}
           onBack={() => setEditing(false)}
-          onSaved={() => setTemplates(labelTemplatesService.list(tenantId))}
+          onSaved={() => void traerPlantillas()}
         />
       </div>
     );

@@ -161,13 +161,28 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
     r.readAsDataURL(file);
   };
 
-  const save = () => {
-    const next = labelTemplatesService.save(tenantId, {
-      ...template, name: name.trim() || 'Sin nombre', elements, border: labelBorder,
-      widthMm: Math.max(10, Math.round(widthMm)), heightMm: Math.max(10, Math.round(heightMm)),
-    });
-    setSaved(true); setTimeout(() => setSaved(false), 1500);
-    onSaved(next);
+  const [errorGuardar, setErrorGuardar] = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  /**
+   * GUARDAR EL DISEÑO (ahora en la base).
+   *
+   * Si falla NO se dice «Guardado»: el diseño es media hora de trabajo y el
+   * que lo ve guardado cierra la pantalla. Se muestra el error y se queda todo
+   * en pantalla para reintentar.
+   */
+  const save = async () => {
+    setGuardando(true); setErrorGuardar('');
+    try {
+      const next = await labelTemplatesService.save(tenantId, {
+        ...template, name: name.trim() || 'Sin nombre', elements, border: labelBorder,
+        widthMm: Math.max(10, Math.round(widthMm)), heightMm: Math.max(10, Math.round(heightMm)),
+      });
+      setSaved(true); setTimeout(() => setSaved(false), 1500);
+      onSaved(next);
+    } catch (e) {
+      setErrorGuardar(e instanceof Error ? e.message : 'No se pudo guardar la plantilla');
+    } finally { setGuardando(false); }
   };
 
   const renderContent = (el: LabelElement, z = 1): React.ReactNode => {
@@ -237,11 +252,20 @@ export const LabelEditor: React.FC<Props> = ({ tenantId, template, onBack, onSav
           className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border ${labelBorder ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>
           <Square size={13} /> Borde
         </button>
-        <button onClick={save}
-          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-sm">
-          <Save size={15} /> {saved ? 'Guardado ✓' : 'Guardar'}
+        <button onClick={() => void save()} disabled={guardando}
+          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold px-4 py-2 rounded-xl text-sm">
+          <Save size={15} /> {guardando ? 'Guardando…' : saved ? 'Guardado ✓' : 'Guardar'}
         </button>
       </div>
+
+      {/* El error del guardado, a la vista: el diseño es media hora de trabajo
+          y el que lo cree guardado cierra la pantalla. */}
+      {errorGuardar && (
+        <div className="mx-3 mt-2 rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-xs font-bold text-red-700 flex items-center justify-between gap-3">
+          <span>{errorGuardar} · El diseño sigue acá: probá otra vez.</span>
+          <button onClick={() => setErrorGuardar('')} className="text-red-400 shrink-0">✕</button>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Paleta */}

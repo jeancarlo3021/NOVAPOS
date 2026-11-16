@@ -42,7 +42,18 @@ export const LabelPrinterSettings: React.FC = () => {
   const [calibrating, setCalibrating] = useState(false);
   const [calibrated, setCalibrated] = useState(false);
 
-  const templates = tenantId ? labelTemplatesService.list(tenantId) : [];
+  /* Las plantillas del negocio (antes se leían del navegador). Se parte de la
+     copia local para que el selector no aparezca vacío un instante. */
+  const [templates, setTemplates] = useState<LabelTemplate[]>(
+    () => (tenantId ? labelTemplatesService.cache(tenantId) : []));
+  useEffect(() => {
+    if (!tenantId) return;
+    let vivo = true;
+    labelTemplatesService.list(tenantId)
+      .then(ls => { if (vivo) setTemplates(ls); })
+      .catch(() => { /* se queda la copia local */ });
+    return () => { vivo = false; };
+  }, [tenantId]);
 
   const loadPrinters = async () => {
     setError(''); setLoading(true);

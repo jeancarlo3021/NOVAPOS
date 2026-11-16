@@ -15,9 +15,23 @@ interface Props {
 }
 
 export const BulkPrintLabelsModal: React.FC<Props> = ({ tenantId, products, onClose }) => {
-  const [templates] = useState<LabelTemplate[]>(() => labelTemplatesService.list(tenantId));
+  const [templates, setTemplates] = useState<LabelTemplate[]>(() => labelTemplatesService.cache(tenantId));
   const [tplId, setTplId] = useState<string>(() =>
-    labelPrinterConfig.getDefaultTemplate(tenantId) || labelTemplatesService.list(tenantId)[0]?.id || '');
+    labelPrinterConfig.getDefaultTemplate(tenantId) || labelTemplatesService.cache(tenantId)[0]?.id || '');
+
+  /* Las plantillas son del negocio: se traen al abrir, con la copia de este
+     equipo pintada mientras llegan. */
+  useEffect(() => {
+    let vivo = true;
+    labelTemplatesService.list(tenantId)
+      .then(ls => {
+        if (!vivo) return;
+        setTemplates(ls);
+        setTplId(prev => (prev && ls.some(t => t.id === prev)) ? prev : (ls[0]?.id ?? ''));
+      })
+      .catch(() => { /* se sigue con la copia local */ });
+    return () => { vivo = false; };
+  }, [tenantId]);
   const [printers, setPrinters] = useState<string[]>([]);
   const [printer, setPrinter] = useState<string>(() => labelPrinterConfig.getPrinter());
   // Cantidad por producto (index → copias).
