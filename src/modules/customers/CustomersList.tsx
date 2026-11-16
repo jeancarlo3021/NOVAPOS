@@ -29,6 +29,30 @@ export const CustomersList: React.FC = () => {
    * negocio con un toque. El servidor vuelve a verificar el rol —esto es solo
    * para no mostrar un botón que va a dar 403—.
    */
+  /**
+   * QUÉ PARTES DE ESTA PANTALLA CORRESPONDEN AL PLAN.
+   *
+   * Acá se mostraba TODO a todos: zonas, mapa, GPS y crédito le aparecían a
+   * una pulpería que compró el plan básico. No es solo ruido: cada botón que
+   * no hace nada en ese negocio es una pregunta al soporte, y «Zonas» o
+   * «Límite de crédito» le hacen creer al dueño que tiene rutas o cuentas por
+   * cobrar contratadas.
+   *
+   * No se inventan interruptores nuevos: se deriva de los módulos que de
+   * verdad USAN cada cosa, así que un negocio que ya tenía rutas o crédito no
+   * pierde nada y nadie tiene que ir a configurar algo para que vuelva.
+   *
+   *  · ZONAS: la zona del cliente la usan Distribución (armar la ruta), los
+   *    agentes de venta (su cartera) y Cuentas por Cobrar (cobrar por zona).
+   *  · MAPA y UBICAR: sirven con la ubicación del cliente, que es de las
+   *    rutas, los agentes en el mapa y el rastreo.
+   *  · CRÉDITO (venta a crédito y su límite): es Cuentas por Cobrar.
+   */
+  const f = (planFeatures ?? {}) as any;
+  const zonasOn   = !!(f.distribution || f.sales_agents || f.accounts_receivable);
+  const mapaOn    = !!(f.distribution || f.sales_agents || f.live_team || f.tracking);
+  const creditoOn = !!f.accounts_receivable;
+
   const portalOn = !!(planFeatures as any)?.customer_portal;
   const puedeEnlazar = portalOn && puedeDelPortal(matrix as any, isOwnerOrAdmin, 'create');
   const puedeRevocar = portalOn && puedeDelPortal(matrix as any, isOwnerOrAdmin, 'delete');
@@ -132,15 +156,19 @@ export const CustomersList: React.FC = () => {
             className="p-2 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button onClick={() => setShowZones(true)}
-            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition">
-            <MapPin size={14} /> Zonas
-          </button>
-          <button onClick={() => setShowMap(true)}
-            title="Ver todos los clientes en el mapa"
-            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition">
-            <Map size={14} /> Mapa
-          </button>
+          {zonasOn && (
+            <button onClick={() => setShowZones(true)}
+              className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition">
+              <MapPin size={14} /> Zonas
+            </button>
+          )}
+          {mapaOn && (
+            <button onClick={() => setShowMap(true)}
+              title="Ver todos los clientes en el mapa"
+              className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition">
+              <Map size={14} /> Mapa
+            </button>
+          )}
           {canCreate && (
             <button onClick={() => { setEditing(null); setShowForm(true); }}
               className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition">
@@ -214,7 +242,7 @@ export const CustomersList: React.FC = () => {
                       <Edit2 size={11} /> Editar
                     </button>
                   )}
-                  {canEdit && (
+                  {canEdit && mapaOn && (
                     <button onClick={() => capturarUbicacion(c)} disabled={locatingId === c.id}
                       title={c.lat != null && c.lng != null
                         ? 'Ya tiene ubicación · tocá para actualizarla con el GPS de acá'
@@ -552,6 +580,13 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
   customer: Customer | null; onClose: () => void; onSaved: () => void;
 }) {
   const { planFeatures } = useAuth();
+  /* Las mismas reglas de la lista: el formulario no puede ofrecer lo que la
+     pantalla de atrás ya no muestra —y sobre todo no puede pedir un límite de
+     crédito a un negocio que no tiene Cuentas por Cobrar—. */
+  const pf = (planFeatures ?? {}) as any;
+  const zonasOn   = !!(pf.distribution || pf.sales_agents || pf.accounts_receivable);
+  const mapaOn    = !!(pf.distribution || pf.sales_agents || pf.live_team || pf.tracking);
+  const creditoOn = !!pf.accounts_receivable;
   const [form, setForm] = useState<CustomerInput>({
     identification_type: customer?.identification_type ?? '01',
     identification:      customer?.identification ?? '',
@@ -699,6 +734,7 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           </div>
 
+          {zonasOn && (
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Zona <span className="text-gray-400 font-normal">(para Distribución)</span></label>
             <div className="flex gap-2">
@@ -712,7 +748,9 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
                 className="px-3 py-2 rounded-lg bg-cyan-50 text-cyan-700 text-xs font-bold whitespace-nowrap">+ Zona</button>
             </div>
           </div>
+          )}
 
+          {mapaOn && (
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Ubicación en mapa <span className="text-gray-400 font-normal">(para el rastreo de reparto)</span></label>
             <div className="flex items-center gap-2">
@@ -731,6 +769,7 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
               )}
             </div>
           </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Notas</label>
@@ -738,14 +777,20 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           </div>
 
-          {/* Crédito */}
+          {/* Crédito y exclusión del cierre. Cada uno con su llave: un negocio
+              puede tener «excluir del cierre» (compras de empleados) sin tener
+              Cuentas por Cobrar, y al revés. Si no tiene ninguna de las dos,
+              el bloque entero no se dibuja. */}
+          {(creditoOn || pf.exclude_from_close) && (
           <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2">
-            <label className="flex items-center justify-between gap-2 cursor-pointer">
-              <span className="flex items-center gap-1.5 text-sm font-bold text-gray-700"><HandCoins size={15} className="text-emerald-600" /> Venta a crédito</span>
-              <input type="checkbox" checked={!!form.credit_enabled} onChange={e => set('credit_enabled', e.target.checked)}
-                className="w-5 h-5 rounded text-emerald-600" />
-            </label>
-            {form.credit_enabled && (
+            {creditoOn && (
+              <label className="flex items-center justify-between gap-2 cursor-pointer">
+                <span className="flex items-center gap-1.5 text-sm font-bold text-gray-700"><HandCoins size={15} className="text-emerald-600" /> Venta a crédito</span>
+                <input type="checkbox" checked={!!form.credit_enabled} onChange={e => set('credit_enabled', e.target.checked)}
+                  className="w-5 h-5 rounded text-emerald-600" />
+              </label>
+            )}
+            {creditoOn && form.credit_enabled && (
               <div>
                 <label className="block text-xs font-bold text-gray-600 mb-1">Límite de crédito <span className="text-gray-400 font-normal">(0 = sin límite)</span></label>
                 <input type="number" inputMode="decimal" value={form.credit_limit ?? 0}
@@ -754,8 +799,8 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
               </div>
             )}
             {/* Excluir del cierre de caja (ej. compras de empleados). Solo si el plan lo habilita. */}
-            {(planFeatures as any)?.exclude_from_close && (
-              <label className="flex items-start justify-between gap-2 cursor-pointer pt-2 border-t border-gray-200">
+            {pf.exclude_from_close && (
+              <label className={`flex items-start justify-between gap-2 cursor-pointer${creditoOn ? ' pt-2 border-t border-gray-200' : ''}`}>
                 <span className="text-sm text-gray-700">
                   <span className="font-bold">No contabilizar en el cierre de caja</span>
                   <span className="block text-xs text-gray-400">Las compras de este cliente (ej. empleados) no suman en el arqueo/cierre.</span>
@@ -765,6 +810,7 @@ function CustomerFormModal({ customer, onClose, onSaved }: {
               </label>
             )}
           </div>
+          )}
 
           <div className="flex gap-2 pt-2 border-t border-gray-100">
             <button type="button" onClick={onClose}
