@@ -163,6 +163,114 @@ export const PortalCliente: React.FC = () => {
 
   const vaciar = () => { setCarrito({}); setNotas(''); setEditando(null); };
 
+  /** Pone una cantidad EXACTA (el cliente la escribe en vez de tocar 24 veces). */
+  const poner = (p: PortalProducto, cantidad: number) => {
+    setCarrito(c => {
+      let n = Math.max(0, Math.floor(Number(cantidad) || 0));
+      if (p.existencias != null && n > p.existencias) {
+        n = p.existencias;
+        setError(p.existencias <= 0 ? `${p.nombre} está agotado.` : `De ${p.nombre} solo quedan ${p.existencias}.`);
+      }
+      const r = { ...c };
+      if (n <= 0) delete r[p.id]; else r[p.id] = n;
+      return r;
+    });
+  };
+
+  /**
+   * REPETIR UN PEDIDO: lo de la vez pasada, al carrito.
+   *
+   * Es como se pide de verdad en un negocio que compra lo mismo cada semana:
+   * treinta líneas que alguien volvía a buscar una por una en el catálogo, con
+   * el teléfono, de pie en la bodega. La mitad de los pedidos del portal son
+   * «lo mismo de la otra vez».
+   *
+   * Lo que ya no existe o está agotado NO se mete callado: se arma la lista de
+   * lo que no se pudo y se dice. Un carrito que miente es peor que uno vacío,
+   * porque el cliente lo manda creyendo que pidió todo.
+   */
+  const [avisoRepetir, setAvisoRepetir] = useState<string[] | null>(null);
+
+  const repetirPedido = (pedido: PortalPedido) => {
+    const nuevo: Carrito = {};
+    const problemas: string[] = [];
+    for (const l of pedido.lineas ?? []) {
+      const pid = l.product_id;
+      const prod = pid ? porId.get(pid) : undefined;
+      if (!pid || !prod) { problemas.push(`${l.nombre}: ya no está en el catálogo`); continue; }
+      const pedida = Math.max(0, Math.floor(Number(l.cantidad) || 0));
+      if (pedida <= 0) continue;
+      if (prod.existencias != null && prod.existencias <= 0) {
+        problemas.push(`${prod.nombre}: agotado`);
+        continue;
+      }
+      if (prod.existencias != null && pedida > prod.existencias) {
+        /* Se agrega lo que hay y se dice cuánto faltó: es lo que el cliente
+           necesita saber para llamar y preguntar, o para pedir otra cosa. */
+        nuevo[pid] = prod.existencias;
+        problemas.push(`${prod.nombre}: pediste ${pedida} y solo quedan ${prod.existencias}`);
+        continue;
+      }
+      nuevo[pid] = pedida;
+    }
+    if (Object.keys(nuevo).length === 0 && problemas.length > 0) {
+      setAvisoRepetir(['No se pudo repetir nada de ese pedido:', ...problemas]);
+      return;
+    }
+    setCarrito(nuevo);
+    setEditando(null);
+    setNotas('');
+    setAvisoRepetir(problemas.length > 0 ? problemas : null);
+    setVista('catalogo');
+    setHojaCarrito(true);
+  };
+
+  /** El último pedido que hizo el cliente (el más reciente de la lista). */
+  const ultimoPedido = useMemo(() => (pedidos ?? [])[0] ?? null, [pedidos]);
+
+  /* Para poder ofrecer «repetir el último» sin que el cliente entre a la
+     pestaña de pedidos: la lista se trae al abrir, calladita. */
+  useEffect(() => {
+    if (estado === 'ok' && puedePedir && pedidos === null) {
+      portalPublico.pedidos(token).then(setPedidos).catch(() => { /* sin historial, no se ofrece */ });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado, puedePedir, token]);
+
+  /**
+   * «LO DE SIEMPRE»: una lista guardada en el teléfono del cliente.
+   *
+   * Repetir el último pedido sirve cuando el último fue el normal. Pero el
+   * pedido de la semana pasada pudo ser raro —una fiesta, un faltante— y
+   * entonces repetirlo arrastra el error. Esto deja fijar la lista buena una
+   * vez y traerla cuando se quiera, sin depender de qué se pidió al final.
+   */
+  const llavePlantilla = `portal-cliente-plantilla:${token}`;
+  const [plantilla, setPlantilla] = useState<Carrito | null>(() => {
+    try { return JSON.parse(localStorage.getItem(`portal-cliente-plantilla:${token}`) ?? 'null'); }
+    catch { return null; }
+  });
+  const guardarPlantilla = () => {
+    const limpia: Carrito = {};
+    for (const l of lineas) limpia[l.p.id] = l.q;
+    try { localStorage.setItem(llavePlantilla, JSON.stringify(limpia)); } catch { /* modo privado */ }
+    setPlantilla(limpia);
+  };
+  const cargarPlantilla = () => {
+    if (!plantilla) return;
+    const nuevo: Carrito = {};
+    const problemas: string[] = [];
+    for (const [pid, q] of Object.entries(plantilla)) {
+      const prod = porId.get(pid);
+      if (!prod) { problemas.push('Un artículo de tu lista ya no está en el catálogo'); continue; }
+      if (prod.existencias != null && prod.existencias <= 0) { problemas.push(`${prod.nombre}: agotado`); continue; }
+      nuevo[pid] = prod.existencias != null ? Math.min(q, prod.existencias) : q;
+    }
+    setCarrito(nuevo);
+    setAvisoRepetir(problemas.length > 0 ? problemas : null);
+    setHojaCarrito(true);
+  };
+
   // ── Enviar o cambiar ───────────────────────────────────────────────────────
   const enviar = async () => {
     if (lineas.length === 0) return;
@@ -324,6 +432,35 @@ export const PortalCliente: React.FC = () => {
                 <button onClick={vaciar} className="text-blue-500 underline text-xs">Dejarlo como estaba</button>
               </div>
             )}
+            {/* REPETIR, EN LA PRIMERA PANTALLA.
+                El cliente abre el enlace y cae acá. Si lo que quiere es lo
+                mismo de la otra vez —la mitad de los pedidos lo son—, no tiene
+                que buscar treinta productos ni saber que existe un atajo
+                adentro del carrito. Solo se ofrece con el carrito vacío: con
+                algo ya puesto, reemplazarlo sin avisar sería peor. */}
+            {!editando && lineas.length === 0 && (ultimoPedido || plantilla) && (
+              <div className="flex gap-2">
+                {ultimoPedido && (
+                  <button type="button" onClick={() => repetirPedido(ultimoPedido)}
+                    className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-left active:bg-emerald-100">
+                    <RefreshCw size={16} className="text-emerald-700 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block text-xs font-black text-emerald-900 leading-tight">Repetir mi último pedido</span>
+                      <span className="block text-[10px] font-bold text-emerald-700 truncate">
+                        {DIA(ultimoPedido.cuando)} · {plata(ultimoPedido.total)}
+                      </span>
+                    </span>
+                  </button>
+                )}
+                {plantilla && Object.keys(plantilla).length > 0 && (
+                  <button type="button" onClick={cargarPlantilla}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 border-blue-200 bg-blue-50 active:bg-blue-100">
+                    <ListOrdered size={16} className="text-blue-700 shrink-0" />
+                    <span className="text-xs font-black text-blue-900 leading-tight">Lo de<br />siempre</span>
+                  </button>
+                )}
+              </div>
+            )}
             <div className="relative">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input value={busca} onChange={e => setBusca(e.target.value)}
@@ -456,6 +593,16 @@ export const PortalCliente: React.FC = () => {
                   Ya no se puede cambiar por acá. Llamá al negocio.
                 </p>
               ) : null}
+
+              {/* REPETIR ESTE pedido —no solo el último—. El de la semana
+                  pasada pudo ser el normal y el de ayer uno raro: el cliente
+                  sabe cuál quiere repetir mejor que nosotros. */}
+              {puedePedir && (p.lineas ?? []).length > 0 && (
+                <button type="button" onClick={() => repetirPedido(p)}
+                  className="w-full mt-2 py-3 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-sm flex items-center justify-center gap-1.5">
+                  <RefreshCw size={14} /> Repetir este pedido
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -562,6 +709,52 @@ export const PortalCliente: React.FC = () => {
               <button onClick={() => setHojaCarrito(false)} className="p-1.5 text-gray-400"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+              {/* ATAJOS. Van ARRIBA y se ven con el carrito vacío, que es
+                  justo cuando sirven: el cliente abre el carrito para empezar,
+                  no para descubrir que podía repetir lo de la vez pasada. */}
+              {!editando && (ultimoPedido || plantilla) && (
+                <div className="space-y-2 pb-1">
+                  {ultimoPedido && (
+                    <button type="button" onClick={() => repetirPedido(ultimoPedido)}
+                      className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl border-2 border-emerald-200 bg-emerald-50 text-left active:bg-emerald-100">
+                      <RefreshCw size={18} className="text-emerald-700 shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-black text-emerald-900">Repetir mi último pedido</span>
+                        <span className="block text-[11px] font-bold text-emerald-700 truncate">
+                          {ultimoPedido.numero ? `${ultimoPedido.numero} · ` : ''}
+                          {DIA(ultimoPedido.cuando)} · {(ultimoPedido.lineas ?? []).length} artículo(s) · {plata(ultimoPedido.total)}
+                        </span>
+                      </span>
+                    </button>
+                  )}
+                  {plantilla && Object.keys(plantilla).length > 0 && (
+                    <button type="button" onClick={cargarPlantilla}
+                      className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl border-2 border-blue-200 bg-blue-50 text-left active:bg-blue-100">
+                      <ListOrdered size={18} className="text-blue-700 shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-black text-blue-900">Traer «lo de siempre»</span>
+                        <span className="block text-[11px] font-bold text-blue-700">
+                          Tu lista guardada · {Object.keys(plantilla).length} artículo(s)
+                        </span>
+                      </span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Lo que no se pudo repetir. Se dice en vez de meterlo callado:
+                  un carrito que miente se manda creyendo que pidió todo. */}
+              {avisoRepetir && (
+                <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">
+                  <p className="text-[11px] font-black text-amber-900">Ojo con esto:</p>
+                  <ul className="text-[11px] text-amber-800 mt-0.5 space-y-0.5">
+                    {avisoRepetir.map((x, i) => <li key={i}>· {x}</li>)}
+                  </ul>
+                  <button type="button" onClick={() => setAvisoRepetir(null)}
+                    className="mt-1 text-[11px] font-black text-amber-900 underline">Entendido</button>
+                </div>
+              )}
+
               {lineas.length === 0 ? (
                 <p className="text-center text-sm text-gray-400 py-10">El pedido está vacío.</p>
               ) : lineas.map(({ p, q }) => (
@@ -574,8 +767,22 @@ export const PortalCliente: React.FC = () => {
                   <button onClick={() => mover(p, -1)} className="w-9 h-9 rounded-lg border-2 border-gray-200 flex items-center justify-center">
                     <Minus size={14} className="text-gray-600" />
                   </button>
+                  {/* La cantidad se puede ESCRIBIR. Para pedir 24 cajas, tocar
+                      el «+» veinticuatro veces no es una forma de pedir. */}
+                  <input
+                    type="number" min={0} inputMode="numeric" value={q}
+                    onChange={e => poner(p, Number(e.target.value))}
+                    aria-label={`Cantidad de ${p.nombre}`}
+                    className="w-14 h-9 rounded-lg border-2 border-gray-200 text-center text-sm font-black tabular-nums"
+                  />
                   <button onClick={() => mover(p, 1)} className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center">
                     <Plus size={14} className="text-emerald-700" />
+                  </button>
+                  {/* Quitar la línea de una: bajarla de 24 a 0 con el «−» es
+                      lo mismo que no poder quitarla. */}
+                  <button onClick={() => poner(p, 0)} aria-label={`Quitar ${p.nombre}`}
+                    className="w-9 h-9 rounded-lg border-2 border-gray-200 flex items-center justify-center text-gray-400">
+                    <Trash2 size={13} />
                   </button>
                 </div>
               ))}
@@ -596,6 +803,15 @@ export const PortalCliente: React.FC = () => {
               <div className="flex items-center justify-between font-black text-lg">
                 <span>Total</span><span className="tabular-nums">{plata(total)}</span>
               </div>
+              {/* Guardar la lista buena: el que pide lo mismo cada semana la
+                  fija una vez y deja de depender de cómo salió el último
+                  pedido (que pudo ser raro: una fiesta, un faltante). */}
+              {lineas.length > 0 && !editando && (
+                <button type="button" onClick={guardarPlantilla}
+                  className="w-full py-2.5 rounded-xl border-2 border-blue-200 bg-blue-50 text-blue-800 font-black text-xs">
+                  {plantilla ? 'Reemplazar «lo de siempre» con este pedido' : 'Guardar esto como «lo de siempre»'}
+                </button>
+              )}
               <div className="flex gap-2">
                 <button onClick={vaciar}
                   className="px-4 py-4 rounded-xl border-2 border-gray-200 text-gray-600 font-bold text-sm">
