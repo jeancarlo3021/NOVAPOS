@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { traerContenido, enviarInteresado, contar } from './api';
 import { C, T, E, R, S, FUENTE, FUENTE_TITULO, ANCHO, ANCHO_TEXTO } from './estilos';
+import { ComparadorPlanes } from './ComparadorPlanes';
 import { Demos } from './Demos';
 
 /**
@@ -258,6 +259,10 @@ export const Landing: React.FC = () => {
    * entienda qué incluye.
    */
   const [anual, setAnual] = useState(false);
+  /** El comparador de planes abierto (lo pide el visitante, no se abre solo). */
+  const [comparando, setComparando] = useState(false);
+  /** Planes con la lista larga desplegada: `nombre` → true. */
+  const [verTodo, setVerTodo] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState({
     contact_name: '', business_name: '', phone: '', email: '', business_type: '', notes: '',
     // El campo trampa: una persona no lo ve, un robot lo llena. Ver routes/landing.ts.
@@ -375,6 +380,16 @@ export const Landing: React.FC = () => {
         .cta { transition: background .15s ease, transform .15s ease; }
         .tarjeta { transition: box-shadow .2s ease, transform .2s ease; }
         .tarjeta:hover { box-shadow: ${S.elevada}; transform: translateY(-2px); }
+        /* El plan recomendado se nota sin leer: un escalón arriba de los
+           demás. En teléfono NO —apilados, el que sobresale solo descoloca—. */
+        @media (min-width: 900px) { .tarjeta-destacada { transform: translateY(-8px); }
+          .tarjeta-destacada:hover { transform: translateY(-11px); } }
+        /* Que se vea dónde está el teclado: la página se recorre con tabulador
+           más de lo que uno cree, y un foco invisible la vuelve intransitable. */
+        button:focus-visible, a:focus-visible {
+          outline: 3px solid ${C.marcaViva}; outline-offset: 2px; border-radius: ${R.sm}px; }
+        @media (prefers-reduced-motion: reduce) {
+          .tarjeta, .cta, .tarjeta-destacada { transition: none !important; transform: none !important; } }
         #contacto { scroll-margin-top: 80px; }
       `}</style>
 
@@ -632,11 +647,15 @@ export const Landing: React.FC = () => {
             margin: '0 auto',
           }}>
             {productos.map((p, i) => (
-              <div key={i} className="tarjeta" style={{
+              <div key={i} className={`tarjeta${p.destacado ? ' tarjeta-destacada' : ''}`} style={{
                 background: C.blanco, borderRadius: R.xl, padding: E.lg,
                 border: p.destacado ? `2px solid ${C.marca}` : `1px solid ${C.linea}`,
                 boxShadow: p.destacado ? S.elevada : S.tarjeta,
                 display: 'flex', flexDirection: 'column', position: 'relative',
+                /* Todas las tarjetas al alto de la más larga: con alturas
+                   distintas, los botones «Lo quiero» quedan en escalera y la
+                   comparación se vuelve incómoda justo al decidir. */
+                height: '100%',
               }}>
                 {p.destacado && (
                   <span style={{
@@ -675,7 +694,15 @@ export const Landing: React.FC = () => {
                     <div style={{ margin: `${E.xs}px 0 ${E.sm}px` }}>
                       <p className="display" style={{
                         fontSize: '1.75rem', color: C.marca, margin: 0, letterSpacing: '-.02em',
-                      }}>{mostrado}</p>
+                      }}>
+                        {mostrado}
+                        {/* El período, pegado al precio: «₡25.000» sin decir
+                            de qué se lee como el precio del sistema entero. */}
+                        <span style={{
+                          fontFamily: FUENTE, fontSize: T.chico, fontWeight: 600,
+                          color: C.suave, letterSpacing: 0, marginLeft: 5,
+                        }}>{anual ? '/ año' : '/ mes'}</span>
+                      </p>
                       {anual && p.ahorro && (
                         <span style={{
                           display: 'inline-block', marginTop: 5, background: C.marcaSuave,
@@ -691,19 +718,49 @@ export const Landing: React.FC = () => {
                     {p.descripcion}
                   </p>
                 )}
-                {Array.isArray(p.incluye) && p.incluye.length > 0 && (
-                  <ul style={{
-                    margin: 0, padding: 0, listStyle: 'none', fontSize: T.chico,
-                    color: C.texto, display: 'grid', gap: E.xs,
-                    borderTop: `1px solid ${C.linea}`, paddingTop: E.md,
-                  }}>
-                    {p.incluye.map((x: string, j: number) => (
-                      <li key={j} style={{ display: 'flex', gap: E.xs, alignItems: 'flex-start', lineHeight: 1.45 }}>
-                        <Tilde /> <span>{x}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                {/* LO QUE INCLUYE, en dosis legibles.
+                    Con quince funciones seguidas, la tarjeta se vuelve un
+                    muro: las tarjetas quedan de alturas distintas, el precio
+                    del plan de al lado se va fuera de la pantalla y nadie lee
+                    hasta el final. Se muestran las primeras y el resto se
+                    despliega —con el número, para que se sepa que hay más—. */}
+                {Array.isArray(p.incluye) && p.incluye.length > 0 && (() => {
+                  const TOPE = 6;
+                  const abierto = !!verTodo[p.nombre];
+                  const lista = abierto ? p.incluye : p.incluye.slice(0, TOPE);
+                  const ocultas = p.incluye.length - lista.length;
+                  return (
+                    <div style={{ borderTop: `1px solid ${C.linea}`, paddingTop: E.md }}>
+                      <ul style={{
+                        margin: 0, padding: 0, listStyle: 'none', fontSize: T.chico,
+                        color: C.texto, display: 'grid', gap: E.xs,
+                      }}>
+                        {lista.map((x: string, j: number) => (
+                          <li key={j} style={{ display: 'flex', gap: E.xs, alignItems: 'flex-start', lineHeight: 1.45 }}>
+                            <Tilde /> <span>{x}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {(ocultas > 0 || abierto) && (
+                        <button type="button"
+                          onClick={() => setVerTodo(v2 => ({ ...v2, [p.nombre]: !abierto }))}
+                          aria-expanded={abierto}
+                          style={{
+                            marginTop: E.sm, border: 'none', background: 'transparent',
+                            color: C.marca, fontFamily: 'inherit', fontSize: T.chico,
+                            fontWeight: 700, cursor: 'pointer', padding: 0,
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                          {abierto ? 'Ver menos' : `Ver las otras ${ocultas}`}
+                          <span aria-hidden="true" style={{
+                            display: 'inline-block', transition: 'transform .15s ease',
+                            transform: abierto ? 'rotate(180deg)' : 'none', fontSize: 11,
+                          }}>▾</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
                 {(() => {
                   // El mensaje nombra el plan y el precio que el visitante
                   // está viendo: si está mirando los anuales, que diga el anual.
@@ -726,7 +783,38 @@ export const Landing: React.FC = () => {
               </div>
             ))}
           </div>
+
+          {/* COMPARAR. La pregunta que más llega es «¿qué diferencia hay entre
+              uno y otro?», y leer dos listas sueltas acordándose de la primera
+              no es forma de contestarla. Solo aparece con dos o más planes:
+              con uno, no hay nada que comparar. */}
+          {productos.length > 1 && (
+            <div style={{ textAlign: 'center', marginTop: E.lg }}>
+              <button type="button" onClick={() => setComparando(true)}
+                style={{
+                  border: `1.5px solid ${C.linea}`, background: C.blanco, color: C.tinta,
+                  fontFamily: 'inherit', fontSize: T.chico, fontWeight: 700,
+                  padding: '11px 20px', borderRadius: R.pill, cursor: 'pointer',
+                  boxShadow: S.tarjeta,
+                }}>
+                Comparar los {productos.length} planes lado a lado
+              </button>
+            </div>
+          )}
         </Seccion>
+      )}
+
+      {comparando && (
+        <ComparadorPlanes
+          planes={productos as any}
+          anual={anual}
+          enlaceDe={(p: any) => {
+            const mostrado = anual ? (p.precio_anual || p.precio) : p.precio;
+            const l = enlaceQuiero(contacto, `el plan ${p.nombre}`, mostrado);
+            return { href: l.href, externo: !!l.externo };
+          }}
+          onCerrar={() => setComparando(false)}
+        />
       )}
 
       {/* ── PAQUETES DE FACTURAS ───────────────────────────────────────

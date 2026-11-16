@@ -28,6 +28,8 @@ interface QuickStats {
   lowStockCount: number;
   overdueAP: number;
   pendingPurchases: number;
+  /** Pedidos que mandaron los clientes por su enlace y nadie ha atendido. */
+  portalPendientes: number;
 }
 
 // ── Tiles del menú principal — estilo Eleventa ─────────────────────────────
@@ -180,7 +182,7 @@ export const Dashboard = () => {
         ? apiFetch<T>(path, {}, QUICK_TIMEOUT).catch(() => null as any)
         : Promise.resolve(null);
 
-    const [salesR, stockR, apR, purchR, subR] = await Promise.allSettled([
+    const [salesR, stockR, apR, purchR, subR, portalR] = await Promise.allSettled([
       callOrSkip<{ total_revenue: number; total_invoices: number; invoices: any[] } | any[]>(
         true,
         `/reports/sales?from=${encodeURIComponent(dayFrom)}&to=${encodeURIComponent(dayTo)}`,
@@ -189,6 +191,10 @@ export const Dashboard = () => {
       callOrSkip<Array<{ status: string }>>(!!pf.accounts_payable, '/accounts-payable?status=pending'),
       callOrSkip<Array<{ id: string }>>(!!pf.purchases, '/purchases?status=pending'),
       callOrSkip<{ ends_at: string } | null>(true, '/plans/current'),
+      /* Los pedidos del enlace: un cliente mandó su pedido y, si nadie abre la
+         pantalla, ahí se queda. Es de las pocas cosas del tablero donde la
+         demora la paga el cliente esperando. */
+      callOrSkip<Array<{ origen?: string }>>(!!pf.customer_portal, '/agent-orders?status=pending'),
     ]);
 
     // Ventas — preferimos los totales pre-calculados del backend; si la
@@ -231,9 +237,16 @@ export const Dashboard = () => {
       setSubEndsAt((subR.value as any)?.ends_at ?? null);
     }
 
-    setStats({ todayTotal, todayCount, lowStockCount, overdueAP, pendingPurchases });
+    /* Solo los del ENLACE: los de agentes tienen su propia bandeja («Caja») y
+       mezclarlos haría que el aviso mandara a la pantalla equivocada. */
+    let portalPendientes = 0;
+    if (portalR.status === 'fulfilled' && Array.isArray(portalR.value)) {
+      portalPendientes = (portalR.value as any[]).filter(o => o?.origen === 'cliente').length;
+    }
+
+    setStats({ todayTotal, todayCount, lowStockCount, overdueAP, pendingPurchases, portalPendientes });
     setLoading(false);
-  }, [tenantId, isSaasAdmin, hasFullInventory, pf.accounts_payable, pf.purchases]);
+  }, [tenantId, isSaasAdmin, hasFullInventory, pf.accounts_payable, pf.purchases, pf.customer_portal]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -487,6 +500,18 @@ export const Dashboard = () => {
         icono: Wallet,
         texto: `${stats.overdueAP} cuenta${stats.overdueAP !== 1 ? 's' : ''} por pagar vencida${stats.overdueAP !== 1 ? 's' : ''}`,
         path: '/accounts-payable',
+      });
+    }
+    /* Arriba de las compras a propósito: una compra pendiente espera en una
+       bodega; un pedido del enlace lo está esperando un cliente. */
+    if (pf.customer_portal && stats.portalPendientes > 0) {
+      avisosBase.push({
+        id: 'pedidos-enlace',
+        nivel: 'urgente',
+        icono: Link2,
+        texto: `${stats.portalPendientes} pedido${stats.portalPendientes !== 1 ? 's' : ''} del enlace por atender`,
+        detalle: 'Tus clientes los mandaron desde su enlace. Pasalos al punto de venta para cobrarlos.',
+        path: '/pedidos-enlace',
       });
     }
     if (pf.purchases && stats.pendingPurchases > 0) {
