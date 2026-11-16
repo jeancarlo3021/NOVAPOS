@@ -66,6 +66,7 @@ const DeliveryRun              = lazy(() => import('./modules/agents/DeliveryRun
 const DeliveryAgenda           = lazy(() => import('./modules/agents/DeliveryAgenda').then(m => ({ default: m.DeliveryAgenda })));
 const AgentOrderPOS            = lazy(() => import('./modules/agents/AgentOrderPOS').then(m => ({ default: m.AgentOrderPOS })));
 const CashierDesk              = lazy(() => import('./modules/agents/CashierDesk').then(m => ({ default: m.CashierDesk })));
+const PedidosDelEnlace         = lazy(() => import('./modules/portalCliente/PedidosDelEnlace').then(m => ({ default: m.PedidosDelEnlace })));
 const SalesReturns             = lazy(() => import('./modules/returns/SalesReturns').then(m => ({ default: m.SalesReturns })));
 const AccountantPortal         = lazy(() => import('./modules/accountant/AccountantPortal').then(m => ({ default: m.AccountantPortal })));
 const BusinessesPanel          = lazy(() => import('./modules/accountant/BusinessesPanel').then(m => ({ default: m.BusinessesPanel })));
@@ -283,6 +284,12 @@ function AppContent() {
                   NUEVO PEDIDO: el mismo POS de venta, pero envía a caja. */}
               <Route path="/caja" element={
                 <PlanGuard feature="cashier_desk"><CashierDesk /></PlanGuard>
+              } />
+              {/* Los pedidos que llegan por el enlace del cliente. Va con la
+                  llave del PORTAL: el negocio que compró solo el portal no
+                  tiene «Caja» y no tenía dónde verlos. */}
+              <Route path="/pedidos-enlace" element={
+                <PlanGuard feature="customer_portal"><PedidosDelEnlace /></PlanGuard>
               } />
               <Route path="/agent-orders" element={
                 <PlanGuard feature="agent_orders"><AgentOrderPOS /></PlanGuard>

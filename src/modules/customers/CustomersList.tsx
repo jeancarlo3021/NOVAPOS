@@ -420,6 +420,30 @@ function EnlaceClienteModal({ customer, enlace, puedeRevocar, onClose, onChanged
 }) {
   const [actual, setActual] = useState<PortalEnlace | null>(enlace);
   const [pedir, setPedir] = useState(enlace?.puede_pedir ?? true);
+
+  /**
+   * LA ZONA, acá mismo.
+   *
+   * El pedido que entre por este enlace se va a guardar con la zona que el
+   * cliente tenga AHORA, y es por zona que se alistan y se reparten los
+   * pedidos. Mandar el enlace sin ponerle la zona es garantizar que ese pedido
+   * caiga en «sin zona» y no lo vea ningún repartidor; y nadie va a ir a la
+   * ficha del cliente antes de mandar un WhatsApp. Se pone donde se manda.
+   */
+  const [zona, setZona] = useState<string>(customer.zone ?? '');
+  const [zonasDisp, setZonasDisp] = useState<string[]>([]);
+  const [guardandoZona, setGuardandoZona] = useState(false);
+  useEffect(() => {
+    customersService.listZones()
+      .then(z => setZonasDisp((z ?? []).map((x: any) => (typeof x === 'string' ? x : x?.name)).filter(Boolean)))
+      .catch(() => setZonasDisp([]));
+  }, []);
+  const cambiarZona = async (nueva: string) => {
+    setZona(nueva); setGuardandoZona(true);
+    try { await customersService.update(customer.id, { zone: nueva || null } as any); onChanged(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'No se pudo guardar la zona'); }
+    finally { setGuardandoZona(false); }
+  };
   const [verSaldo, setVerSaldo] = useState(enlace?.puede_ver_saldo ?? true);
   const [pin, setPin] = useState('');
   const [vence, setVence] = useState(enlace?.vence_el ?? '');
@@ -478,6 +502,23 @@ function EnlaceClienteModal({ customer, enlace, puedeRevocar, onClose, onChanged
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
+
+          {/* La zona del cliente: define de qué repartidor es este pedido. */}
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">
+              Zona del cliente <span className="text-gray-400 font-normal">(de quién es la ruta)</span>
+            </label>
+            <select value={zona} onChange={e => void cambiarZona(e.target.value)} disabled={guardandoZona}
+              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100">
+              <option value="">Sin zona</option>
+              {zonasDisp.map(z => <option key={z} value={z}>{z}</option>)}
+              {zona && !zonasDisp.includes(zona) && <option value={zona}>{zona}</option>}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Los pedidos que mande por este enlace quedan en esta zona: es como se separan
+              para alistarlos y repartirlos. Sin zona, no le aparecen a ningún repartidor.
+            </p>
+          </div>
 
           {actual ? (
             <>

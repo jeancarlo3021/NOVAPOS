@@ -120,7 +120,7 @@ export const salesAgentsService = {
 
 export const agentOrdersService = {
   /** Bandeja. status: pending (default) | taken | charged | cancelled | all */
-  list: (status?: string, agentId?: string, range?: { date?: string; from?: string; to?: string; assigned_to?: string }) => {
+  list: (status?: string, agentId?: string, range?: { date?: string; from?: string; to?: string; assigned_to?: string; zone?: string }) => {
     const p = new URLSearchParams();
     if (status) p.set('status', status);
     if (agentId) p.set('agent_id', agentId);
@@ -130,6 +130,9 @@ export const agentOrdersService = {
       if (range?.to) p.set('to', range.to);
     }
     if (range?.assigned_to) p.set('assigned_to', range.assigned_to);
+    /* Por ZONA: es como se alista la mercadería —«lo de Pavas»— y como se le
+       entrega la ruta a cada repartidor. */
+    if (range?.zone) p.set('zone', range.zone);
     const qs = p.toString();
     return apiFetch<AgentOrder[]>(`/agent-orders${qs ? '?' + qs : ''}`);
   },

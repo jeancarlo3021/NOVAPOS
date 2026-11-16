@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, BookOpenCheck, Search, Star, Clock, UserCog, ChefHat} from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Package, BarChart2, Settings, Users, TrendingDown, Wallet, ClipboardList, Tag, CalendarClock, WifiOff, UserCircle, Truck, PackageCheck, HandCoins, Receipt, FileText, Inbox, Send, UserCheck, LayoutGrid, Layers, Undo2, Building2, Smartphone, UtensilsCrossed, Store, BookOpen, QrCode, CalendarDays, ShieldCheck, TrendingUp, MonitorPlay, Bookmark, User2, BookOpenCheck, Search, Star, Clock, UserCog, ChefHat, Link2} from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { FichajeModal } from '@/modules/hr/fichaje/FichajeModal';
 import { useAuth } from '@/context/AuthContext';
@@ -90,6 +90,7 @@ const ALL_TILES: Tile[] = [
   { feature: 'distribution',     label: 'Repartidor',      icon: PackageCheck,  path: '/driver',           bg: 'from-blue-500 to-indigo-600'      },
   // Flujo agente → caja. Cada rol ve solo el suyo (ver `hideForRoles` abajo).
   { feature: 'cashier_desk',     label: 'Caja',            icon: Inbox,         path: '/caja',             bg: 'from-emerald-600 to-teal-700',  hideForRoles: ['agente'] },
+  { feature: 'customer_portal',  label: 'Pedidos del enlace', icon: Link2,      path: '/pedidos-enlace',   bg: 'from-cyan-500 to-sky-600' },
   { feature: 'agent_orders',     label: 'Nuevo pedido',    icon: Send,          path: '/agent-orders',     bg: 'from-sky-500 to-blue-600',      hideForRoles: ['cajero'] },
   // Bandera propia: hay negocios sin flota que igual quieren ver a sus agentes.
   // `tracking` sigue valiendo para no romper a quien ya lo tenía activo.
