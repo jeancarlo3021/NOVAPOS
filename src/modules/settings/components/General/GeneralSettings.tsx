@@ -78,12 +78,31 @@ export const GeneralSettings: React.FC = () => {
     }
   }, [settings]);
 
-  // Valor a MOSTRAR: el propio si existe, si no el de facturación electrónica.
-  const conFe = (propio: string, deFe: any) => (String(propio ?? '').trim() || String(deFe ?? '').trim());
+  /** Campos que el usuario ya tocó: ahí manda lo que escribió, aunque lo borre. */
+  const [tocados, setTocados] = useState<Record<string, boolean>>({});
+
+  /**
+   * Valor a MOSTRAR: el propio si existe, si no el de facturación electrónica.
+   *
+   * OJO CON EL `.trim()` QUE ESTABA ACÁ: el campo es controlado, así que el
+   * valor que se pinta vuelve a entrar en el `input`. Al recortar los espacios,
+   * escribir «Mi Restaurante» era imposible: la barra espaciadora se borraba
+   * sola antes de poder escribir la segunda palabra. Y borrar el campo del todo
+   * hacía que reapareciera el nombre de facturación electrónica.
+   *
+   * Ahora lo escrito se pinta tal cual, y el dato de FE solo aparece como
+   * relleno mientras el campo esté vacío Y el usuario no lo haya tocado.
+   */
+  const conFe = (campo: string, propio: string, deFe: any) => {
+    const mio = String(propio ?? '');
+    if (mio !== '' || tocados[campo]) return mio;
+    return String(deFe ?? '').trim();
+  };
   const feEsJuridica = String(fe?.emisor_identification_type ?? '02') === '02';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    setTocados(prev => (prev[name] ? prev : { ...prev, [name]: true }));
     setFormData(prev => ({
       ...prev,
       [name]: name === 'taxPercentage' ? parseFloat(value) || 0 : value,
@@ -95,7 +114,16 @@ export const GeneralSettings: React.FC = () => {
     if (!isManager) return;  // Solo owner/admin/gerente pueden guardar
     setSuccess(false);
     try {
-      await updateSettings(formData);
+      /**
+       * Los espacios se recortan AL GUARDAR, no mientras se escribe.
+       * Así se puede teclear «Mi Restaurante» sin pelear con el campo, y lo que
+       * queda en la base no arrastra espacios de sobra al tiquete.
+       */
+      const limpio = Object.fromEntries(
+        Object.entries(formData).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v]),
+      ) as typeof formData;
+      setFormData(limpio);
+      await updateSettings(limpio);
 
       /**
        * Con FE, el contacto se guarda TAMBIÉN en la configuración de facturación.
@@ -112,10 +140,10 @@ export const GeneralSettings: React.FC = () => {
         await apiFetch('/settings/electronic-invoice', {
           method: 'PUT',
           body: JSON.stringify({
-            emisor_commercial_name: formData.businessName,
-            emisor_phone: formData.phone,
-            emisor_email: formData.email,
-            emisor_address: formData.address,
+            emisor_commercial_name: limpio.businessName,
+            emisor_phone: limpio.phone,
+            emisor_email: limpio.email,
+            emisor_address: limpio.address,
           }),
         }, 28_000).then((r: any) => {
           // El tiquete arma los datos del negocio desde esta caché: sin
@@ -186,7 +214,7 @@ export const GeneralSettings: React.FC = () => {
             forma de corregir el nombre de sus propios tiquetes.
           */}
           <input type="text" name="businessName"
-            value={conFe(formData.businessName, fe?.emisor_commercial_name || fe?.emisor_name)}
+            value={conFe('businessName', formData.businessName, fe?.emisor_commercial_name || fe?.emisor_name)}
             onChange={handleChange}
             placeholder="Mi Restaurante"
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition" />
@@ -202,7 +230,7 @@ export const GeneralSettings: React.FC = () => {
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula Jurídica / RUC</label>
             <input type="text" name="ruc"
-              value={formatCedula(conFe(formData.ruc, feEsJuridica ? fe?.emisor_identification : ''), '02')}
+              value={formatCedula(conFe('ruc', formData.ruc, feEsJuridica ? fe?.emisor_identification : ''), '02')}
               onChange={e => setFormData(prev => ({ ...prev, ruc: cleanCedula(e.target.value, '02') }))} disabled={planHasFe}
               inputMode="numeric" placeholder="3-101-123456"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
@@ -211,7 +239,7 @@ export const GeneralSettings: React.FC = () => {
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Cédula (Física)</label>
             <input type="text" name="cedula"
-              value={formatCedula(conFe(formData.cedula, feEsJuridica ? '' : fe?.emisor_identification), '01')}
+              value={formatCedula(conFe('cedula', formData.cedula, feEsJuridica ? '' : fe?.emisor_identification), '01')}
               onChange={e => setFormData(prev => ({ ...prev, cedula: cleanCedula(e.target.value, '01') }))} disabled={planHasFe}
               inputMode="numeric" placeholder="1-1234-5678"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
@@ -222,13 +250,13 @@ export const GeneralSettings: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
-            <input type="email" name="email" value={conFe(formData.email, fe?.emisor_email)} onChange={handleChange}
+            <input type="email" name="email" value={conFe('email', formData.email, fe?.emisor_email)} onChange={handleChange}
               placeholder="info@negocio.com"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Teléfono</label>
-            <input type="tel" name="phone" value={conFe(formData.phone, fe?.emisor_phone)} onChange={handleChange}
+            <input type="tel" name="phone" value={conFe('phone', formData.phone, fe?.emisor_phone)} onChange={handleChange}
               placeholder="+506 2234-5678"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
           </div>
@@ -236,7 +264,7 @@ export const GeneralSettings: React.FC = () => {
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">Dirección</label>
-          <input type="text" name="address" value={conFe(formData.address, fe?.emisor_address)} onChange={handleChange}
+          <input type="text" name="address" value={conFe('address', formData.address, fe?.emisor_address)} onChange={handleChange}
             placeholder="Calle Principal 123"
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
         </div>
