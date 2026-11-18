@@ -279,7 +279,16 @@ export const FE_RESOLUTION_FOOTER =
   'Autorizada mediante resolución MH-DGT-RES-0027-2024 del 13 de noviembre del 2024 de la DGTD. Version 4.4';
 
 export interface ReceiptConfig {
-  paperWidth: 32 | 40 | 48 | 56 | 80 | 'a4';
+  /**
+   * El papel. Los números son COLUMNAS (32 = rollo de 58 mm, 48 = de 80 mm);
+   * `'a4'` y `'carta'` son hojas en una impresora normal.
+   *
+   * `'carta'` hacía falta: en Costa Rica la hoja que se compra es carta
+   * (216 × 279 mm), no A4 (210 × 297). Declarando A4 sobre papel carta, el
+   * navegador ENCOGE la página para que quepa —de ahí los márgenes raros y la
+   * letra más delgada y más clara de lo que debería—.
+   */
+  paperWidth: 32 | 40 | 48 | 56 | 80 | 'a4' | 'carta';
   showLogo: boolean;
   /** Mostrar el nombre comercial (de Datos de FE) en el ticket. */
   showCommercialName?: boolean;
@@ -384,18 +393,37 @@ export function anchoEnCaracteres(paperWidth: unknown): 32 | 40 | 48 {
 }
 
 /** Ancho del ROLLO: es el tamaño de página que se le pide a la impresora. */
-const PAPEL_MM: Record<number, string> = { 32: '58mm', 40: '72mm', 48: '80mm' };
-
 /**
- * Ancho que la impresora REALMENTE imprime.
+ * Ancho que la impresora REALMENTE imprime, y la página que se le declara.
  *
- * Un rollo de 80mm imprime unos 72mm: el cabezal no llega a los bordes. Maquetar
- * el ticket a 80mm dejaba la columna de precios y los totales cortados a la
- * derecha al imprimir por el navegador. Lo mismo con 58mm, que imprime ~48mm.
+ * El rollo que se compra mide 58, 72 u 80 mm, pero el cabezal no llega a los
+ * bordes: imprime 48, 64 y 72. Esto es lo que se le declara al navegador como
+ * tamaño de página —no el ancho del rollo—, porque es también lo que el driver
+ * de la térmica define como su página: pedirle una más ancha hace que encoja
+ * todo el contenido para que quepa.
  */
 const IMPRIMIBLE_MM: Record<number, string> = { 32: '48mm', 40: '64mm', 48: '72mm' };
 
-const papelMM = (cfg: { paperWidth?: unknown }) => PAPEL_MM[anchoEnCaracteres(cfg.paperWidth)];
+/**
+ * ¿Es HOJA (impresora normal) o ROLLO (térmica)? Y si es hoja, cuál.
+ *
+ * Estaba escrito como `cfg.paperWidth === 'a4'` en siete lugares. Agregar
+ * «carta» significaba acordarse de los siete, y el que se olvidara imprimiría
+ * un tiquete térmico en una hoja carta —o al revés—.
+ */
+export function formatoHoja(cfg: { paperWidth?: unknown }): 'a4' | 'carta' | null {
+  const v = String((cfg as any)?.paperWidth ?? '');
+  return v === 'a4' ? 'a4' : v === 'carta' ? 'carta' : null;
+}
+
+/** El `size` de `@page` para una hoja, con su margen. */
+export const HOJA_CSS: Record<'a4' | 'carta', { size: string; margen: string }> = {
+  a4: { size: 'A4', margen: '15mm' },
+  /* Carta: 0,5 pulgadas de margen, que es lo que toda impresora de hoja puede
+     imprimir sin recortar. En milímetros son 12,7 exactos. */
+  carta: { size: 'letter', margen: '12.7mm' },
+};
+
 const imprimibleMM = (cfg: { paperWidth?: unknown }) => IMPRIMIBLE_MM[anchoEnCaracteres(cfg.paperWidth)];
 
 export class POSPrinterService {
@@ -480,7 +508,7 @@ export class POSPrinterService {
   private applyLocalPrinter(cfg: ReceiptConfig, tenantId: string): ReceiptConfig {
     const merged: ReceiptConfig = { ...cfg, ...this.getLocalPrinterConfig(tenantId) };
     // Anchos viejos (56, 80) o sin guardar → el que realmente cabe en el papel.
-    if ((merged.paperWidth as any) !== 'a4') merged.paperWidth = anchoEnCaracteres(merged.paperWidth);
+    if (!formatoHoja(merged)) merged.paperWidth = anchoEnCaracteres(merged.paperWidth);
     return merged;
   }
 
@@ -733,7 +761,8 @@ export class POSPrinterService {
     const copies = receiptData.copyLabel ? 1 : Math.max(1, Math.min(2, Number(cfg.printCopies ?? 1)));
 
     // A4 (hoja): impresora normal → HTML por navegador, no ESC/POS térmico.
-    if ((cfg.paperWidth as any) === 'a4') {
+    // Hoja (A4 o carta): impresora normal → HTML por navegador, no ESC/POS.
+    if (formatoHoja(cfg)) {
       for (let i = 0; i < copies; i++) await this.printBrowser(receiptData, cfg);
       return;
     }
@@ -912,7 +941,11 @@ export class POSPrinterService {
         try {
           await qzPrintToPrinter(printer, escposBytes);
         } catch (e: any) {
-          fallos.push(`${(printer as any).name ?? 'impresora'}: ${e?.message ?? e}`);
+          /* El nombre que el negocio le puso a la estación («Caja»,
+             «Cocina»). Decía `name`, que esta configuración no tiene, así que
+             el aviso salía como «undefined: …» justo cuando hay que saber cuál
+             de las dos impresoras falló. */
+          fallos.push(`${printer.label ?? 'impresora'}: ${e?.message ?? e}`);
         }
       }
       if (fallos.length === receiptPrinters.length) throw new Error(fallos.join(' · '));
@@ -999,7 +1032,7 @@ export class POSPrinterService {
     } catch {}
 
     // A4 → documento de página entera (tipo PDF).
-    if ((cfg.paperWidth as any) === 'a4') {
+    if (formatoHoja(cfg)) {
       const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
       const dt = (s: string) => fmtCRDateTime(s, s);
       const diffLabel = report.difference === 0 ? 'CUADRADO' : report.difference > 0 ? 'SOBRANTE' : 'FALTANTE';
@@ -1077,7 +1110,7 @@ export class POSPrinterService {
         lines.push({ t: 'sep' }, { t: 'title', a: 'MOVIMIENTOS DE CAJA' });
         for (const m of report.cash_movements!) lines.push({ t: 'row', a: `${m.type === 'in' ? '↓ Entrada' : '↑ Salida'} · ${m.reason || '-'}`, b: money(m.amount) });
       }
-      await this.printHTMLContent(this.renderA4FromLines(lines));
+      await this.printHTMLContent(this.renderA4FromLines(lines, formatoHoja(cfg) ?? 'a4'));
       return;
     }
 
@@ -1129,7 +1162,7 @@ export class POSPrinterService {
     const cfg = await this.loadReceiptConfig(tenantId);
 
     // A4 → documento de página entera (tipo PDF).
-    if ((cfg.paperWidth as any) === 'a4') {
+    if (formatoHoja(cfg)) {
       const money = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
       const bm = summary.by_method ?? { cash: 0, card: 0, sinpe: 0, credit: 0 };
       const lines: Array<{ t: string; a?: string; b?: string }> = [
@@ -1183,7 +1216,7 @@ export class POSPrinterService {
           lines.push({ t: 'center', a: 'Calculado: cargado - vendido' });
         }
       }
-      await this.printHTMLContent(this.renderA4FromLines(lines));
+      await this.printHTMLContent(this.renderA4FromLines(lines, formatoHoja(cfg) ?? 'a4'));
       return;
     }
 
@@ -1251,7 +1284,12 @@ export class POSPrinterService {
   }
 
   /** Renderiza un documento A4 (página entera, tipo PDF) a partir de líneas. */
-  private renderA4FromLines(lines: Array<{ t: string; a?: string; b?: string }>): string {
+  private renderA4FromLines(
+    lines: Array<{ t: string; a?: string; b?: string }>,
+    /* Qué hoja: la configurada por el negocio. Sin esto siempre salía A4, que
+       sobre papel carta el navegador encoge. */
+    hoja: 'a4' | 'carta' = 'a4',
+  ): string {
     const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
     const body = lines.map(ln => {
       if (ln.t === 'sep') return '<hr>';
@@ -1261,13 +1299,15 @@ export class POSPrinterService {
       return `<div class="txt">${esc(ln.a ?? '')}</div>`;
     }).join('');
     return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
-      @page { size: A4; margin: 18mm; }
+      @page { size: ${HOJA_CSS[hoja].size}; margin: ${HOJA_CSS[hoja].margen}; }
       * { box-sizing: border-box; }
-      body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; }
+      /* Negro: ver la nota del documento de factura. */
+      body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .doc { max-width: 720px; margin: 0 auto; font-size: 13px; }
       .ttl { text-align: center; font-weight: 900; font-size: 18px; margin: 4px 0; letter-spacing: .5px; }
-      .ctr { text-align: center; color: #6b7280; }
-      .txt { color: #6b7280; font-size: 12px; padding-left: 8px; }
+      .ctr { text-align: center; color: #4b5563; }
+      .txt { color: #4b5563; font-size: 12px; padding-left: 8px; }
       .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-bottom: 1px solid #f0f0f0; }
       .row span:last-child { font-weight: bold; white-space: nowrap; }
       hr { border: none; border-top: 1.5px solid #cbd5e1; margin: 8px 0; }
@@ -1297,12 +1337,12 @@ export class POSPrinterService {
 
     // A4 → HTML tamaño hoja; navegador (no A4) → HTML angosto (tiquete);
     // bluetooth/qz/térmica → ESC/POS.
-    const isA4 = (cfg.paperWidth as any) === 'a4';
+    const isA4 = !!formatoHoja(cfg);
     const useEscpos = !isA4 && (cfg.printerType === 'bluetooth' || cfg.printerType === 'qztray' || cfg.printerType === 'thermal');
 
     if (!useEscpos) {
       const esc = (s: string) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
-      if (isA4) { await this.printHTMLContent(this.renderA4FromLines(lines)); return; }
+      if (isA4) { await this.printHTMLContent(this.renderA4FromLines(lines, formatoHoja(cfg) ?? 'a4')); return; }
       // Angosto (como antes del A4).
       const body = lines.map(ln => {
         if (ln.t === 'sep') return '<hr style="border:none;border-top:1px dashed #999;margin:4px 0">';
@@ -1634,7 +1674,6 @@ export class POSPrinterService {
   private generateCashCloseHTML(report: any, cfg: ReceiptConfig, general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
     const fmtDateTime = (s: string) => fmtCRDateTime(s, s);
-    const widthMM = papelMM(cfg);
     const areaMM = imprimibleMM(cfg);
 
     const storeName = general?.businessName || 'CIERRE DE CAJA';
@@ -1681,14 +1720,20 @@ export class POSPrinterService {
        Estaba fijo en 300 mm: cuando el navegador no aplica una regla de
        página puesta después de maquetar —depende del driver—, el rollo
        avanzaba los 30 cm completos aunque el cierre midiera ocho. */
-    @page { size: ${widthMM} ${altoCierreMM}mm; margin: 0; }
+    /* La página es el ÁREA IMPRIMIBLE y no el ancho del rollo: con una página
+       más ancha que la del driver, el navegador encoge todo —márgenes
+       corridos, letra más chica y más clara—. Ver la nota del tiquete. */
+    @page { size: ${areaMM} ${altoCierreMM}mm; margin: 0; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     /* Interlineado 1.35, no 1.7: el cierre de caja es el documento más largo
        que sale del rollo —más de 30 cm— y cada décima de interlineado son
        varios centímetros de papel. Se sigue leyendo igual. */
     body { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.35;
-      color: #000; background: #fff; width: ${areaMM}; margin: 0 auto; font-weight: 700; }
+      color: #000; background: #fff; width: 100%; margin: 0; font-weight: 700;
+      /* Mismo engrosado que el tiquete: el navegador imprime en medios tonos y
+         sin esto el cierre sale más gris que el de QZ. */
+      -webkit-text-stroke: 0.013em #000; text-rendering: geometricPrecision; }
     .receipt { width: 100%; padding: 3mm 1mm 6mm; }
     .title { font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 2px;
       padding: 4px 0; margin-bottom: 6px; border-top: 4px solid #000; border-bottom: 4px solid #000; }
@@ -1808,7 +1853,7 @@ export class POSPrinterService {
     var px = recibo ? recibo.getBoundingClientRect().bottom : document.body.scrollHeight;
     var mm = Math.ceil(px / (96 / 25.4)) + 2;
     var estilo = document.createElement('style');
-    estilo.textContent = '@page { size: ${widthMM} ' + mm + 'mm; margin: 0; }';
+    estilo.textContent = '@page { size: ${areaMM} ' + mm + 'mm; margin: 0; }';
     document.head.appendChild(estilo);
   } catch (e) { /* queda la altura estimada: el documento sale igual */ }
 })();
@@ -1882,7 +1927,6 @@ export class POSPrinterService {
   }, cfg: ReceiptConfig, _general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
     const fmtDate = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('es-CR', { dateStyle: 'short' });
-    const widthMM = papelMM(cfg);
     const areaMM = imprimibleMM(cfg);
     /* Encabezado, proveedor, totales y firma: unos 22 renglones, más uno por
        artículo (dos si el nombre es largo y se parte). */
@@ -1910,7 +1954,8 @@ export class POSPrinterService {
     /* Mismo criterio que el cierre: estimado por renglones y ajustado al final.
        Los 300 mm fijos se imprimían enteros cada vez que el navegador ignoraba
        la regla que pone el guion del final. */
-    @page { size: ${widthMM} ${altoOrdenMM}mm; margin: 0; }
+    /* Igual que el tiquete: la página es lo que el cabezal imprime. */
+    @page { size: ${areaMM} ${altoOrdenMM}mm; margin: 0; }
     *, *::before, *::after {
       box-sizing: border-box; margin: 0; padding: 0;
       -webkit-print-color-adjust: exact !important;
@@ -1924,8 +1969,11 @@ export class POSPrinterService {
       line-height: 1.35;
       color: #000;
       background: #fff;
-      width: ${areaMM};   /* lo que imprime el cabezal, no el ancho del rollo */
+      /* La página ya mide el área imprimible: el cuerpo la ocupa entera. */
+      width: 100%;
       font-weight: 700;
+      -webkit-text-stroke: 0.013em #000;
+      text-rendering: geometricPrecision;
     }
     .receipt { width: 100%; padding: 3mm 1mm 6mm; }
     .center { text-align: center; }
@@ -2058,7 +2106,7 @@ export class POSPrinterService {
     var px = recibo ? recibo.getBoundingClientRect().bottom : document.body.scrollHeight;
     var mm = Math.ceil(px / (96 / 25.4)) + 2;
     var estilo = document.createElement('style');
-    estilo.textContent = '@page { size: ${widthMM} ' + mm + 'mm; margin: 0; }';
+    estilo.textContent = '@page { size: ${areaMM} ' + mm + 'mm; margin: 0; }';
     document.head.appendChild(estilo);
   } catch (e) { /* queda la altura estimada: el documento sale igual */ }
 })();
@@ -2452,22 +2500,30 @@ export class POSPrinterService {
     return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
 <title>${esc(tipoLabel)} ${esc(r.invoiceNumber)}</title>
 <style>
-  @page { size: A4; margin: 15mm; }
+  /* A4 o CARTA, según lo configurado. Declarar A4 sobre papel carta hace que
+     el navegador encoja la hoja para que quepa: los márgenes se corren y todo
+     sale más chico y más claro. En Costa Rica el papel que se compra es carta. */
+  @page { size: ${HOJA_CSS[formatoHoja(cfg) ?? 'a4'].size}; margin: ${HOJA_CSS[formatoHoja(cfg) ?? 'a4'].margen}; }
   * { box-sizing: border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; font-size: 12px; }
+  /* NEGRO, no gris azulado. El #1f2937 que había es texto de pantalla: en papel
+     sale lavado al lado de lo que imprime QZ, y en una impresora con tóner
+     bajo se vuelve ilegible. Los secundarios también bajan a un gris que se
+     lee impreso (#4b5563 es el mínimo razonable). */
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; font-size: 12px;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2563eb; padding-bottom: 12px; }
   .logo { max-height: 80px; max-width: 220px; object-fit: contain; }
   .brand { font-weight: 900; font-size: 20px; }
   .doc { text-align: right; }
   .doc h1 { font-size: 16px; margin: 0 0 4px; color: #2563eb; letter-spacing: .5px; }
   .doc .num { font-size: 13px; font-weight: bold; }
-  .doc .meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+  .doc .meta { font-size: 11px; color: #4b5563; margin-top: 2px; }
   .parties { display: flex; gap: 16px; margin: 16px 0; }
   .party { flex: 1; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
-  .party-title { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; font-weight: bold; margin-bottom: 4px; }
+  .party-title { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #4b5563; font-weight: bold; margin-bottom: 4px; }
   .party-name { font-weight: bold; font-size: 13px; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  th { background: #f3f4f6; text-align: left; padding: 8px; font-size: 10px; text-transform: uppercase; color: #374151; }
+  th { background: #f3f4f6; text-align: left; padding: 8px; font-size: 10px; text-transform: uppercase; color: #111827; font-weight: 800; }
   td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
   td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
   .totals { margin-top: 12px; margin-left: auto; width: 280px; }
@@ -2475,7 +2531,7 @@ export class POSPrinterService {
   .totals .grand { border-top: 2px solid #111827; margin-top: 4px; padding-top: 6px; font-size: 16px; font-weight: 900; }
   .fe { margin-top: 18px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; font-size: 11px; }
   .fe .clave { font-family: monospace; word-break: break-all; }
-  .foot { margin-top: 20px; text-align: center; font-size: 11px; color: #6b7280; }
+  .foot { margin-top: 20px; text-align: center; font-size: 11px; color: #4b5563; }
 </style></head><body>
   <div class="head">
     <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="logo"/>` : ''}${
@@ -2537,9 +2593,8 @@ export class POSPrinterService {
   // ─── HTML receipt ─────────────────────────────────────────────────────────────
 
   generateHTML(receiptData: ReceiptData, cfg: ReceiptConfig): string {
-    const isA4 = (cfg.paperWidth as any) === 'a4';
+    const isA4 = !!formatoHoja(cfg);
     if (isA4) return this.generateA4HTML(receiptData, cfg);
-    const widthMM = papelMM(cfg);
     const areaMM = imprimibleMM(cfg);
     /**
      * EL ANCHO EN COLUMNAS MANDA, igual que en la térmica.
@@ -2723,9 +2778,23 @@ export class POSPrinterService {
      * que es la única forma de que el rollo no avance de más ni el tiquete se
      * parta en dos páginas.
      */
+    /**
+     * LA PÁGINA ES EL ÁREA QUE LA IMPRESORA IMPRIME, no el ancho del rollo.
+     *
+     * Decía 80 mm (o 58) y el driver de una térmica define su página en lo que
+     * el cabezal alcanza —72 mm y 48—. Pedirle una página más ancha que la
+     * suya hace que el navegador ENCOJA todo para que quepa, y encogido pasan
+     * las tres cosas que se reportaron juntas: los márgenes quedan corridos,
+     * el texto sale más chico que el de QZ y, al reducirse, los trazos se
+     * adelgazan y el tiquete se ve más claro.
+     *
+     * Con la página declarada en el área imprimible, el mapeo es 1:1: no hay
+     * escala, el margen es el del cabezal y la letra sale del tamaño que se
+     * calculó.
+     */
     @page {
-      size: ${isA4 ? 'A4' : `${widthMM} ${altoInicialMM}mm`};
-      margin: ${isA4 ? '15mm' : '0'};
+      size: ${isA4 ? HOJA_CSS[formatoHoja(cfg) ?? 'a4'].size : `${areaMM} ${altoInicialMM}mm`};
+      margin: ${isA4 ? HOJA_CSS[formatoHoja(cfg) ?? 'a4'].margen : '0'};
     }
     *, *::before, *::after {
       box-sizing: border-box;
@@ -2767,10 +2836,26 @@ export class POSPrinterService {
       line-height: 1.25;
       color: #000;
       background: #fff;
-      width: ${areaMM};   /* lo que imprime el cabezal, no el ancho del rollo */
+      /* La página ya mide el área imprimible (ver la regla de página), así
+         que el cuerpo
+         la ocupa entera. Centrarlo dentro de una página de su mismo ancho
+         sumaba un corrimiento que en 58 mm se notaba como texto pegado a la
+         derecha y la columna de precios recortada. */
+      width: 100%;
       max-width: 100%;
-      margin: 0 auto;   /* centrado: evita que se corra a la derecha en papel más ancho */
+      margin: 0;
       font-weight: 700;
+      /**
+       * EL BRILLO: que se vea como el de QZ.
+       *
+       * QZ manda ESC/POS y la térmica quema el punto entero —negro pleno—.
+       * El navegador rasteriza Courier y el driver lo pasa a medios tonos, así
+       * que el mismo tiquete sale más gris. Engrosar el trazo una fracción de
+       * em compensa eso sin cambiar el tamaño ni la posición de nada: el texto
+       * ocupa lo mismo y quema más punto.
+       */
+      -webkit-text-stroke: 0.013em #000;
+      text-rendering: geometricPrecision;
     }
     .receipt {
       width: 100%;
@@ -3029,7 +3114,7 @@ ${isA4 ? '' : `<script>
     var px = recibo ? recibo.getBoundingClientRect().bottom : document.body.scrollHeight;
     var mm = Math.ceil(px / (96 / 25.4)) + 2;   // 2 mm de respiro, no 4
     var estilo = document.createElement('style');
-    estilo.textContent = '@page { size: ${widthMM} ' + mm + 'mm; margin: 0; }';
+    estilo.textContent = '@page { size: ${areaMM} ' + mm + 'mm; margin: 0; }';
     document.head.appendChild(estilo);
   } catch (e) { /* queda la altura estimada: el tiquete sale igual */ }
 })();

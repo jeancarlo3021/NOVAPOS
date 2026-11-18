@@ -1061,9 +1061,67 @@ async function conCanalVivo(fn: (q: any) => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * EL NOMBRE DE LA IMPRESORA, RESUELTO CONTRA LA LISTA REAL.
+ *
+ * QZ busca por nombre exacto. Cuando el nombre guardado no calza —se reinstaló
+ * el driver y Windows la dejó como «POS-80C (Copia 1)», se cambió de
+ * computadora, se le corrigió una tilde— el error que llega es de QZ y no dice
+ * nada útil: «Printer not found», o peor, un trabajo que se manda a la nada y
+ * nunca sale papel.
+ *
+ * Acá se busca primero exacto, después sin distinguir mayúsculas ni espacios
+ * de sobra, y si no hay nada se dice QUÉ impresora está configurada y CUÁLES
+ * hay instaladas. Ese mensaje es el que deja arreglarlo solo.
+ *
+ * La lista se guarda unos segundos: en una venta se imprime el tiquete y la
+ * comanda casi al mismo tiempo, y preguntarle dos veces a QZ agrega una espera
+ * que el cajero siente.
+ */
+let listaCache: { nombres: string[]; cuando: number } | null = null;
+const LISTA_TTL = 15_000;
+
+async function nombresDeImpresoras(): Promise<string[]> {
+  if (listaCache && Date.now() - listaCache.cuando < LISTA_TTL) return listaCache.nombres;
+  const nombres = await qzGetPrinters();
+  listaCache = { nombres, cuando: Date.now() };
+  return nombres;
+}
+
+/** Olvida la lista: se llama cuando una impresión falla por nombre. */
+export function qzOlvidarImpresoras(): void { listaCache = null; }
+
+async function resolverNombre(pedido: string): Promise<string> {
+  const limpio = String(pedido ?? '').trim();
+  if (!limpio) throw new Error('No se indicó la impresora.');
+  let nombres: string[] = [];
+  try { nombres = await nombresDeImpresoras(); } catch { /* sin lista, se intenta igual */ }
+  if (nombres.length === 0) return limpio;
+
+  const exacto = nombres.find(n => n === limpio);
+  if (exacto) return exacto;
+  const plano = (x: string) => x.trim().toLowerCase().replace(/\s+/g, ' ');
+  const parecido = nombres.find(n => plano(n) === plano(limpio));
+  if (parecido) return parecido;
+
+  /* Antes de rendirse: la lista pudo quedar vieja (se instaló la impresora
+     hace un minuto). Se vuelve a pedir una vez. */
+  listaCache = null;
+  const frescos = await nombresDeImpresoras().catch(() => nombres);
+  const deNuevo = frescos.find(n => n === limpio) ?? frescos.find(n => plano(n) === plano(limpio));
+  if (deNuevo) return deNuevo;
+
+  throw new Error(
+    `QZ Tray no encuentra la impresora «${limpio}». `
+    + (frescos.length
+      ? `Las instaladas son: ${frescos.join(', ')}. Elegí la correcta en Configuración → Impresoras.`
+      : 'No hay ninguna impresora instalada en esta computadora.'));
+}
+
 export async function qzPrintUSB(printerName: string, data: Uint8Array): Promise<void> {
   await conCanalVivo(async (q) => {
-    const config = q.configs.create(printerName);
+    const nombre = await resolverNombre(printerName);
+    const config = q.configs.create(nombre);
     await q.print(config, [{ type: 'raw', format: 'base64', data: uint8ToBase64(data) }]);
   });
 }
@@ -1111,20 +1169,27 @@ export async function qzPrintHTML(
   html: string,
   opts: { widthMm: number; heightMm: number; copies?: number },
 ): Promise<void> {
-  const q = getQZ();
-  const config = q.configs.create(printerName, {
-    size: { width: opts.widthMm, height: opts.heightMm },
-    units: 'mm',
-    margins: 0,
-    colorType: 'blackwhite',
-    rasterize: true,
-    copies: opts.copies && opts.copies > 1 ? opts.copies : 1,
+  /* POR CANAL VIVO, como el tiquete. Estas cuatro funciones —las de etiquetas—
+     usaban `getQZ()` directo: si el socket se había caído (la máquina se
+     suspendió, QZ se reinició) la impresión tiraba error en vez de reconectar,
+     mientras que el tiquete en la misma computadora salía bien. Era la
+     diferencia entre «no me imprime las etiquetas» y «no me imprime». */
+  await conCanalVivo(async (q) => {
+    const nombre = await resolverNombre(printerName);
+    const config = q.configs.create(nombre, {
+      size: { width: opts.widthMm, height: opts.heightMm },
+      units: 'mm',
+      margins: 0,
+      colorType: 'blackwhite',
+      rasterize: true,
+      copies: opts.copies && opts.copies > 1 ? opts.copies : 1,
+    });
+    await q.print(config, [{
+      type: 'pixel', format: 'html', flavor: 'plain',
+      data: html,
+      options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
+    }]);
   });
-  await q.print(config, [{
-    type: 'pixel', format: 'html', flavor: 'plain',
-    data: html,
-    options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
-  }]);
 }
 
 /**
@@ -1137,19 +1202,21 @@ export async function qzPrintImage(
   pngBase64: string,
   opts: { widthMm: number; heightMm: number; copies?: number },
 ): Promise<void> {
-  const q = getQZ();
-  const config = q.configs.create(printerName, {
-    size: { width: opts.widthMm, height: opts.heightMm },
-    units: 'mm',
-    margins: 0,
-    colorType: 'blackwhite',
-    rasterize: true,
-    copies: opts.copies && opts.copies > 1 ? opts.copies : 1,
+  await conCanalVivo(async (q) => {
+    const nombre = await resolverNombre(printerName);
+    const config = q.configs.create(nombre, {
+      size: { width: opts.widthMm, height: opts.heightMm },
+      units: 'mm',
+      margins: 0,
+      colorType: 'blackwhite',
+      rasterize: true,
+      copies: opts.copies && opts.copies > 1 ? opts.copies : 1,
+    });
+    await q.print(config, [{
+      type: 'pixel', format: 'image', flavor: 'base64',
+      data: pngBase64,
+    }]);
   });
-  await q.print(config, [{
-    type: 'pixel', format: 'image', flavor: 'base64',
-    data: pngBase64,
-  }]);
 }
 
 /** Imprime VARIAS imágenes PNG (base64) en un solo trabajo. */
@@ -1159,17 +1226,19 @@ export async function qzPrintImageMany(
   opts: { widthMm: number; heightMm: number },
 ): Promise<void> {
   if (!pngs.length) return;
-  const q = getQZ();
-  const config = q.configs.create(printerName, {
-    size: { width: opts.widthMm, height: opts.heightMm },
-    units: 'mm',
-    margins: 0,
-    colorType: 'blackwhite',
-    rasterize: true,
+  await conCanalVivo(async (q) => {
+    const nombre = await resolverNombre(printerName);
+    const config = q.configs.create(nombre, {
+      size: { width: opts.widthMm, height: opts.heightMm },
+      units: 'mm',
+      margins: 0,
+      colorType: 'blackwhite',
+      rasterize: true,
+    });
+    await q.print(config, pngs.map(data => ({
+      type: 'pixel', format: 'image', flavor: 'base64', data,
+    })));
   });
-  await q.print(config, pngs.map(data => ({
-    type: 'pixel', format: 'image', flavor: 'base64', data,
-  })));
 }
 
 /**
@@ -1182,20 +1251,22 @@ export async function qzPrintHTMLMany(
   opts: { widthMm: number; heightMm: number },
 ): Promise<void> {
   if (!htmls.length) return;
-  const q = getQZ();
-  const config = q.configs.create(printerName, {
-    size: { width: opts.widthMm, height: opts.heightMm },
-    units: 'mm',
-    margins: 0,
-    colorType: 'blackwhite',
-    rasterize: true,
-  });
-  const data = htmls.map(html => ({
+  await conCanalVivo(async (q) => {
+    const nombre = await resolverNombre(printerName);
+    const config = q.configs.create(nombre, {
+      size: { width: opts.widthMm, height: opts.heightMm },
+      units: 'mm',
+      margins: 0,
+      colorType: 'blackwhite',
+      rasterize: true,
+    });
+    const data = htmls.map(html => ({
     type: 'pixel', format: 'html', flavor: 'plain',
-    data: html,
-    options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
-  }));
-  await q.print(config, data);
+      data: html,
+      options: { pageWidth: opts.widthMm, pageHeight: opts.heightMm, units: 'mm' },
+    }));
+    await q.print(config, data);
+  });
 }
 
 /**

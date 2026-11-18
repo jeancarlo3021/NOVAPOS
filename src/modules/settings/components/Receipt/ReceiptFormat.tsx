@@ -6,7 +6,7 @@ import { storageService } from '@/services/storage/storageService';
 import { useAuth } from '@/context/AuthContext';
 
 interface ReceiptConfig {
-  paperWidth: 32 | 40 | 48 | 56 | 80 | 'a4';
+  paperWidth: 32 | 40 | 48 | 56 | 80 | 'a4' | 'carta';
   showLogo: boolean;
   logoUrl?: string;
   [key: string]: any;
@@ -67,9 +67,19 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
     return () => { vivo = false; };
   }, [config.showLogo, config.logoUrl, (config as any).paperWidth]);
 
-  const paperWidths: { value: 32 | 48 | 'a4'; label: string }[] = [
+  /**
+   * CARTA, aparte de A4.
+   *
+   * El papel que se compra en Costa Rica es CARTA (216 × 279 mm); A4
+   * (210 × 297) es europeo. Con A4 configurado y papel carta en la bandeja, el
+   * navegador encoge la hoja para que quepa: los márgenes se corren y todo
+   * sale más chico y más claro. Eran dos cosas que se reportaban por separado
+   * —«los márgenes no salen bien» y «la letra sale clarita»— y es la misma.
+   */
+  const paperWidths: { value: 32 | 48 | 'a4' | 'carta'; label: string }[] = [
     { value: 32, label: '58 mm' },
     { value: 48, label: '80 mm' },
+    { value: 'carta', label: 'Carta (hoja)' },
     { value: 'a4', label: 'A4 (hoja)' },
   ];
 
@@ -132,9 +142,11 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
       {/* Ancho de Papel */}
       <div>
         <h3 className="text-lg font-bold text-gray-900 mb-4">Ancho de Papel</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {paperWidths.map(width => {
-            const current = (config.paperWidth as any) === 'a4' ? 'a4' : (Number(config.paperWidth) <= 32 ? 32 : 48);
+            const pw = String((config.paperWidth as any) ?? '');
+            const current = pw === 'a4' ? 'a4' : pw === 'carta' ? 'carta'
+              : (Number(config.paperWidth) <= 32 ? 32 : 48);
             const active = current === width.value;
             return (
             <button
@@ -148,7 +160,9 @@ export const ReceiptFormat: React.FC<Props> = ({ config, setConfig }) => {
             >
               <p className="font-semibold text-gray-900">{width.label}</p>
               <p className="text-sm text-gray-500">
-                {width.value === 'a4' ? 'Hoja completa (impresora normal)' : width.value === 48 ? 'Impresora térmica 80mm' : 'Impresora térmica 58mm'}
+                {width.value === 'a4' ? 'Hoja A4 — 210 × 297 mm (impresora normal)'
+                  : width.value === 'carta' ? 'Hoja carta — 216 × 279 mm, la de acá'
+                  : width.value === 48 ? 'Impresora térmica 80mm' : 'Impresora térmica 58mm'}
               </p>
             </button>
           );
