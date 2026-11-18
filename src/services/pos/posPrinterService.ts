@@ -2,7 +2,7 @@ import { apiFetch } from '@/lib/api';
 import { nombreUbicacion } from '@/data/crLocations';
 import { fmtCRDateTime, fmtCRTime } from '@/utils/crDate';
 import {
-  qzConnect, qzIsAvailable, qzPrintToPrinter, qzPrintDefault,
+  qzConnect, qzIsAvailable, qzIsConnected, qzPrintToPrinter, qzPrintDefault,
   type PrinterEntry,
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
@@ -3640,16 +3640,35 @@ ${isA4 ? '' : `<script>
    * Devuelve `false` (sin lanzar) cuando el equipo no puede abrirla: es un extra
    * al cobrar, y no tiene por qué tumbar la venta.
    */
-  async openCashDrawer(tenantId: string): Promise<boolean> {
+  /**
+   * Abre la gaveta.
+   *
+   * `sinConectar`: NO levantar QZ Tray para esto.
+   *
+   * Cobrar «sin imprimir» tiene que registrar la venta y nada más. Antes el
+   * pulso de la gaveta llamaba a `qzConnect`, así que una caja que cobra sin
+   * imprimir —o una computadora sin QZ instalado— se topaba con el aspaviento
+   * de la conexión: la espera, el permiso del navegador y, si no estaba, un
+   * error por algo que nadie pidió.
+   *
+   * Con `sinConectar` la gaveta se abre SOLO si el canal ya está vivo (la caja
+   * que imprime todo el día lo tiene), y si no, no pasa nada: devuelve false
+   * en silencio y la venta queda igual.
+   */
+  async openCashDrawer(tenantId: string, opciones?: { sinConectar?: boolean }): Promise<boolean> {
     try {
       const cfg = await this.loadReceiptConfig(tenantId);
       if ((cfg as any).openDrawer === false) return false;   // el negocio la desactivó
       const bytes = new Uint8Array([0x1B, 0x70, 0x00, 0x19, 0xFA]);
+      const sinConectar = !!opciones?.sinConectar;
 
       // QZ Tray / térmica: por el mismo canal crudo del recibo.
       if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') {
+        /* Sin abrir QZ: si el canal no está vivo, la gaveta no se abre y la
+           venta sigue. Es lo correcto para un cobro «sin imprimir». */
+        if (sinConectar && !qzIsConnected()) return false;
         if (!(await qzIsAvailable())) return false;
-        await qzConnect(cfg.qz_certificate);
+        if (!sinConectar) await qzConnect(cfg.qz_certificate);
         const receiptPrinters = (cfg.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
         if (receiptPrinters.length > 0) {
           for (const printer of receiptPrinters) await qzPrintToPrinter(printer, bytes);

@@ -155,6 +155,18 @@ export const invoicesService = {
             ...ci,
             product_id: adhoc ? null : ci.product_id,
             product_name: ci.product_name ?? ci.product?.name,
+            /**
+             * EL IVA DE LA LÍNEA VIAJA CON LA LÍNEA.
+             *
+             * Hace falta para las líneas que NO tienen producto en el
+             * catálogo: el «Servicio 10%» del restaurante (que va en 0) y los
+             * productos rápidos escritos a mano (que van con el IVA que el
+             * cajero eligió). El comprobante electrónico sacaba la tasa del
+             * producto, y sin producto la daba por 0: se cobraba con IVA y se
+             * declaraba sin él, con el total del comprobante distinto al de la
+             * factura.
+             */
+            iva_rate: ci?.iva_rate ?? ci?.product?.iva_rate ?? null,
           };
         }),
         subtotal,

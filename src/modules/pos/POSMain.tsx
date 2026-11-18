@@ -882,7 +882,19 @@ export const POSMain = () => {
    * precio completo, el IVA completo, y el comprobante declaraba más venta y más
    * impuesto de lo que el cliente pagó.
    */
-  const cartItemsNetos = cartItems.map(item => {
+  const cartItemsNetos = cartItems.map(item0 => {
+    /**
+     * CADA LÍNEA SE VA CON LA TASA DE IVA CON QUE SE COBRÓ.
+     *
+     * `ivaPctDe` es la que manda en esta pantalla: la del producto, o la
+     * global cuando el producto no tiene una propia. El comprobante
+     * electrónico la tomaba del producto, así que una línea sin producto —el
+     * «Servicio 10%» del salón, un producto rápido— o un producto sin tasa
+     * propia se declaraban al 0 %: el cliente pagaba el impuesto y Hacienda
+     * recibía la línea exenta, con el total del comprobante distinto al de la
+     * factura. Acá se adjunta lo que de verdad se cobró.
+     */
+    const item = { ...item0, iva_rate: ivaPctDe(item0) } as typeof item0 & { iva_rate: number };
     /**
      * REGALÍA MARCADA A MANO: la línea va a la factura en CERO.
      *
@@ -1666,13 +1678,22 @@ export const POSMain = () => {
       if (!(await confirmFeQuota())) return;
     }
 
-    // La caja de dinero se abre SIEMPRE que entre efectivo, se imprima o no.
-    // Antes el pulso viajaba pegado al recibo: cobrar "sin imprimir" dejaba la
-    // caja cerrada y el cajero tenía que abrirla con la llave para dar el vuelto.
+    /**
+     * La caja de dinero se abre SIEMPRE que entre efectivo, se imprima o no:
+     * cobrar «sin imprimir» dejaba la gaveta cerrada y el cajero tenía que
+     * abrirla con la llave para dar el vuelto.
+     *
+     * Pero SIN LEVANTAR QZ TRAY. Cobrar sin imprimir es registrar la venta y
+     * nada más: si el canal no está vivo —la caja no imprime, o la
+     * computadora no tiene QZ— no se abre nada y la venta sigue igual, sin
+     * esperas ni errores por algo que nadie pidió. Donde QZ ya está
+     * conectado (la caja que imprime todo el día) la gaveta se abre como
+     * siempre.
+     */
     const entraEfectivo = data.paymentMethod === 'cash'
       || (data.payments ?? []).some((p: any) => p.method === 'cash' && Number(p.amount) > 0);
     if (data.skipPrint && entraEfectivo) {
-      void posPrinterService.openCashDrawer(tenantId);
+      void posPrinterService.openCashDrawer(tenantId, { sinConectar: true });
     }
 
     setPaymentLoading(true);
