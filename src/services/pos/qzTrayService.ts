@@ -373,9 +373,55 @@ let connectInFlight: Promise<void> | null = null;
 let ultimoHost = '';
 export function qzUltimoHost(): string { return ultimoHost; }
 
+/**
+ * EL CERTIFICADO NO SE PUEDE OLVIDAR.
+ *
+ * `qzConnect(cert)` recibe el certificado del negocio, y con una llave privada
+ * guardada en el equipo es lo que permite firmar el handshake. Sin él, QZ
+ * recibe una firma que no puede verificar —o se cae a modo comunidad— y la
+ * conexión no entra: desde afuera se ve como «no está conectada a la
+ * impresora» aunque QZ esté abierto y la impresora encendida.
+ *
+ * El problema es que cuatro pantallas llamaban `qzConnect()` SIN certificado
+ * (el tablero al abrir, el POS al arrancar, los dos modales de etiquetas), y
+ * la primera que gana es la que deja la conexión armada. En un negocio con
+ * firma configurada, abrir el tablero bastaba para que el resto del día
+ * dijera que no hay impresora.
+ *
+ * Así que el certificado se RECUERDA: lo anota quien lee la configuración del
+ * tiquete, y si nadie lo hizo todavía se busca en la copia local de esa
+ * configuración. Ninguna pantalla tiene que acordarse de pasarlo.
+ */
+let certificadoRecordado: string | null = null;
+
+export function qzRecordarCertificado(cert?: string | null): void {
+  const limpio = String(cert ?? '').trim();
+  if (limpio) certificadoRecordado = limpio;
+}
+
+/** El certificado guardado por `posPrinterService` en la copia local. */
+function certificadoDelCache(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith('receipt_cfg_')) continue;
+      const cfg = JSON.parse(localStorage.getItem(k) ?? '{}');
+      const cert = String(cfg?.qz_certificate ?? '').trim();
+      if (cert) return cert;
+    }
+  } catch { /* copia ilegible: se conecta en modo comunidad */ }
+  return null;
+}
+
 export function qzConnect(certificate?: string): Promise<void> {
+  const cert = String(certificate ?? '').trim()
+    || certificadoRecordado
+    || certificadoDelCache()
+    || undefined;
+  if (cert) certificadoRecordado = cert;
   if (connectInFlight) return connectInFlight;
-  connectInFlight = qzConnectOnce(certificate).finally(() => { connectInFlight = null; });
+  connectInFlight = qzConnectOnce(cert).finally(() => { connectInFlight = null; });
   return connectInFlight;
 }
 

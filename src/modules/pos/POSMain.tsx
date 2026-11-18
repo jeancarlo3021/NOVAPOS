@@ -366,6 +366,14 @@ export const POSMain = () => {
   const windowQueue = useWindowQueue(windowMode);
   useEffect(() => { if (queueTick > 0) void windowQueue.reload(); }, [queueTick]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [saleMode, setSaleMode] = useState<'mesa' | 'delivery'>('mesa');
+  /**
+   * EN QUÉ PLATAFORMA es esta venta de delivery.
+   *
+   * Se elige ANTES de armar el carrito porque el precio depende de ella:
+   * preguntarlo recién al cobrar —como se hacía— obligaba a rearmar los
+   * precios con el pedido ya digitado.
+   */
+  const [plataformaDelivery, setPlataformaDelivery] = useState('');
   // En la ventanita «Para llevar» ocupa el lugar de delivery: es lo que hace
   // aparecer el selector de plataformas al cobrar. Sigue necesitando el plan de
   // delivery para que las comisiones tengan sentido.
@@ -1084,9 +1092,29 @@ export const POSMain = () => {
 
   // Precio efectivo de un producto: en modo Delivery usa el precio delivery (si
   // tiene); si no, el precio especial del cliente o el normal.
+  /**
+   * EL PRECIO DELIVERY, POR PLATAFORMA.
+   *
+   * Cada plataforma cobra su comisión, así que el precio que deja el mismo
+   * margen no es el mismo en Uber que en Didi. El producto puede tener un
+   * precio por plataforma; lo que no tenga cae al precio delivery general y,
+   * si tampoco hay, al precio normal —así un catálogo entero no obliga a
+   * llenar cuatro precios por producto—.
+   */
+  const precioDeliveryDe = (product: Product, plataforma: string): number => {
+    const mapa = (product as any).delivery_prices;
+    if (plataforma && mapa && typeof mapa === 'object') {
+      const p = Number(mapa[plataforma]);
+      /* `> 0` y no `!= null`: un 0 guardado por error dejaría el producto
+         gratis en esa plataforma, y eso no es un precio, es un descuido. */
+      if (Number.isFinite(p) && p > 0) return p;
+    }
+    return Number((product as any).delivery_price ?? 0);
+  };
+
   const priceFor = (product: Product): number => {
     if (isDeliveryMode) {
-      const dp = Number((product as any).delivery_price ?? 0);
+      const dp = precioDeliveryDe(product, plataformaDelivery);
       if (dp > 0) return dp;
     }
     return customerPrices[product.id] ?? product.unit_price;
@@ -1099,7 +1127,11 @@ export const POSMain = () => {
          adicionales adentro) NO se reprecian: tomar el precio de lista les
          borraba los adicionales. */
       if ((item as any).__precioFijo) return item;
-      const dp = Number((item.product as any)?.delivery_price ?? 0);
+      /* También cuando cambia la PLATAFORMA: si el cajero empezó en Uber y
+         pasa a Didi, las líneas ya puestas tienen que tomar el precio de
+         Didi. Dejarlas con el anterior es cobrar el precio de una plataforma
+         en otra, que es justo lo que esto viene a resolver. */
+      const dp = item.product ? precioDeliveryDe(item.product as Product, plataformaDelivery) : 0;
       const base = (isDeliveryMode && dp > 0)
         ? dp
         : (customerPrices[item.product_id] ?? item.product?.unit_price ?? item.unit_price);
@@ -1110,7 +1142,7 @@ export const POSMain = () => {
       return { ...item, unit_price: round2(base), subtotal };
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerPrices, isDeliveryMode]);
+  }, [customerPrices, isDeliveryMode, plataformaDelivery]);
 
   // Quita TODOS los productos de favoritos desde el POS (botón en Favoritos).
   const handleClearFavorites = async () => {
@@ -2260,6 +2292,8 @@ export const POSMain = () => {
             windowMode={windowMode}
             repartoSlot={<RepartoControl valor={reparto} onCambio={setReparto}
               destacado={repartoSugerido && !reparto} />}
+            plataforma={plataformaDelivery}
+            onPlataformaChange={setPlataformaDelivery}
 
             onSaleModeChange={setSaleMode}
           />
@@ -2312,6 +2346,8 @@ export const POSMain = () => {
             windowMode={windowMode}
             repartoSlot={<RepartoControl valor={reparto} onCambio={setReparto}
               destacado={repartoSugerido && !reparto} />}
+            plataforma={plataformaDelivery}
+            onPlataformaChange={setPlataformaDelivery}
 
             onSaleModeChange={setSaleMode}
           />
@@ -2568,6 +2604,10 @@ export const POSMain = () => {
           rateDate={exchangeRate?.date}
           deliveryCommissions={deliveryCommissions}
           deliveryMode={isDeliveryMode}
+          /* La plataforma ya se eligió en el carrito —de ahí salió el precio—,
+             así que el cobro llega con ella puesta en vez de preguntarla otra
+             vez y dejar que no coincida con la que fijó los precios. */
+          deliveryPlatform={plataformaDelivery || undefined}
           allowPdf={!!(planFeatures as any).invoice_pdf_a4}
         />
       )}

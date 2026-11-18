@@ -42,6 +42,14 @@ interface PaymentConfirmationModalProps {
   /** La venta ya viene en modo DELIVERY (el POS está en modo delivery): fuerza
    *  delivery y muestra las plataformas de una, sin el check. */
   deliveryMode?: boolean;
+  /**
+   * La plataforma elegida en el carrito (Uber, Didi…).
+   *
+   * Es la que fijó los precios del pedido, así que el cobro arranca con ella
+   * puesta: preguntarla de nuevo en blanco dejaba declarar una plataforma
+   * distinta de la que puso los precios.
+   */
+  deliveryPlatform?: string;
   /** Plan con descarga de factura en PDF A4: agrega el botón "Cobrar y descargar". */
   allowPdf?: boolean;
 }
@@ -156,6 +164,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   defaultDeliveryPct = 0,
   deliveryCommissions = {},
   deliveryMode = false,
+  /* La plataforma que ya se eligió en el carrito. Se renombra al
+     desestructurar porque acá adentro hay un estado con el mismo nombre. */
+  deliveryPlatform: deliveryPlatformInicial,
   allowPdf = false,
 }) => {
   const crc = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
@@ -198,7 +209,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   // En modo delivery del POS ya viene forzado (isDelivery=true, plataformas directo).
   const [isDelivery] = useState(deliveryMode);   // delivery se decide en el POS, no acá
   const [deliveryPct, setDeliveryPct] = useState(String(defaultDeliveryPct || 0));
-  const [deliveryPlatform, setDeliveryPlatform] = useState('');
+  /* La plataforma viene elegida del carrito (es la que fijó los precios): se
+     arranca con ella en vez de en blanco, para que el cobro no termine
+     declarando una plataforma distinta de la que puso los precios. */
+  const [deliveryPlatform, setDeliveryPlatform] = useState(deliveryPlatformInicial ?? '');
   const deliveryPctNum = Math.max(0, Math.min(100, parseFloat(deliveryPct) || 0));
   const deliveryNet = Math.round(total * (1 - deliveryPctNum / 100));
   const deliveryData = isDelivery

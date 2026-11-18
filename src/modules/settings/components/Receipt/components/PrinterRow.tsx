@@ -62,23 +62,54 @@ export function PrinterRow({ printer, qzPrinters, onChange, onRemove, onTest, te
               ) : (
                 <>
                   <Usb size={11} className="text-slate-400" />
-                  {qzPrinters.length > 0 ? (
-                    <div className="relative">
-                      <select value={printer.printer_name ?? ''} onChange={e => onChange({ printer_name: e.target.value })}
-                        className="pl-2 pr-6 py-1 border border-slate-200 rounded-md text-[11px] bg-white appearance-none focus:outline-none focus:ring-1 focus:ring-indigo-300 max-w-55"
-                      >
-                        <option value="">— Seleccionar impresora —</option>
-                        {qzPrinters.map(p => <option key={p} value={p}>{p}</option>)}
-                      </select>
-                      <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    </div>
-                  ) : (
-                    <input type="text" value={printer.printer_name ?? ''}
-                      onChange={e => onChange({ printer_name: e.target.value })}
-                      placeholder="Conecta QZ Tray para ver impresoras"
-                      className="px-2 py-1 border border-slate-200 rounded-md text-[11px] w-56 focus:outline-none focus:ring-1 focus:ring-indigo-300"
-                    />
-                  )}
+                  {(() => {
+                    /**
+                     * LA IMPRESORA GUARDADA SIEMPRE SE VE.
+                     *
+                     * Esta lista se llena con las impresoras que QZ reporta, y
+                     * el `<select>` mostraba «— Seleccionar impresora —»
+                     * cuando el nombre guardado no estaba entre ellas: con QZ
+                     * sin conectar en esa pestaña —o con la impresora
+                     * apagada— la configuración se veía VACÍA aunque estuviera
+                     * bien guardada. Es lo que se reporta como «cambié el
+                     * papel y ahora dice que no está conectada a la
+                     * impresora»: no se perdió nada, la pantalla lo contaba
+                     * mal.
+                     *
+                     * Ahora el nombre guardado se agrega a la lista, marcado
+                     * como no detectado, y se dice qué significa. Así se
+                     * distingue «no hay nada configurado» de «está
+                     * configurada pero QZ no la ve en este momento».
+                     */
+                    const guardada = String(printer.printer_name ?? '').trim();
+                    const detectada = !guardada || qzPrinters.includes(guardada);
+                    const opciones = detectada ? qzPrinters : [guardada, ...qzPrinters];
+                    return (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="relative">
+                          <select value={guardada} onChange={e => onChange({ printer_name: e.target.value })}
+                            className={`pl-2 pr-6 py-1 border rounded-md text-[11px] bg-white appearance-none focus:outline-none focus:ring-1 focus:ring-indigo-300 max-w-55 ${
+                              !detectada ? 'border-amber-300' : 'border-slate-200'}`}
+                          >
+                            <option value="">— Seleccionar impresora —</option>
+                            {opciones.map(p => (
+                              <option key={p} value={p}>
+                                {p}{p === guardada && !detectada ? ' (guardada)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                        {!detectada && (
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                            {qzPrinters.length === 0
+                              ? 'QZ sin conectar: no se puede comprobar'
+                              : 'QZ no la ve ahora: revisá que esté encendida o elegí la de la lista'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>

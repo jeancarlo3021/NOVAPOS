@@ -146,6 +146,21 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
   };
   // Precio cerrado para DELIVERY: mismo cálculo, aplicado al precio delivery.
   const [closedDeliveryPrice, setClosedDeliveryPrice] = useState('');
+
+  /**
+   * PRECIO POR PLATAFORMA DE DELIVERY.
+   *
+   * Cada plataforma cobra su comisión —Uber no cobra lo mismo que Didi—, así
+   * que un solo precio delivery obliga a elegir entre perder margen en la más
+   * cara o cobrarle de menos en la más barata. En la práctica el negocio pone
+   * el precio de la peor para todas, y en las otras cobra de más al cliente.
+   *
+   * Es opcional por plataforma: lo que se deje vacío usa el precio delivery
+   * general, y si tampoco hay, el precio normal. Así un catálogo de mil
+   * productos no obliga a llenar cuatro precios por producto para empezar.
+   */
+  const PLATAFORMAS = ['Uber', 'Didi', 'PedidosYa', 'Otro'] as const;
+  const [preciosPlataforma, setPreciosPlataforma] = useState<Record<string, string>>({});
   const applyClosedDeliveryPrice = () => {
     const target = parseFloat(closedDeliveryPrice);
     if (!target || target <= 0) return;
@@ -253,6 +268,16 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
           cabys_code: (product as any).cabys_code ?? '',
           iva_rate: (product as any).iva_rate?.toString() ?? ivaGuide,
         });
+        /* Los precios por plataforma guardados. Se pasan a texto porque el
+           formulario trabaja con cadenas: un 0 y un vacío no son lo mismo
+           —0 es «gratis en esa plataforma» y vacío es «usá el general»—. */
+        const guardados = (product as any).delivery_prices;
+        setPreciosPlataforma(
+          guardados && typeof guardados === 'object'
+            ? Object.fromEntries(Object.entries(guardados)
+                .filter(([, v2]) => v2 != null)
+                .map(([k, v2]) => [k, String(v2)]))
+            : {});
         setImageUrl((product as any).image_url || undefined);
         // Inicializar el margen editable desde el precio/costo cargados.
         setMarginPct(calcMargin(product.unit_price, product.cost_price).value?.toFixed(1) ?? '');
@@ -395,6 +420,18 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
         description: formData.description || undefined,
         unit_price: formData.unit_price ? parseFloat(formData.unit_price) : 0,
         delivery_price: deliveryEnabled && formData.delivery_price ? parseFloat(formData.delivery_price) : null,
+        /* Solo las plataformas con precio puesto. Mandar las vacías como 0
+           haría que esa plataforma cobrara cero en vez de caer al precio
+           general. `null` cuando no hay ninguna: deja la columna limpia. */
+        delivery_prices: (() => {
+          if (!deliveryEnabled) return null;
+          const limpio: Record<string, number> = {};
+          for (const [plat, valor] of Object.entries(preciosPlataforma)) {
+            const n = parseFloat(String(valor));
+            if (String(valor).trim() !== '' && Number.isFinite(n) && n >= 0) limpio[plat] = n;
+          }
+          return Object.keys(limpio).length > 0 ? limpio : null;
+        })(),
         cost_price: formData.cost_price ? parseFloat(formData.cost_price) : undefined,
         recipe_unit_code: formData.recipe_unit_code || null,
         /* Las dos van juntas o no va ninguna: media equivalencia no sirve
@@ -630,6 +667,46 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                           />
                         </div>
                         <p className="text-[10px] text-gray-400 mt-0.5">Se usa cuando la venta es en modo <b>Delivery</b>. Vacío = usa el precio normal.</p>
+
+                        {/* POR PLATAFORMA. Va plegado: la mayoría de los
+                            negocios empieza con un solo precio delivery, y
+                            cuatro casillas más en cada producto estorban a
+                            quien no las necesita. El que las necesita las
+                            encuentra justo debajo del precio que ya puso. */}
+                        <details className="mt-2">
+                          <summary className="text-xs font-bold text-orange-700 cursor-pointer">
+                            Precio distinto por plataforma
+                            {Object.values(preciosPlataforma).filter(v2 => String(v2).trim() !== '').length > 0
+                              ? ` · ${Object.values(preciosPlataforma).filter(v2 => String(v2).trim() !== '').length} puesto(s)`
+                              : ' (opcional)'}
+                          </summary>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            {PLATAFORMAS.map(plat => (
+                              <div key={plat}>
+                                <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                                  {plat === 'Uber' ? '🟢 Uber' : plat === 'Didi' ? '🟠 Didi'
+                                    : plat === 'PedidosYa' ? '🔴 PedidosYa' : '🛵 Otro'}
+                                </label>
+                                <div className="relative">
+                                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-orange-400 font-black text-sm">₡</span>
+                                  <input
+                                    type="number" step="0.01" min="0" disabled={submitting}
+                                    value={preciosPlataforma[plat] ?? ''}
+                                    onChange={e => setPreciosPlataforma(prev => ({ ...prev, [plat]: e.target.value }))}
+                                    placeholder={formData.delivery_price || 'general'}
+                                    aria-label={`Precio delivery en ${plat}`}
+                                    className="w-full pl-6 pr-2 py-2 text-sm font-bold border-2 border-orange-100 rounded-lg focus:ring-2 focus:ring-orange-300 focus:border-orange-300 disabled:bg-gray-100 tabular-nums"
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-1.5">
+                            Cada plataforma cobra su comisión, así que el precio que deja el mismo margen
+                            no es el mismo en todas. Lo que se deje vacío usa el precio delivery de arriba;
+                            si ese también está vacío, el precio normal.
+                          </p>
+                        </details>
 
                         {/* Precio delivery cerrado (con IVA): solo con FE activa */}
                         {feEnabled && (

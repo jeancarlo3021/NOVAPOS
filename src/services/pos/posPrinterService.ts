@@ -3,6 +3,7 @@ import { nombreUbicacion } from '@/data/crLocations';
 import { fmtCRDateTime, fmtCRTime } from '@/utils/crDate';
 import {
   qzConnect, qzIsAvailable, qzIsConnected, qzPrintToPrinter, qzPrintDefault,
+  qzRecordarCertificado,
   type PrinterEntry,
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
@@ -522,6 +523,9 @@ export class POSPrinterService {
   async loadReceiptConfig(tenantId: string): Promise<ReceiptConfig> {
     // Cache en memoria — evita API call en cada cobro
     if (this.cachedConfig && this.cachedConfigTenantId === tenantId) {
+      /* El certificado, anotado para que cualquier pantalla que conecte QZ lo
+         use sin tener que pasarlo (ver `qzRecordarCertificado`). */
+      qzRecordarCertificado((this.cachedConfig as any).qz_certificate);
       return this.cachedConfig;
     }
 
@@ -545,6 +549,7 @@ export class POSPrinterService {
           { ...this.getDefaultConfig(), ...JSON.parse(cached) }, tenantId);
         this.cachedConfig = parsed;
         this.cachedConfigTenantId = tenantId;
+        qzRecordarCertificado((parsed as any).qz_certificate);
         // Refrescar en background (no bloquear)
         apiFetch<ReceiptConfig>('/settings/receipt')
           .then(config => {
@@ -565,6 +570,7 @@ export class POSPrinterService {
       const merged = this.applyLocalPrinter(base, tenantId);
       this.cachedConfig = merged;
       this.cachedConfigTenantId = tenantId;
+      qzRecordarCertificado((merged as any).qz_certificate);
       try { localStorage.setItem(`receipt_cfg_${tenantId}`, JSON.stringify(base)); } catch {}
       return merged;
     } catch {
@@ -945,7 +951,11 @@ export class POSPrinterService {
              «Cocina»). Decía `name`, que esta configuración no tiene, así que
              el aviso salía como «undefined: …» justo cuando hay que saber cuál
              de las dos impresoras falló. */
-          fallos.push(`${printer.label ?? 'impresora'}: ${e?.message ?? e}`);
+          /* `||` y no `??`: el rótulo puede venir en blanco —se guarda así
+             cuando nadie le puso nombre a la estación— y `??` lo dejaba
+             pasar, con lo que el aviso empezaba con dos puntos sueltos. Si no
+             tiene nombre, al menos se dice cuál impresora del sistema es. */
+          fallos.push(`${printer.label || printer.printer_name || 'impresora'}: ${e?.message ?? e}`);
         }
       }
       if (fallos.length === receiptPrinters.length) throw new Error(fallos.join(' · '));

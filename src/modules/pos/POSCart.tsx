@@ -135,6 +135,14 @@ interface POSCartPanelProps {
    * nada que opinar sobre el reparto: solo le hace lugar arriba del total.
    */
   repartoSlot?: React.ReactNode;
+  /**
+   * La PLATAFORMA de la venta delivery (Uber, Didi…).
+   *
+   * Se elige acá y no al cobrar porque el precio del producto depende de
+   * ella: preguntarlo al final obligaba a rearmar el pedido ya digitado.
+   */
+  plataforma?: string;
+  onPlataformaChange?: (p: string) => void;
 }
 
 export const POSCartPanel: React.FC<POSCartPanelProps> = ({
@@ -169,6 +177,8 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
   onSaleModeChange,
   windowMode = false,
   repartoSlot,
+  plataforma = '',
+  onPlataformaChange,
 }) => {
   const [discountInputs, setDiscountInputs] = useState<Record<string, string>>({});
   /** Descuento que se pasó del tope y espera el PIN del supervisor. */
@@ -346,6 +356,30 @@ export const POSCartPanel: React.FC<POSCartPanelProps> = ({
               {windowMode ? '🥡 Para llevar' : '🛵 Delivery'}
             </button>
           </div>
+
+          {/* LA PLATAFORMA, con el precio que le corresponde.
+              Solo en modo delivery de PLATAFORMA (no en la ventanita, donde
+              «para llevar» es el mostrador). Cambiarla reprecia el carrito:
+              es el mismo producto con otra comisión encima. */}
+          {saleMode === 'delivery' && !windowMode && onPlataformaChange && (
+            <div className="mt-2">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-wide mb-1">
+                Plataforma {plataforma ? '' : '· elegila para usar su precio'}
+              </p>
+              <div className="flex gap-1.5">
+                {([['Uber', '🟢'], ['Didi', '🟠'], ['PedidosYa', '🔴'], ['Otro', '🛵']] as const).map(([p, emo]) => (
+                  <button key={p} type="button"
+                    onClick={() => onPlataformaChange(plataforma === p ? '' : p)}
+                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-black border-2 transition ${
+                      plataforma === p
+                        ? 'border-orange-500 bg-orange-50 text-orange-700'
+                        : 'border-gray-200 text-gray-500'}`}>
+                    {emo} {p === 'PedidosYa' ? 'P.Ya' : p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
