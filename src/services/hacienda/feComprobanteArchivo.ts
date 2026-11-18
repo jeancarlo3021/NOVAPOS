@@ -3,7 +3,7 @@ import { nombreUbicacion } from '@/data/crLocations';
 import { montoPdf as money } from '@/utils/montoPdf';
 import {
   datosDelDocumento, fechaHoraCR,
-  TIPO_ID, CONDICION_VENTA, MEDIO_PAGO, FE_RESOLUTION,
+  etiquetaTipoId, CONDICION_VENTA, MEDIO_PAGO, FE_RESOLUTION,
 } from './feComprobanteHtml';
 
 /**
@@ -82,7 +82,7 @@ export function construirComprobantePdf(
     emisor?.emisor_commercial_name && emisor?.emisor_commercial_name !== emisor?.emisor_name
       ? `Nombre comercial: ${emisor.emisor_commercial_name}` : '',
     emisor?.emisor_identification
-      ? `${TIPO_ID[String(emisor?.emisor_identification_type ?? '')] ?? 'Identificación'}: ${emisor.emisor_identification}` : '',
+      ? `${etiquetaTipoId(emisor?.emisor_identification_type, emisor.emisor_identification)}: ${emisor.emisor_identification}` : '',
     emisor?.emisor_address ?? '', ubicacionEmisor,
     emisor?.emisor_phone ? `Teléfono: ${emisor.emisor_phone}` : '',
     emisor?.emisor_email ?? '',
@@ -92,7 +92,7 @@ export function construirComprobantePdf(
     receptor?.commercial_name && receptor.commercial_name !== receptor.name
       ? `Nombre comercial: ${receptor.commercial_name}` : '',
     receptor?.identification
-      ? `${TIPO_ID[String(receptor?.identification_type ?? '')] ?? 'Identificación'}: ${receptor.identification}` : '',
+      ? `${etiquetaTipoId(receptor?.identification_type, receptor.identification)}: ${receptor.identification}` : '',
     receptor?.address ?? '', ubicacionReceptor,
     receptor?.phone || inv.customer_phone ? `Teléfono: ${receptor?.phone || inv.customer_phone}` : '',
     receptor?.email || inv.customer_email || '',

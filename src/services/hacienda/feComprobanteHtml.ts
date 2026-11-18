@@ -23,6 +23,36 @@ export const TIPO_ID: Record<string, string> = {
   '01': 'Cédula física', '02': 'Cédula jurídica', '03': 'DIMEX', '04': 'NITE', '05': 'Extranjero',
 };
 
+/**
+ * EL CÓDIGO DE TIPO DE IDENTIFICACIÓN, NORMALIZADO.
+ *
+ * Venía de tres lados distintos: el `select` de FE lo guarda como '01'…'05',
+ * pero una columna numérica lo devuelve como 1, y un registro viejo puede
+ * traerlo vacío. Sin normalizar, '1' no encontraba nada en el mapa y el
+ * comprobante decía «Identificación» a secas.
+ *
+ * Cuando no hay tipo, se deduce del número, que en Costa Rica se distingue por
+ * su largo: 9 dígitos es cédula física, 10 es jurídica (y arranca en 3), 11 o
+ * 12 es DIMEX. Si no calza con ninguno NO se inventa nada: devuelve ''.
+ */
+export function normalizarTipoId(tipo: unknown, identificacion?: unknown): string {
+  const t = String(tipo ?? '').trim();
+  if (t && t !== '0') {
+    const cod = t.padStart(2, '0');
+    if (TIPO_ID[cod]) return cod;
+  }
+  const num = String(identificacion ?? '').replace(/\D/g, '');
+  if (num.length === 9) return '01';
+  if (num.length === 10) return '02';
+  if (num.length === 11 || num.length === 12) return '03';
+  return '';
+}
+
+/** Cómo se llama en el papel la identificación de un emisor o receptor. */
+export function etiquetaTipoId(tipo: unknown, identificacion?: unknown): string {
+  return TIPO_ID[normalizarTipoId(tipo, identificacion)] ?? 'Identificación';
+}
+
 /** Condición de venta de Hacienda (las que usa el sistema). */
 export const CONDICION_VENTA: Record<string, string> = {
   '01': 'Contado', '02': 'Crédito', '03': 'Consignación', '04': 'Apartado',
@@ -154,8 +184,8 @@ export function feComprobanteHtml(
   const ubicacionReceptor = nombreUbicacion(
     receptor?.province_code, receptor?.canton_code, receptor?.district_code);
 
-  const idEmisor = TIPO_ID[String(emisor?.emisor_identification_type ?? '')] ?? 'Identificación';
-  const idReceptor = TIPO_ID[String(receptor?.identification_type ?? '')] ?? 'Identificación';
+  const idEmisor = etiquetaTipoId(emisor?.emisor_identification_type, emisor?.emisor_identification);
+  const idReceptor = etiquetaTipoId(receptor?.identification_type, receptor?.identification);
 
   const emisorBlock = `
     <div class="party">

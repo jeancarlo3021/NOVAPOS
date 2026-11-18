@@ -8,6 +8,7 @@ import {
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
 import { isNativeApp, hasNativeBluetooth, nativePrintingMessage, outdatedNativeAppMessage } from './nativePlatform';
+import { normalizarTipoId } from '@/services/hacienda/feComprobanteHtml';
 
 /**
  * ¿Este navegador puede hablar con impresoras Bluetooth?
@@ -667,14 +668,21 @@ export class POSPrinterService {
    * la configuración (settings_general) si el ticket no los trae. Así los
    * tickets de distribución/repartidor también muestran los datos del local.
    */
-  /** Nombre que lleva en el papel cada tipo de identificación de Hacienda. */
-  private etiquetaIdentificacion(tipo: unknown): string {
-    switch (String(tipo ?? '').trim().padStart(2, '0')) {
+  /**
+   * Nombre que lleva en el papel cada tipo de identificación de Hacienda.
+   *
+   * El código se normaliza con la misma regla del comprobante electrónico
+   * (acepta '1' o '01', y si viene vacío lo deduce del largo del número), para
+   * que el tiquete y la factura electrónica nunca digan cosas distintas del
+   * mismo negocio.
+   */
+  private etiquetaIdentificacion(tipo: unknown, identificacion?: unknown): string {
+    switch (normalizarTipoId(tipo, identificacion)) {
       case '01': return 'Céd. Física';
+      case '02': return 'Céd. Jurídica';
       case '03': return 'DIMEX';
       case '04': return 'NITE';
       case '05': return 'Ext. Digital';
-      case '02': return 'Céd. Jurídica';
       default: return 'Identificación';
     }
   }
@@ -699,7 +707,8 @@ export class POSPrinterService {
       receiptData.storeRuc = fe.emisor_identification || undefined;
       receiptData.storeCedula = undefined;
       if (receiptData.storeRuc) {
-        receiptData.storeIdLabel = this.etiquetaIdentificacion(fe.emisor_identification_type);
+        receiptData.storeIdLabel = this.etiquetaIdentificacion(
+          fe.emisor_identification_type, receiptData.storeRuc);
       }
       if (fe.emisor_address) receiptData.storeAddress = fe.emisor_address;
       if (fe.emisor_phone) receiptData.storePhone = fe.emisor_phone;
