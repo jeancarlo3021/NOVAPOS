@@ -139,8 +139,17 @@ export interface ReceiptData {
    * comprobante electrónico sí tiene que decir a nombre de quién se emite.
    */
   storeLegalName?: string;
-  storeRuc?: string;          // Cédula jurídica / RUC
+  storeRuc?: string;          // Identificación fiscal del emisor (jurídica, física, DIMEX…)
   storeCedula?: string;       // Cédula física
+  /**
+   * CÓMO SE LLAMA ESA IDENTIFICACIÓN EN EL PAPEL.
+   *
+   * El tiquete imprimía «Céd. Jurídica» siempre, aunque el negocio esté
+   * inscrito como persona física, con DIMEX o con NITE: el papel decía lo que
+   * el negocio NO es. La etiqueta sale del tipo de identificación del emisor
+   * de Facturación Electrónica (01 física, 02 jurídica, 03 DIMEX, 04 NITE).
+   */
+  storeIdLabel?: string;
   storeAddress?: string;
   storeCity?: string;
   storePhone?: string;
@@ -658,6 +667,18 @@ export class POSPrinterService {
    * la configuración (settings_general) si el ticket no los trae. Así los
    * tickets de distribución/repartidor también muestran los datos del local.
    */
+  /** Nombre que lleva en el papel cada tipo de identificación de Hacienda. */
+  private etiquetaIdentificacion(tipo: unknown): string {
+    switch (String(tipo ?? '').trim().padStart(2, '0')) {
+      case '01': return 'Céd. Física';
+      case '03': return 'DIMEX';
+      case '04': return 'NITE';
+      case '05': return 'Ext. Digital';
+      case '02': return 'Céd. Jurídica';
+      default: return 'Identificación';
+    }
+  }
+
   private async fillStoreInfo(receiptData: ReceiptData, tenantId: string): Promise<void> {
     // ── Con Facturación Electrónica activa, el ticket usa los datos del EMISOR
     //    de FE (nombre, cédula, dirección, teléfono), no los de Settings General.
@@ -677,6 +698,9 @@ export class POSPrinterService {
       if (fe.emisor_commercial_name) receiptData.commercialName = fe.emisor_commercial_name;
       receiptData.storeRuc = fe.emisor_identification || undefined;
       receiptData.storeCedula = undefined;
+      if (receiptData.storeRuc) {
+        receiptData.storeIdLabel = this.etiquetaIdentificacion(fe.emisor_identification_type);
+      }
       if (fe.emisor_address) receiptData.storeAddress = fe.emisor_address;
       if (fe.emisor_phone) receiptData.storePhone = fe.emisor_phone;
       // El correo también: la pantalla de FE dice «salen impresos en el
@@ -2550,7 +2574,7 @@ export class POSPrinterService {
       // interruptor estaba encendido y el dato igual no salía.
       ver.comercial && r.commercialName ? `<div style="font-size:12px;color:#374151">${esc(r.commercialName)}</div>` : ''}
       <div style="font-size:11px;color:#6b7280;margin-top:4px">
-        ${ver.razonSocial && r.storeLegalName ? esc(r.storeLegalName) + '<br>' : ''}${r.storeRuc ? `Céd. Jurídica: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
+        ${ver.razonSocial && r.storeLegalName ? esc(r.storeLegalName) + '<br>' : ''}${r.storeRuc ? `${esc(r.storeIdLabel || 'Céd. Jurídica')}: ${esc(r.storeRuc)}<br>` : ''}${r.storeCedula ? `Cédula: ${esc(r.storeCedula)}<br>` : ''}
         ${(ver.direccion && r.storeAddress) ? esc(r.storeAddress) + '<br>' : ''}${(ver.direccion && r.storeCity) ? esc(r.storeCity) + '<br>' : ''}${(ver.telefono && r.storePhone) ? 'Tel: ' + esc([r.storePhone, ...(r.storePhonesExtra ?? [])].join(' · ')) : ''}${(ver.correo && r.storeEmail) ? '<br>' + esc(r.storeEmail) : ''}
       </div>
     </div>
@@ -2739,7 +2763,7 @@ export class POSPrinterService {
         ${ver.nombre && receiptData.storeName ? `<div class="store-name">${receiptData.storeName}</div>` : ''}
         ${ver.comercial && receiptData.commercialName ? `<div class="store-commercial">${receiptData.commercialName}</div>` : ''}
         ${ver.razonSocial && receiptData.storeLegalName ? `<div class="store-line">${receiptData.storeLegalName}</div>` : ''}
-        ${receiptData.storeRuc ? `<div class="store-line"><strong>Céd. Jurídica:</strong> ${receiptData.storeRuc}</div>` : ''}
+        ${receiptData.storeRuc ? `<div class="store-line"><strong>${receiptData.storeIdLabel || 'Céd. Jurídica'}:</strong> ${receiptData.storeRuc}</div>` : ''}
         ${receiptData.storeCedula ? `<div class="store-line"><strong>Cédula:</strong> ${receiptData.storeCedula}</div>` : ''}
         ${ver.direccion && receiptData.storeAddress ? `<div class="store-line">${receiptData.storeAddress}</div>` : ''}
         ${ver.direccion && receiptData.storeCity ? `<div class="store-line">${receiptData.storeCity}</div>` : ''}
@@ -3288,7 +3312,12 @@ ${isA4 ? '' : `<script>
     if (ver.nombre && receiptData.storeName) { centerText(receiptData.storeName); }
     if (ver.comercial && receiptData.commercialName) { centerText(receiptData.commercialName); }
     if (ver.razonSocial && receiptData.storeLegalName) { centerText(receiptData.storeLegalName); }
-    if (receiptData.storeRuc) { centerText(`Ced. Juridica: ${receiptData.storeRuc}`); }
+    if (receiptData.storeRuc) {
+      // Sin acentos: la impresora térmica va en CP437 de un byte.
+      const et = (receiptData.storeIdLabel || 'Ced. Juridica')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      centerText(`${et}: ${receiptData.storeRuc}`);
+    }
     if (receiptData.storeCedula) { centerText(`Cedula: ${receiptData.storeCedula}`); }
     if (ver.direccion && receiptData.storeAddress) { centerText(receiptData.storeAddress); }
     // La ubicación es parte de la dirección: va con el mismo interruptor.
