@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Plus, Trash2, UserPlus, X, Loader2, FileText, Check, ShoppingCart, FlaskConical } from 'lucide-react';
+import { Search, Plus, Trash2, UserPlus, X, Loader2, FileText, Check, ShoppingCart, FlaskConical, Printer } from 'lucide-react';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { getAllProducts, createProduct } from '@/services/Inventory/InventoryProductsService';
 import { proformasService } from '@/services/proformas/proformasService';
@@ -30,6 +30,8 @@ const MEDIOS_PAGO: Array<{ id: MedioPago; label: string; hacienda: string | null
 import { useTenantId } from '@/hooks/useTenant';
 import { useCashSession } from '@/hooks/useCashSession';
 import { POSCustomerSearch } from '@/modules/pos/POSCustomerSearch';
+import { ReprintInvoiceModal } from '@/modules/pos/ReprintInvoiceModal';
+import { useAuth } from '@/context/AuthContext';
 import { CabysPicker } from '@/modules/inventory/products/CabysPicker';
 import type { Customer } from '@/services/customers/customersService';
 
@@ -59,6 +61,7 @@ const feReceptorComplete = (c: Customer | null): boolean =>
 export const FeposMain: React.FC = () => {
   const { tenantId } = useTenantId();
   const { currentSession } = useCashSession();
+  const { user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -88,6 +91,8 @@ export const FeposMain: React.FC = () => {
   const [descGeneral, setDescGeneral] = useState<DescuentoGeneral>({ tipo: 'pct', valor: 0 });
   const [showSearch, setShowSearch] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  /** Reimprimir una factura ya emitida (el mismo modal del POS corriente). */
+  const [showReprint, setShowReprint] = useState(false);
   const [emitting, setEmitting] = useState(false);
   const [savingPf, setSavingPf] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);   // carrito como overlay en móvil
@@ -329,6 +334,19 @@ export const FeposMain: React.FC = () => {
           <button onClick={() => setShowNew(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold whitespace-nowrap">
             <Plus size={15} /> Nuevo
+          </button>
+          {/* REIMPRIMIR.
+              El POS corriente lo tiene en su barra y acá faltaba: el cliente
+              que vuelve porque perdió el tiquete —o la impresora que se quedó
+              sin papel a mitad del comprobante— no tenía de dónde sacarlo
+              desde esta pantalla, y había que salir al otro POS a buscarlo.
+              Es el MISMO modal: lista todas las facturas (no solo las de este
+              turno) y reimprime con el formato original, con su clave y su
+              consecutivo. */}
+          <button onClick={() => setShowReprint(true)}
+            title="Reimprimir una factura ya emitida"
+            className="flex items-center gap-1.5 px-3 py-2 border-2 border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg text-sm font-bold whitespace-nowrap">
+            <Printer size={15} /> <span className="hidden sm:inline">Reimprimir</span>
           </button>
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
@@ -629,6 +647,12 @@ export const FeposMain: React.FC = () => {
       )}
       {showNew && (
         <NewProductModal onClose={() => setShowNew(false)} onCreated={(p) => { setProducts(prev => [p, ...prev]); addProduct(p); setShowNew(false); }} tenantId={tenantId} />
+      )}
+      {showReprint && (
+        <ReprintInvoiceModal
+          cashierName={user?.email ?? undefined}
+          onClose={() => setShowReprint(false)}
+        />
       )}
     </div>
   );
