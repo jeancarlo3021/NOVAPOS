@@ -1037,6 +1037,14 @@ export class POSPrinterService {
      */
     reservations_total?: number;
     reservations_count?: number;
+    /**
+     * Abonos DESGLOSADOS por medio de pago.
+     *
+     * El total junto no se puede cuadrar: si entraron ₡70.000 en abonos pero
+     * ₡50.000 fueron efectivo y ₡20.000 SINPE, el cajero buscaba ₡70.000 en la
+     * gaveta y le faltaban ₡20.000 que nunca pasaron por ahí.
+     */
+    reservations_by_method?: Array<{ method: string; amount: number; count: number }>;
     /** Detalle de cada abono: sin esto, el total no se puede revisar contra nada. */
     reservations?: Array<{ tipo?: 'apartado' | 'credito'; numero?: string | null; cliente?: string | null; method: string; amount: number; time?: string }>;
     /** Detalle de las ventas del turno (para cotejar el arqueo una por una). */
@@ -1115,6 +1123,13 @@ export class POSPrinterService {
         ...(((report.reservations_count ?? 0) > 0) ? [
           { t: 'row' as const, a: 'Abonos cobrados (incluidos arriba)',
             b: `${report.reservations_count} · ${money(report.reservations_total ?? 0)}` },
+          // Primero el desglose por medio de pago, que es lo que se cuadra;
+          // después el detalle de cada abono.
+          ...(report.reservations_by_method ?? []).map(d => ({
+            t: 'row' as const,
+            a: `   por ${this.etiquetaCortaMedio(d.method)} (${d.count})`,
+            b: money(d.amount),
+          })),
           // Uno por uno: el total junto no se puede cuadrar contra nada. Y de
           // qué es el abono, que es lo que permite ir a buscarlo: un apartado
           // se revisa en apartados y un crédito en cuentas por cobrar.
@@ -1584,6 +1599,10 @@ export class POSPrinterService {
     if ((report.reservations_count ?? 0) > 0) {
       row('Abonos cobrados:', `${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}`);
       row('  (incluidos arriba)', '');
+      // Por medio de pago: cuánto de esos abonos tiene que estar en la gaveta.
+      for (const d of report.reservations_by_method ?? []) {
+        row(`  por ${this.etiquetaCortaMedio(d.method)} (${d.count})`, fmt(d.amount));
+      }
       /**
        * Uno por uno.
        *
@@ -1823,8 +1842,10 @@ export class POSPrinterService {
     <tr><td><strong>Total ventas:</strong></td><td style="text-align:right"><strong>${fmt((report.system_cash ?? 0) + (report.system_card ?? 0) + (report.system_sinpe ?? 0) + (report.system_credit ?? 0) + (report.system_transfer ?? 0) + (report.system_other ?? 0))}</strong></td></tr>
     <tr><td>Facturas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
     ${(report.voids_count ?? 0) > 0 ? `<tr><td>Anulaciones:</td><td style="text-align:right">${report.voids_count} · ${fmt(report.voids_total ?? 0)}</td></tr>` : ''}
-    ${(report.reservations_count ?? 0) > 0 ? `<tr><td>Abonos cobrados:<br><span style="font-size:11px">(incluidos arriba)</span></td><td style="text-align:right">${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}</td></tr>` : ''}
-    ${(report.reservations ?? []).map((a: any) => `<tr><td style="font-size:11px;padding-left:8px">${[a.numero, a.cliente].filter(Boolean).join(' · ') || 'Apartado'}</td><td style="text-align:right;font-size:11px">${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}</td></tr>`).join('')}
+    ${(report.reservations_count ?? 0) > 0 ? `<tr><td>Abonos cobrados:<br><span style="font-size:11px">(incluidos arriba)</span>${
+      (report.reservations_by_method ?? []).map((d: any) => `<br><span style="font-size:11px">· por ${this.etiquetaCortaMedio(d.method)} (${d.count}): ${fmt(d.amount)}</span>`).join('')
+    }</td><td style="text-align:right">${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}</td></tr>` : ''}
+    ${(report.reservations ?? []).map((a: any) => `<tr><td style="font-size:11px;padding-left:8px">${`${a.tipo === 'credito' ? 'Crédito' : 'Apartado'} ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`.trim()}</td><td style="text-align:right;font-size:11px">${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}</td></tr>`).join('')}
   </table>
 
   ${report.cash_movements && report.cash_movements.length > 0 ? `

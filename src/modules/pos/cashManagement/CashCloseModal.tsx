@@ -520,6 +520,29 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
    * cajero cuadraba peso por peso y el tiquete igual le marcaba FALTANTE, sin
    * ninguna forma de encontrar el error, porque no había ningún error.
    */
+  /**
+   * ABONOS DESGLOSADOS POR MEDIO DE PAGO.
+   *
+   * El total junto no sirve para cuadrar: si entraron ₡70.000 en abonos pero
+   * ₡50.000 fueron efectivo y ₡20.000 SINPE, el cajero necesita saber cuánto de
+   * eso tiene que estar en la gaveta. Con el total solo, buscaba ₡70.000 en
+   * efectivo y le faltaban ₡20.000 que nunca pasaron por ahí.
+   *
+   * Ordenado de mayor a menor: lo que más pesa es lo que primero se revisa.
+   */
+  const abonosPorMetodo = React.useMemo(() => {
+    const acc: Record<string, { amount: number; count: number }> = {};
+    for (const a of sys.abonos) {
+      const k = a.method || 'cash';
+      acc[k] ??= { amount: 0, count: 0 };
+      acc[k].amount += a.amount;
+      acc[k].count += 1;
+    }
+    return Object.entries(acc)
+      .map(([method, v]) => ({ method, ...v }))
+      .sort((x, y) => y.amount - x.amount);
+  }, [sys.abonos]);
+
   const arqueableSales = sys.cash + sys.card + sys.sinpe;
   /**
    * Lo que se vendió pero NO entra al arqueo en colones.
@@ -683,6 +706,10 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             // por método arriba, van aparte para que el tiquete los nombre.
             reservations_total: sys.abonosTotal,
             reservations_count: sys.abonos.length,
+            // Desglose por medio de pago: en papel es lo único que permite
+            // separar lo que debe estar en la gaveta de lo que entró por
+            // tarjeta o SINPE.
+            reservations_by_method: abonosPorMetodo,
             // Detalle de cada abono, para poder cuadrar el turno uno por uno.
             reservations: sys.abonos.map(a => ({
               tipo: a.tipo,
@@ -742,6 +769,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           // Cada abono con su apartado y su medio de pago: el total junto no se
           // puede revisar contra nada al cuadrar el turno.
           ...(sys.abonos.length > 0 ? [{ heading: 'Abonos cobrados', rows: [
+            ...abonosPorMetodo.map(d => [
+              `Por ${ETIQUETA_MEDIO_PAGO[d.method] ?? d.method} (${d.count})`, m(d.amount),
+            ] as [string, string]),
             ...sys.abonos.map(a => [
               `${a.tipo === 'credito' ? 'Crédito' : 'Apartado'} ${[a.numero, a.cliente].filter(Boolean).join(' · ')} · ${ETIQUETA_MEDIO_PAGO[a.method] ?? a.method}`.trim(),
               m(a.amount),
@@ -1017,6 +1047,17 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                 {sys.abonos.length} · ₡{sys.abonosTotal.toLocaleString()}
               </span>
               <span className="text-[11px] text-gray-400">ya incluidos en los totales de arriba</span>
+            </div>
+            {/* Por medio de pago: es lo que dice cuánto de esto tiene que estar
+                en la gaveta y cuánto entró por tarjeta o SINPE. */}
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-1.5">
+              {abonosPorMetodo.map(d => (
+                <span key={d.method} className="text-[11px] text-gray-500">
+                  {ETIQUETA_MEDIO_PAGO[d.method] ?? d.method}:{' '}
+                  <b className="text-violet-700">₡{d.amount.toLocaleString()}</b>
+                  <span className="text-gray-400"> ({d.count})</span>
+                </span>
+              ))}
             </div>
             <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
               {sys.abonos.map((a, i) => (
