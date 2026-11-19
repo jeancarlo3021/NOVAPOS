@@ -45,7 +45,10 @@ export const QuickWasteModal: React.FC<Props> = ({ onClose, onDone }) => {
   const [lines, setLines] = useState<Line[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const [done, setDone] = useState<{ registered: number; total_cost: number } | null>(null);
+  const [done, setDone] = useState<{ registered: number; total_cost: number; batch_id?: string } | null>(null);
+  /** Deshacer la merma recién registrada: es acá donde se ve el error. */
+  const [deshaciendo, setDeshaciendo] = useState(false);
+  const [deshecha, setDeshecha] = useState(false);
 
   // Solo lo que lleva control de stock: un producto infinito no tiene existencias
   // que botar, y ofrecerlo solo genera una línea que el servidor va a ignorar.
@@ -79,7 +82,7 @@ export const QuickWasteModal: React.FC<Props> = ({ onClose, onDone }) => {
     if (valid.length === 0) { setErr('Agregá al menos un producto con cantidad.'); return; }
     setSaving(true); setErr('');
     try {
-      const r = await apiFetch<{ registered: number; total_cost: number }>('/stock-adjustments/waste', {
+      const r = await apiFetch<{ registered: number; total_cost: number; batch_id?: string }>('/stock-adjustments/waste', {
         method: 'POST',
         body: JSON.stringify({
           type: motivo.type,
@@ -117,6 +120,34 @@ export const QuickWasteModal: React.FC<Props> = ({ onClose, onDone }) => {
                 merma explicada y no como varianza.
               </p>
             </div>
+            {/* DESHACER, acá mismo.
+                El cero de más se ve justo al leer el total de pérdida, no una
+                semana después en el reporte: tener que irse a buscar el
+                movimiento para anularlo es lo que hace que nadie lo corrija. */}
+            {deshecha ? (
+              <p className="text-sm font-bold text-gray-600 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+                Merma anulada: el stock volvió como estaba.
+              </p>
+            ) : done.batch_id && (
+              <button
+                onClick={async () => {
+                  if (!done.batch_id) return;
+                  setDeshaciendo(true); setErr('');
+                  try {
+                    await apiFetch(`/stock-adjustments/${done.batch_id}/void?batch=1`, {
+                      method: 'POST', body: JSON.stringify({ reason: 'Deshecha al registrarla' }),
+                    });
+                    setDeshecha(true);
+                  } catch (e) {
+                    setErr(e instanceof Error ? e.message : 'No se pudo deshacer');
+                  } finally { setDeshaciendo(false); }
+                }}
+                disabled={deshaciendo}
+                className="w-full py-2.5 rounded-xl border-2 border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 font-bold text-sm">
+                {deshaciendo ? 'Deshaciendo…' : 'Deshacer esta merma'}
+              </button>
+            )}
+            {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
             <button onClick={() => { onDone?.(); onClose(); }}
               className="w-full py-2.5 rounded-xl bg-gray-900 hover:bg-gray-800 text-white font-black text-sm">
               Listo

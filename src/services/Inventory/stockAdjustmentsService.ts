@@ -24,6 +24,23 @@ export interface StockAdjustment {
   notes?: string | null;
   created_at: string;
   product?: { id: string; name: string; sku?: string };
+  /** Anulado: su efecto en el stock ya se revirtió y no cuenta en los totales. */
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
+  /** De dónde salió: 'manual' se puede anular acá, lo demás no. */
+  source?: string | null;
+  /** Agrupa las líneas de una misma merma o toma física. */
+  batch_id?: string | null;
+}
+
+export interface AnulacionMovimiento {
+  anulados: number;
+  movimientos: Array<{ id: string; product_id: string; quantity: number; stock_queda: number }>;
+  /** Productos que quedaron en negativo: la mercadería de esa entrada ya salió. */
+  negativos: Array<{ product_id: string; stock: number }>;
+  fallaron: Array<{ id: string; error: string }>;
+  aviso: string | null;
 }
 
 export const stockAdjustmentsService = {
@@ -71,6 +88,23 @@ export const stockAdjustmentsService = {
     return apiFetch<PhysicalCountResult>('/stock-adjustments/physical-count', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * ANULA un movimiento (ajuste o merma) y revierte su efecto en el stock.
+   *
+   * `enLote` anula toda la merma o toda la toma física que se registró de una
+   * sola vez: botar cinco cosas al cierre de cocina es un acto, no cinco.
+   *
+   * El movimiento no se borra: queda en la bitácora con quién lo anuló y por
+   * qué, y deja de contar en los totales y en el kardex.
+   */
+  async anular(id: string, opciones: { motivo?: string; enLote?: boolean } = {}): Promise<AnulacionMovimiento> {
+    const qs = opciones.enLote ? '?batch=1' : '';
+    return apiFetch<AnulacionMovimiento>(`/stock-adjustments/${id}/void${qs}`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: opciones.motivo ?? '' }),
     });
   },
 
