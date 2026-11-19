@@ -42,6 +42,20 @@ export interface ReceivablePayment {
   voided_by?: string | null;
 }
 
+/** Un abono ya cobrado, visto como ENTRADA DE DINERO (cierre y reportes). */
+export interface AbonoCobrado {
+  id: string;
+  receivable_id: string;
+  cliente: string | null;
+  factura: string | null;
+  origen: string | null;
+  amount: number;
+  method: string;
+  note: string | null;
+  user_id: string | null;
+  created_at: string;
+}
+
 export interface ReceivableSummary {
   outstanding: number;
   overdue_count: number;
@@ -105,15 +119,34 @@ export const accountsReceivableService = {
   // servidor usa "ahora"). Evita que un abono sincronizado tarde quede fuera de
   // la ventana del cierre del repartidor.
   /** `batchId` agrupa los abonos de un mismo pago masivo. */
-  pay: (id: string, amount: number, method = 'cash', note?: string, createdAt?: string, batchId?: string) =>
+  /**
+   * `cashSessionId` liga el abono a la CAJA que recibió el dinero.
+   *
+   * Es lo que hace que el abono aparezca en el cierre de ese turno. Sin él, el
+   * cajero cobraba una cuenta, metía la plata a la gaveta, y al cerrar el
+   * sistema le marcaba ese monto como sobrante. Se manda solo cuando hay una
+   * caja abierta: un abono de oficina o por depósito no es de nadie.
+   */
+  pay: (id: string, amount: number, method = 'cash', note?: string, createdAt?: string,
+        batchId?: string, cashSessionId?: string | null) =>
     apiFetch<Receivable>(`/accounts-receivable/${id}/pay`, {
       method: 'POST',
       body: JSON.stringify({
         amount, method, note,
         created_at: createdAt ?? new Date().toISOString(),
         batch_id: batchId,
+        cash_session_id: cashSessionId ?? null,
       }),
     }),
+
+  /** Abonos cobrados CON esta caja abierta (lo que suma el cierre). */
+  paymentsOfSession: (sessionId: string) =>
+    apiFetch<AbonoCobrado[]>(`/accounts-receivable/payments?session=${encodeURIComponent(sessionId)}`),
+
+  /** Abonos cobrados en un rango de fechas (para los reportes). */
+  paymentsByDate: (from: string, to: string) =>
+    apiFetch<AbonoCobrado[]>(
+      `/accounts-receivable/payments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   /**
    * Emite el comprobante de un abono.
    *

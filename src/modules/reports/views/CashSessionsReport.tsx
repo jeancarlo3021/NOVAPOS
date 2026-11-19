@@ -36,7 +36,7 @@ interface SessionRow {
   /** Ventas anuladas del turno: no suman, pero tienen que poder verse. */
   voids_count: number;
   voids_total: number;
-  /** Abonos de apartados cobrados en esa caja. */
+  /** Abonos cobrados en esa caja (apartados y cuentas por cobrar). */
   reservations_total: number;
   reservations_cash: number;
   expected_closing: number;
@@ -134,7 +134,7 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
         L.push({ t: 'row', a: 'Efectivo:', b: fmt(s2.cash_sales) });
         L.push({ t: 'row', a: 'Tarjeta:', b: fmt(s2.card_sales) });
         L.push({ t: 'row', a: 'SINPE:', b: fmt(s2.sinpe_sales) });
-        if ((s2.reservations_total ?? 0) > 0) L.push({ t: 'row', a: 'Abonos apartados:', b: fmt(s2.reservations_total) });
+        if ((s2.reservations_total ?? 0) > 0) L.push({ t: 'row', a: 'Abonos cobrados:', b: fmt(s2.reservations_total) });
         if ((s2.cash_in ?? 0) > 0) L.push({ t: 'row', a: '+ Entradas:', b: fmt(s2.cash_in) });
         if ((s2.cash_out ?? 0) > 0) L.push({ t: 'row', a: '- Salidas:', b: fmt(s2.cash_out) });
         if ((s2.voids_count ?? 0) > 0) L.push({ t: 'row', a: 'Anuladas:', b: `${s2.voids_count} · ${fmt(s2.voids_total)}` });
@@ -156,7 +156,7 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
       if (totalIn > 0) L.push({ t: 'row', a: '+ Entradas:', b: fmt(totalIn) });
       if (totalOut > 0) L.push({ t: 'row', a: '- Salidas:', b: fmt(totalOut) });
       if (voidsCount > 0) L.push({ t: 'row', a: 'Anulaciones:', b: `${voidsCount} · ${fmt(totalVoids)}` });
-      if (totalAbonos > 0) L.push({ t: 'row', a: 'Abonos apartados:', b: fmt(totalAbonos) });
+      if (totalAbonos > 0) L.push({ t: 'row', a: 'Abonos cobrados:', b: fmt(totalAbonos) });
       L.push({ t: 'row', a: 'Diferencias:', b: fmt(totalDisc) });
       L.push({ t: 'center', a: `${withDisc.length} sesión(es) con diferencia` });
 
@@ -181,7 +181,7 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
     rows.push(['Entradas de efectivo', totalIn]);
     rows.push(['Salidas de efectivo',  totalOut]);
     rows.push(['Anulaciones',          `${voidsCount} · ${totalVoids}`]);
-    rows.push(['Abonos de apartados',  totalAbonos]);
+    rows.push(['Abonos cobrados',  totalAbonos]);
     rows.push(['Diferencias totales', totalDisc]);
     rows.push(['Sesiones con diferencia', withDisc.length]);
     rows.push([]);
@@ -193,7 +193,7 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
       'Monto apertura (₡)', 'Total ventas (₡)',
       'Efectivo (₡)', 'SINPE (₡)', 'Tarjeta (₡)',
       'N° facturas', 'Entradas (₡)', 'Salidas (₡)',
-      'Anuladas', 'Monto anulado (₡)', 'Abonos apartados (₡)', 'Monto cierre (₡)',
+      'Anuladas', 'Monto anulado (₡)', 'Abonos cobrados (₡)', 'Monto cierre (₡)',
       'Efectivo esperado (₡)', 'Diferencia (₡)', 'Duración (min)',
     ]);
     for (const s of sessions) {
@@ -323,7 +323,7 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
             <p className="text-xs text-amber-600">{voidsCount} factura{voidsCount === 1 ? '' : 's'} · no suman</p>
           </div>
           <div className="bg-violet-50 border border-violet-200 rounded-2xl p-4">
-            <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">Abonos de apartados</p>
+            <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">Abonos cobrados</p>
             <p className="text-xl font-black text-violet-800">{fmt(totalAbonos)}</p>
             <p className="text-xs text-violet-600">plata sin factura todavía</p>
           </div>

@@ -1028,14 +1028,17 @@ export class POSPrinterService {
     /** Vendido en dólares, en equivalente ₡. Se arquea en $, no en ₡. */
     system_usd_crc?: number;
     /**
-     * Abonos de APARTADOS cobrados en el turno. Ya vienen sumados en los totales
-     * por método; se imprimen aparte porque no son ventas: la factura sale
-     * cuando el cliente retira la mercadería.
+     * ABONOS cobrados en el turno: de apartados y de cuentas por cobrar.
+     *
+     * Ya vienen sumados en los totales por método —es plata que entró al
+     * cajón—; se imprimen aparte porque no son ventas: el apartado se factura
+     * cuando el cliente retira la mercadería, y la cuenta a crédito se facturó
+     * el día que se despachó.
      */
     reservations_total?: number;
     reservations_count?: number;
     /** Detalle de cada abono: sin esto, el total no se puede revisar contra nada. */
-    reservations?: Array<{ numero?: string | null; cliente?: string | null; method: string; amount: number; time?: string }>;
+    reservations?: Array<{ tipo?: 'apartado' | 'credito'; numero?: string | null; cliente?: string | null; method: string; amount: number; time?: string }>;
     /** Detalle de las ventas del turno (para cotejar el arqueo una por una). */
     sales?: Array<{ number: string; time: string; method: string; total: number; kind?: string }>;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
@@ -1106,16 +1109,18 @@ export class POSPrinterService {
         ...(((report.voids_count ?? 0) > 0) ? [
           { t: 'row' as const, a: 'Anulaciones', b: `${report.voids_count} · ${money(report.voids_total ?? 0)}` },
         ] : []),
-        // Los abonos de apartados ya están sumados por método arriba (es plata
-        // que entró al cajón), pero no son ventas: se nombran aparte. Solo
-        // estaban en la versión térmica del cierre.
+        // Los abonos ya están sumados por método arriba (es plata que entró al
+        // cajón), pero no son ventas: se nombran aparte. Solo estaban en la
+        // versión térmica del cierre.
         ...(((report.reservations_count ?? 0) > 0) ? [
-          { t: 'row' as const, a: 'Abonos apartados (incluidos arriba)',
+          { t: 'row' as const, a: 'Abonos cobrados (incluidos arriba)',
             b: `${report.reservations_count} · ${money(report.reservations_total ?? 0)}` },
-          // Uno por uno: el total junto no se puede cuadrar contra nada.
+          // Uno por uno: el total junto no se puede cuadrar contra nada. Y de
+          // qué es el abono, que es lo que permite ir a buscarlo: un apartado
+          // se revisa en apartados y un crédito en cuentas por cobrar.
           ...(report.reservations ?? []).map(a => ({
             t: 'row' as const,
-            a: `   ${[a.numero, a.cliente].filter(Boolean).join(' · ') || 'Apartado'}`,
+            a: `   ${a.tipo === 'credito' ? 'Crédito' : 'Apartado'} ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`.trimEnd(),
             b: `${this.etiquetaCortaMedio(a.method)} ${money(a.amount)}`,
           })),
         ] : []),
@@ -1571,13 +1576,13 @@ export class POSPrinterService {
     row('Total ventas:', fmt(systemTotal));
     row('Facturas:', String(report.invoices_count ?? 0));
     /**
-     * Los abonos de apartados YA están sumados arriba por su medio de pago —es
+     * Los abonos YA están sumados arriba por su medio de pago —es
      * plata que entró al cajón—, pero no son ventas: la factura sale cuando el
      * cliente retira. Se dicen aparte para que el total de ventas del día se
      * pueda leer sin confundirlo con lo abonado.
      */
     if ((report.reservations_count ?? 0) > 0) {
-      row('Abonos apartados:', `${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}`);
+      row('Abonos cobrados:', `${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}`);
       row('  (incluidos arriba)', '');
       /**
        * Uno por uno.
@@ -1587,7 +1592,8 @@ export class POSPrinterService {
        */
       for (const a of report.reservations ?? []) {
         const quien = [a.numero, a.cliente].filter(Boolean).join(' ');
-        row(`  ${quien || 'Apartado'}`.slice(0, charWidth - 12), `${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}`);
+        const que = a.tipo === 'credito' ? 'Cred.' : 'Apart.';
+        row(`  ${que} ${quien}`.trimEnd().slice(0, charWidth - 12), `${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}`);
       }
     }
     if ((report.voids_count ?? 0) > 0) row('Anulaciones:', `${report.voids_count} · ${fmt(report.voids_total ?? 0)}`);
@@ -1817,7 +1823,7 @@ export class POSPrinterService {
     <tr><td><strong>Total ventas:</strong></td><td style="text-align:right"><strong>${fmt((report.system_cash ?? 0) + (report.system_card ?? 0) + (report.system_sinpe ?? 0) + (report.system_credit ?? 0) + (report.system_transfer ?? 0) + (report.system_other ?? 0))}</strong></td></tr>
     <tr><td>Facturas:</td><td style="text-align:right">${report.invoices_count}</td></tr>
     ${(report.voids_count ?? 0) > 0 ? `<tr><td>Anulaciones:</td><td style="text-align:right">${report.voids_count} · ${fmt(report.voids_total ?? 0)}</td></tr>` : ''}
-    ${(report.reservations_count ?? 0) > 0 ? `<tr><td>Abonos apartados:<br><span style="font-size:11px">(incluidos arriba)</span></td><td style="text-align:right">${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}</td></tr>` : ''}
+    ${(report.reservations_count ?? 0) > 0 ? `<tr><td>Abonos cobrados:<br><span style="font-size:11px">(incluidos arriba)</span></td><td style="text-align:right">${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}</td></tr>` : ''}
     ${(report.reservations ?? []).map((a: any) => `<tr><td style="font-size:11px;padding-left:8px">${[a.numero, a.cliente].filter(Boolean).join(' · ') || 'Apartado'}</td><td style="text-align:right;font-size:11px">${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}</td></tr>`).join('')}
   </table>
 

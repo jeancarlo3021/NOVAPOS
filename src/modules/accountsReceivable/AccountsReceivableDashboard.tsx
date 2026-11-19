@@ -9,6 +9,7 @@ import { customersService, type Customer } from '@/services/customers/customersS
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { useTenantId } from '@/hooks/useTenant';
+import { useCashSession } from '@/hooks/useCashSession';
 import { PrintTicketModal } from '@/modules/distribution/PrintTicketModal';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
@@ -422,6 +423,16 @@ function PayModal({ ar, onClose, onDone, onPrint }: {
   const [err, setErr] = useState('');
   // Abono registrado (para ofrecer imprimir el comprobante del abono).
   const [paid, setPaid] = useState<{ amount: number; method: string; newBalance: number } | null>(null);
+  /**
+   * LA CAJA QUE RECIBE EL DINERO.
+   *
+   * Si quien cobra tiene caja abierta, el abono queda ligado a ella y aparece
+   * en su cierre: antes el cajero cobraba la cuenta, guardaba la plata, y al
+   * cerrar el sistema le marcaba ese mismo monto como sobrante porque el
+   * esperado solo contaba ventas. Sin caja abierta (la oficina, un depósito) el
+   * abono no entra a ningún arqueo, que es lo correcto.
+   */
+  const { currentSession } = useCashSession();
   // Abonos existentes + permiso para ANULARLOS (solo admin/gerente/contador/dueño).
   const { user } = useAuth();
   const canVoid = ['owner', 'admin', 'gerente', 'contador'].includes(user?.role ?? '');
@@ -450,7 +461,8 @@ function PayModal({ ar, onClose, onDone, onPrint }: {
     if (n > balance) { setErr('El abono supera el saldo'); return; }
     setSaving(true); setErr('');
     try {
-      await accountsReceivableService.pay(ar.id, n, method);
+      await accountsReceivableService.pay(ar.id, n, method, undefined, undefined, undefined,
+        currentSession?.id ?? null);
       setPaid({ amount: n, method, newBalance: balance - n });   // muestra opción de imprimir
     }
     catch (e) { setErr(e instanceof Error ? e.message : 'Error'); }
@@ -505,6 +517,13 @@ function PayModal({ ar, onClose, onDone, onPrint }: {
               ))}
             </div>
           </div>
+          {/* A dónde va el dinero: el cajero tiene que saber si este abono le va
+              a aparecer en su cierre o no, ANTES de guardarlo. */}
+          <p className="text-[11px] text-gray-500">
+            {currentSession
+              ? <>Entra a la <b>caja abierta</b>: va a aparecer en su cierre de turno.</>
+              : <>Sin caja abierta: no entra a ningún arqueo de caja.</>}
+          </p>
           <button onClick={pay} disabled={saving}
             className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 text-white font-black py-3 rounded-xl text-sm">
             {saving ? 'Guardando…' : <><CheckCircle2 size={16} /> Registrar abono</>}
@@ -701,6 +720,8 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
   onDone: () => Promise<void> | void;
   onPrint: (title: string, lines: DocLine[]) => void;
 }) {
+  // Igual que en el abono suelto: si hay caja abierta, el dinero entra a ella.
+  const { currentSession } = useCashSession();
   // Todos los clientes CON CUENTAS, tengan saldo o no.
   //
   // Antes la lista se armaba solo con los que tenían saldo pendiente, así que
@@ -793,7 +814,8 @@ function BulkPayModal({ rows, onClose, onDone, onPrint }: {
         // el comprobante, el rastro de qué se acordó emitir no se pierde.
         const nota = [note.trim(), docType !== 'ninguno' && x.r.invoice_electronic !== true ? `Comprobante: ${docType}` : '']
           .filter(Boolean).join(' · ');
-        await accountsReceivableService.pay(x.r.id, x.aplica, method, nota || undefined, undefined, batchId);
+        await accountsReceivableService.pay(x.r.id, x.aplica, method, nota || undefined, undefined,
+          batchId, currentSession?.id ?? null);
         hechos.push({
           ref: x.r.invoice_number ? `Fact. ${x.r.invoice_number}` : `Cuenta ${dateOnly(x.r.created_at)}`,
           amount: x.aplica,

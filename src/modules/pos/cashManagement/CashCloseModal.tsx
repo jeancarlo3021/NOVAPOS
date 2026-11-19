@@ -191,13 +191,18 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     /** Vendido en dólares, expresado en colones. NO entra al arqueo en ₡. */
     usdCrc: number;
     /**
-     * Abonos de APARTADOS cobrados en este turno.
+     * ABONOS COBRADOS EN ESTE TURNO: apartados y cuentas por cobrar.
      *
-     * Es plata que entró al cajón sin que haya factura: la venta se factura
-     * cuando el cliente retira la mercadería. Sin contarlos, el arqueo salía con
-     * un sobrante exactamente igual a lo abonado y nadie encontraba el error.
+     * Es plata que entró al cajón sin que haya una venta detrás: el apartado se
+     * factura cuando el cliente retira la mercadería, y la cuenta a crédito se
+     * facturó el día que se despachó. Sin contarlos, el arqueo salía con un
+     * sobrante exactamente igual a lo abonado y nadie encontraba el error.
+     *
+     * Los de crédito solo entran si se cobraron CON esta caja abierta. Un abono
+     * de oficina o por depósito no pasó por esta gaveta y no se le reclama al
+     * cajero.
      */
-    abonos: Array<{ numero: string | null; cliente: string | null; method: string; amount: number; time: string }>;
+    abonos: Array<{ tipo: 'apartado' | 'credito'; numero: string | null; cliente: string | null; method: string; amount: number; time: string }>;
     abonosTotal: number;
     loaded: boolean;
   }
@@ -244,7 +249,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         } catch { /* sin mapeo: se usa el id tal cual */ }
 
         let fallo: string | null = null;
-        const [invRes, movRes, abonosRes] = await Promise.all([
+        const [invRes, movRes, abonosRes, cxcRes] = await Promise.all([
           apiFetch<{ invoices: any[]; source?: string }>(`/cash-sessions/${sessionId}/invoices`)
             .catch((e) => {
               fallo = e instanceof Error ? e.message : 'error de conexión';
@@ -252,8 +257,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             }),
           apiFetch<any[]>(`/cash-sessions/${sessionId}/movements`).catch(() => []),
           // Abonos de apartados de esta caja. Si falla, el cierre sigue: se avisa abajo.
+          // (los de crédito van en la promesa siguiente)
           import('@/services/reservations/reservationsService')
             .then(({ reservationsService }) => reservationsService.paymentsOfSession(sessionId))
+            .catch(() => [] as any[]),
+          // Abonos de CUENTAS POR COBRAR cobrados con esta caja abierta.
+          import('@/services/accountsReceivable/accountsReceivableService')
+            .then(({ accountsReceivableService }) => accountsReceivableService.paymentsOfSession(sessionId))
             .catch(() => [] as any[]),
         ]);
 
@@ -369,12 +379,21 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         const voidsCount = voidedInv.length;
         const voidsTotal = voidedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
         let sCash = 0, sCard = 0, sSinpe = 0, sCredit = 0, sTransfer = 0, sOther = 0;
-        // Los abonos de apartados entran por su medio de pago, igual que una venta.
-        const abonos = (Array.isArray(abonosRes) ? abonosRes : []).map((p: any) => ({
-          numero: p.numero ?? null, cliente: p.cliente ?? null,
-          method: String(p.method ?? 'cash'), amount: Number(p.amount || 0),
-          time: String(p.created_at ?? ''),
-        }));
+        // Los abonos entran por su medio de pago, igual que una venta.
+        const abonos: SysTotals['abonos'] = [
+          ...(Array.isArray(abonosRes) ? abonosRes : []).map((p: any) => ({
+            tipo: 'apartado' as const,
+            numero: p.numero ?? null, cliente: p.cliente ?? null,
+            method: String(p.method ?? 'cash'), amount: Number(p.amount || 0),
+            time: String(p.created_at ?? ''),
+          })),
+          ...(Array.isArray(cxcRes) ? cxcRes : []).map((p: any) => ({
+            tipo: 'credito' as const,
+            numero: p.factura ?? null, cliente: p.cliente ?? null,
+            method: String(p.method ?? 'cash'), amount: Number(p.amount || 0),
+            time: String(p.created_at ?? ''),
+          })),
+        ].sort((a, b) => a.time.localeCompare(b.time));
         const abonosTotal = abonos.reduce((t, a) => t + a.amount, 0);
         let usdReceived = 0, usdChangeOut = 0, usdCrcChangeOut = 0;
         // Monto VENDIDO en dólares, en su equivalente en colones.
@@ -660,12 +679,13 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             // que el tiquete explique por qué el esperado en ₡ es menor que el
             // total vendido: esa plata se arquea en dólares, no en colones.
             system_usd_crc: sys.usdCrc,
-            // Abonos de apartados del turno: ya están sumados por método arriba,
-            // van aparte para que el tiquete los pueda mostrar como tales.
+            // Abonos del turno (apartados y cuentas por cobrar): ya están sumados
+            // por método arriba, van aparte para que el tiquete los nombre.
             reservations_total: sys.abonosTotal,
             reservations_count: sys.abonos.length,
             // Detalle de cada abono, para poder cuadrar el turno uno por uno.
             reservations: sys.abonos.map(a => ({
+              tipo: a.tipo,
               numero: a.numero, cliente: a.cliente, method: a.method, amount: a.amount, time: a.time,
             })),
             // Lo que el cajero contó por método
@@ -709,7 +729,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             // Los abonos ya están sumados por método arriba; se nombran para que
             // el total del turno no se confunda con ventas facturadas.
             ...(sys.abonos.length > 0
-              ? [['Abonos de apartados (incluidos arriba)', `${sys.abonos.length} · ${m(sys.abonosTotal)}`]]
+              ? [['Abonos cobrados (incluidos arriba)', `${sys.abonos.length} · ${m(sys.abonosTotal)}`]]
               : []),
             ...(sys.voidsCount > 0 ? [['Anulaciones', `${sys.voidsCount} · ${m(sys.voidsTotal)}`]] : []),
           ] },
@@ -721,9 +741,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           // solo fondo + ventas. Sin ellas, el correo no cuadra con el ticket.
           // Cada abono con su apartado y su medio de pago: el total junto no se
           // puede revisar contra nada al cuadrar el turno.
-          ...(sys.abonos.length > 0 ? [{ heading: 'Abonos de apartados', rows: [
+          ...(sys.abonos.length > 0 ? [{ heading: 'Abonos cobrados', rows: [
             ...sys.abonos.map(a => [
-              `${[a.numero, a.cliente].filter(Boolean).join(' · ') || 'Apartado'} · ${ETIQUETA_MEDIO_PAGO[a.method] ?? a.method}`,
+              `${a.tipo === 'credito' ? 'Crédito' : 'Apartado'} ${[a.numero, a.cliente].filter(Boolean).join(' · ')} · ${ETIQUETA_MEDIO_PAGO[a.method] ?? a.method}`.trim(),
               m(a.amount),
             ] as [string, string]),
             ['Total abonos', m(sys.abonosTotal)],
@@ -977,6 +997,34 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
               {sys.movements.map((m, i) => (
                 <span key={i} className={`text-[11px] font-bold px-2 py-1 rounded-lg ${m.type === 'in' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                   {m.type === 'in' ? '+' : '−'} ₡{m.amount.toLocaleString()}{m.reason ? ` · ${m.reason}` : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Abonos cobrados en el turno ──
+            Plata que entró al cajón sin ser una venta: el apartado se factura
+            cuando el cliente retira, y la cuenta a crédito se facturó el día
+            del despacho. Ya está sumada en los totales por método de arriba, y
+            se muestra acá para que el cajero sepa POR QUÉ el esperado subió:
+            antes este dinero no aparecía en ninguna parte del cierre. */}
+        {sys.abonos.length > 0 && (
+          <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-2 sm:py-3 shrink-0">
+            <div className="flex items-center gap-3 mb-1.5">
+              <p className="text-xs font-black text-gray-500 uppercase">Abonos cobrados</p>
+              <span className="text-xs font-bold text-violet-700">
+                {sys.abonos.length} · ₡{sys.abonosTotal.toLocaleString()}
+              </span>
+              <span className="text-[11px] text-gray-400">ya incluidos en los totales de arriba</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+              {sys.abonos.map((a, i) => (
+                <span key={i} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-violet-50 text-violet-700">
+                  {a.tipo === 'credito' ? 'Crédito' : 'Apartado'}
+                  {[a.numero, a.cliente].filter(Boolean).length > 0 && ` · ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`}
+                  {' · ₡'}{a.amount.toLocaleString()}
+                  {` · ${ETIQUETA_MEDIO_PAGO[a.method] ?? a.method}`}
                 </span>
               ))}
             </div>

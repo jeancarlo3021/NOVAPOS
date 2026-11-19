@@ -409,7 +409,7 @@ const ReportsDashboard: React.FC = () => {
               case 'cash_movements':    return <CashMovementsReport key={`cashmov-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'profit':            return <ProfitReport key={`profit-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'distribution':      return <DistributionReport key={`dist-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
-              case 'receivables':       return <ReceivablesReport key={`rec-${refreshKey}`} />;
+              case 'receivables':       return <ReceivablesReport key={`rec-${refreshKey}`} from={range.from} to={range.to} />;
               case 'taxes':             return <TaxReport key={`tax-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'vouchers':          return <VouchersReport key={`vou-${refreshKey}`} tenantId={tenantId} from={range.from} to={range.to} />;
               case 'delivery':          return <DeliveryReport key={`del-${refreshKey}`} from={range.from} to={range.to} />;
