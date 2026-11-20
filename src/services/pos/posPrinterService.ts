@@ -3,12 +3,13 @@ import { nombreUbicacion } from '@/data/crLocations';
 import { fmtCRDateTime, fmtCRTime } from '@/utils/crDate';
 import {
   qzConnect, qzIsAvailable, qzIsConnected, qzPrintToPrinter, qzPrintDefault,
-  qzRecordarCertificado,
+  qzRecordarCertificado, qzPrintHTML,
   type PrinterEntry,
 } from './qzTrayService';
 import { formatComanda, type ComandaItem } from './comandaFormatter';
 import { isNativeApp, hasNativeBluetooth, nativePrintingMessage, outdatedNativeAppMessage } from './nativePlatform';
 import { normalizarTipoId } from '@/services/hacienda/feComprobanteHtml';
+import { renderDocumento } from '@/services/documents/documentRenderService';
 
 /**
  * ¿Este navegador puede hablar con impresoras Bluetooth?
@@ -777,10 +778,120 @@ export class POSPrinterService {
     receiptData.storeEmail ??= general.email;
   }
 
-  async printAuto(receiptData: ReceiptData, tenantId: string): Promise<void> {
+  /**
+   * LA PLANTILLA CON LA QUE SE VA A IMPRIMIR, si el negocio diseñó una.
+   *
+   * Se carga acá y se deja a mano porque `generateHTML` es síncrono: no puede
+   * ir a buscarla al servidor en el momento de armar el papel.
+   *
+   * Sin plantilla marcada, TODO sigue exactamente igual que antes. Es a
+   * propósito: una plantilla a medio hacer no debe reemplazar al comprobante
+   * que ya funciona, y así este cambio no puede romper la impresión de nadie
+   * que no haya pedido una plantilla.
+   */
+  private plantilla: { ticket: any | null; hoja: any | null; proforma?: any | null } = { ticket: null, hoja: null };
+  private plantillaDe = '';   // tenant al que corresponde lo cargado
+
+  private async cargarPlantilla(tenantId: string, kind: 'ticket' | 'hoja' | 'proforma'): Promise<void> {
+    try {
+      if (this.plantillaDe !== tenantId) {
+        this.plantilla = { ticket: null, hoja: null };
+        this.plantillaDe = tenantId;
+      }
+      const { documentTemplatesService } = await import('@/services/documents/documentTemplatesService');
+      (this.plantilla as any)[kind] = await documentTemplatesService.predeterminada(tenantId, kind);
+    } catch {
+      /* Sin plantilla se imprime con el diseño de siempre: quedarse sin papel
+         porque no se pudo leer un diseño opcional no es aceptable en una caja. */
+      (this.plantilla as any)[kind] = null;
+    }
+  }
+
+  /** Olvida lo cargado: se llama al guardar una plantilla desde el editor. */
+  olvidarPlantillas(): void {
+    this.plantilla = { ticket: null, hoja: null };
+    this.plantillaDe = '';
+  }
+
+  /**
+   * Traduce el tiquete a los datos neutros que entiende el renderizador de
+   * plantillas. Es el único lugar donde se hace la conversión: si cada formato
+   * la hiciera, el mismo documento saldría distinto según por dónde salga.
+   */
+  private datosParaPlantilla(r: ReceiptData, cfg: ReceiptConfig): any {
+    const desc = Number(r.discount ?? 0);
+    return {
+      negocio: {
+        logo: (verEnTicket(cfg).logo ? (r.logoUrl || cfg.logoUrl) : '') || '',
+        nombre: r.storeName ?? '',
+        razonSocial: r.storeLegalName ?? '',
+        identificacion: r.storeRuc ? `${(r as any).storeIdLabel || 'Céd. Jurídica'}: ${r.storeRuc}` : (r.storeCedula ? `Cédula: ${r.storeCedula}` : ''),
+        direccion: r.storeAddress ?? '',
+        ciudad: r.storeCity ?? '',
+        telefono: [r.storePhone, ...((r as any).storePhonesExtra ?? [])].filter(Boolean).join(' · '),
+        correo: r.storeEmail ?? '',
+      },
+      doc: {
+        titulo: r.feTipoLabel || r.copyLabel || '',
+        numero: r.feConsecutivo || r.invoiceNumber || '',
+        fecha: r.date ?? '', hora: r.time ?? '',
+        cajero: verEnTicket(cfg).cajero ? (r.cashierName ?? '') : '',
+        medioPago: r.paymentMethod ?? '',
+        notas: r.notes ?? '',
+        vigencia: '',
+      },
+      cliente: {
+        nombre: r.customerName ?? '', identificacion: r.customerTaxId ?? '',
+        telefono: (r as any).customerPhone ?? '', correo: r.customerEmail ?? '',
+        direccion: (r as any).customerAddress ?? '',
+      },
+      totales: {
+        subtotal: r.subtotal, descuento: desc, iva: r.tax,
+        total: r.total, recibido: r.amountReceived, vuelto: r.change,
+      },
+      fe: {
+        clave: r.feClave ?? '', consecutivo: r.feConsecutivo ?? '',
+        leyenda: r.feClave ? FE_RESOLUTION_FOOTER : '',
+        qr: r.feQrDataUrl ?? '', qrContenido: r.feQrContent ?? '',
+      },
+      lineas: (r.items ?? []).map((it: any) => {
+        const d = descuentoDeLinea(it);
+        return {
+          cantidad: it.quantity, codigo: it.sku ?? it.code ?? '',
+          nombre: it.name, unidad: it.unit ?? '',
+          precio: it.unitPrice, descuento: d?.monto ?? 0,
+          iva: it.ivaAmount ?? 0, total: it.subtotal,
+        };
+      }),
+    };
+  }
+
+  /**
+   * `plantilla` dice CUÁL diseño usar, porque no todo lo que sale por acá es
+   * una venta: una proforma impresa en la térmica pasa por el mismo camino, y
+   * con el diseño de la factura saldría titulada «FACTURA» con los totales de
+   * una venta que no existe. 'ninguna' fuerza el formato de siempre.
+   */
+  async printAuto(
+    receiptData: ReceiptData, tenantId: string,
+    opciones: { plantilla?: 'ticket' | 'hoja' | 'proforma' | 'ninguna' } = {},
+  ): Promise<void> {
     // Always reload config so we pick up latest settings changes
     const cfg = await this.loadReceiptConfig(tenantId);
     await this.fillStoreInfo(receiptData, tenantId);
+    const quiere = opciones.plantilla ?? (formatoHoja(cfg) ? 'hoja' : 'ticket');
+    this.plantilla = { ticket: null, hoja: null };
+    if (quiere !== 'ninguna') {
+      await this.cargarPlantilla(tenantId, quiere === 'proforma' ? 'proforma' as any : quiere);
+      if (quiere === 'proforma') {
+        /* La plantilla de proforma puede estar diseñada para una hoja carta.
+           En un rollo de 72 mm eso sale ilegible, así que en ese caso se usa el
+           formato de siempre en vez de un papel que no se puede leer. */
+        const t = (this.plantilla as any).proforma;
+        const cabe = t && Number(t.widthMm) <= 90;
+        this.plantilla.ticket = cabe ? t : null;
+      }
+    }
 
     /**
      * Copia local del tiquete, para poder reimprimirlo SIN internet.
@@ -941,6 +1052,37 @@ export class POSPrinterService {
     // El certificado va SIEMPRE que se conoce: sin él, QZ no puede verificar la
     // firma y rechaza el handshake (ver qzConnectOnce).
     await qzConnect(config.qz_certificate);
+
+    /**
+     * CON PLANTILLA, el tiquete va RASTERIZADO y no como texto ESC/POS.
+     *
+     * ESC/POS imprime renglones de ancho fijo: no hay forma de poner el logo a
+     * la derecha del nombre, ni de mover los totales. Un diseño libre solo
+     * puede salir por una térmica como IMAGEN, y eso QZ lo sabe hacer
+     * (`rasterize`), igual que ya se hace con las etiquetas.
+     *
+     * Sale un poco más lento y el papel usa más tinta térmica; es el precio de
+     * imprimir un diseño propio en una impresora de renglones. Sin plantilla no
+     * cambia nada: siguen saliendo los bytes ESC/POS de siempre.
+     */
+    if (this.plantilla.ticket && !receiptData.voidNotice) {
+      const html = this.generateHTML(receiptData, config);
+      const anchoMM = parseFloat(imprimibleMM(config)) || 72;
+      const impresoras = (config.printers ?? []).filter(p => p.type === 'receipt' && p.is_active);
+      const porDef = String(config.defaultReceiptPrinterId ?? '');
+      const elegidas = porDef ? impresoras.filter(p => String(p.id) === porDef) : impresoras;
+      const destino = (elegidas.length > 0 ? elegidas : impresoras)[0];
+      const nombre = destino?.printer_name || config.printerName;
+      if (nombre) {
+        /* El alto va en 0: QZ lo resuelve con el contenido. Declararle un alto
+           fijo a un tiquete de largo variable lo corta o deja papel en blanco. */
+        await qzPrintHTML(nombre, html, { widthMm: anchoMM, heightMm: 0 });
+        return;
+      }
+      /* Sin impresora nombrada no se puede rasterizar a una en particular: se
+         sigue con el camino de siempre en vez de no imprimir nada. */
+      console.warn('[print] plantilla de tiquete activa pero sin impresora nombrada: se imprime en ESC/POS');
+    }
 
     // ── Modo RAW ESC/POS para Xprinter (Cancela GB18030 + CP437) ──────────
     // Antes mandábamos HTML, que requería que la impresora tuviera un driver
@@ -2664,6 +2806,20 @@ export class POSPrinterService {
 
   generateHTML(receiptData: ReceiptData, cfg: ReceiptConfig): string {
     const isA4 = !!formatoHoja(cfg);
+    /* Con plantilla diseñada, manda la plantilla. Los comprobantes especiales
+       —el aviso de anulación, que imprime solo «FACTURA ANULADA» y el monto—
+       NO: son un formato aparte y meterlos en una plantilla de venta sacaría un
+       papel con columnas vacías y totales que no corresponden. */
+    const tpl = isA4 ? this.plantilla.hoja : this.plantilla.ticket;
+    if (tpl && !receiptData.voidNotice) {
+      try {
+        return renderDocumento(tpl, this.datosParaPlantilla(receiptData, cfg), { autoPrint: false });
+      } catch (e) {
+        /* Una plantilla con un dato raro no puede dejar a la caja sin
+           comprobante: se avisa en consola y sale el de siempre. */
+        console.warn('[print] la plantilla falló, se imprime el formato de siempre:', e);
+      }
+    }
     if (isA4) return this.generateA4HTML(receiptData, cfg);
     const areaMM = imprimibleMM(cfg);
     /**

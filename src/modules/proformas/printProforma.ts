@@ -22,7 +22,89 @@ const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, m => ({ '&': '&amp
 
 /** Imprime la proforma como documento NO fiscal (ventana del navegador).
  *  Incluye el logo del negocio si está activado en la config de recibo. */
+/** Los datos de la proforma, como los entiende el renderizador de plantillas. */
+async function datosDeProforma(p: Proforma, tenantId: string) {
+  const { apiFetch } = await import('@/lib/api');
+  const cfg: any = await posPrinterService.loadReceiptConfig(tenantId).catch(() => null);
+  const g: any = await apiFetch('/settings/general').catch(() => null);
+  const fe: any = await apiFetch('/settings/electronic-invoice').catch(() => null);
+  const emisor = fe?.config ?? fe ?? {};
+  const { etiquetaTipoId } = await import('@/services/hacienda/feComprobanteHtml');
+  const ident = emisor?.emisor_identification
+    ? `${etiquetaTipoId(emisor.emisor_identification_type, emisor.emisor_identification)}: ${emisor.emisor_identification}`
+    : (g?.ruc ? `Céd. Jurídica: ${g.ruc}` : (g?.cedula ? `Cédula: ${g.cedula}` : ''));
+
+  return {
+    negocio: {
+      logo: (cfg?.showLogo && cfg?.logoUrl) ? cfg.logoUrl : '',
+      nombre: g?.businessName || emisor?.emisor_commercial_name || emisor?.emisor_name || '',
+      razonSocial: emisor?.emisor_name ?? '',
+      identificacion: ident,
+      direccion: g?.address || emisor?.emisor_address || '',
+      ciudad: g?.city ?? '',
+      telefono: g?.phone || emisor?.emisor_phone || '',
+      correo: g?.email || emisor?.emisor_email || '',
+    },
+    doc: {
+      titulo: 'COTIZACIÓN',
+      numero: p.number ?? '',
+      fecha: new Date(p.created_at).toLocaleDateString('es-CR'),
+      hora: new Date(p.created_at).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
+      cajero: '', medioPago: '', notas: p.notes ?? '',
+      vigencia: p.valid_until ? new Date(p.valid_until + 'T00:00:00').toLocaleDateString('es-CR') : '',
+    },
+    cliente: {
+      nombre: p.customer_name || 'Cliente de contado',
+      identificacion: p.customer_identification ?? '',
+      telefono: (p as any).customer_phone ?? '',
+      correo: (p as any).customer_email ?? '',
+      direccion: (p as any).customer_address ?? '',
+    },
+    totales: {
+      subtotal: p.subtotal, descuento: Number((p as any).discount_amount ?? 0),
+      iva: p.tax, total: p.total, recibido: null, vuelto: null,
+    },
+    fe: { clave: '', consecutivo: '', leyenda: '', qr: '', qrContenido: '' },
+    lineas: (p.items ?? []).map(it => {
+      const d = lineaDesc(it);
+      return {
+        cantidad: it.quantity, codigo: (it as any).sku ?? '', nombre: it.name,
+        unidad: (it as any).unit ?? '', precio: it.unit_price,
+        descuento: d, iva: null,
+        total: (Number(it.quantity) * Number(it.unit_price)) - d,
+      };
+    }),
+  };
+}
+
 export async function printProforma(p: Proforma, tenantId?: string | null): Promise<void> {
+  /**
+   * SI EL NEGOCIO DISEÑÓ UNA PLANTILLA DE PROFORMA, manda esa.
+   *
+   * Es el documento donde más falta hacía: la cotización la lee un cliente que
+   * todavía no compró, y cada negocio quiere decir lo suyo —condiciones de
+   * pago, tiempo de entrega, qué incluye y qué no—. Sin plantilla sale el
+   * diseño de siempre, sin cambiar nada.
+   */
+  if (tenantId) {
+    try {
+      const { documentTemplatesService } = await import('@/services/documents/documentTemplatesService');
+      const tpl = await documentTemplatesService.predeterminada(tenantId, 'proforma');
+      if (tpl) {
+        const { renderDocumento } = await import('@/services/documents/documentRenderService');
+        const html = renderDocumento(tpl, await datosDeProforma(p, tenantId) as any, { autoPrint: true });
+        const w = window.open('', '_blank', 'width=800,height=600');
+        if (!w) { alert('Habilitá las ventanas emergentes para imprimir la proforma.'); return; }
+        w.document.write(html); w.document.close();
+        return;
+      }
+    } catch (e) {
+      /* La plantilla es un extra: si falla, la cotización sale igual con el
+         formato de siempre. Perder la venta por un diseño no es opción. */
+      console.warn('[proforma] la plantilla falló, se imprime el formato de siempre:', e);
+    }
+  }
+
   /**
    * Datos del negocio, los mismos que en Personalización de factura.
    *
@@ -167,5 +249,5 @@ export async function printProformaTicket(p: Proforma, tenantId: string): Promis
     footerMessage: p.valid_until
       ? `Vigencia: ${new Date(p.valid_until + 'T00:00:00').toLocaleDateString('es-CR')} · Documento no fiscal`
       : 'Documento no fiscal',
-  } as any, tenantId);
+  } as any, tenantId, { plantilla: 'proforma' });
 }

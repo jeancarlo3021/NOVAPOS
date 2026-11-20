@@ -17,6 +17,7 @@ import {
   Tag,
   Truck,
   Link2,
+  LayoutTemplate,
 } from 'lucide-react';
 import { GeneralSettings } from '../components/General/GeneralSettings';
 import { AccountSettings } from '../components/Account/AccountSettings';
@@ -26,6 +27,7 @@ import { ReceiptSettings } from '../components/Receipt/ReceiptSettings';
 import { POSViewSettings } from '../components/POSView/POSViewSettings';
 import { ElectronicInvoiceSettings } from '../components/ElectronicInvoice/ElectronicInvoiceSettings';
 import { LabelPrinterSettings } from '../components/LabelPrinter/LabelPrinterSettings';
+import { DocumentTemplatesDashboard } from '@/modules/documents/DocumentTemplatesDashboard';
 import { DeliverySettings } from '../components/Delivery/DeliverySettings';
 import { CustomerDisplaySettings } from '../components/CustomerDisplay/CustomerDisplaySettings';
 import { ComandasSettings } from '../components/Comandas/ComandasSettings';
@@ -35,7 +37,7 @@ import { useRolePermissions } from '@/hooks/useRolePermissions';
 import { puedeDelPortal } from '@/services/customers/portalClienteService';
 import { MANAGER_ROLES } from '@/types/Types_Users';
 
-type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'customer_display' | 'comandas' | 'portal_cliente' | 'account';
+type SettingTab = 'general' | 'products' | 'payments' | 'users' | 'notifications' | 'receipt' | 'plantillas' | 'pos_view' | 'electronic_invoice' | 'labels' | 'delivery' | 'customer_display' | 'comandas' | 'portal_cliente' | 'account';
 
 const SETTINGS_TABS = [
   {
@@ -55,6 +57,12 @@ const SETTINGS_TABS = [
     label: 'Factura',
     icon: Printer,
     description: 'Personalización de factura',
+  },
+  {
+    id: 'plantillas' as SettingTab,
+    label: 'Plantillas del papel',
+    icon: LayoutTemplate,
+    description: 'Diseño del tiquete, la hoja (PDF) y la proforma',
   },
   {
     id: 'electronic_invoice' as SettingTab,
@@ -193,6 +201,8 @@ const { matrix, isOwnerOrAdmin } = useRolePermissions();
         return <PaymentSettings />;
       case 'receipt':
         return <ReceiptSettings />;
+      case 'plantillas':
+        return <DocumentTemplatesDashboard />;
       case 'pos_view':
         return <POSViewSettings />;
       case 'notifications':
