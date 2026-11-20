@@ -185,7 +185,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     excludedCount: number; excludedTotal: number;   // clientes excluidos del cierre (ej. empleados)
     cashIn: number; cashOut: number; movements: SysMovement[];
     /** Detalle de las ventas del turno, para imprimirlo en el cierre. */
-    sales: Array<{ number: string; time: string; method: string; total: number; kind: string }>;
+    sales: Array<{ number: string; time: string; method: string; total: number; kind: string; cliente?: string }>;
     usdReceived: number;   // dólares recibidos en ventas en efectivo $
     usdChangeOut: number;  // dólares entregados como vuelto
     /** Vendido en dólares, expresado en colones. NO entra al arqueo en ₡. */
@@ -202,7 +202,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
      * de oficina o por depósito no pasó por esta gaveta y no se le reclama al
      * cajero.
      */
-    abonos: Array<{ tipo: 'apartado' | 'credito'; numero: string | null; cliente: string | null; method: string; amount: number; time: string }>;
+    abonos: Array<{ tipo: 'apartado' | 'credito'; numero: string | null; cliente: string | null; method: string; amount: number; time: string; ligado?: boolean }>;
     abonosTotal: number;
     loaded: boolean;
   }
@@ -392,6 +392,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             numero: p.factura ?? null, cliente: p.cliente ?? null,
             method: String(p.method ?? 'cash'), amount: Number(p.amount || 0),
             time: String(p.created_at ?? ''),
+            /* `false` = no quedó ligado a la caja; entró porque lo cobró el
+               mismo cajero en su turno. Se dice, no se esconde. */
+            ligado: p.ligado !== false,
           })),
         ].sort((a, b) => a.time.localeCompare(b.time));
         const abonosTotal = abonos.reduce((t, a) => t + a.amount, 0);
@@ -462,6 +465,9 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             method: String(i.payment_method ?? ''),
             total: Number(i.total ?? 0),
             kind: String(i.document_type ?? ''),
+            /* A quién se le dio el crédito: un crédito sin nombre no se puede
+               cobrar, y el cierre es el momento en que alguien lo revisa. */
+            cliente: String(i.customer_name ?? ''),
           }))
           .sort((x: any, y: any) => String(x.time).localeCompare(String(y.time)));
 
@@ -552,6 +558,19 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
    * colones lo cobraría dos veces.
    */
   const noArqueable = sys.credit + sys.transfer + sys.other + sys.usdCrc;
+
+  /**
+   * LAS VENTAS A CRÉDITO DEL TURNO, una por una.
+   *
+   * El monto ya se calculaba (`sys.credit`) y se imprimía en el tiquete, pero
+   * EN PANTALLA no aparecía en ningún lado: el cajero cerraba el turno sin ver
+   * a quién se le dio crédito ni por cuánto. Es justo lo que hay que revisar
+   * antes de cerrar, porque un crédito mal puesto se convierte en una cuenta
+   * por cobrar que nadie reclama.
+   */
+  const creditos = React.useMemo(
+    () => sys.sales.filter(v => v.method === 'credit'),
+    [sys.sales]);
   // Esperado = fondo de caja + ventas arqueables + movimientos manuales de efectivo.
   const expectedTotal = openingAmount + arqueableSales + sys.cashIn - sys.cashOut;
   // Faltante/sobrante sobre el TOTAL (lo contado en todos los métodos vs lo esperado).
@@ -1047,6 +1066,11 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                 {sys.abonos.length} · ₡{sys.abonosTotal.toLocaleString()}
               </span>
               <span className="text-[11px] text-gray-400">ya incluidos en los totales de arriba</span>
+              {sys.abonos.some(a => a.ligado === false) && (
+                <span className="text-[11px] text-violet-600">
+                  • los marcados los cobró este cajero en su turno, sin quedar ligados a la caja
+                </span>
+              )}
             </div>
             {/* Por medio de pago: es lo que dice cuánto de esto tiene que estar
                 en la gaveta y cuánto entró por tarjeta o SINPE. */}
@@ -1061,11 +1085,45 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             </div>
             <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
               {sys.abonos.map((a, i) => (
-                <span key={i} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-violet-50 text-violet-700">
+                <span key={i}
+                  title={a.ligado === false
+                    ? 'No quedó ligado a esta caja: entró porque lo cobró este cajero en su turno'
+                    : undefined}
+                  className={`text-[11px] font-bold px-2 py-1 rounded-lg ${
+                    a.ligado === false
+                      ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-300'
+                      : 'bg-violet-50 text-violet-700'}`}>
+                  {a.ligado === false && '• '}
                   {a.tipo === 'credito' ? 'Crédito' : 'Apartado'}
                   {[a.numero, a.cliente].filter(Boolean).length > 0 && ` · ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`}
                   {' · ₡'}{a.amount.toLocaleString()}
                   {` · ${ETIQUETA_MEDIO_PAGO[a.method] ?? a.method}`}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Ventas a crédito del turno ──
+            No entran al arqueo (el dinero no está en la gaveta: quedó como
+            cuenta por cobrar), pero tienen que VERSE: es la última oportunidad
+            de corregir un crédito mal puesto antes de que se convierta en una
+            cuenta que nadie reclama. */}
+        {creditos.length > 0 && (
+          <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-2 sm:py-3 shrink-0">
+            <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+              <p className="text-xs font-black text-gray-500 uppercase">Ventas a crédito</p>
+              <span className="text-xs font-bold text-blue-700">
+                {creditos.length} · ₡{sys.credit.toLocaleString()}
+              </span>
+              <span className="text-[11px] text-gray-400">no entran al arqueo: quedaron por cobrar</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+              {creditos.map((v, i) => (
+                <span key={i} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-blue-50 text-blue-700">
+                  #{v.number}
+                  {v.cliente ? ` · ${v.cliente}` : ' · sin cliente'}
+                  {' · ₡'}{v.total.toLocaleString()}
                 </span>
               ))}
             </div>
