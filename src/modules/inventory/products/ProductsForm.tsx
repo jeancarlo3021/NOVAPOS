@@ -451,8 +451,16 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
 
       // Si NO es products_only, agrega los campos de stock, categoría y tipo de unidad
       if (!isProductsOnly) {
-        productData.category_id = formData.category_id || undefined;
-        productData.unit_type_id = formData.unit_type_id || undefined;
+        /**
+         * VACÍO SE MANDA COMO `null`, NO COMO `undefined`.
+         *
+         * Con `undefined` el campo no viaja, y el servidor lee eso como «no lo
+         * cambies»: elegir «Sin unidad» o «Sin categoría» no hacía nada. Se
+         * guardaba, se recargaba, y ahí seguía el valor viejo — que es
+         * exactamente «no me deja cambiar la unidad».
+         */
+        productData.category_id = formData.category_id || null;
+        productData.unit_type_id = formData.unit_type_id || null;
         // parseFloat, NO parseInt: un producto por peso tiene 2.5 kg de
         // existencia, y con parseInt se guardaba 2 — media unidad evaporada en
         // cada guardado.
@@ -1190,20 +1198,47 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                   <>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de unidad</label>
-                      <select
-                        name="unit_type_id"
-                        value={formData.unit_type_id}
-                        onChange={handleChange}
-                        disabled={submitting || unitTypesLoading}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                      >
-                        <option value="">Sin unidad</option>
-                        {unitTypes.map(unit => (
-                          <option key={unit.id} value={unit.id}>
-                            {unit.name} ({unit.abbreviation})
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex gap-2">
+                        <select
+                          name="unit_type_id"
+                          value={formData.unit_type_id}
+                          onChange={handleChange}
+                          disabled={submitting || unitTypesLoading}
+                          className="flex-1 min-w-0 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                        >
+                          <option value="">Sin unidad</option>
+                          {unitTypes.map(unit => (
+                            <option key={unit.id} value={unit.id}>
+                              {unit.name} ({unit.abbreviation})
+                            </option>
+                          ))}
+                        </select>
+                        {/* ESTE BOTÓN NO EXISTÍA.
+                            El formulario de abajo ya estaba escrito, pero nada
+                            lo abría: `setShowUnitForm(true)` no se llamaba en
+                            ninguna parte. Un negocio nuevo no tiene unidades
+                            cargadas, así que el selector solo ofrecía «Sin
+                            unidad» y no había forma de pasar de kg a unidades
+                            sin irse a otra pantalla a crearla. */}
+                        <button
+                          type="button"
+                          onClick={() => setShowUnitForm(v => !v)}
+                          disabled={submitting}
+                          title="Crear una unidad nueva (kg, unidades, litros…)"
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50 shrink-0"
+                        >
+                          {showUnitForm ? 'Cancelar' : '+ Nueva'}
+                        </button>
+                      </div>
+                      {/* Sin unidades cargadas, el selector vacío se lee como
+                          «el sistema no me deja». Se dice qué pasa y cómo
+                          salir de ahí. */}
+                      {!unitTypesLoading && unitTypes.length === 0 && (
+                        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1.5">
+                          Todavía no hay unidades creadas. Tocá <b>+ Nueva</b> para agregar «Kilogramo (kg)»
+                          o «Unidad (und)», o creálas todas de una vez en Inventario → Unidades.
+                        </p>
+                      )}
                       {showUnitForm && (
                         <div className="mt-2 grid grid-cols-2 gap-2">
                           <input
@@ -1242,6 +1277,13 @@ export const ProductForm: React.FC<ProductFormProps> = ({ productId, onSuccess, 
                     <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
                       {unitTypeDisplay}
                     </div>
+                    {/* Un campo gris sin explicación se lee como un error del
+                        sistema. Es una limitación del plan, y hay que decirlo
+                        para que el negocio sepa que no está haciendo nada mal. */}
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Su plan es de catálogo de productos, así que la unidad no se edita desde acá.
+                      Para cambiarla hace falta el módulo de inventario.
+                    </p>
                   </div>
                 )}
 
