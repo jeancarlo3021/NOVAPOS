@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api';
+import { readCaja } from '@/hooks/useCaja';
 
 export interface Receivable {
   id: string;
@@ -136,6 +137,18 @@ export const accountsReceivableService = {
         created_at: createdAt ?? new Date().toISOString(),
         batch_id: batchId,
         cash_session_id: cashSessionId ?? null,
+        /**
+         * LA CAJA DE ESTA MÁQUINA.
+         *
+         * Va siempre que el equipo tenga una elegida, y el servidor la usa para
+         * encontrar la gaveta abierta cuando la pantalla no tenía la sesión
+         * cargada. Es lo que hace que el abono caiga en el cierre del POS
+         * corriente aunque lo cobre un cajero que entró a relevar el turno y
+         * que no fue el que abrió la caja.
+         */
+        terminal: (() => {
+          try { return readCaja()?.terminal ?? null; } catch { return null; }
+        })(),
       }),
     }),
 
