@@ -49,6 +49,14 @@ export interface BranchMember {
     } | null;
   } | null;
   fe?: TenantFePlan | null;
+  /**
+   * El usuario principal DE ESE NEGOCIO (no el dueño del grupo).
+   *
+   * `null` cuando el negocio no tiene ninguno: es un dato real —un negocio al
+   * que nadie entra— y la pantalla lo muestra como «Sin usuario» en vez de
+   * dejar la celda vacía.
+   */
+  usuario?: { id: string; email: string | null; full_name: string | null; role: string | null } | null;
   /** Actividad económica y sucursal ante Hacienda con que factura el negocio. */
   actividad?: {
     economic_activity_code: string | null;

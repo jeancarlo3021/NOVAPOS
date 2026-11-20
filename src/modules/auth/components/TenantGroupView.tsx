@@ -376,6 +376,11 @@ export function TenantGroupView() {
                                 <thead>
                                   <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-500 uppercase">
                                     <th className="text-left px-4 py-2">Negocio</th>
+                                    {/* Con quién se habla de este negocio y con
+                                        qué correo entra: en una cartera de
+                                        contador es el dato que más se busca, y
+                                        había que salirse del grupo para verlo. */}
+                                    <th className="text-left px-4 py-2">Usuario principal</th>
                                     <th className="text-left px-4 py-2">Rol</th>
                                     <th className="text-left px-4 py-2">Plan SaaS</th>
                                     <th className="text-left px-4 py-2">Plan FE</th>
@@ -394,6 +399,30 @@ export function TenantGroupView() {
                                         <td className="px-4 py-2">
                                           <p className="font-bold text-gray-900">{t.name}</p>
                                           <p className="text-[9px] text-gray-400 font-mono">{t.id.slice(0, 8)}</p>
+                                        </td>
+                                        <td className="px-4 py-2">
+                                          {m.usuario ? (
+                                            <>
+                                              <p className="font-bold text-gray-800">
+                                                {m.usuario.full_name || m.usuario.email || '—'}
+                                              </p>
+                                              {/* El correo aparte del nombre: es
+                                                  con lo que entra al sistema y
+                                                  con lo que se le escribe. */}
+                                              {m.usuario.full_name && m.usuario.email && (
+                                                <p className="text-[10px] text-gray-500 truncate max-w-[180px]">{m.usuario.email}</p>
+                                              )}
+                                              {m.usuario.role && m.usuario.role !== 'owner' && (
+                                                <span className="text-[9px] font-bold text-gray-400 uppercase">{m.usuario.role}</span>
+                                              )}
+                                            </>
+                                          ) : (
+                                            /* Falta de verdad: no se inventa un
+                                               nombre. Un negocio sin usuario es
+                                               un negocio al que nadie entra, y
+                                               eso hay que poder verlo. */
+                                            <span className="text-[10px] font-bold text-amber-700">Sin usuario</span>
+                                          )}
                                         </td>
                                         <td className="px-4 py-2">
                                           {m.role === 'main' ? (
