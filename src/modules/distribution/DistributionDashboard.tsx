@@ -46,10 +46,10 @@ export const DistributionDashboard: React.FC = () => {
   const [reprintingId, setReprintingId] = useState<string | null>(null);
   const [printJob, setPrintJob] = useState<{ run: () => Promise<void> } | null>(null);
 
-  const reprintClose = async (r: DeliveryRoute) => {
+  const reprintClose = async (r: DeliveryRoute, recalcular = false) => {
     setReprintingId(r.id);
     try {
-      const sum = await distributionService.closeSummary(r.id);
+      const sum = await distributionService.closeSummary(r.id, recalcular);
       // Modal con reintentar / reconectar impresora (igual que las facturas).
       setPrintJob({
         run: () => posPrinterService.printRouteClose({ ...sum, truck: sum.truck ?? r.warehouse?.name } as any, tenantId ?? ''),
@@ -119,7 +119,18 @@ export const DistributionDashboard: React.FC = () => {
           /* Si el cierre no pudo calcular algo —el sobrante, por ejemplo—, el
              correo lo tiene que decir: es el que se archiva. */
           ...((sum as any).aviso ? [{ heading: 'Atención', rows: [['Aviso', String((sum as any).aviso)]] }] : []),
-          ...(sum.ar_payments ? [{ heading: 'Abonos', rows: [['Total abonos', m(sum.ar_payments.total)]] }] : []),
+          ...(sum.ar_payments ? [{ heading: 'Abonos a crédito', rows: [
+            ...((sum.ar_payments.list ?? []) as any[]).map((a: any) => [
+              [a.customer, a.invoice ? `Fact. ${a.invoice}` : '',
+                a.saldada ? 'SALDADA' : (Number(a.saldo ?? 0) > 0.005 ? `queda ${m(Number(a.saldo))}` : '')]
+                .filter(Boolean).join(' · '),
+              m(a.amount),
+            ] as [string, string]),
+            ['Total abonos', m(sum.ar_payments.total)],
+            ...((sum.ar_payments.saldadas ?? []).length > 0
+              ? [['Cuentas cerradas', String((sum.ar_payments.saldadas ?? []).length)] as [string, string]]
+              : []),
+          ] }] : []),
           ...(sum.expenses ? [{ heading: 'Gastos', rows: [['Total gastos', m(sum.expenses.total)]] }] : []),
         ];
         const { apiFetch } = await import('@/lib/api');
@@ -305,6 +316,7 @@ export const DistributionDashboard: React.FC = () => {
               {r.status === 'closed' && (
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <button onClick={() => reprintClose(r)} disabled={reprintingId === r.id}
+                    title="Vuelve a sacar el MISMO papel que se imprimió al cerrar"
                     className="flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg disabled:opacity-50">
                     {reprintingId === r.id ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} Reimprimir
                   </button>
@@ -313,6 +325,19 @@ export const DistributionDashboard: React.FC = () => {
                   <button onClick={() => setHistorialDe(r)}
                     className="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 rounded-lg">
                     <ClipboardList size={13} /> Ver carga
+                  </button>
+                  {/* REIMPRIMIR AL DÍA.
+                      El papel guardado al cerrar es una foto de ese momento:
+                      los cierres viejos no traen la factura de cada abono ni
+                      cuáles cuentas quedaron saldadas, así que reimprimirlos
+                      sacaba el mismo papel incompleto. Este vuelve a calcular
+                      con los datos de hoy, y el papel sale marcado para que
+                      nadie confunda los dos documentos. */}
+                  <button onClick={() => reprintClose(r, true)} disabled={reprintingId === r.id}
+                    title="Vuelve a calcular los abonos con los datos de hoy. El papel sale marcado como recalculado."
+                    className="col-span-2 flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold py-2 rounded-lg disabled:opacity-50">
+                    {reprintingId === r.id ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    Reimprimir actualizado
                   </button>
                 </div>
               )}
@@ -452,8 +477,33 @@ export const DistributionDashboard: React.FC = () => {
                   <div className="flex justify-between"><span className="text-gray-500">Tarjeta</span><span>{fmt(closeSummary.sum.ar_payments.by_method.card)}</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">SINPE</span><span>{fmt(closeSummary.sum.ar_payments.by_method.sinpe)}</span></div>
                   {closeSummary.sum.ar_payments.list.map((a, i) => (
-                    <div key={i} className="flex justify-between mt-0.5 text-gray-600"><span className="truncate">{a.customer} · {a.method === 'card' ? 'Tarjeta' : a.method === 'sinpe' ? 'SINPE' : 'Efectivo'}</span><span className="font-bold">{fmt(a.amount)}</span></div>
+                    <div key={i} className="flex justify-between mt-0.5 text-gray-600 gap-2">
+                      <span className="truncate">
+                        {a.customer}
+                        {/* La factura y qué pasó con la cuenta: es lo que
+                            permite cotejar el abono contra su crédito. */}
+                        {a.invoice && <span className="text-gray-400"> · Fact. {a.invoice}</span>}
+                        {' · '}{a.method === 'card' ? 'Tarjeta' : a.method === 'sinpe' ? 'SINPE' : 'Efectivo'}
+                        {a.saldada
+                          ? <span className="ml-1 font-bold text-emerald-700">SALDADA</span>
+                          : (Number(a.saldo ?? 0) > 0.005 && <span className="ml-1 text-amber-700">queda {fmt(Number(a.saldo))}</span>)}
+                      </span>
+                      <span className="font-bold shrink-0">{fmt(a.amount)}</span>
+                    </div>
                   ))}
+                  {(closeSummary.sum.ar_payments.saldadas ?? []).length > 0 && (
+                    <div className="mt-1.5 pt-1.5 border-t border-blue-100">
+                      <p className="font-black text-emerald-700 mb-0.5">
+                        Cuentas cerradas ({(closeSummary.sum.ar_payments.saldadas ?? []).length})
+                      </p>
+                      {(closeSummary.sum.ar_payments.saldadas ?? []).map((cc, i) => (
+                        <div key={i} className="flex justify-between text-gray-600 gap-2">
+                          <span className="truncate">{cc.customer}{cc.invoice && <span className="text-gray-400"> · Fact. {cc.invoice}</span>}</span>
+                          <span className="font-bold text-emerald-700 shrink-0">{fmt(cc.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {closeSummary.sum.expenses && closeSummary.sum.expenses.total > 0 && (

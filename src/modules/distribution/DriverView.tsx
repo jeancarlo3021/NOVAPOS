@@ -124,7 +124,20 @@ export const DriverView: React.FC = () => {
             ['Crédito (no cobrado)', m(summary.credito ?? bm.credit)],
           ] },
           ...((summary as any).aviso ? [{ heading: 'Atención', rows: [['Aviso', String((summary as any).aviso)]] }] : []),
-          ...((summary as any).ar_payments ? [{ heading: 'Abonos', rows: [['Total abonos', m((summary as any).ar_payments.total)]] }] : []),
+          ...((summary as any).ar_payments ? [{ heading: 'Abonos a crédito', rows: [
+            ...(((summary as any).ar_payments.list ?? []) as any[]).map((a: any) => [
+              [a.customer, a.invoice ? `Fact. ${a.invoice}` : '',
+                a.saldada ? 'SALDADA' : (Number(a.saldo ?? 0) > 0.005 ? `queda ${m(Number(a.saldo))}` : '')]
+                .filter(Boolean).join(' · '),
+              m(a.amount),
+            ] as [string, string]),
+            ['Total abonos', m((summary as any).ar_payments.total)],
+            /* Las cuentas que quedaron en cero: es lo que la oficina busca para
+               no volver a mandar a cobrarlas. */
+            ...(((summary as any).ar_payments.saldadas ?? []).length > 0
+              ? [['Cuentas cerradas', String((summary as any).ar_payments.saldadas.length)] as [string, string]]
+              : []),
+          ] }] : []),
           ...((summary as any).expenses ? [{ heading: 'Gastos', rows: [['Total gastos', m((summary as any).expenses.total)]] }] : []),
         ];
         const { apiFetch } = await import('@/lib/api');
@@ -368,9 +381,35 @@ export const DriverView: React.FC = () => {
                   {closeSummary.ar_payments.list.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-blue-100 space-y-0.5">
                       {closeSummary.ar_payments.list.map((a: any, i: number) => (
+                        <div key={i} className="flex justify-between text-xs gap-2">
+                          <span className="text-gray-600 truncate">
+                            {a.customer}
+                            {/* La FACTURA: sin ella el abono no se coteja con nada. */}
+                            {a.invoice && <span className="text-gray-400"> · Fact. {a.invoice}</span>}
+                            <span className="text-gray-400"> · {a.method === 'card' ? 'Tarjeta' : a.method === 'sinpe' ? 'SINPE' : 'Efectivo'}</span>
+                            {a.saldada
+                              ? <span className="ml-1 font-bold text-emerald-700">SALDADA</span>
+                              : (Number(a.saldo ?? 0) > 0.005 && <span className="ml-1 text-amber-700">queda {fmt(Number(a.saldo))}</span>)}
+                          </span>
+                          <span className="font-bold shrink-0">{fmt(a.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Las cuentas que quedaron en CERO. Es lo que el encargado
+                      busca al recibir la liquidación: cuáles ya no hay que
+                      volver a cobrar. Antes había que ir cuenta por cuenta. */}
+                  {((closeSummary.ar_payments as any).saldadas ?? []).length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-blue-100">
+                      <p className="text-xs font-black text-emerald-700 mb-1">
+                        Cuentas cerradas ({(closeSummary.ar_payments as any).saldadas.length})
+                      </p>
+                      {(closeSummary.ar_payments as any).saldadas.map((cc: any, i: number) => (
                         <div key={i} className="flex justify-between text-xs">
-                          <span className="text-gray-600 truncate">{a.customer} <span className="text-gray-400">· {a.method === 'card' ? 'Tarjeta' : a.method === 'sinpe' ? 'SINPE' : 'Efectivo'}</span></span>
-                          <span className="font-bold">{fmt(a.amount)}</span>
+                          <span className="text-gray-600 truncate">
+                            {cc.customer}{cc.invoice && <span className="text-gray-400"> · Fact. {cc.invoice}</span>}
+                          </span>
+                          <span className="font-bold text-emerald-700">{fmt(cc.total)}</span>
                         </div>
                       ))}
                     </div>

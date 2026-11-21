@@ -1361,7 +1361,23 @@ export class POSPrinterService {
     returned?: Array<{ name: string; quantity: number }>;
     /** 'truck' | 'stored' | 'reconstructed' | 'none': de dónde salió el sobrante. */
     returned_source?: string;
-    ar_payments?: { by_method: { cash: number; card: number; sinpe: number }; total: number; list: Array<{ customer: string; amount: number; method: string }> };
+    ar_payments?: {
+      by_method: { cash: number; card: number; sinpe: number }; total: number;
+      list: Array<{
+        customer: string; amount: number; method: string;
+        invoice?: string | null; saldada?: boolean; saldo?: number;
+      }>;
+      /** Cuentas que quedaron CERRADAS con lo cobrado en esta ruta. */
+      saldadas?: Array<{ customer: string; invoice: string | null; total: number }>;
+      saldadas_count?: number;
+    };
+    /**
+     * El cierre se volvió a calcular con los datos de hoy.
+     *
+     * Va impreso: dos liquidaciones del mismo día con números distintos y sin
+     * explicación es peor que no haber reimprimido.
+     */
+    recalculado?: boolean;
     expenses?: { total: number; list: Array<{ description: string; amount: number; payment_method?: string }> };
   }, tenantId: string): Promise<void> {
     const cfg = await this.loadReceiptConfig(tenantId);
@@ -1394,13 +1410,32 @@ export class POSPrinterService {
       if (summary.aviso) {
         lines.push({ t: 'sep' }, { t: 'center', a: '** ' + String(summary.aviso) + ' **' });
       }
+      if (summary.recalculado) {
+        lines.push({ t: 'sep' }, { t: 'center', a: '** RECALCULADO AL DIA — puede no coincidir con el original **' });
+      }
       if (summary.ar_payments && summary.ar_payments.total > 0) {
         lines.push({ t: 'sep' }, { t: 'title', a: 'ABONOS CxC' });
         lines.push({ t: 'row', a: 'Efectivo', b: money(summary.ar_payments.by_method.cash) });
         lines.push({ t: 'row', a: 'Tarjeta', b: money(summary.ar_payments.by_method.card) });
         lines.push({ t: 'row', a: 'SINPE', b: money(summary.ar_payments.by_method.sinpe) });
-        for (const a of summary.ar_payments.list) lines.push({ t: 'row', a: `${a.customer} · ${a.method}`, b: money(a.amount) });
+        /* Con la FACTURA y el saldo: liquidar al repartidor es cotejar cada
+           abono contra su crédito, y un nombre suelto no se coteja con nada.
+           La marca «saldada» es lo que permite cerrar la cuenta sin ir a
+           buscarla una por una. */
+        for (const a of summary.ar_payments.list) {
+          const quien = [a.customer, a.invoice ? `Fact. ${a.invoice}` : ''].filter(Boolean).join(' · ');
+          const resto = a.saldada ? ' · SALDADA'
+            : (Number(a.saldo ?? 0) > 0.005 ? ` · queda ${money(Number(a.saldo))}` : '');
+          lines.push({ t: 'row', a: `${quien} · ${a.method}${resto}`, b: money(a.amount) });
+        }
         lines.push({ t: 'row', a: 'Total abonos', b: money(summary.ar_payments.total) });
+        const cerradas = summary.ar_payments.saldadas ?? [];
+        if (cerradas.length > 0) {
+          lines.push({ t: 'title', a: `CUENTAS CERRADAS (${cerradas.length})` });
+          for (const cc of cerradas) {
+            lines.push({ t: 'row', a: [cc.customer, cc.invoice ? `Fact. ${cc.invoice}` : ''].filter(Boolean).join(' · '), b: money(cc.total) });
+          }
+        }
       }
       if (summary.expenses && summary.expenses.total > 0) {
         lines.push({ t: 'sep' }, { t: 'title', a: 'GASTOS DEL DÍA' });
@@ -1632,6 +1667,12 @@ export class POSPrinterService {
     row('Anulaciones:', String(summary.voids_count ?? 0));
     sep();
 
+    if (summary.recalculado) {
+      center('** RECALCULADO AL DIA **');
+      center('puede no coincidir con el original');
+      sep();
+    }
+
     // Abonos de CxC del día (efectivo/tarjeta/SINPE por aparte + detalle).
     const ap = summary.ar_payments;
     if (ap && ap.total > 0) {
@@ -1642,8 +1683,26 @@ export class POSPrinterService {
       for (const a of (ap.list ?? [])) {
         const lbl = a.method === 'card' ? 'T' : a.method === 'sinpe' ? 'S' : 'E';
         row(`${String(a.customer).substring(0, charWidth - 12)} (${lbl})`, money(a.amount));
+        /* En el rollo la factura y el saldo van en su propio renglón: metidos
+           en el de arriba, el nombre del cliente se cortaba a la mitad. */
+        const detalle = [
+          a.invoice ? `Fact. ${a.invoice}` : '',
+          a.saldada ? 'SALDADA' : (Number(a.saldo ?? 0) > 0.005 ? `queda ${money(Number(a.saldo))}` : ''),
+        ].filter(Boolean).join(' · ');
+        if (detalle) row(`  ${detalle}`.substring(0, charWidth), '');
       }
       row('Total abonos:', money(ap.total));
+      /* Lo que el encargado busca al recibir la liquidación: cuáles cuentas
+         ya no hay que volver a cobrar. */
+      const cerradas = ap.saldadas ?? [];
+      if (cerradas.length > 0) {
+        sep();
+        center(`CUENTAS CERRADAS (${cerradas.length})`);
+        for (const cc of cerradas) {
+          row(String(cc.customer).substring(0, charWidth - 12), money(cc.total));
+          if (cc.invoice) row(`  Fact. ${cc.invoice}`.substring(0, charWidth), '');
+        }
+      }
       sep();
     }
 

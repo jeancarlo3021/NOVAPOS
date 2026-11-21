@@ -37,7 +37,18 @@ export interface RouteCloseSummary {
   ar_payments?: {
     by_method: { cash: number; card: number; sinpe: number };
     total: number;
-    list: Array<{ customer: string; amount: number; method: string }>;
+    list: Array<{
+      customer: string; amount: number; method: string;
+      /** La factura del crédito: sin ella el abono no se puede cotejar contra nada. */
+      invoice?: string | null;
+      /** La cuenta quedó en cero. */
+      saldada?: boolean;
+      /** Lo que le sigue debiendo. */
+      saldo?: number;
+    }>;
+    /** Cuentas que quedaron CERRADAS con lo cobrado en esta ruta. */
+    saldadas?: Array<{ customer: string; invoice: string | null; total: number }>;
+    saldadas_count?: number;
   };
   /** Gastos del día del repartidor. */
   expenses?: { total: number; list: Array<{ description: string; amount: number; payment_method?: string }> };
@@ -149,7 +160,17 @@ export const distributionService = {
   close: (id: string) => apiFetch<RouteCloseSummary>(`/routes/${id}/close`, { method: 'POST' }),
 
   /** Resumen de una ruta ya cerrada (para reimprimir el cierre). */
-  closeSummary: (id: string) => apiFetch<RouteCloseSummary & { truck?: string; route_date?: string }>(`/routes/${id}/close-summary`),
+  /**
+   * `recalcular` vuelve a sacar los abonos con los datos de HOY.
+   *
+   * Sin él, la reimpresión repite exactamente el papel que se guardó al
+   * cerrar —que es lo correcto para cuadrarle al chofer—. Con él sale el
+   * cierre al día, y el papel lo dice: los cierres viejos no traen el detalle
+   * de cada abono ni cuáles cuentas quedaron saldadas.
+   */
+  closeSummary: (id: string, recalcular = false) =>
+    apiFetch<RouteCloseSummary & { truck?: string; route_date?: string; recalculado?: boolean }>(
+      `/routes/${id}/close-summary${recalcular ? '?recalcular=1' : ''}`),
 
   // ── Venta en ruta (autoventa) y pedido (preventa) ──
   sale: (id: string, body: any) =>
