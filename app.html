@@ -165,11 +165,77 @@
           };
         }
 
+        /**
+         * LA HOJA DE ESTILOS NO CARG&Oacute;: la app sale SIN CSS.
+         *
+         * El salvavidas de arriba solo act&uacute;a cuando React no monta. Si
+         * React monta pero el CSS no lleg&oacute;, la app FUNCIONA y se ve en
+         * blanco y negro, desarmada — y el vigilante se apagaba contento.
+         *
+         * Pasa despu&eacute;s de publicar una versi&oacute;n nueva: el service
+         * worker viejo sigue mandando y el navegador queda con un HTML que
+         * pide un CSS con otro nombre. Chrome es donde m&aacute;s se ve, porque
+         * es donde la app est&aacute; instalada y el SW registrado.
+         *
+         * Se arregla solo: se limpia el cach&eacute;, se quita el SW y se
+         * recarga UNA vez. El candado de `sessionStorage` es lo que impide que
+         * esto se vuelva un ciclo de recargas si el CSS de verdad no existe.
+         */
+        function recuperarSinCss(motivo) {
+          try {
+            if (sessionStorage.getItem('cc_css_fix')) return;   // ya se intent&oacute;
+            sessionStorage.setItem('cc_css_fix', '1');
+          } catch (e) { return; }   // sin sessionStorage no hay candado: no se arriesga el ciclo
+          note('Sin CSS: ' + motivo);
+          var jobs = [];
+          try {
+            if (window.caches && caches.keys) {
+              jobs.push(caches.keys().then(function (ks) {
+                return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+              }));
+            }
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+                return Promise.all(rs.map(function (r) { return r.unregister(); }));
+              }));
+            }
+          } catch (e) { /* si no se puede limpiar, igual se recarga */ }
+          Promise.all(jobs)['catch'](function () {})['then'](function () {
+            location.replace(location.pathname + location.search.replace(/[?&]r=\d+/, '')
+              + (location.search ? '&' : '?') + 'r=' + Date.now());
+          });
+        }
+
+        /* &iquest;Lleg&oacute; alguna hoja de estilos NUESTRA con reglas dentro?
+           Se mira despu&eacute;s de cargar: un <link> puede estar en el HTML y
+           haber fallado igual, y `styleSheets` es lo &uacute;nico que dice si
+           el navegador de verdad tiene las reglas. */
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            var hayCss = false;
+            try {
+              for (var i = 0; i < document.styleSheets.length; i++) {
+                var h = document.styleSheets[i];
+                var href = h.href || '';
+                if (href && href.indexOf(location.origin) !== 0) continue;   // de otro sitio
+                try { if (h.cssRules && h.cssRules.length > 20) { hayCss = true; break; } }
+                catch (e) { /* no se puede leer: se asume que s&iacute; carg&oacute; */ hayCss = true; break; }
+              }
+            } catch (e) { hayCss = true; }
+            if (!hayCss) recuperarSinCss('ninguna hoja de estilos con reglas');
+          }, 1200);
+        });
+
         // a) Recurso que no carg&oacute; (script/css) — se distingue por el target.
         window.addEventListener('error', function (e) {
           var t = e && e.target;
           if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
             note('No carg&oacute;: ' + (t.src || t.href || t.tagName));
+            /* Si lo que fall&oacute; fue la hoja de estilos, la app igual va a
+               montar y nadie se iba a enterar de que sali&oacute; sin dise&ntilde;o. */
+            if (t.tagName === 'LINK' && String(t.rel || '') === 'stylesheet') {
+              recuperarSinCss(String(t.href || 'hoja de estilos'));
+            }
             return;
           }
           // b) Excepci&oacute;n de verdad (incluye las que tumban un m&oacute;dulo al evaluarse).
