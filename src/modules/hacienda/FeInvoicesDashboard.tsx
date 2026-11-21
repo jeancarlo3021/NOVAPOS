@@ -392,6 +392,22 @@ export const FeInvoicesDashboard: React.FC = () => {
     finally { setEmailSending(false); }
   };
 
+  /**
+   * ACEPTADA, PERO CON UNA OBSERVACIÓN DE HACIENDA.
+   *
+   * Hacienda acepta el comprobante y de todos modos devuelve avisos —el más
+   * común, el -37: la provincia/cantón/distrito del emisor no concuerdan con
+   * lo que Tributación tiene registrado—. Ese texto se guardaba en el mismo
+   * campo que los errores y solo se veía abriendo la fila, rotulado «Error» y
+   * en rojo sobre una factura que sí se aceptó.
+   *
+   * Resultado real: un negocio con las 20 últimas facturas avisadas, y nadie
+   * se enteró. El aviso no rompe la factura de hoy, pero es lo que hay que ir
+   * a corregir a ATV antes de que se convierta en un problema.
+   */
+  const aceptadaConAviso = (r: FeRow) =>
+    r.fe_status === 'accepted' && !!String(r.fe_error ?? '').trim();
+
   const st = (r: FeRow) => {
     if (r.fe_status === 'error') return STATUS.error;
     if (r.fe_status === 'rejected') return STATUS.rejected;
@@ -601,6 +617,13 @@ export const FeInvoicesDashboard: React.FC = () => {
                           <button onClick={() => setExpanded(expanded === r.id ? null : r.id)}
                             className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold border ${s.cls}`}>
                             <s.Icon size={12} /> {s.label}
+                            {/* Que se vea SIN abrir la fila: si hay que entrar
+                                una por una, no se entera nadie. */}
+                            {aceptadaConAviso(r) && (
+                              <span className="ml-1 text-[10px] text-amber-700" title="Hacienda la aceptó pero devolvió una observación">
+                                · con aviso
+                              </span>
+                            )}
                             {r.fe_nc_clave && <span className="ml-1 text-[10px]">· NC</span>}
                           </button>
                         </td>
@@ -663,7 +686,23 @@ export const FeInvoicesDashboard: React.FC = () => {
                             {r.fe_clave && <div className="break-all"><b>Clave:</b> <span className="font-mono">{r.fe_clave}</span></div>}
                             {r.fe_nc_clave && <div className="break-all"><b>Nota de crédito:</b> <span className="font-mono">{r.fe_nc_clave}</span></div>}
                             {r.fe_nd_clave && <div className="break-all"><b>Nota de débito:</b> <span className="font-mono">{r.fe_nd_clave}</span></div>}
-                            {r.fe_error && <div className="text-red-600"><b>Error:</b> {r.fe_error}</div>}
+                            {r.fe_error && (
+                              aceptadaConAviso(r) ? (
+                                /* Decirle «Error» a una factura ACEPTADA hace
+                                   que o se ignore —porque la factura se ve
+                                   bien— o se crea que no sirve. Ni una ni la
+                                   otra: se aceptó, y hay algo que corregir. */
+                                <div className="text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                                  <b>Hacienda la aceptó, pero avisa:</b> {r.fe_error}
+                                  <div className="text-amber-700 mt-1">
+                                    No afecta esta factura. Se corrige en los datos del emisor
+                                    (Configuración → Facturación Electrónica) o en ATV, según cuál esté mal.
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-red-600"><b>Error:</b> {r.fe_error}</div>
+                              )
+                            )}
                             {!r.fe_clave && <div className="text-amber-600">No emitida a Hacienda. Usá «Hacienda» para reintentar.</div>}
                           </td>
                         </tr>
