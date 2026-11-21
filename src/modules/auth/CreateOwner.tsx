@@ -5,7 +5,7 @@ import { supabase, motivoDeFuncion } from '@/lib/supabase';
 import { plansService, Plan } from '@/services/users/plansService';
 import { useAuth } from '@/context/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale, Server, Globe, Megaphone, PackageX, UtensilsCrossed } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, CheckCircle, Settings, Mail, Lock, DatabaseBackup, Building2, Calendar, RefreshCw, Power, Clock, TrendingUp, Users, Users2, AlertTriangle, X, Receipt, FileText, Search, Sparkles, Layers, Truck, Pencil, MoreHorizontal, KeyRound, Package, BarChart3, MessageCircle, Wallet, Calculator, Phone, Scale, Server, Globe, Megaphone, PackageX, UtensilsCrossed, ShieldCheck } from 'lucide-react';
 import { Users as UsersModule } from '@/modules/users/Users';
 import { DaysTag } from './components/DaysTag';
 import { RenewModal } from './components/RenewModal';
@@ -19,6 +19,7 @@ import { TenantFeDataModal } from './components/TenantFeDataModal';
 import type { OwnerData } from './components/RenewModal';
 import { PaymentReceiptsView } from './components/PaymentReceiptsView';
 import { FeLogView } from './components/FeLogView';
+import { FeVerificacionView } from './components/FeVerificacionView';
 import { ReceptionLogView } from './components/ReceptionLogView';
 import { AlanubeReportsView } from './components/AlanubeReportsView';
 import { CustomInvoiceModal } from './components/CustomInvoiceModal';
@@ -89,7 +90,7 @@ function effectiveEndsAt(o: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type AdminTab = 'businesses' | 'groups' | 'usage' | 'fe_log' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp' | 'vendor_payments' | 'infra' | 'landing' | 'anuncios' | 'analizar_plan';
+type AdminTab = 'businesses' | 'groups' | 'usage' | 'fe_log' | 'fe_verificar' | 'reception_log' | 'alanube_reports' | 'receipts' | 'sandbox' | 'team' | 'whatsapp' | 'vendor_payments' | 'infra' | 'landing' | 'anuncios' | 'analizar_plan';
 
 export const CreateOwner: React.FC = () => {
   const { refreshPlan } = useAuth();
@@ -1088,6 +1089,7 @@ export const CreateOwner: React.FC = () => {
             { id: 'groups'     as AdminTab, label: 'Grupos',       icon: Layers },
             { id: 'usage'      as AdminTab, label: 'Uso por negocio', icon: BarChart3 },
             { id: 'fe_log'     as AdminTab, label: 'Bitácora FE',  icon: FileText },
+            { id: 'fe_verificar' as AdminTab, label: 'Comprobar en Hacienda', icon: ShieldCheck },
             { id: 'reception_log' as AdminTab, label: 'Bitácora Recep.', icon: Receipt },
             { id: 'alanube_reports' as AdminTab, label: 'Reportes Alanube', icon: BarChart3 },
             { id: 'receipts'   as AdminTab, label: 'Comprobantes', icon: Receipt },
@@ -1130,6 +1132,12 @@ export const CreateOwner: React.FC = () => {
       {activeTab === 'fe_log' && (
         <div className="max-w-7xl mx-auto p-6">
           <FeLogView owners={owners.map(o => ({ id: o.id, name: o.name }))} />
+        </div>
+      )}
+
+      {activeTab === 'fe_verificar' && (
+        <div className="max-w-7xl mx-auto p-6">
+          <FeVerificacionView owners={owners.map(o => ({ id: o.id, name: o.name }))} />
         </div>
       )}
 
