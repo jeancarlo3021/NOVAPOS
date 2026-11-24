@@ -9,6 +9,14 @@ export interface PermissionModuleMeta {
   key: string;
   label: string;
   description: string;
+  /**
+   * El permiso es SÍ o NO: no tiene crear/editar/eliminar.
+   *
+   * Hay módulos que son una capacidad, no una pantalla con filas que se
+   * crean y se borran. Mostrarles las tres casillas obliga a inventarles un
+   * significado, y lo que se guarda termina diciendo algo que nadie quiso.
+   */
+  soloAcceso?: boolean;
 }
 
 export const PERMISSION_MODULES: PermissionModuleMeta[] = [
@@ -23,6 +31,30 @@ export const PERMISSION_MODULES: PermissionModuleMeta[] = [
   { key: 'hr', label: 'Recursos Humanos', description: 'Empleados y nómina' },
   { key: 'customers', label: 'Clientes', description: 'Gestión de clientes' },
   { key: 'portal_cliente', label: 'Portal del cliente', description: 'Crear el enlace del cliente y la hora de corte' },
+  /**
+   * LA BANDEJA DE PEDIDOS DEL ENLACE, en tres permisos y no en uno.
+   *
+   * Son tres preguntas distintas y el negocio las contesta distinto según el
+   * puesto:
+   *   · ¿Entra a la bandeja? — el de bodega sí, el cajero tal vez no.
+   *   · ¿Ve pedido por pedido, o solo la suma para alistar? — al de bodega le
+   *     basta cuánto bajar de cada cosa; los nombres, los teléfonos y las
+   *     direcciones de los clientes no tienen por qué pasarle por enfrente.
+   *   · ¿Ve los de OTROS? — por omisión cada quien ve los suyos. Que el
+   *     vendedor de una zona lea la cartera de los demás es una decisión, no
+   *     algo que deba pasar solo.
+   *
+   * Juntarlas en un permiso obligaba a elegir entre no dar acceso o darlo
+   * todo, que es como se termina enseñando lo que no se quería enseñar.
+   */
+  { key: 'pedidos_enlace', label: 'Pedidos del enlace',
+    description: 'Entra a la bandeja de los pedidos que mandan los clientes', soloAcceso: true },
+  { key: 'pedidos_enlace_detalle', label: 'Pedidos del enlace · ver el detalle',
+    description: 'Ve pedido por pedido con cliente y teléfono. Sin esto, solo la vista «Para alistar»',
+    soloAcceso: true },
+  { key: 'pedidos_enlace_otros', label: 'Pedidos del enlace · de otros usuarios',
+    description: 'Ve también los pedidos que no son suyos. Sin esto, solo los propios',
+    soloAcceso: true },
   { key: 'taller_3d', label: 'Taller 3D', description: 'Ventas y gastos del día, y la cola de impresión' },
   { key: 'envios_equipo', label: 'Envíos del equipo', description: 'Lo que hay que mandar y a quién contactar' },
   { key: 'restaurant', label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa' },

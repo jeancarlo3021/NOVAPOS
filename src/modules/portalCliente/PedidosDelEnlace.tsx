@@ -9,6 +9,7 @@ import {
 } from '@/services/agents/salesAgentsService';
 import { customersService } from '@/services/customers/customersService';
 import { useAuth } from '@/context/AuthContext';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 
 /**
  * PEDIDOS DEL ENLACE DEL CLIENTE.
@@ -82,8 +83,33 @@ export const PedidosDelEnlace: React.FC = () => {
   const [zona, setZona] = useState<string>(zonaDelUsuario || 'todas');
   const [zonas, setZonas] = useState<string[]>([]);
 
+  /**
+   * QUÉ PUEDE VER ESTE USUARIO (Usuarios → Roles).
+   *
+   * `isExplicitlyGranted` y no `canAccess`: un negocio que configuró sus roles
+   * no debe estrenar un permiso nuevo con todo encendido. Sin matriz
+   * configurada sigue permisivo, para no dejar sin trabajar a quien nunca
+   * tocó los permisos.
+   *
+   *  · detalle — pedido por pedido, con cliente y teléfono. Sin esto, solo la
+   *    suma «Para alistar»: al de bodega le basta cuánto bajar de cada cosa, y
+   *    los datos de los clientes no tienen por qué pasarle por enfrente.
+   *  · otros   — los pedidos que no son suyos. El recorte de verdad lo hace el
+   *    servidor; acá solo se evita ofrecer un filtro que no va a traer nada.
+   */
+  const { isExplicitlyGranted } = useRolePermissions();
+  const puedeVerDetalle = isExplicitlyGranted('pedidos_enlace_detalle');
+  const puedeVerOtros = isExplicitlyGranted('pedidos_enlace_otros');
+
   /** Las dos vistas: pedido por pedido, o la suma para alistar. */
-  const [vista, setVista] = useState<'detalle' | 'alistar'>('detalle');
+  const [vista, setVista] = useState<'detalle' | 'alistar'>(
+    puedeVerDetalle ? 'detalle' : 'alistar');
+
+  /* Si el permiso cambia mientras la pantalla está abierta, la vista se
+     corrige sola: dejarla en «detalle» mostraría lo que ya no corresponde. */
+  useEffect(() => {
+    if (!puedeVerDetalle) setVista('alistar');
+  }, [puedeVerDetalle]);
 
   useEffect(() => {
     customersService.listZones()
@@ -263,7 +289,10 @@ export const PedidosDelEnlace: React.FC = () => {
             repartir (pedido por pedido, con el cliente y su teléfono) y
             alistar (cuánto bajar de cada cosa para cargar el carro). */}
         <div className="flex gap-2 mb-3">
-          {([['detalle', 'Detallado'], ['alistar', 'Para alistar']] as const).map(([v2, label]) => (
+          {(puedeVerDetalle
+            ? ([['detalle', 'Detallado'], ['alistar', 'Para alistar']] as const)
+            : ([['alistar', 'Para alistar']] as const)
+          ).map(([v2, label]) => (
             <button key={v2} onClick={() => setVista(v2)}
               className={`flex-1 py-2.5 rounded-xl text-sm font-black border-2 transition ${
                 vista === v2 ? 'bg-cyan-600 border-cyan-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>
@@ -274,13 +303,22 @@ export const PedidosDelEnlace: React.FC = () => {
 
         {/* Zona y estado */}
         <div className="flex gap-2 mb-4 flex-wrap items-center">
-          <select value={zona} onChange={e => setZona(e.target.value)}
-            aria-label="Zona"
-            className="px-3 py-2 rounded-xl border-2 border-gray-200 text-sm font-bold bg-white">
-            <option value="todas">Todas las zonas</option>
-            {zonaDelUsuario && <option value={zonaDelUsuario}>Mi zona ({zonaDelUsuario})</option>}
-            {zonas.filter(z => z !== zonaDelUsuario).map(z => <option key={z} value={z}>{z}</option>)}
-          </select>
+          {/* Sin permiso para ver lo de otros, el selector de zonas no se
+              ofrece: elegir otra zona traería una lista vacía —el servidor
+              recorta igual— y eso se lee como que el sistema está fallando. */}
+          {puedeVerOtros ? (
+            <select value={zona} onChange={e => setZona(e.target.value)}
+              aria-label="Zona"
+              className="px-3 py-2 rounded-xl border-2 border-gray-200 text-sm font-bold bg-white">
+              <option value="todas">Todas las zonas</option>
+              {zonaDelUsuario && <option value={zonaDelUsuario}>Mi zona ({zonaDelUsuario})</option>}
+              {zonas.filter(z => z !== zonaDelUsuario).map(z => <option key={z} value={z}>{z}</option>)}
+            </select>
+          ) : (
+            <span className="px-3 py-2 rounded-xl bg-gray-100 text-sm font-bold text-gray-600">
+              {zonaDelUsuario ? `Mi zona · ${zonaDelUsuario}` : 'Mis pedidos'}
+            </span>
+          )}
           {ESTADOS.map(e => (
             <button key={e.v} onClick={() => setEstado(e.v)}
               className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition ${

@@ -20,6 +20,8 @@ interface ModuleMeta {
   description: string;
   icon: React.ElementType;
   color: string;
+  /** El permiso es SÍ o NO: no tiene crear/editar/eliminar. */
+  soloAcceso?: boolean;
 }
 
 const MODULES: ModuleMeta[] = [
@@ -34,6 +36,11 @@ const MODULES: ModuleMeta[] = [
   { key: 'hr',               label: 'Recursos Humanos',  description: 'Empleados y nómina',             icon: UserCog,       color: 'bg-fuchsia-500' },
   { key: 'customers',        label: 'Clientes',          description: 'Gestión de clientes',            icon: Users,         color: 'bg-teal-500' },
   { key: 'portal_cliente',   label: 'Portal del cliente', description: 'Crear el enlace del cliente y la hora de corte', icon: Link2, color: 'bg-cyan-600' },
+  /* Tres preguntas distintas sobre la MISMA bandeja, y el negocio las
+     contesta distinto según el puesto. Ver `permissionModules.ts`. */
+  { key: 'pedidos_enlace',   label: 'Pedidos del enlace', description: 'Entra a la bandeja de los pedidos que mandan los clientes', icon: ClipboardList, color: 'bg-cyan-600', soloAcceso: true },
+  { key: 'pedidos_enlace_detalle', label: 'Pedidos del enlace · ver el detalle', description: 'Ve pedido por pedido con cliente y teléfono. Sin esto, solo la vista «Para alistar»', icon: ClipboardList, color: 'bg-cyan-500', soloAcceso: true },
+  { key: 'pedidos_enlace_otros',   label: 'Pedidos del enlace · de otros usuarios', description: 'Ve también los pedidos que no son suyos. Sin esto, solo los propios', icon: Users, color: 'bg-cyan-500', soloAcceso: true },
   { key: 'taller_3d',        label: 'Taller 3D',         description: 'Ventas y gastos del día, y la cola de impresión', icon: Printer, color: 'bg-violet-600' },
   { key: 'envios_equipo',    label: 'Envíos del equipo', description: 'Lo que hay que mandar y a quién contactar',       icon: Send,    color: 'bg-cyan-500' },
   { key: 'restaurant',       label: 'Restaurante / Mesas', description: 'Cobro por mesas y mapa',       icon: ShoppingCart,  color: 'bg-orange-500' },
@@ -343,7 +350,9 @@ export const RoleSettings: React.FC = () => {
                       </div>
                       <Toggle checked={row.can_access} onChange={v => patchModule(mod.key, { can_access: v })} />
                     </div>
-                    {row.can_access && (
+                    {/* Sin crear/editar/eliminar: a estos módulos no se les
+                        puede inventar un significado para esas tres casillas. */}
+                    {row.can_access && !mod.soloAcceso && (
                       <div className="px-4 pb-4 pt-1 ml-14 grid grid-cols-3 gap-2 border-t border-emerald-100">
                         {([
                           ['can_create', 'Crear'],
