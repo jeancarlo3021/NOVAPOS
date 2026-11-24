@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, Link2, RefreshCw, Loader2, ShoppingCart, Clock, Ban, ChevronDown, ChevronUp,
-  AlertCircle, CheckCircle2, Phone, StickyNote, Package,
+  AlertCircle, CheckCircle2, Phone, StickyNote, Package, Printer,
 } from 'lucide-react';
 import {
   agentOrdersService, type AgentOrder, type AgentOrderStatus,
@@ -10,6 +10,7 @@ import {
 import { customersService } from '@/services/customers/customersService';
 import { useAuth } from '@/context/AuthContext';
 import { useRolePermissions } from '@/hooks/useRolePermissions';
+import { useTenantId } from '@/hooks/useTenant';
 
 /**
  * PEDIDOS DEL ENLACE DEL CLIENTE.
@@ -66,6 +67,7 @@ const ESTADOS: Array<{ v: AgentOrderStatus | 'todos'; label: string }> = [
 export const PedidosDelEnlace: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { tenantId } = useTenantId();
   const [estado, setEstado] = useState<AgentOrderStatus | 'todos'>('pending');
 
   /**
@@ -100,6 +102,53 @@ export const PedidosDelEnlace: React.FC = () => {
   const { isExplicitlyGranted } = useRolePermissions();
   const puedeVerDetalle = isExplicitlyGranted('pedidos_enlace_detalle');
   const puedeVerOtros = isExplicitlyGranted('pedidos_enlace_otros');
+
+  /**
+   * IMPRIMIR EN LA IMPRESORA DEL NEGOCIO, no con el diálogo del navegador.
+   *
+   * `window.print()` mandaba la PÁGINA ENTERA —menú, filtros y botones— y en
+   * una térmica de 58 mm eso no sale: el rollo imprime renglones de ancho
+   * fijo, no una página web. La bodega terminaba imprimiendo en una hoja
+   * aparte una lista que se usa al lado del carro.
+   *
+   * `printDoc` es el mismo camino que usan los recibos: lee la configuración
+   * del negocio y sale por donde corresponda —QZ, Bluetooth o navegador— con
+   * el ancho que toque (32 columnas en 58 mm, 48 en 80 mm) o en hoja si así
+   * está configurado. Acá solo se arman las líneas.
+   */
+  const [imprimiendo, setImprimiendo] = useState(false);
+
+  const imprimirAlistar = async () => {
+    if (!tenantId) { setError('Sin negocio activo: no se puede imprimir.'); return; }
+    setImprimiendo(true); setError('');
+    try {
+      const { posPrinterService } = await import('@/services/pos/posPrinterService');
+      const ahora = new Date();
+      const lineas: Array<{ t: 'title' | 'center' | 'row' | 'text' | 'sep'; a?: string; b?: string }> = [
+        { t: 'title', a: 'PARA ALISTAR' },
+        { t: 'center', a: zona !== 'todas' ? zona : 'Todas las zonas' },
+        { t: 'center', a: `${ahora.toLocaleDateString('es-CR')} ${ahora.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })}` },
+        { t: 'sep' },
+        /* Cuántos pedidos cubre la lista: alistar 40 unidades no es lo mismo
+           si son de 3 pedidos que de 20, y el que carga necesita saberlo. */
+        { t: 'row', a: 'Pedidos', b: String(paraAlistar.cuantos) },
+        { t: 'sep' },
+        ...paraAlistar.lista.map(x => ({
+          t: 'row' as const,
+          /* El nombre se recorta: en 58 mm no caben 40 caracteres y la
+             cantidad —que es el dato— terminaba en el renglón siguiente. */
+          a: x.nombre.length > 22 ? `${x.nombre.slice(0, 21)}…` : x.nombre,
+          b: String(x.cantidad),
+        })),
+        { t: 'sep' },
+        { t: 'row', a: 'TOTAL UNIDADES', b: String(paraAlistar.bultos) },
+        { t: 'row', a: 'Monto', b: plata(paraAlistar.total) },
+      ];
+      await posPrinterService.printDoc(lineas, tenantId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo imprimir la lista');
+    } finally { setImprimiendo(false); }
+  };
 
   /** Las dos vistas: pedido por pedido, o la suma para alistar. */
   const [vista, setVista] = useState<'detalle' | 'alistar'>(
@@ -396,10 +445,20 @@ export const PedidosDelEnlace: React.FC = () => {
                   </tr>
                 </tfoot>
               </table>
-              <div className="p-3 border-t border-gray-100">
-                <button onClick={() => window.print()}
-                  className="w-full py-2.5 rounded-xl border-2 border-gray-200 text-gray-700 font-black text-sm">
+              <div className="p-3 border-t border-gray-100 space-y-2">
+                <button onClick={() => void imprimirAlistar()} disabled={imprimiendo}
+                  className="w-full py-2.5 rounded-xl bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 text-white font-black text-sm flex items-center justify-center gap-2">
+                  {imprimiendo ? <Loader2 size={15} className="animate-spin" /> : <Printer size={15} />}
                   Imprimir la lista
+                </button>
+                {/* La salida de respaldo. La de arriba va a la impresora
+                    configurada —la térmica de la bodega—; esta abre el
+                    diálogo del navegador, que es lo que sirve cuando se quiere
+                    guardar en PDF o mandarla a una impresora de hojas que no
+                    está configurada en el sistema. */}
+                <button onClick={() => window.print()}
+                  className="w-full py-2 rounded-xl border-2 border-gray-200 text-gray-600 font-bold text-xs">
+                  Imprimir con el navegador
                 </button>
               </div>
             </div>
