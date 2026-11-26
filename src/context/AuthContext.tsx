@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { reportarIngresoDesdeLaPagina } from '@/lib/landingFunnel';
 import { apiFetch } from '@/lib/api';
 import { setRememberMe } from '@/lib/authStorage';
 import { globalCacheService } from '@/services/cache/globalCacheService';
@@ -896,6 +897,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         && currentUserIdRef.current === session.user.id) {
       return;
     }
+
+    /**
+     * ¿Esta persona venía de la página pública?
+     *
+     * Si tocó «Entrar» ahí hace poco, la página dejó una marca. Llegar hasta
+     * acá con sesión significa que de verdad entró, y eso es lo que separa
+     * «tocó el botón» de «llegó adentro»: entre los dos números está la
+     * contraseña olvidada y el usuario equivocado.
+     *
+     * Va acá y no en `login()` porque este es el punto por el que pasa
+     * cualquier forma de quedar adentro. La marca es de un solo uso, así que
+     * no se puede contar dos veces.
+     */
+    if (session?.user) reportarIngresoDesdeLaPagina();
 
     const gen = ++sessionGenRef.current;
     const isActive = () => gen === sessionGenRef.current;

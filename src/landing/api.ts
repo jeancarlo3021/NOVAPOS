@@ -17,6 +17,8 @@
  * relativo parecía más prolijo, pero apuntaba al dominio de la página —donde
  * no hay servidor— en vez de al backend.
  */
+import { marcarVinoDeLaPagina } from '@/lib/landingFunnel';
+
 const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3001';
 const BASE = `${API_URL}/api`;
 
@@ -41,6 +43,11 @@ export const enviarInteresado = (datos: Record<string, unknown>) =>
  */
 export const contar = (evento: string) => {
   try {
+    /* Al tocar «Entrar» se deja la marca que la aplicación consume cuando el
+       ingreso sale bien. Es lo que permite separar «tocó el botón» de
+       «llegó adentro», que son dos cosas distintas y antes se contaban como
+       una. */
+    if (evento === 'clic_entrar') marcarVinoDeLaPagina(document.referrer || '');
     void fetch(`${BASE}/landing/visita`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

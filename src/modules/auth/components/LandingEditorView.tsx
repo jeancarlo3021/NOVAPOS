@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Globe, Save, Send, Plus, Trash2, Loader2, ExternalLink,
   Inbox, BarChart3, FileText, CheckCircle2, Star, ImagePlus, X, Sparkles,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, Mail,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
@@ -710,11 +710,13 @@ function Lista<T>({ titulo, items, onChange, vacio, render }: {
 const Interesados: React.FC = () => {
   const [filas, setFilas] = useState<any[] | null>(null);
   const [sinTabla, setSinTabla] = useState(false);
+  const [sinAviso, setSinAviso] = useState(0);
   useEffect(() => {
     void (async () => {
       try {
         const r = await apiFetch<any>('/admin/landing/interesados');
         setSinTabla(!!r.sin_tabla); setFilas(r.interesados ?? []);
+        setSinAviso(Number(r.sin_aviso ?? 0));
       } catch { setFilas([]); }
     })();
   }, []);
@@ -724,14 +726,27 @@ const Interesados: React.FC = () => {
   };
   if (filas === null) return <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Cargando…</p>;
   if (sinTabla) return <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">Falta correr la migración 119.</p>;
-  if (filas.length === 0) return <p className="text-sm text-gray-500">Todavía no escribió nadie desde la página.</p>;
 
   const COLOR: Record<string, string> = {
     nuevo: 'bg-blue-100 text-blue-700', contactado: 'bg-amber-100 text-amber-700',
     convertido: 'bg-emerald-100 text-emerald-700', descartado: 'bg-gray-200 text-gray-500',
   };
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div className="space-y-4">
+      <AvisoCorreo />
+
+      {sinAviso > 0 && (
+        <p className="text-sm font-bold text-red-800 bg-red-50 border-2 border-red-200 rounded-xl px-3 py-2">
+          <b>A {sinAviso} interesado(s) no se les pudo avisar por correo.</b> Están abajo con la
+          marca roja: pasá el mouse para ver el motivo. Mientras el correo no salga, los
+          interesados solo se ven entrando acá.
+        </p>
+      )}
+
+      {filas.length === 0 ? (
+        <p className="text-sm text-gray-500">Todavía no escribió nadie desde la página.</p>
+      ) : (
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
           <tr>
@@ -755,7 +770,23 @@ const Interesados: React.FC = () => {
                 {f.email && <span className="block">{f.email}</span>}
               </td>
               <td className="px-4 py-2 text-xs text-gray-600">{f.business_type ?? '—'}</td>
-              <td className="px-4 py-2 text-xs text-gray-500">{new Date(f.created_at).toLocaleDateString('es-CR')}</td>
+              <td className="px-4 py-2 text-xs text-gray-500">
+                {new Date(f.created_at).toLocaleDateString('es-CR')}
+                {/* Si el aviso falló, se ve. Un aviso que falla en silencio es
+                    peor que no tener aviso: la pantalla diría que todo está
+                    bien mientras los interesados se acumulan. */}
+                {f.aviso_email_at == null && f.aviso_email_error && (
+                  <span title={f.aviso_email_error}
+                    className="block text-[10px] font-black text-red-600 cursor-help">
+                    ⚠ sin avisar
+                  </span>
+                )}
+                {f.aviso_email_at && (
+                  <span className="block text-[10px] text-emerald-600" title={f.aviso_email_to ?? ''}>
+                    avisado
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-2">
                 <select value={f.status} onChange={e => void mover(f.id, e.target.value)}
                   className={`text-[11px] font-black uppercase px-2 py-1 rounded-full border-0 ${COLOR[f.status] ?? ''}`}>
@@ -766,6 +797,210 @@ const Interesados: React.FC = () => {
           ))}
         </tbody>
       </table>
+      </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * LA CONFIGURACIÓN DEL AVISO.
+ *
+ * ── Por qué hay un botón de prueba ───────────────────────────────────────
+ * Un aviso por correo falla de maneras que no se ven desde acá: el dominio
+ * sin verificar, la clave vencida, el mensaje en la carpeta de spam. Sin un
+ * botón de prueba, la primera vez que uno se entera es cuando un interesado
+ * real no llegó — y ese ya se perdió.
+ */
+const AvisoCorreo: React.FC = () => {
+  const [a, setA] = useState<any>(null);
+  const [texto, setTexto] = useState('');
+  const [abierto, setAbierto] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [trabajando, setTrabajando] = useState(false);
+
+  const cargar = async () => {
+    try {
+      const r = await apiFetch<any>('/admin/landing/avisos');
+      setA(r); setTexto((r.correos ?? []).join(', '));
+    } catch { setA({ activo: false, correos: [], correo_disponible: false }); }
+  };
+  useEffect(() => { void cargar(); }, []);
+
+  if (!a) return null;
+
+  const guardar = async (activo: boolean) => {
+    setTrabajando(true); setMsg(null);
+    try {
+      const r = await apiFetch<any>('/admin/landing/avisos', {
+        method: 'PUT', body: JSON.stringify({ activo, correos: texto }),
+      });
+      setA(r); setTexto((r.correos ?? []).join(', '));
+      setMsg({ ok: true, t: activo
+        ? `Listo. Cuando alguien escriba, el aviso sale a ${(r.correos ?? []).join(', ')}.`
+        : 'El aviso quedó apagado.' });
+    } catch (e) { setMsg({ ok: false, t: e instanceof Error ? e.message : 'No se pudo guardar' }); }
+    finally { setTrabajando(false); }
+  };
+
+  const probar = async () => {
+    setTrabajando(true); setMsg(null);
+    try {
+      const r = await apiFetch<any>('/admin/landing/avisos/probar', { method: 'POST' });
+      setMsg({ ok: true, t: `Correo de prueba enviado a ${r.to}. Si no aparece en un minuto, `
+        + 'revisá la carpeta de spam antes de cambiar la configuración.' });
+    } catch (e) { setMsg({ ok: false, t: e instanceof Error ? e.message : 'No se pudo enviar' }); }
+    finally { setTrabajando(false); }
+  };
+
+  const encendido = a.activo && (a.correos ?? []).length > 0 && a.correo_disponible;
+
+  return (
+    <div className={`rounded-xl border-2 p-3 ${encendido ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-300 bg-amber-50'}`}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <p className="text-sm font-black text-gray-900 flex items-center gap-1.5">
+            <Mail size={14} className={encendido ? 'text-emerald-600' : 'text-amber-600'} />
+            {encendido ? 'Te avisamos por correo cuando alguien escribe' : 'El aviso por correo está apagado'}
+          </p>
+          <p className="text-xs text-gray-600 leading-snug">
+            {!a.correo_disponible
+              ? 'El servidor no tiene correo configurado (falta RESEND_API_KEY), así que el aviso no puede salir.'
+              : encendido
+                ? <>Sale a <b>{(a.correos ?? []).join(', ')}</b>. Responder ese correo le escribe
+                    directo a la persona.</>
+                : 'Sin el aviso, un interesado se queda esperando hasta que alguien entre a esta pantalla.'}
+          </p>
+        </div>
+        <button onClick={() => setAbierto(x => !x)}
+          className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-700 shrink-0">
+          {abierto ? 'Cerrar' : 'Configurar'}
+        </button>
+      </div>
+
+      {a.de_entorno && (a.correos ?? []).length > 0 && (
+        <p className="text-[11px] text-gray-500 mt-1.5">
+          Estos correos vienen de la configuración del servidor. Si guardás una lista acá, manda la
+          de acá.
+        </p>
+      )}
+
+      {abierto && (
+        <div className="mt-3 space-y-2 border-t border-gray-200 pt-3">
+          <label className="block text-[11px] font-bold text-gray-500">
+            A qué correos avisar (separados por coma)
+          </label>
+          <input value={texto} onChange={e => setTexto(e.target.value)}
+            placeholder="ventas@minegocio.com, dueno@minegocio.com"
+            className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white" />
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => void guardar(true)} disabled={trabajando || !a.correo_disponible}
+              className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold disabled:bg-gray-300">
+              Guardar y activar
+            </button>
+            <button onClick={() => void probar()} disabled={trabajando || !a.correo_disponible}
+              className="px-3 py-2 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-700 disabled:opacity-50">
+              Mandarme una prueba
+            </button>
+            {a.activo && (
+              <button onClick={() => void guardar(false)} disabled={trabajando}
+                className="px-3 py-2 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-600 ml-auto">
+                Apagar el aviso
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-gray-500 leading-snug">
+            El aviso se manda apenas la persona envía el formulario, y nunca puede hacer fallar el
+            envío: si el correo no sale, el interesado queda guardado igual y acá aparece la
+            advertencia con el motivo.
+          </p>
+        </div>
+      )}
+
+      {msg && (
+        <p className={`text-xs font-bold rounded-lg px-2 py-1.5 mt-2 ${
+          msg.ok ? 'text-emerald-800 bg-emerald-100' : 'text-red-700 bg-red-100'}`}>
+          {msg.t}
+        </p>
+      )}
+    </div>
+  );
+};
+
+/**
+ * EL EMBUDO: visita → escribió / tocó Entrar → entró.
+ *
+ * Los dos caminos se muestran por separado porque son dos cosas distintas:
+ * quien escribe es un cliente nuevo, y quien entra es uno que ya tiene
+ * cuenta. Sumarlos daría un número más grande y sin significado.
+ */
+const Embudo: React.FC<{ e: any }> = ({ e }) => {
+  if (!e) return null;
+  const { visitas = 0, escribieron = 0, tocaron_entrar: tocaron = 0, entraron = 0 } = e;
+  if (visitas === 0 && tocaron === 0) return null;
+
+  const barra = (n: number) => `${visitas > 0 ? Math.min(100, (n / visitas) * 100) : 0}%`;
+  const pasos: Array<[string, number, string]> = [
+    ['Abrieron la página', visitas, 'Todo el que llegó.'],
+    ['Dejaron sus datos', escribieron, 'Clientes nuevos: los que escribieron en el formulario.'],
+    ['Tocaron «Entrar»', tocaron, 'Gente que ya tiene cuenta y buscaba la puerta.'],
+    ['Entraron de verdad', entraron, 'Llegaron adentro. Esto NO es lo mismo que tocar el botón.'],
+  ];
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <h3 className="text-sm font-black text-gray-900 mb-1">El recorrido</h3>
+      <p className="text-[11px] text-gray-400 leading-snug mb-3">
+        Dos caminos distintos salen de la misma visita: el que escribe es un cliente nuevo, el que
+        toca «Entrar» ya tiene cuenta. No se suman.
+      </p>
+      <div className="space-y-2.5">
+        {pasos.map(([t, n, nota]) => (
+          <div key={t}>
+            <div className="flex justify-between gap-3 text-sm">
+              <span className="text-gray-700">{t}</span>
+              <span className="font-black tabular-nums text-gray-900 shrink-0">{n}</span>
+            </div>
+            <div className="h-2 bg-gray-100 rounded-full mt-1 overflow-hidden">
+              <div className="bg-blue-500 h-full rounded-full" style={{ width: barra(n) }} />
+            </div>
+            <p className="text-[10px] text-gray-400 leading-snug mt-0.5">{nota}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 pt-3 border-t border-gray-100">
+        <div>
+          <p className="text-xs font-bold text-gray-500">De los que tocaron «Entrar», entraron</p>
+          <p className="text-2xl font-black tabular-nums text-gray-900">
+            {e.pct_entraron_de_los_que_tocaron != null ? `${e.pct_entraron_de_los_que_tocaron}%` : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-bold text-gray-500">Se quedaron afuera</p>
+          <p className={`text-2xl font-black tabular-nums ${e.se_quedaron_afuera > 0 ? 'text-amber-700' : 'text-gray-900'}`}>
+            {e.se_quedaron_afuera ?? 0}
+          </p>
+        </div>
+      </div>
+
+      {tocaron > 0 && entraron === 0 && (
+        <p className="text-sm text-red-800 bg-red-50 border-2 border-red-200 rounded-xl px-3 py-2 mt-3">
+          <b>{tocaron} persona(s) tocaron «Entrar» y ninguna llegó adentro.</b> Eso no es un problema
+          de la página: es la pantalla de ingreso. Conviene probar a entrar uno mismo.
+        </p>
+      )}
+      {tocaron > 0 && entraron > 0 && e.se_quedaron_afuera > tocaron * 0.4 && (
+        <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-3">
+          Más de cuatro de cada diez que tocaron «Entrar» no llegaron adentro. Casi siempre son
+          contraseñas olvidadas: vale la pena revisar que el enlace para recuperarla se vea.
+        </p>
+      )}
+      <p className="text-[11px] text-gray-400 leading-snug mt-3">
+        «Entraron» lo reporta el navegador de la persona cuando el ingreso le sale bien, así que
+        sirve para saber si la puerta funciona y no para nada que dependa de exactitud. Se cuenta
+        una vez por persona que vino de la página, no una por cada vez que inicia sesión.
+      </p>
     </div>
   );
 };
@@ -784,6 +1019,7 @@ const Medicion: React.FC = () => {
 
   const visitas = d.totales?.visita ?? 0;
   const formularios = d.totales?.formulario ?? 0;
+  const e = d.embudo;
   return (
     <div className="space-y-4">
       <div className="flex gap-1">
@@ -807,6 +1043,14 @@ const Medicion: React.FC = () => {
           </div>
         ))}
       </div>
+
+      {/* ── EL EMBUDO ──
+          «Tocó Entrar» y «entró» son dos estadísticas distintas, y era la
+          segunda la que faltaba: entre las dos está la contraseña olvidada,
+          el usuario equivocado y cualquier error de la pantalla de ingreso.
+          Con un solo número, cien clics se veían igual de bien con cien
+          ingresos que con tres. */}
+      <Embudo e={e} />
       {visitas > 0 && formularios === 0 && (
         <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
           Entró gente y nadie escribió. Eso no se arregla con más visitas: es la página la que no
