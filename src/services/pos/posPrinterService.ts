@@ -1191,6 +1191,22 @@ export class POSPrinterService {
     reservations?: Array<{ tipo?: 'apartado' | 'credito'; numero?: string | null; cliente?: string | null; method: string; amount: number; time?: string }>;
     /** Detalle de las ventas del turno (para cotejar el arqueo una por una). */
     sales?: Array<{ number: string; time: string; method: string; total: number; kind?: string }>;
+    /**
+     * VENTAS A CRÉDITO DEL TURNO, con nombre y con su ESTADO.
+     *
+     * No dejan dinero en la gaveta, así que no se arquean; pero son la lista
+     * con la que alguien sale a cobrar. `sin_cuenta` marca el crédito que no
+     * quedó registrado como cuenta por cobrar: esa deuda no existe en el
+     * sistema —el cliente aparece al día— y es lo único del cierre que hay
+     * que arreglar el mismo día.
+     */
+    credits?: Array<{
+      numero?: string | null; cliente?: string | null; amount: number;
+      excluida?: boolean; sin_cuenta?: boolean;
+    }>;
+    credits_total?: number;
+    credits_count?: number;
+    credits_sin_cuenta?: number;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
     invoices_count: number;
     invoices_total: number;
@@ -1280,6 +1296,22 @@ export class POSPrinterService {
             a: `   ${a.tipo === 'credito' ? 'Crédito' : 'Apartado'} ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`.trimEnd(),
             b: `${this.etiquetaCortaMedio(a.method)} ${money(a.amount)}`,
           })),
+        ] : []),
+        // El crédito del turno, con nombre: es la lista con la que se sale a
+        // cobrar. El que no quedó como cuenta por cobrar va marcado, porque es
+        // lo único de este tiquete que hay que arreglar hoy mismo.
+        ...(((report.credits_count ?? (report.credits ?? []).length) > 0) ? [
+          { t: 'sep' as const }, { t: 'title' as const, a: 'VENTAS A CRÉDITO (POR COBRAR)' },
+          ...(report.credits ?? []).map(v => ({
+            t: 'row' as const,
+            a: `${v.numero ? `#${v.numero}` : ''} ${v.cliente || 'SIN CLIENTE'}`.trim()
+              + (v.excluida ? ' (excl.)' : '') + (v.sin_cuenta ? ' SIN CUENTA' : ''),
+            b: money(v.amount),
+          })),
+          { t: 'row' as const, a: 'Total a crédito', b: money(report.credits_total ?? 0) },
+          ...((report.credits_sin_cuenta ?? 0) > 0 ? [
+            { t: 'text' as const, a: `OJO: ${report.credits_sin_cuenta} crédito(s) sin cuenta por cobrar` },
+          ] : []),
         ] : []),
         ...(((report.delivery_count ?? 0) > 0) ? [
           { t: 'sep' as const }, { t: 'title' as const, a: 'DELIVERY (aparte, no en caja)' },
@@ -1824,6 +1856,23 @@ export class POSPrinterService {
       row('Cobros de reparto:', `${report.reparto_count} · ${fmt(report.reparto_total ?? 0)}`);
       row('', '(ya incluido arriba)');
     }
+    /* El crédito del turno, con nombre. Es la lista con la que se sale a
+       cobrar, y el crédito SIN cuenta va marcado: en el tiquete queda algo que
+       alguien puede ir a arreglar hoy. */
+    const creditos = report.credits ?? [];
+    if (creditos.length > 0) {
+      sep();
+      centerText('A CREDITO (POR COBRAR)');
+      for (const v of creditos) {
+        const quien = `${v.numero ? `#${v.numero}` : ''} ${v.cliente || 'SIN CLIENTE'}`.trim();
+        row(`${quien}${v.excluida ? ' (excl)' : ''}`.slice(0, charWidth - 11), fmt(v.amount));
+        if (v.sin_cuenta) row('  SIN CUENTA X COBRAR', '');
+      }
+      row('Total credito:', fmt(report.credits_total ?? 0));
+      if ((report.credits_sin_cuenta ?? 0) > 0) {
+        centerText(`OJO: ${report.credits_sin_cuenta} sin cuenta x cobrar`);
+      }
+    }
     if ((report.delivery_count ?? 0) > 0) {
       sep();
       centerText('DELIVERY (aparte)');
@@ -1942,6 +1991,9 @@ export class POSPrinterService {
 
   private generateCashCloseHTML(report: any, cfg: ReceiptConfig, general?: any): string {
     const fmt = (n: number) => `₡${Number(n).toLocaleString('es-CR', { minimumFractionDigits: 0 })}`;
+    /* El nombre del cliente lo escribe alguien en el POS: va escapado, que es
+       lo único que separa un nombre raro de un cierre impreso a medias. */
+    const escHtml = (x: any) => String(x ?? '').replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch] || ch));
     const fmtDateTime = (s: string) => fmtCRDateTime(s, s);
     const areaMM = imprimibleMM(cfg);
 
@@ -1952,7 +2004,10 @@ export class POSPrinterService {
        cada renglón son ~4,6 mm. */
     const altoCierreMM = Math.max(80, Math.ceil(
       (34 + (report.cash_movements?.length ?? 0) + (report.sales?.length ?? 0)
-        + (report.reservations?.length ?? 0)) * 4.6 + 20));
+        + (report.reservations?.length ?? 0)
+        /* +3: el título del bloque, el total y el aviso. Sin contarlos, el
+           crédito salía cortado justo en la hoja donde más importa. */
+        + ((report.credits?.length ?? 0) > 0 ? (report.credits?.length ?? 0) + 3 : 0)) * 4.6 + 20));
     const diffColor = report.difference === 0 ? '#000' : report.difference > 0 ? '#16a34a' : '#dc2626';
     const diffLabel = report.difference === 0 ? 'CUADRADO' : report.difference > 0 ? 'SOBRANTE' : 'FALTANTE';
 
@@ -2048,6 +2103,19 @@ export class POSPrinterService {
     }</td><td style="text-align:right">${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}</td></tr>` : ''}
     ${(report.reservations ?? []).map((a: any) => `<tr><td style="font-size:11px;padding-left:8px">${`${a.tipo === 'credito' ? 'Crédito' : 'Apartado'} ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`.trim()}</td><td style="text-align:right;font-size:11px">${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}</td></tr>`).join('')}
   </table>
+
+  ${(report.credits ?? []).length > 0 ? `
+    <div class="section">A CRÉDITO (QUEDA POR COBRAR)</div>
+    <table>
+      ${(report.credits ?? []).map((v: any) => `<tr><td${v.sin_cuenta ? ' style="color:#b91c1c;font-weight:bold"' : ''}>${
+        escHtml(`${v.numero ? `#${v.numero} ` : ''}${v.cliente || 'SIN CLIENTE'}`)
+      }${v.excluida ? ' <span style="font-size:11px">(excluida)</span>' : ''}${
+        v.sin_cuenta ? ' <span style="font-size:11px">SIN CUENTA POR COBRAR</span>' : ''
+      }</td><td style="text-align:right">${fmt(v.amount)}</td></tr>`).join('')}
+      <tr><td><strong>Total a crédito:</strong></td><td style="text-align:right"><strong>${fmt(report.credits_total ?? 0)}</strong></td></tr>
+      ${(report.credits_sin_cuenta ?? 0) > 0 ? `<tr><td colspan="2" style="color:#b91c1c;font-weight:bold">OJO: ${report.credits_sin_cuenta} crédito(s) no quedaron como cuenta por cobrar</td></tr>` : ''}
+    </table>
+  ` : ''}
 
   ${report.cash_movements && report.cash_movements.length > 0 ? `
     <div class="section">MOVIMIENTOS DE EFECTIVO</div>

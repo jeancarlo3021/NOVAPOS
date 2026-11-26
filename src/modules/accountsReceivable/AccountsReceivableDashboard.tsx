@@ -3,14 +3,14 @@ import {
   HandCoins, Plus, X, Search, RefreshCw, Loader2,
   CheckCircle2, Trash2, Wallet, Printer, FileText, Clock, Package,
 } from 'lucide-react';
-import { accountsReceivableService, type Receivable, type ReceivableSummary, type ReceivablePayment } from '@/services/accountsReceivable/accountsReceivableService';
-import { useAuth } from '@/context/AuthContext';
+import { accountsReceivableService, type Receivable, type ReceivableSummary } from '@/services/accountsReceivable/accountsReceivableService';
 import { customersService, type Customer } from '@/services/customers/customersService';
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { useTenantId } from '@/hooks/useTenant';
 import { useCashSession } from '@/hooks/useCashSession';
 import { PrintTicketModal } from '@/modules/distribution/PrintTicketModal';
+import { ListaAbonos, AbonosModal } from './AbonosDeCuenta';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
@@ -134,6 +134,8 @@ export const AccountsReceivableDashboard: React.FC = () => {
   const [search, setSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
   const [payTarget, setPayTarget] = useState<Receivable | null>(null);
+  /** Cuenta cuyos abonos se están viendo (para anular uno mal puesto). */
+  const [abonosTarget, setAbonosTarget] = useState<Receivable | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const { tenantId } = useTenantId();
   const [printJob, setPrintJob] = useState<{ title: string; lines: DocLine[] } | null>(null);
@@ -376,6 +378,16 @@ export const AccountsReceivableDashboard: React.FC = () => {
                         <Wallet size={14} /> Abonar
                       </button>
                     )}
+                    {/* VER Y ANULAR LOS ABONOS, también en una cuenta cancelada.
+                        El abono mal puesto suele ser justo el que la canceló, y
+                        ahí el botón «Abonar» ya no aparece: la única forma de
+                        llegar al abono era no tenerla. */}
+                    {Number(r.paid_amount) > 0 && (
+                      <button onClick={() => setAbonosTarget(r)}
+                        className="flex items-center gap-1 bg-white border border-gray-200 hover:border-emerald-300 text-gray-600 text-xs font-bold px-3 py-2 rounded-lg">
+                        <HandCoins size={14} /> Abonos
+                      </button>
+                    )}
                     <button onClick={() => del(r)} className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"><Trash2 size={15} /></button>
                   </div>
                 </div>
@@ -392,6 +404,10 @@ export const AccountsReceivableDashboard: React.FC = () => {
           onDone={async () => { setShowBulk(false); await load(); }}
           onPrint={printDoc}
         />
+      )}
+      {abonosTarget && (
+        <AbonosModal ar={abonosTarget} onClose={() => setAbonosTarget(null)}
+          onChanged={() => { void load(); }} />
       )}
       {payTarget && <PayModal ar={payTarget} onClose={() => setPayTarget(null)} onDone={async () => { setPayTarget(null); await load(); }} onPrint={printDoc} />}
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onDone={async () => { setShowCreate(false); await load(); }} />}
@@ -433,28 +449,6 @@ function PayModal({ ar, onClose, onDone, onPrint }: {
    * abono no entra a ningún arqueo, que es lo correcto.
    */
   const { currentSession } = useCashSession();
-  // Abonos existentes + permiso para ANULARLOS (solo admin/gerente/contador/dueño).
-  const { user } = useAuth();
-  const canVoid = ['owner', 'admin', 'gerente', 'contador'].includes(user?.role ?? '');
-  const [pays, setPays] = useState<ReceivablePayment[]>([]);
-  const [voiding, setVoiding] = useState<string | null>(null);
-  const loadPays = useCallback(() => {
-    accountsReceivableService.get(ar.id).then(r => setPays(r.payments ?? [])).catch(() => {});
-  }, [ar.id]);
-  useEffect(() => { loadPays(); }, [loadPays]);
-
-  const voidPay = async (pid: string) => {
-    if (!confirm('¿Anular este abono? El saldo del cliente se recalcula.')) return;
-    setVoiding(pid); setErr('');
-    try {
-      await accountsReceivableService.voidPayment(pid);
-      onDone();   // refresca la lista y saldos del padre (cierra el modal)
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'No se pudo anular el abono');
-      setVoiding(null);
-    }
-  };
-
   const pay = async () => {
     const n = Number(amount);
     if (!n || n <= 0) { setErr('Monto inválido'); return; }
@@ -529,33 +523,12 @@ function PayModal({ ar, onClose, onDone, onPrint }: {
             {saving ? 'Guardando…' : <><CheckCircle2 size={16} /> Registrar abono</>}
           </button>
 
-          {/* Abonos registrados — con opción de ANULAR (solo admin/gerente/contador) */}
-          {pays.length > 0 && (
-            <div className="pt-3 border-t border-gray-100">
-              <p className="text-xs font-bold text-gray-500 mb-1.5">Abonos registrados</p>
-              <div className="space-y-1 max-h-44 overflow-y-auto">
-                {pays.map(p => {
-                  const anulado = !!p.voided_at;
-                  return (
-                  <div key={p.id} className={`flex items-center gap-2 text-sm rounded-lg px-2.5 py-1.5 ${anulado ? 'bg-red-50/60' : 'bg-gray-50'}`}>
-                    <span className="text-gray-400 text-[11px] shrink-0">{dateOnly(p.created_at)}</span>
-                    <span className={`font-bold ${anulado ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{fmt(Number(p.amount || 0))}</span>
-                    <span className="text-[11px] text-gray-400">{METHOD_LABEL[p.method] ?? p.method}</span>
-                    {anulado ? (
-                      <span className="ml-auto text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">ANULADO</span>
-                    ) : canVoid ? (
-                      <button onClick={() => voidPay(p.id)} disabled={voiding === p.id}
-                        className="ml-auto text-[11px] font-bold text-red-600 hover:text-red-800 disabled:opacity-40">
-                        {voiding === p.id ? 'Anulando…' : 'Anular'}
-                      </button>
-                    ) : null}
-                  </div>
-                  );
-                })}
-              </div>
-              {!canVoid && <p className="text-[10px] text-gray-400 mt-1">Solo el administrador, gerente o contador pueden anular abonos.</p>}
-            </div>
-          )}
+          {/* Abonos registrados, con opción de ANULAR. La lista y la anulación
+              viven en un solo componente porque hacen falta también desde la
+              cuenta ya CANCELADA, donde esta pantalla no se abre. */}
+          <div className="pt-3 border-t border-gray-100">
+            <ListaAbonos receivableId={ar.id} onChanged={onDone} alto="max-h-44" />
+          </div>
         </div>
         )}
       </div>

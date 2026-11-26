@@ -10,6 +10,7 @@ import { posPrinterService } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { localNowISO } from '@/services/invoice/invoiceService';
 import { ETIQUETA_MEDIO_PAGO } from '@/utils/mediosDePago';
+import { creditosDelTurno, type CreditoDelTurno } from './creditosDelTurno';
 import { useAuth } from '@/context/AuthContext';
 import { CashSession } from '@/types/Types_POS';
 import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
@@ -204,6 +205,21 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
      */
     abonos: Array<{ tipo: 'apartado' | 'credito'; numero: string | null; cliente: string | null; method: string; amount: number; time: string; ligado?: boolean }>;
     abonosTotal: number;
+    /**
+     * LAS VENTAS A CRÉDITO DEL TURNO, una por una.
+     *
+     * Se arma aparte del detalle de ventas por dos razones:
+     *
+     * 1. El monto es la PARTE a crédito, no el total de la factura. Antes se
+     *    mostraba `total`, así que el listado no sumaba lo mismo que el total
+     *    de arriba y no había forma de saber cuál de los dos creer.
+     * 2. Incluye los créditos de clientes EXCLUIDOS del cierre (las compras de
+     *    empleados). Esos no entran al arqueo —y está bien—, pero son deuda
+     *    igual: no aparecer en ninguna parte del cierre los volvía invisibles.
+     */
+    creditos: CreditoDelTurno[];
+    /** Crédito de clientes excluidos: va aparte porque no entra al arqueo. */
+    creditExcluido: number;
     loaded: boolean;
   }
   const [sys, setSys] = useState<SysTotals>({
@@ -213,7 +229,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     repartoCount: 0, repartoTotal: 0, repartoPendientes: 0,
     excludedCount: 0, excludedTotal: 0,
     cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, usdCrc: 0,
-    abonos: [], abonosTotal: 0, loaded: false,
+    abonos: [], abonosTotal: 0, creditos: [], creditExcluido: 0, loaded: false,
   });
 
   // Ventas hechas sin conexión que TODAVÍA no subieron. El cierre se calcula con
@@ -471,6 +487,11 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           }))
           .sort((x: any, y: any) => String(x.time).localeCompare(String(y.time)));
 
+        // Los créditos del turno: la regla vive en `creditosDelTurno` y tiene
+        // sus propias pruebas (la parte a crédito, no el total; los excluidos
+        // del cierre incluidos y marcados).
+        const { creditos, excluido: sCreditExcluido } = creditosDelTurno(invoices, excludedInv);
+
         for (const a of abonos) {
           switch (a.method) {
             case 'cash':  sCash += a.amount; break;
@@ -492,6 +513,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           excludedCount, excludedTotal,
           cashIn, cashOut, movements, sales: salesDetail,
           abonos, abonosTotal,
+          creditos, creditExcluido: sCreditExcluido,
           usdReceived, usdChangeOut, loaded: true,
         });
       } catch {
@@ -568,9 +590,77 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
    * antes de cerrar, porque un crédito mal puesto se convierte en una cuenta
    * por cobrar que nadie reclama.
    */
-  const creditos = React.useMemo(
-    () => sys.sales.filter(v => v.method === 'credit'),
-    [sys.sales]);
+  const creditos = sys.creditos;
+  /** Lo que de verdad se dio a crédito en el turno, incluidos los excluidos. */
+  const creditoTotal = React.useMemo(
+    () => creditos.reduce((t, v) => t + v.total, 0), [creditos]);
+
+  /**
+   * ¿CADA CRÉDITO QUEDÓ COMO CUENTA POR COBRAR?
+   *
+   * Listar el crédito no alcanza. Cuando la creación de la cuenta falla —y
+   * falla callada: la venta se cobra igual— la deuda no existe en ninguna
+   * parte: el cliente aparece al día, no sale en la cartera, nadie la cobra.
+   * Se descubre meses después, cuando ya no hay nada que reclamar.
+   *
+   * El cierre es el único momento del día en que alguien está mirando
+   * exactamente esas ventas, así que acá se revisa y se puede arreglar.
+   */
+  const [credEstado, setCredEstado] = useState<{
+    cargando: boolean;
+    /** Falló la consulta: NO es lo mismo que «todas tienen cuenta». */
+    error: string;
+    cuentas: Record<string, { saldo: number; status: string }>;
+    sinCuenta: string[];
+  }>({ cargando: false, error: '', cuentas: {}, sinCuenta: [] });
+  const [reparando, setReparando] = useState(false);
+
+  const idsCredito = React.useMemo(
+    () => creditos.map(v => v.id).filter(Boolean).join(','), [creditos]);
+
+  const revisarCreditos = useCallback(async () => {
+    if (!idsCredito) { setCredEstado({ cargando: false, error: '', cuentas: {}, sinCuenta: [] }); return; }
+    setCredEstado(p => ({ ...p, cargando: true, error: '' }));
+    try {
+      const { accountsReceivableService } = await import('@/services/accountsReceivable/accountsReceivableService');
+      const r = await accountsReceivableService.creditoEstado(idsCredito.split(','));
+      setCredEstado({
+        cargando: false, error: '',
+        cuentas: Object.fromEntries(Object.entries(r.cuentas ?? {})
+          .map(([k, v]) => [k, { saldo: Number(v.saldo ?? 0), status: String(v.status ?? '') }])),
+        sinCuenta: r.sin_cuenta ?? [],
+      });
+    } catch (e) {
+      /* Si no se pudo preguntar, se dice. Mostrar «todo bien» cuando la
+         consulta falló es peor que no mostrar nada: el cajero cerraría
+         tranquilo con los créditos sin cuenta. */
+      setCredEstado({
+        cargando: false,
+        error: e instanceof Error ? e.message : 'no se pudo consultar',
+        cuentas: {}, sinCuenta: [],
+      });
+    }
+  }, [idsCredito]);
+  useEffect(() => { void revisarCreditos(); }, [revisarCreditos]);
+
+  /** Crea las cuentas por cobrar que les faltan a los créditos de ESTE turno. */
+  const repararCreditos = async () => {
+    if (credEstado.sinCuenta.length === 0) return;
+    setReparando(true);
+    try {
+      const { accountsReceivableService } = await import('@/services/accountsReceivable/accountsReceivableService');
+      const r = await accountsReceivableService.repararHuerfanas(undefined, undefined, credEstado.sinCuenta);
+      await revisarCreditos();
+      const falla = (r.fallaron ?? []).length;
+      setError(
+        `Se crearon ${r.creadas} cuenta(s) por cobrar de los créditos de este turno.`
+        + (falla > 0
+          ? ` ${falla} no se pudo: ${(r.fallaron ?? []).map(f => `${f.invoice_number} (${f.motivo})`).join(', ')}`
+          : ''));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron crear las cuentas por cobrar');
+    } finally { setReparando(false); }
+  };
   // Esperado = fondo de caja + ventas arqueables + movimientos manuales de efectivo.
   const expectedTotal = openingAmount + arqueableSales + sys.cashIn - sys.cashOut;
   // Faltante/sobrante sobre el TOTAL (lo contado en todos los métodos vs lo esperado).
@@ -744,6 +834,21 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             // Ventas que NO se arquean (crédito y otros métodos). Van al tiquete
             // para que quede claro por qué el esperado es menor que el total.
             non_countable_sales: noArqueable,
+            /**
+             * CRÉDITO DEL TURNO, uno por uno y con su estado.
+             *
+             * En el tiquete queda a quién se le dio crédito y —lo importante—
+             * si la deuda quedó registrada. Un crédito sin cuenta por cobrar
+             * impreso en el cierre es algo que alguien puede ir a arreglar; el
+             * mismo crédito sin imprimir no existe para nadie.
+             */
+            credits: creditos.map(v => ({
+              numero: v.number, cliente: v.cliente, amount: v.total,
+              excluida: v.excluido, sin_cuenta: credEstado.sinCuenta.includes(v.id),
+            })),
+            credits_total: creditoTotal,
+            credits_count: creditos.length,
+            credits_sin_cuenta: credEstado.sinCuenta.length,
             difference,
             invoices_count: sys.invoicesCount,
             invoices_total: sys.invoicesTotal,
@@ -821,6 +926,21 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           ...(sys.deliveryCount > 0 ? [{ heading: 'Delivery (aparte, no en caja)', rows: [
             ['Ventas delivery', `${sys.deliveryCount} · ${m(sys.deliveryTotal)}`],
             ['Neto delivery', m(sys.deliveryNet)],
+          ] }] : []),
+          // El crédito del turno, con nombre y con su estado: es la lista con
+          // la que alguien sale a cobrar, y la que delata un crédito que no
+          // quedó registrado en ninguna parte.
+          ...(creditos.length > 0 ? [{ heading: 'Ventas a crédito (quedan por cobrar)', rows: [
+            ...creditos.map(v => [
+              `#${v.number} · ${v.cliente || 'SIN CLIENTE'}`
+                + (v.excluido ? ' · excluida del cierre' : '')
+                + (credEstado.sinCuenta.includes(v.id) ? ' · SIN CUENTA POR COBRAR' : ''),
+              m(v.total),
+            ] as [string, string]),
+            ['Total a crédito', m(creditoTotal)],
+            ...(credEstado.sinCuenta.length > 0
+              ? [['Créditos SIN cuenta por cobrar', String(credEstado.sinCuenta.length)] as [string, string]]
+              : []),
           ] }] : []),
           ...(sys.excludedCount > 0 ? [{ heading: 'Excluidas del cierre (ej. empleados)', rows: [
             ['Ventas excluidas', `${sys.excludedCount} · ${m(sys.excludedTotal)}`],
@@ -1114,18 +1234,78 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             <div className="flex items-center gap-3 mb-1.5 flex-wrap">
               <p className="text-xs font-black text-gray-500 uppercase">Ventas a crédito</p>
               <span className="text-xs font-bold text-blue-700">
-                {creditos.length} · ₡{sys.credit.toLocaleString()}
+                {creditos.length} · ₡{creditoTotal.toLocaleString()}
               </span>
               <span className="text-[11px] text-gray-400">no entran al arqueo: quedaron por cobrar</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
-              {creditos.map((v, i) => (
-                <span key={i} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-blue-50 text-blue-700">
-                  #{v.number}
-                  {v.cliente ? ` · ${v.cliente}` : ' · sin cliente'}
-                  {' · ₡'}{v.total.toLocaleString()}
+              {sys.creditExcluido > 0 && (
+                <span className="text-[11px] text-gray-500">
+                  • ₡{sys.creditExcluido.toLocaleString()} de clientes excluidos del cierre
                 </span>
-              ))}
+              )}
+            </div>
+
+            {/* ── ¿La deuda existe en alguna parte? ──
+                Un crédito sin cuenta por cobrar es una deuda que nadie ve y
+                nadie cobra: el cliente aparece al día. Acá se avisa y se
+                arregla, porque este es el único momento del día en que
+                alguien está mirando justo estas ventas. */}
+            {credEstado.sinCuenta.length > 0 ? (
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl px-3 py-2 mb-2 flex items-start gap-2 flex-wrap">
+                <AlertTriangle size={15} className="text-red-600 shrink-0 mt-0.5" />
+                <span className="flex-1 min-w-50 text-[12px] font-bold text-red-800">
+                  {credEstado.sinCuenta.length === 1
+                    ? 'Un crédito de este turno NO quedó como cuenta por cobrar'
+                    : `${credEstado.sinCuenta.length} créditos de este turno NO quedaron como cuenta por cobrar`}
+                  : esa plata no le aparece a nadie por cobrar y el cliente se ve al día.
+                </span>
+                <button type="button" onClick={() => void repararCreditos()} disabled={reparando}
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white text-[11px] font-black">
+                  {reparando ? 'Creando…' : 'Crear las cuentas que faltan'}
+                </button>
+              </div>
+            ) : credEstado.error ? (
+              <p className="text-[11px] text-amber-700 mb-1.5">
+                No se pudo revisar si estos créditos quedaron como cuenta por cobrar ({credEstado.error}).
+                Revisalos en Cuentas por cobrar antes de darlos por hechos.
+              </p>
+            ) : credEstado.cargando ? (
+              <p className="text-[11px] text-gray-400 mb-1.5">Revisando que cada crédito tenga su cuenta por cobrar…</p>
+            ) : (
+              <p className="text-[11px] text-emerald-600 mb-1.5">Todos quedaron como cuenta por cobrar.</p>
+            )}
+
+            {/* Un crédito sin nombre no se puede cobrar: es lo mismo que
+                regalarlo, y el cierre es la última hora en que alguien se
+                acuerda de quién se lo llevó. */}
+            {creditos.some(v => !v.cliente) && (
+              <p className="text-[11px] font-bold text-amber-700 mb-1.5">
+                Hay crédito sin cliente anotado: así no hay a quién cobrarle.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+              {creditos.map((v, i) => {
+                const sinCuenta = credEstado.sinCuenta.includes(v.id);
+                const cuenta = credEstado.cuentas[v.id];
+                return (
+                  <span key={i}
+                    title={sinCuenta
+                      ? 'Esta venta a crédito no tiene cuenta por cobrar: la deuda no existe en el sistema'
+                      : cuenta
+                        ? `Cuenta por cobrar · saldo ₡${cuenta.saldo.toLocaleString()}`
+                        : undefined}
+                    className={`text-[11px] font-bold px-2 py-1 rounded-lg ${
+                      sinCuenta
+                        ? 'bg-red-100 text-red-800 ring-1 ring-red-400'
+                        : 'bg-blue-50 text-blue-700'}`}>
+                    #{v.number}
+                    {v.cliente ? ` · ${v.cliente}` : ' · sin cliente'}
+                    {' · ₡'}{v.total.toLocaleString()}
+                    {v.excluido && ' · excluida'}
+                    {sinCuenta && ' · SIN CUENTA'}
+                  </span>
+                );
+              })}
             </div>
           </div>
         )}

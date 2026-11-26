@@ -41,6 +41,13 @@ export interface ReceivablePayment {
   created_at: string;
   voided_at?: string | null;
   voided_by?: string | null;
+  /** Por qué se anuló (migración 151). */
+  void_reason?: string | null;
+  /** Caja que recibió el abono, si entró por una. */
+  cash_session_id?: string | null;
+  /** Esa caja ya está cerrada: anular este abono cambia un arqueo firmado. */
+  caja_cerrada?: boolean;
+  caja_fecha?: string | null;
 }
 
 /** Un abono ya cobrado, visto como ENTRADA DE DINERO (cierre y reportes). */
@@ -107,10 +114,30 @@ export const accountsReceivableService = {
       facturas: Array<{ id: string; invoice_number: string; customer_name: string | null; total: number; fecha: string; de_ruta: boolean }>;
     }>(`/accounts-receivable/huerfanas${qs ? '?' + qs : ''}`);
   },
-  repararHuerfanas: (from?: string, to?: string) =>
+  /**
+   * `invoiceIds` repara SOLO esas ventas.
+   *
+   * Lo usa el cierre de caja: ahí se reparan los créditos de ESE turno. Con el
+   * rango de fechas, el cajero de la tarde tocaría también los créditos de la
+   * mañana, que son de otra persona.
+   */
+  repararHuerfanas: (from?: string, to?: string, invoiceIds?: string[]) =>
     apiFetch<{ revisadas: number; creadas: number; lista_creadas: string[]; fallaron: Array<{ invoice_number: string; motivo: string }> }>(
       '/accounts-receivable/huerfanas/reparar',
-      { method: 'POST', body: JSON.stringify({ from, to }) }),
+      { method: 'POST', body: JSON.stringify({ from, to, invoice_ids: invoiceIds }) }),
+
+  /**
+   * ¿ESTAS VENTAS A CRÉDITO QUEDARON COMO CUENTA POR COBRAR?
+   *
+   * El cierre de caja lo pregunta por las ventas a crédito de su turno: una
+   * venta a crédito sin cuenta es una deuda que no existe en ninguna parte y
+   * que nadie va a cobrar.
+   */
+  creditoEstado: (invoiceIds: string[]) =>
+    apiFetch<{
+      cuentas: Record<string, { id: string; total: number; pagado: number; saldo: number; status: string; due_date: string | null }>;
+      sin_cuenta: string[];
+    }>(`/accounts-receivable/credito-estado?invoice_ids=${encodeURIComponent(invoiceIds.join(','))}`),
   get: (id: string) => apiFetch<Receivable>(`/accounts-receivable/${id}`),
   create: (r: ReceivableInput) =>
     apiFetch<Receivable>('/accounts-receivable', { method: 'POST', body: JSON.stringify(r) }),
@@ -181,7 +208,19 @@ export const accountsReceivableService = {
 
   remove: (id: string) =>
     apiFetch(`/accounts-receivable/${id}`, { method: 'DELETE' }),
-  /** Anular un abono (solo admin/gerente/contador/propietario). */
-  voidPayment: (paymentId: string) =>
-    apiFetch<{ voided: boolean; amount: number }>(`/accounts-receivable/payments/${paymentId}/void`, { method: 'POST' }),
+  /**
+   * Anular un abono (solo admin/gerente/contador/propietario).
+   *
+   * El MOTIVO es obligatorio: anular mueve el saldo del cliente y, si el abono
+   * entró por una caja, también la plata de ese arqueo. Sin motivo, al mes
+   * siguiente nadie puede decir si fue un error de digitación o un cheque
+   * devuelto —y para el cliente no es lo mismo—.
+   *
+   * `force` confirma el caso de la caja YA cerrada: el servidor responde 409
+   * la primera vez para que la pantalla pueda avisar qué arqueo cambia.
+   */
+  voidPayment: (paymentId: string, reason: string, force = false) =>
+    apiFetch<{ voided: boolean; amount: number; new_paid: number; caja_cerrada?: boolean; caja_fecha?: string | null }>(
+      `/accounts-receivable/payments/${paymentId}/void`,
+      { method: 'POST', body: JSON.stringify({ reason, force }) }),
 };

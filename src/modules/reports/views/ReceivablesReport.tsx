@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Loader2, HandCoins, AlertTriangle, Users, Download, ArrowDownToLine } from 'lucide-react';
 import { accountsReceivableService, type Receivable, type ReceivableSummary, type AbonoCobrado } from '@/services/accountsReceivable/accountsReceivableService';
+import { AbonosModal } from '@/modules/accountsReceivable/AbonosDeCuenta';
 
 const fmt = (n: number) => `₡${Number(n || 0).toLocaleString('es-CR')}`;
 
@@ -29,6 +30,23 @@ export const ReceivablesReport: React.FC<{ from?: string; to?: string }> = ({ fr
   const [abonos, setAbonos] = useState<AbonoCobrado[]>([]);
   const [abonosErr, setAbonosErr] = useState(false);
   const [loading, setLoading] = useState(true);
+  /**
+   * LA CUENTA DEL ABONO QUE SE ESTÁ REVISANDO.
+   *
+   * Este reporte es donde alguien repasa la plata que entró, así que es donde
+   * se descubre el abono mal puesto. Antes había que salir a buscar la cuenta
+   * del cliente a mano —y si el abono la había cancelado, no aparecía en la
+   * lista de pendientes—.
+   */
+  const [cuentaAbonos, setCuentaAbonos] = useState<Receivable | null>(null);
+  const [abriendo, setAbriendo] = useState<string | null>(null);
+
+  const verAbonos = async (receivableId: string) => {
+    setAbriendo(receivableId);
+    try { setCuentaAbonos(await accountsReceivableService.get(receivableId)); }
+    catch { /* la cuenta pudo haberse borrado: no se abre nada */ }
+    finally { setAbriendo(null); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -184,6 +202,7 @@ export const ReceivablesReport: React.FC<{ from?: string; to?: string }> = ({ fr
                   <th className="text-left px-4 py-2 font-bold">Factura</th>
                   <th className="text-left px-4 py-2 font-bold">Método</th>
                   <th className="text-right px-4 py-2 font-bold">Monto</th>
+                  <th className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -194,11 +213,21 @@ export const ReceivablesReport: React.FC<{ from?: string; to?: string }> = ({ fr
                     <td className="px-4 py-2 text-gray-500">{a.factura ?? '—'}</td>
                     <td className="px-4 py-2 text-gray-500">{METHOD[a.method] ?? a.method}</td>
                     <td className="px-4 py-2 text-right font-bold text-violet-600">{fmt(a.amount)}</td>
+                    <td className="px-4 py-2 text-right">
+                      <button onClick={() => void verAbonos(a.receivable_id)} disabled={abriendo === a.receivable_id}
+                        className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 disabled:text-gray-300">
+                        {abriendo === a.receivable_id ? 'Abriendo…' : 'Ver / anular'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        )}
+        {cuentaAbonos && (
+          <AbonosModal ar={cuentaAbonos} onClose={() => setCuentaAbonos(null)}
+            onChanged={() => { void load(); }} />
         )}
         {abonos.length === 0 && !abonosErr && (
           <p className="text-center text-gray-400 py-4 text-sm bg-white rounded-xl border border-gray-100">
