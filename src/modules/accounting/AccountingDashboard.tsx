@@ -3,10 +3,18 @@
 import React, { useEffect, useState } from 'react';
 import {
   BookOpen, Loader2, RefreshCw, Plus, Trash2, AlertTriangle, CheckCircle2,
-  Scale, TrendingUp, Building2, List, Landmark,
+  LayoutGrid, FilePlus2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { BancosView } from './BancosView';
+import { RamasPanel } from './RamasPanel';
+import { RAMAS_INTERNAS, ramaPorId } from './ramas';
+import { Impuestos } from './views/Impuestos';
+import { Antiguedad } from './views/Antiguedad';
+import { FlujoCaja } from './views/FlujoCaja';
+import { ActivosFijos } from './views/ActivosFijos';
+import { CierrePeriodo } from './views/CierrePeriodo';
+import { AsientoManual } from './views/AsientoManual';
 
 /**
  * CONTABILIDAD.
@@ -22,14 +30,29 @@ import { BancosView } from './BancosView';
  * y el error aparece meses después.
  */
 
-type Vista = 'resumen' | 'diario' | 'bancos' | 'cuentas' | 'mayor';
+/** Las vistas son las ramas internas: el catálogo de `ramas.ts` las define. */
+type Vista = 'resumen' | 'diario' | 'bancos' | 'cuentas' | 'mayor'
+  | 'impuestos' | 'antiguedad' | 'flujo' | 'activos' | 'cierre';
+
+/** La rama que se abre al entrar, recordada por usuario. */
+const CLAVE_VISTA = 'novapos.contabilidad.rama';
 
 const crc = (n: any) => `₡${Math.round(Number(n) || 0).toLocaleString('es-CR')}`;
 const hoyCR = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Costa_Rica' });
 const primeroDelMes = () => hoyCR().slice(0, 8) + '01';
 
 export const AccountingDashboard: React.FC = () => {
-  const [vista, setVista] = useState<Vista>('resumen');
+  const [vista, setVista] = useState<Vista>(() => {
+    /* Quien entra a contabilidad casi siempre vuelve a la misma rama. Si la
+       guardada ya no existe, se cae a los informes en vez de quedar en blanco. */
+    try {
+      const g = localStorage.getItem(CLAVE_VISTA);
+      if (g && RAMAS_INTERNAS.some(r => r.id === g)) return g as Vista;
+    } catch { /* sin localStorage */ }
+    return 'resumen';
+  });
+  const [verRamas, setVerRamas] = useState(false);
+  const [asientoManual, setAsientoManual] = useState(false);
   const [desde, setDesde] = useState(primeroDelMes());
   const [hasta, setHasta] = useState(hoyCR());
   const [cargando, setCargando] = useState(true);
@@ -48,24 +71,43 @@ export const AccountingDashboard: React.FC = () => {
 
   const rango = `desde=${desde}&hasta=${hasta}`;
 
-  const cargar = async () => {
+  useEffect(() => {
+    try { localStorage.setItem(CLAVE_VISTA, vista); } catch { /* sin localStorage */ }
+  }, [vista]);
+
+  /**
+   * Las ramas que usan los informes del período.
+   *
+   * Las demás (activos, cierre, impuestos, antigüedad, flujo) piden sus
+   * propios datos. Antes se pedían los cuatro informes aunque la rama
+   * abierta no los mostrara: cuatro consultas pesadas para una pantalla que
+   * no las usa.
+   */
+  const usaInformes = vista === 'resumen' || vista === 'diario' || vista === 'mayor';
+  /** Para qué rango se cargaron ya: cambiar de pestaña no vuelve a pedirlos. */
+  const rangoCargado = React.useRef('');
+
+  const cargar = async (forzar = false) => {
     setCargando(true); setError('');
     try {
       const cu = await apiFetch<any>('/accounting/cuentas', {}, 30000);
       if (cu.sin_tabla) { setSinTabla(true); setCargando(false); return; }
       setSinTabla(false);
       setCuentas(cu.cuentas ?? []);
-      const [b, r, s, d] = await Promise.all([
-        apiFetch<any>(`/accounting/balance?${rango}`, {}, 60000),
-        apiFetch<any>(`/accounting/resultados?${rango}`, {}, 60000),
-        apiFetch<any>(`/accounting/situacion?hasta=${hasta}`, {}, 60000),
-        apiFetch<any>(`/accounting/diario?${rango}`, {}, 60000),
-      ]);
-      setBalance(b); setResultados(r); setSituacion(s); setDiario(d.asientos ?? []);
+      if (usaInformes && (forzar || rangoCargado.current !== rango)) {
+        const [b, r, s, d] = await Promise.all([
+          apiFetch<any>(`/accounting/balance?${rango}`, {}, 60000),
+          apiFetch<any>(`/accounting/resultados?${rango}`, {}, 60000),
+          apiFetch<any>(`/accounting/situacion?hasta=${hasta}`, {}, 60000),
+          apiFetch<any>(`/accounting/diario?${rango}`, {}, 60000),
+        ]);
+        setBalance(b); setResultados(r); setSituacion(s); setDiario(d.asientos ?? []);
+        rangoCargado.current = rango;
+      }
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cargar'); }
     finally { setCargando(false); }
   };
-  useEffect(() => { void cargar(); /* eslint-disable-next-line */ }, [desde, hasta]);
+  useEffect(() => { void cargar(); /* eslint-disable-next-line */ }, [desde, hasta, vista]);
 
   const contabilizar = async () => {
     setContabilizando(true); setError(''); setAviso('');
@@ -75,9 +117,10 @@ export const AccountingDashboard: React.FC = () => {
       }, 60000);
       setAviso(`Contabilizado: ${r.ventas} venta(s), ${r.gastos} gasto(s), ${r.compras} compra(s).`
         + (r.saltados ? ` ${r.saltados} ya tenían asiento.` : '')
+        + (r.cerrados ? ` ${r.cerrados} quedaron fuera por estar en un mes ya cerrado.` : '')
         + (r.faltan ? ` Quedan ${r.faltan} para la próxima corrida: tocá otra vez.` : ''));
       if (r.errores?.length) setError(`Algunos no se pudieron: ${r.errores.slice(0, 3).join(' · ')}`);
-      await cargar();
+      await cargar(true);
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo contabilizar'); }
     finally { setContabilizando(false); }
   };
@@ -94,7 +137,7 @@ export const AccountingDashboard: React.FC = () => {
     try {
       await apiFetch(`/accounting/diario/${a.id}/anular`, { method: 'POST' });
       setAviso(`Asiento #${a.numero} anulado con un contra-asiento.`);
-      await cargar();
+      await cargar(true);
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo anular'); }
   };
 
@@ -126,10 +169,23 @@ export const AccountingDashboard: React.FC = () => {
         <div>
           <h1 className="text-xl font-black text-gray-900 flex items-center gap-2">
             <BookOpen size={20} className="text-indigo-600" /> Contabilidad
+            <span className="text-gray-300 font-normal">/</span>
+            <span className="text-indigo-700">{ramaPorId(vista)?.label ?? ''}</span>
           </h1>
-          <p className="text-sm text-gray-500">Partida doble, con asientos automáticos desde tu operación.</p>
+          {/* La línea de abajo cambia con la rama: explica DÓNDE está parado,
+              que es lo que un módulo con diez pantallas necesita decir. */}
+          <p className="text-sm text-gray-500 max-w-2xl">{ramaPorId(vista)?.que
+            ?? 'Partida doble, con asientos automáticos desde tu operación.'}</p>
         </div>
         <div className="flex items-end gap-2 flex-wrap">
+          {/* EL BOTÓN DE LAS RAMAS.
+              Las pestañas de abajo sirven para moverse entre lo que uno ya
+              conoce; este botón es para VER QUÉ HAY, con lo que hace cada
+              rama y en qué momento del mes se usa. */}
+          <button onClick={() => setVerRamas(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border-2 border-indigo-200 text-indigo-700 text-xs font-black hover:bg-indigo-50">
+            <LayoutGrid size={14} /> Ramas de la contabilidad
+          </button>
           <div>
             <label className="block text-[11px] font-bold text-gray-500">Desde</label>
             <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
@@ -151,14 +207,14 @@ export const AccountingDashboard: React.FC = () => {
       {aviso && <p className="text-sm font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">{aviso}</p>}
       {error && <p className="text-sm font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
 
-      <div className="flex gap-1 border-b border-gray-200 flex-wrap">
-        {([['resumen', 'Informes', Scale], ['diario', 'Libro diario', List],
-           ['bancos', 'Bancos', Landmark],
-           ['cuentas', 'Catálogo', Building2], ['mayor', 'Mayor', TrendingUp]] as const).map(([id, t, Ico]) => (
-          <button key={id} onClick={() => setVista(id as Vista)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-bold border-b-2 -mb-px ${
-              vista === id ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500'}`}>
-            <Ico size={14} /> {t}
+      {/* Las pestañas salen del MISMO catálogo que el panel: agregar una rama
+          en `ramas.ts` la pone en los dos lados y no se pueden desincronizar. */}
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+        {RAMAS_INTERNAS.map(r => (
+          <button key={r.id} onClick={() => setVista(r.id as Vista)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap ${
+              vista === r.id ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            <r.icon size={14} /> {r.label}
           </button>
         ))}
       </div>
@@ -281,6 +337,18 @@ export const AccountingDashboard: React.FC = () => {
         </div>
       ) : vista === 'diario' ? (
         <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs text-gray-500">
+              {diario.length} asiento(s) en el período.
+            </p>
+            {/* El endpoint de asientos manuales existía sin pantalla: lo que
+                no sale de una venta, un gasto ni una compra no había forma de
+                registrarlo. */}
+            <button onClick={() => setAsientoManual(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold">
+              <FilePlus2 size={13} /> Asiento manual
+            </button>
+          </div>
           {diario.length === 0 && (
             <p className="text-sm text-gray-500">
               No hay asientos en este período. Tocá «Contabilizar pendientes» para generarlos
@@ -319,6 +387,16 @@ export const AccountingDashboard: React.FC = () => {
             </div>
           ))}
         </div>
+      ) : vista === 'impuestos' ? (
+        <Impuestos desde={desde} hasta={hasta} />
+      ) : vista === 'antiguedad' ? (
+        <Antiguedad hasta={hasta} />
+      ) : vista === 'flujo' ? (
+        <FlujoCaja desde={desde} hasta={hasta} />
+      ) : vista === 'activos' ? (
+        <ActivosFijos />
+      ) : vista === 'cierre' ? (
+        <CierrePeriodo />
       ) : vista === 'bancos' ? (
         <BancosView />
       ) : vista === 'cuentas' ? (
@@ -363,6 +441,16 @@ export const AccountingDashboard: React.FC = () => {
             </div>
           )}
         </div>
+      )}
+
+      {verRamas && (
+        <RamasPanel activa={vista} onElegir={id => setVista(id as Vista)}
+          onCerrar={() => setVerRamas(false)} />
+      )}
+      {asientoManual && (
+        <AsientoManual cuentas={cuentas}
+          onCerrar={() => setAsientoManual(false)}
+          onListo={msg => { setAsientoManual(false); setAviso(msg); void cargar(true); }} />
       )}
     </div>
   );
