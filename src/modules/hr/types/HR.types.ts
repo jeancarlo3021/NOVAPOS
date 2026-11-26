@@ -43,6 +43,72 @@ export interface Employee {
   photo_url?: string | null;
   terminated_at?: string | null;
   termination_reason?: string | null;
+  // ── Migración 149: lo que el impuesto sobre la renta necesita ──
+  /** Hijos declarados, para el crédito familiar del impuesto. */
+  dependents_children?: number;
+  has_spouse?: boolean;
+  /** Para los casos reales en que la retención no corre. */
+  tax_exempt?: boolean;
+}
+
+/** Un renglón del desglose: «IVM, 4,33%, ₡21.650». */
+export interface Renglon {
+  id: string;
+  label: string;
+  pct: number;
+  monto: number;
+}
+
+export type TipoDeduccion =
+  | 'prestamo' | 'solidarista' | 'cooperativa' | 'pension_alimentaria'
+  | 'embargo' | 'ahorro' | 'asociacion' | 'otro';
+
+export const TIPOS_DEDUCCION: Array<{ id: TipoDeduccion; label: string; nota: string }> = [
+  { id: 'prestamo', label: 'Préstamo', nota: 'Se rebaja en cuotas hasta saldarlo, y después se apaga solo.' },
+  { id: 'solidarista', label: 'Asociación solidarista', nota: 'Normalmente un % del salario bruto.' },
+  { id: 'cooperativa', label: 'Cooperativa', nota: 'Ahorro o crédito de la cooperativa.' },
+  { id: 'pension_alimentaria', label: 'Pensión alimentaria', nota: 'Ordenada por un juzgado. No entra en el límite del salario inembargable.' },
+  { id: 'embargo', label: 'Embargo judicial', nota: 'Sí entra en el límite del salario inembargable.' },
+  { id: 'ahorro', label: 'Ahorro voluntario', nota: 'A solicitud del trabajador.' },
+  { id: 'asociacion', label: 'Asociación o sindicato', nota: 'Cuota de afiliación.' },
+  { id: 'otro', label: 'Otro', nota: '' },
+];
+
+/** Una deducción fija de un empleado: préstamo, solidarista, embargo. */
+export interface DeduccionEmpleado {
+  id: string;
+  employee_id: string;
+  tipo: TipoDeduccion;
+  label: string;
+  modo: 'fijo' | 'porcentaje';
+  monto: number;
+  pct: number;
+  tope?: number | null;
+  saldo_total?: number | null;
+  saldo_restante?: number | null;
+  desde?: string | null;
+  hasta?: string | null;
+  activo: boolean;
+  notas?: string | null;
+  created_at?: string;
+}
+
+/** Las tasas con las que se calcula la planilla. */
+export interface TasaConfig { id: string; label: string; pct: number; nota?: string | null }
+
+export interface TasasPlanilla {
+  vigente: string;
+  obrero: TasaConfig[];
+  patronal: TasaConfig[];
+  ins: { pct: number; label: string; nota: string; activo: boolean };
+  renta: {
+    activo: boolean;
+    base: 'bruto' | 'bruto_menos_ccss';
+    tramos: Array<{ desde: number; hasta: number | null; pct: number }>;
+    credito_hijo: number;
+    credito_conyuge: number;
+  };
+  bmc: { aplicar: boolean; sem: number; ivm: number; nota: string };
 }
 
 /** Una línea de la planilla: un empleado en un período. */
@@ -68,6 +134,18 @@ export interface PayrollItem {
   payment_method?: string | null;
   unpaid_days: number;
   notes?: string | null;
+  // ── Migración 149: el desglose, congelado con la planilla ──
+  employee_charges_detail?: Renglon[];
+  income_tax?: number;
+  income_tax_detail?: Renglon[];
+  deductions_detail?: Renglon[];
+  employer_charges?: number;
+  employer_charges_detail?: Renglon[];
+  ins_amount?: number;
+  /** Sobre cuánto se calcularon las cuotas (puede ser la base mínima). */
+  contribution_base?: number | null;
+  /** Avisos de la línea. Nunca cambian un número: se muestran. */
+  avisos?: string[];
 }
 
 export interface PayrollRun {
@@ -89,6 +167,14 @@ export interface PayrollRun {
   paid_at?: string | null;
   created_at?: string;
   items?: PayrollItem[];
+  // ── Migración 149 ──
+  employee_charges_detail?: Renglon[];
+  employer_charges_detail?: Renglon[];
+  other_deductions_detail?: Renglon[];
+  income_tax?: number;
+  ins_amount?: number;
+  /** Las tasas con las que se calculó, tal cual estaban ese día. */
+  rates_snapshot?: TasasPlanilla | null;
 }
 
 export const SALARY_TYPE_LABELS: Record<SalaryType, string> = {

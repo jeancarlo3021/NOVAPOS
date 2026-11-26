@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Mail, Phone, Briefcase, Calendar, X, Search, AlertTriangle } from 'lucide-react';
+import { Plus, Edit2, Trash2, Mail, Phone, Briefcase, Calendar, X, Search, AlertTriangle, MinusCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { employeesService } from '@/services/hr/hrService';
 import { formatCedula, cleanCedula } from '@/utils/cedula';
@@ -10,6 +10,7 @@ import type { Employee, EmployeeStatus, SalaryType, CommissionBase } from '../ty
 import {
   DEPARTMENTS, STATUS_LABELS, STATUS_COLORS, SALARY_TYPE_LABELS, CONTRACT_TYPES,
 } from '../types/HR.types';
+import { DeduccionesEmpleado } from './DeduccionesEmpleado';
 
 interface FormData {
   full_name: string; identification: string; email: string; phone: string;
@@ -26,6 +27,10 @@ interface FormData {
   emergency_contact: string; emergency_phone: string;
   contract_type: string; contract_end_date: string;
   vacation_days_per_year: string;
+  // ── Migración 149: lo que el impuesto sobre la renta necesita ──
+  dependents_children: string;
+  has_spouse: boolean;
+  tax_exempt: boolean;
 }
 
 const EMPTY: FormData = {
@@ -39,6 +44,7 @@ const EMPTY: FormData = {
   emergency_contact: '', emergency_phone: '',
   contract_type: 'Indefinido', contract_end_date: '',
   vacation_days_per_year: '12',
+  dependents_children: '0', has_spouse: false, tax_exempt: false,
 };
 
 export const EmployeeProfile: React.FC = () => {
@@ -49,6 +55,8 @@ export const EmployeeProfile: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY);
+  const [verDeducciones, setVerDeducciones] =
+    useState<{ id: string; nombre: string } | null>(null);
   const [error, setError] = useState('');
   /**
    * Usuarios del sistema, para VINCULAR al empleado.
@@ -99,6 +107,9 @@ export const EmployeeProfile: React.FC = () => {
       contract_type: e.contract_type ?? 'Indefinido',
       contract_end_date: e.contract_end_date ?? '',
       vacation_days_per_year: e.vacation_days_per_year?.toString() ?? '12',
+      dependents_children: (e.dependents_children ?? 0).toString(),
+      has_spouse: e.has_spouse === true,
+      tax_exempt: e.tax_exempt === true,
     });
     setEditingId(e.id); setShowForm(true); setError('');
   };
@@ -134,6 +145,9 @@ export const EmployeeProfile: React.FC = () => {
       contract_end_date: form.contract_end_date || null,
       vacation_days_per_year: form.vacation_days_per_year
         ? parseFloat(form.vacation_days_per_year) : null,
+      dependents_children: Math.max(0, parseInt(form.dependents_children, 10) || 0),
+      has_spouse: form.has_spouse,
+      tax_exempt: form.tax_exempt,
     };
     try {
       if (editingId) await employeesService.update(editingId, payload);
@@ -214,6 +228,12 @@ export const EmployeeProfile: React.FC = () => {
                 <div className="flex gap-2 mt-3 opacity-0 group-hover:opacity-100 transition">
                   <button onClick={() => startEdit(emp)} className="flex-1 h-9 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
                     <Edit2 size={12} /> Editar
+                  </button>
+                  {/* Préstamos, solidarista, pensión alimentaria, embargos. */}
+                  <button onClick={() => setVerDeducciones({ id: emp.id, nombre: emp.full_name })}
+                    title="Deducciones fijas"
+                    className="px-3 h-9 bg-amber-50 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100">
+                    <MinusCircle size={12} />
                   </button>
                   <button onClick={() => handleDelete(emp)} className="px-3 h-9 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100">
                     <Trash2 size={12} />
@@ -315,6 +335,39 @@ export const EmployeeProfile: React.FC = () => {
                 <Field label="Cuenta / IBAN / SINPE" value={form.bank_account}
                   onChange={v => setForm({ ...form, bank_account: v })} />
               </div>
+
+              {/* ── IMPUESTO SOBRE LA RENTA ──
+                  Los créditos familiares se restan DEL IMPUESTO, no del
+                  salario, y dependen de datos que solo están en el
+                  expediente: cuántos hijos declara y si tiene cónyuge. Sin
+                  estos campos la retención salía más alta de lo que debía. */}
+              <div className="border-2 border-sky-100 bg-sky-50/50 rounded-xl p-3">
+                <p className="text-xs font-black text-sky-900 uppercase tracking-wider mb-2">
+                  Impuesto sobre la renta
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <Field label="Hijos declarados" type="number"
+                    value={form.dependents_children}
+                    onChange={v => setForm({ ...form, dependents_children: v })} />
+                  <label className="flex items-center gap-2 text-sm font-bold text-gray-700 md:mt-6">
+                    <input type="checkbox" checked={form.has_spouse}
+                      onChange={e => setForm({ ...form, has_spouse: e.target.checked })}
+                      className="w-4 h-4" />
+                    Declara cónyuge
+                  </label>
+                  <label className="flex items-center gap-2 text-sm font-bold text-gray-700 md:mt-6">
+                    <input type="checkbox" checked={form.tax_exempt}
+                      onChange={e => setForm({ ...form, tax_exempt: e.target.checked })}
+                      className="w-4 h-4" />
+                    No sujeto a retención
+                  </label>
+                </div>
+                <p className="text-[11px] text-gray-500 leading-snug mt-2">
+                  Los créditos por hijos y cónyuge bajan el impuesto retenido, no el salario, y nunca
+                  lo dejan negativo. Los montos de cada crédito se configuran una sola vez para todo
+                  el negocio, en Planilla → Tasas.
+                </p>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Field label="Fecha de ingreso" type="date" value={form.hire_date} onChange={v => setForm({...form, hire_date: v})} />
                 <div>
@@ -370,6 +423,11 @@ export const EmployeeProfile: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {verDeducciones && (
+        <DeduccionesEmpleado employeeId={verDeducciones.id} employeeName={verDeducciones.nombre}
+          onCerrar={() => setVerDeducciones(null)} />
       )}
     </div>
   );

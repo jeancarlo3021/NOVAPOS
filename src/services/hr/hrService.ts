@@ -3,6 +3,7 @@ import { apiFetch } from '@/lib/api';
 import type {
   Employee, AttendanceRecord, LeaveRequest, EmployeeStatus, LeaveStatus,
   PayrollRun, PayrollItem,
+  Renglon, TasasPlanilla, DeduccionEmpleado,
 } from '@/modules/hr/types/HR.types';
 
 // ─── EMPLOYEES ───────────────────────────────────────────────────────────────
@@ -106,8 +107,19 @@ export interface PlanillaPreview {
     gross: number; employee_charges: number; other_deductions: number;
     employer_charges: number; net: number; total_cost: number;
     employees_count: number; sales_total: number;
+    // ── El desglose ──
+    employee_charges_detail?: Renglon[];
+    employer_charges_detail?: Renglon[];
+    other_deductions_detail?: Renglon[];
+    income_tax?: number;
+    ins_amount?: number;
   };
-  cargas: { obrero: number; patronal: number };
+  /** El resumen. `ins` va aparte: es una póliza, no una carga de la CCSS. */
+  cargas: { obrero: number; patronal: number; ins?: number; vigente?: string };
+  /** Las tasas completas, para mostrar el desglose con su nombre. */
+  tasas?: TasasPlanilla;
+  /** Cuánto del mes cubre el período: una quincena es 0,5. */
+  factor?: number;
   /** Si el período ya tiene planilla guardada, para no pagar dos veces. */
   existente: { id: string; status: string; paid_at: string | null } | null;
 }
@@ -136,6 +148,53 @@ export const payrollService = {
     }),
 
   remove: (id: string) => apiFetch(`/hr/payroll/${id}`, { method: 'DELETE' }),
+
+  /**
+   * La planilla con los ajustes hechos a mano, recalculada POR EL SERVIDOR.
+   *
+   * La pantalla no repite el cálculo: los tramos del impuesto, los créditos
+   * familiares y las deducciones de cada empleado viven en un solo motor. Dos
+   * implementaciones del mismo cálculo se separan, y después nadie sabe cuál
+   * de los dos netos es el que se va a pagar.
+   */
+  recalcular: (payload: {
+    period_start: string; period_end: string; items: PayrollItem[];
+  }) => apiFetch<PlanillaPreview & { lineas: PayrollItem[] }>('/hr/payroll/recalcular', {
+    method: 'POST', body: JSON.stringify(payload),
+  }, 25_000),
+
+  /** Las tasas del negocio (CCSS, INS, renta, base mínima). */
+  settings: () => apiFetch<{
+    tasas: TasasPlanilla;
+    resumen: { obrero: number; patronal: number; ins: number; vigente: string };
+    por_omision: TasasPlanilla;
+  }>('/hr/payroll/settings'),
+
+  saveSettings: (cfg: Partial<TasasPlanilla>) => apiFetch<{
+    tasas: TasasPlanilla;
+    resumen: { obrero: number; patronal: number; ins: number; vigente: string };
+  }>('/hr/payroll/settings', { method: 'PUT', body: JSON.stringify(cfg) }),
+};
+
+/** Las deducciones fijas de un empleado: préstamos, solidarista, embargos. */
+export const deduccionesService = {
+  list: (employeeId: string) => apiFetch<{ sin_tabla?: boolean; deducciones: DeduccionEmpleado[] }>(
+    `/hr/employees/${employeeId}/deductions`),
+
+  create: (employeeId: string, d: {
+    tipo: string; label: string; modo: 'fijo' | 'porcentaje';
+    monto?: number; pct?: number; tope?: number | null; saldo_total?: number | null;
+    desde?: string | null; hasta?: string | null; notas?: string | null;
+  }) => apiFetch<DeduccionEmpleado>(`/hr/employees/${employeeId}/deductions`, {
+    method: 'POST', body: JSON.stringify(d),
+  }),
+
+  update: (id: string, campos: Partial<DeduccionEmpleado>) =>
+    apiFetch<DeduccionEmpleado>(`/hr/deductions/${id}`, {
+      method: 'PUT', body: JSON.stringify(campos),
+    }),
+
+  remove: (id: string) => apiFetch(`/hr/deductions/${id}`, { method: 'DELETE' }),
 };
 
 /** Lo de RRHH que necesita atención (lo usa el menú de notificaciones). */
