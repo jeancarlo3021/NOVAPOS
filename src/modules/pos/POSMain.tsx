@@ -9,6 +9,8 @@ import { useDeviceRole } from '@/hooks/useDeviceRole';
 import { Monitor, ShoppingBag, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { proformasService } from '@/services/proformas/proformasService';
+import { resolverClienteDeProforma } from '@/modules/proformas/clienteDeProforma';
+import { customersService } from '@/services/customers/customersService';
 import { useCashSession } from '@/hooks/useCashSession';
 import { createCashSession } from '@/services/cashManagement/cashSessionsService';
 import { useTenantId } from '@/hooks/useTenant';
@@ -146,6 +148,30 @@ export const POSMain = () => {
       });
       setCartItems(cart);
       if (pf.customer_name) setTabCustomerName(pf.customer_name);
+
+      /**
+       * EL CLIENTE DE LA PROFORMA, no solo su nombre.
+       *
+       * Se guardaba el nombre en la mesa y nada más. El cliente de verdad
+       * —el del catálogo— quedaba sin seleccionar, y con él se perdían sus
+       * PRECIOS (se cotizaba con precio de cliente y se cobraba de lista),
+       * su crédito, la marca de «no contar en el cierre» y la posibilidad de
+       * emitir factura electrónica en vez de tiquete.
+       *
+       * La misma regla que el POS electrónico: cédula primero, nombre exacto
+       * después, y si hay duda se avisa en vez de elegir por el cajero.
+       */
+      void (async () => {
+        const r = await resolverClienteDeProforma(pf, customersService);
+        if (r.estado === 'encontrado') setSelectedCustomer(r.cliente);
+        else if (r.estado === 'ambiguo') {
+          setError(`La proforma está a nombre de «${r.nombre}» y hay ${r.candidatos.length}`
+            + ' clientes con ese nombre. Elegí cuál es: de eso dependen sus precios y su crédito.');
+        } else if (r.estado === 'no_esta' && pf.customer_name) {
+          setError(`La proforma está a nombre de «${r.nombre}», pero no hay un cliente con ese`
+            + ' nombre en el catálogo. La venta sigue, pero sin sus precios ni su crédito.');
+        }
+      })();
       proformaToConvert.current = pf.id;
       const ahorro = brutos.reduce((t, b) => t + b, 0) - cart.reduce((t, it) => t + it.subtotal, 0);
       setSuccess(`Proforma ${pf.number} cargada`
@@ -1685,16 +1711,40 @@ export const POSMain = () => {
         customer_id: selectedCustomer?.id ?? null,
         customer_name: selectedCustomer?.name ?? null,
         customer_identification: (selectedCustomer as any)?.identification ?? null,
-        items: cartItems.map(it => ({
-          product_id: it.product_id, name: it.product.name, sku: (it.product as any).sku ?? null,
-          quantity: it.quantity, unit_price: it.unit_price,
-          iva_rate: Number((it.product as any).iva_rate ?? 13),
-          cabys: (it.product as any).cabys_code ?? null,
-        })),
+        /**
+         * LA COTIZACIÓN SE GUARDABA A PRECIO DE LISTA.
+         *
+         * Se armaba con cantidad × precio y nada más: se perdía el descuento
+         * que el cajero le había puesto a la línea, la regalía marcada a mano y
+         * lo que rebajaba un combo. El cliente pedía el precio, se le hacía la
+         * cotización con su descuento en pantalla, y el papel salía con el
+         * precio completo. Después hay que explicarle por qué el documento dice
+         * otra cosa de lo que se le ofreció.
+         *
+         * Se guarda desde `cartItemsNetos`, que es el carrito con las promos y
+         * las regalías ya resueltas, y el rebajo viaja como UN monto por línea:
+         * el servidor aplica porcentaje O monto, nunca los dos, así que un
+         * descuento del 10 % más una regalía en la misma línea perdería uno de
+         * los dos. El monto reproduce el total cotizado venga de donde venga.
+         */
+        items: cartItemsNetos.map(it => {
+          const bruto = round2(it.quantity * it.unit_price);
+          const neto = Math.max(0, round2(Number(it.subtotal) || 0));
+          return {
+            product_id: it.product_id, name: it.product.name, sku: (it.product as any).sku ?? null,
+            quantity: it.quantity, unit_price: it.unit_price,
+            iva_rate: Number((it as any).iva_rate ?? (it.product as any).iva_rate ?? 13),
+            cabys: (it.product as any).cabys_code ?? null,
+            discount_percent: 0,
+            discount_amount: Math.max(0, round2(bruto - neto)),
+          };
+        }),
       });
       setSuccess(`Proforma ${pf.number} guardada — la ves en el módulo Proformas`);
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar la proforma'); }
-  }, [tenantId, cartItems, selectedCustomer]);
+    // `cartItemsNetos` se recalcula en cada render: sin él en las dependencias
+    // la proforma se guardaría con el carrito de un render anterior.
+  }, [tenantId, cartItems, cartItemsNetos, selectedCustomer]);
 
   const handlePaymentConfirm = async (data: PaymentData) => {
     if (!tenantId || !currentSession) {

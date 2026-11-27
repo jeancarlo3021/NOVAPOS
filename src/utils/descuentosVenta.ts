@@ -25,6 +25,27 @@ export interface DescuentoGeneral {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * EL NETO DE UNA LÍNEA: porcentaje O monto, nunca los dos.
+ *
+ * Es la regla del servidor (`computeTotals`), acá para que ninguna pantalla la
+ * vuelva a escribir a mano. El editor de proformas la tenía escrita solo con el
+ * porcentaje y se comía los descuentos guardados en MONTO —los que vienen de
+ * una regalía o de un combo del POS—: mostraba el precio de lista mientras el
+ * documento guardado tenía otro total, así que el que editaba la cotización
+ * decidía sobre un número que no era el que iba a ver el cliente.
+ */
+export function netoDeLinea(l: {
+  quantity?: number | null; unit_price?: number | null;
+  discount_percent?: number | null; discount_amount?: number | null;
+}): number {
+  const linea = (Number(l?.quantity) || 0) * (Number(l?.unit_price) || 0);
+  const pct = Math.min(100, Math.max(0, Number(l?.discount_percent) || 0));
+  const amt = Math.max(0, Number(l?.discount_amount) || 0);
+  const desc = Math.min(linea, pct > 0 ? linea * (pct / 100) : amt);
+  return linea - desc;
+}
+
 export function calcularVenta(lineas: LineaConDescuento[], general: DescuentoGeneral) {
   const brutos = lineas.map(l => (Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
   const trasLinea = lineas.map((l, i) => {

@@ -4,6 +4,8 @@ import { Search, Plus, Trash2, UserPlus, X, Loader2, FileText, Check, ShoppingCa
 import { posPrinterService } from '@/services/pos/posPrinterService';
 import { getAllProducts, createProduct } from '@/services/Inventory/InventoryProductsService';
 import { proformasService } from '@/services/proformas/proformasService';
+import { customersService } from '@/services/customers/customersService';
+import { resolverClienteDeProforma, sirveParaFactura } from '@/modules/proformas/clienteDeProforma';
 import type { Product } from '@/types/Types_POS';
 import { haciendaService } from '@/services/hacienda/haciendaService';
 import { calcularVenta, netosDeProforma, type DescuentoGeneral } from '@/utils/descuentosVenta';
@@ -129,6 +131,46 @@ export const FeposMain: React.FC = () => {
       setDescGeneral({ tipo: 'pct', valor: 0 });
       proformaToConvert.current = pf.id;
       setMsg({ ok: true, text: `Proforma ${pf.number} cargada — emití para convertirla en venta` });
+
+      /**
+       * EL CLIENTE DE LA PROFORMA.
+       *
+       * No viajaba. Una cotización a nombre de alguien llegaba acá sin
+       * receptor, así que la pantalla solo dejaba emitir TIQUETE: el cliente
+       * que pidió la cotización justamente para tener factura se iba con un
+       * comprobante que no le sirve para su declaración, y para arreglarlo hay
+       * que anular y volver a emitir.
+       *
+       * Se busca con la cédula primero y con el nombre exacto después. Si no
+       * hay una coincidencia clara se dice y el cajero elige: emitirle a
+       * «Pulpería La Esquina S.A.» la factura de «Pulpería La Esquina» es un
+       * comprobante mal dirigido, y eso se arregla con nota de crédito.
+       */
+      void (async () => {
+        const r = await resolverClienteDeProforma(pf, customersService);
+        if (r.estado === 'encontrado') {
+          setCustomer(r.cliente);
+          if (sirveParaFactura(r.cliente)) {
+            /* Con receptor completo se preselecciona FACTURA: es para lo que
+               se pidió la cotización. El tiquete queda a un toque al lado. */
+            setDocumentType('factura_electronica');
+            setMsg({ ok: true, text: `Proforma ${pf.number} cargada a nombre de ${r.cliente.name}`
+              + ' — lista para emitir FACTURA electrónica' });
+          } else {
+            setMsg({ ok: true, text: `Proforma ${pf.number} cargada a nombre de ${r.cliente.name}.`
+              + ' Ese cliente no tiene tipo y número de identificación, así que solo se puede'
+              + ' emitir tiquete. Completá sus datos para facturarle.' });
+          }
+        } else if (r.estado === 'ambiguo') {
+          setMsg({ ok: false, text: `La proforma está a nombre de «${r.nombre}» y hay`
+            + ` ${r.candidatos.length} clientes con ese nombre. Elegí cuál es con el buscador:`
+            + ' no se puede facturar al que no es.' });
+        } else if (r.estado === 'no_esta') {
+          setMsg({ ok: false, text: `La proforma está a nombre de «${r.nombre}», pero no hay un`
+            + ' cliente con ese nombre en el catálogo. Buscalo o agregalo para poder emitirle'
+            + ' factura; si no, sale como tiquete.' });
+        }
+      })();
     }).catch(() => setMsg({ ok: false, text: 'No se pudo cargar la proforma' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, loading]);

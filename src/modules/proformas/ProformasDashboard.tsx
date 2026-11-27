@@ -14,6 +14,7 @@ import type { Product } from '@/types/Pos.types';
 import { POSCustomerSearch } from '@/modules/pos/POSCustomerSearch';
 import type { Customer } from '@/services/customers/customersService';
 import { proformasService, type Proforma, type ProformaItem } from '@/services/proformas/proformasService';
+import { netoDeLinea } from '@/utils/descuentosVenta';
 import { printProforma, printProformaTicket } from './printProforma';
 import { downloadProformaPdf } from './downloadProformaPdf';
 
@@ -234,11 +235,14 @@ const ProformaEditor: React.FC<{
   // el general, y el IVA SOBRE LA BASE YA DESCONTADA — cobrar impuesto sobre una
   // plata que el cliente no paga sería cobrarle de más.
   const bruto = items.reduce((s, l) => s + l.quantity * l.unit_price, 0);
-  const bases = items.map(l => {
-    const linea = l.quantity * l.unit_price;
-    const pct = Math.min(100, Math.max(0, Number((l as any).discount_percent ?? 0)));
-    return { base: linea - linea * (pct / 100), rate: taxEnabled ? (l.iva_rate ?? 0) : 0 };
-  });
+  /* `netoDeLinea` es la regla del servidor: porcentaje O monto. Acá estaba
+     escrita solo con el porcentaje, así que una proforma con descuento en monto
+     —una regalía, un combo— se mostraba a precio de lista mientras el documento
+     guardado decía otra cosa. */
+  const bases = items.map(l => ({
+    base: netoDeLinea(l as any),
+    rate: taxEnabled ? (l.iva_rate ?? 0) : 0,
+  }));
   const netoLineas = bases.reduce((s, b) => s + b.base, 0);
   const gPct = Math.min(100, Math.max(0, parseFloat(descPct) || 0));
   const factor = 1 - gPct / 100;
@@ -327,13 +331,18 @@ const ProformaEditor: React.FC<{
                 <span className="flex items-center gap-0.5">
                   <input type="number" min={0} max={100}
                     value={(it as any).discount_percent ?? ''} placeholder="0"
-                    onChange={e => patch(i, { discount_percent: parseFloat(e.target.value) || 0 } as any)}
+                    onChange={e => patch(i, {
+                      discount_percent: parseFloat(e.target.value) || 0,
+                      // Se limpia el monto: el servidor aplica uno O el otro, y
+                      // dejarlo haría reaparecer el viejo al volver el % a 0.
+                      discount_amount: 0,
+                    } as any)}
                     className="w-14 text-right border rounded-lg px-2 py-1 text-sm" title="Descuento de esta línea (%)" />
                   <span className="text-gray-400 text-xs">%</span>
                 </span>
                 <span className="w-24 text-right font-bold text-gray-900 text-sm">
-                  {fmt(it.quantity * it.unit_price * (1 - (Number((it as any).discount_percent ?? 0) / 100)))}
-                  {Number((it as any).discount_percent ?? 0) > 0 && (
+                  {fmt(netoDeLinea(it as any))}
+                  {netoDeLinea(it as any) < it.quantity * it.unit_price - 0.005 && (
                     <span className="block text-[10px] font-normal text-gray-400 line-through">
                       {fmt(it.quantity * it.unit_price)}
                     </span>
