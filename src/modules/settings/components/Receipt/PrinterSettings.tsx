@@ -215,17 +215,24 @@ export const PrinterSettings: React.FC<Props> = ({ config, setConfig }) => {
         </div>
       </div>
 
-      {/* Abrir cajón al cobrar (aplica a QZ Tray y Bluetooth) */}
+      {/* Abrir cajón al cobrar (aplica a QZ Tray y Bluetooth).
+          Viene APAGADO: una gaveta que se abre sola es una gaveta que se queda
+          abierta, y el botón «Cajón» del POS no depende de esta opción. */}
       {config.printerType !== 'browser' && (
-        <label className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer shadow-sm">
+        <label className="flex items-start justify-between gap-4 p-4 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer shadow-sm">
           <div>
-            <p className="font-semibold text-slate-800 text-sm">Abrir cajón al cobrar</p>
-            <p className="text-xs text-slate-400 mt-0.5">Envía el pulso de apertura tras imprimir el ticket de venta</p>
+            <p className="font-semibold text-slate-800 text-sm">Abrir el cajón solo, al cobrar en efectivo</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Viene apagado. El cajón se abre con el botón <b>Cajón</b> del POS, que
+              funciona siempre. Encendelo solo en el equipo que de verdad tiene la
+              gaveta: si no, el golpe suena en un cuarto donde no hay nadie, o la plata
+              queda a la vista entre un cliente y el siguiente.
+            </p>
           </div>
           <input type="checkbox"
-            checked={config.openDrawer !== false}
+            checked={config.openDrawer === true}
             onChange={e => setConfig({ ...config, openDrawer: e.target.checked })}
-            className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            className="w-5 h-5 mt-0.5 shrink-0 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
           />
         </label>
       )}

@@ -1714,9 +1714,10 @@ export const POSMain = () => {
     }
 
     /**
-     * La caja de dinero se abre SIEMPRE que entre efectivo, se imprima o no:
-     * cobrar «sin imprimir» dejaba la gaveta cerrada y el cajero tenía que
-     * abrirla con la llave para dar el vuelto.
+     * La caja de dinero se abre cuando entra efectivo, se imprima o no: cobrar
+     * «sin imprimir» dejaba la gaveta cerrada y el cajero tenía que abrirla con
+     * la llave para dar el vuelto. Igual que el pulso del tiquete, solo pasa si
+     * el negocio encendió la apertura automática, que viene apagada.
      *
      * Pero SIN LEVANTAR QZ TRAY. Cobrar sin imprimir es registrar la venta y
      * nada más: si el canal no está vivo —la caja no imprime, o la
@@ -1728,7 +1729,7 @@ export const POSMain = () => {
     if (data.skipPrint && cobroConEfectivo({
       paymentMethodId: data.paymentMethod, payments: data.payments ?? null,
     })) {
-      void posPrinterService.openCashDrawer(tenantId, { sinConectar: true });
+      void posPrinterService.openCashDrawer(tenantId, { sinConectar: true, automatico: true });
     }
 
     setPaymentLoading(true);

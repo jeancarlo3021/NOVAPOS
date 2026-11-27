@@ -237,6 +237,25 @@ export interface ReceiptData {
  * último la etiqueta impresa —por los tiquetes viejos y los que se arman en
  * otras pantallas—.
  */
+/**
+ * ¿LA GAVETA SE ABRE SOLA AL COBRAR?
+ *
+ * Por omisión NO. Es lo contrario de como estaba, y a propósito: una gaveta que
+ * se abre sola es una gaveta que se queda abierta. El cajero cobra, atiende al
+ * siguiente y la plata queda a la vista de medio local sin que nadie decidiera
+ * abrirla. Peor cuando el equipo no es el de la caja —una tablet de mesero, la
+ * computadora de la oficina— y el golpe suena en un cuarto donde no hay nadie.
+ *
+ * El que la quiera la enciende en Configuración → Impresora. Y el botón
+ * «Cajón» del POS no depende de esto: abrir la gaveta a mano es una decisión
+ * del cajero, con la mano en la gaveta, no un automatismo.
+ *
+ * `=== true` y no `!== false`: un negocio que nunca tocó la opción no la pidió.
+ */
+export function aperturaAutomatica(cfg: { openDrawer?: boolean } | null | undefined): boolean {
+  return (cfg as any)?.openDrawer === true;
+}
+
 export function cobroConEfectivo(r: {
   paymentMethod?: string;
   paymentMethodId?: string;
@@ -380,6 +399,13 @@ export interface ReceiptConfig {
   footerMessage: string;
   printerName?: string;
   printerType: 'thermal' | 'browser' | 'qztray' | 'bluetooth';
+  /**
+   * Abrir la gaveta SOLA al cobrar. Apagado si nadie la encendió.
+   *
+   * No gobierna el botón «Cajón» del POS: eso se abre a mano siempre que el
+   * equipo pueda mandarle bytes a la impresora. Ver `aperturaAutomatica`.
+   */
+  openDrawer?: boolean;
   autoprint: boolean;
   printers?: PrinterEntry[];
   /**
@@ -3967,7 +3993,7 @@ ${isA4 ? '' : `<script>
      * comprobante viejo ni imprimiendo un aviso de anulación: ninguno de los
      * dos mueve dinero.
      */
-    const abrirCajon = (cfg as any).openDrawer !== false
+    const abrirCajon = aperturaAutomatica(cfg as any)
       && !receiptData.esReimpresion
       && !receiptData.voidNotice
       && cobroConEfectivo(receiptData);
@@ -4179,10 +4205,18 @@ ${isA4 ? '' : `<script>
    * que imprime todo el día lo tiene), y si no, no pasa nada: devuelve false
    * en silencio y la venta queda igual.
    */
-  async openCashDrawer(tenantId: string, opciones?: { sinConectar?: boolean }): Promise<boolean> {
+  async openCashDrawer(
+    tenantId: string,
+    opciones?: { sinConectar?: boolean; automatico?: boolean },
+  ): Promise<boolean> {
     try {
       const cfg = await this.loadReceiptConfig(tenantId);
-      if ((cfg as any).openDrawer === false) return false;   // el negocio la desactivó
+      /* La opción del negocio manda SOLO sobre la apertura automática. Una
+         llamada a mano —el botón «Cajón» del POS— se hace igual: el cajero
+         está parado frente a la gaveta y la está pidiendo. Antes la misma
+         opción apagaba las dos cosas, así que quien no quería que se abriera
+         sola se quedaba también sin poder abrirla. */
+      if (opciones?.automatico && !aperturaAutomatica(cfg as any)) return false;
       const bytes = new Uint8Array([0x1B, 0x70, 0x00, 0x19, 0xFA]);
       const sinConectar = !!opciones?.sinConectar;
 
@@ -4238,7 +4272,6 @@ ${isA4 ? '' : `<script>
   async canOpenCashDrawer(tenantId: string): Promise<boolean> {
     try {
       const cfg = await this.loadReceiptConfig(tenantId);
-      if ((cfg as any).openDrawer === false) return false;
       if (cfg.printerType === 'qztray' || cfg.printerType === 'thermal') return true;
       const stations = (cfg.printers ?? []).filter(
         (p: any) => p.type === 'receipt' && p.is_active && p.connection === 'bluetooth',

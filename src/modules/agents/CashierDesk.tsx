@@ -228,7 +228,7 @@ export const CashierDesk: React.FC = () => {
       if (data.skipPrint && cobroConEfectivo({
         paymentMethodId: data.paymentMethod, payments: data.payments ?? null,
       })) {
-        void posPrinterService.openCashDrawer(tenantId);
+        void posPrinterService.openCashDrawer(tenantId, { automatico: true });
       }
 
       // Ticket (no bloquea el cobro si la impresora falla).
