@@ -119,7 +119,7 @@ export function useOfflineSync() {
         offlineSyncService.syncOperations(),
         tenantId ? purchasesOfflineService.syncAll(tenantId) : Promise.resolve({ synced: 0, errors: [] }),
         offlineQueue.syncAll(apiFetch),
-        posOfflineService.syncPendingVoids(async (invoiceId) => { await invoicesService.cancelInvoice(invoiceId); }),
+        posOfflineService.syncPendingVoids(async (invoiceId, motivo) => { await invoicesService.cancelInvoice(invoiceId, motivo); }),
       ]);
 
       const totalErrors = [...(genericResult.errors || []), ...(purchasesResult.errors || []),

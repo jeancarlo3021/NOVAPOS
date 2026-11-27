@@ -150,6 +150,11 @@ export async function closeCashSession(
           closing_usd: (input as any).closing_usd ?? null,
           notes: input.notes || null,
           closed_at: (input as any).closed_at ?? null,
+          /* El arqueo completo, tal como se imprimió. Es lo que permite
+             reimprimir el cierre desde Reportes: antes del cierre quedaba el
+             monto y nada más, y si el tiquete se perdía ese turno ya no se
+             podía volver a sacar. */
+          cierre_detalle: (input as any).cierre_detalle ?? null,
         }),
       });
 

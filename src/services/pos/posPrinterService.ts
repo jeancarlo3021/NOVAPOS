@@ -207,6 +207,53 @@ export interface ReceiptData {
   feQrDataUrl?: string;
   /** Contenido codificado en el QR (URL de consulta) — para ESC/POS nativo. */
   feQrContent?: string;
+  /**
+   * MEDIO DE PAGO SIN TRADUCIR ('cash', 'card', 'sinpe', 'credit', 'mixed'…).
+   *
+   * `paymentMethod` es la etiqueta que se imprime («Efectivo», «SINPE Móvil»),
+   * y una etiqueta no sirve para decidir nada: cambia de idioma, se edita, y
+   * «Pago mixto» no dice si entró efectivo. El cajón se abre con ESTE campo.
+   */
+  paymentMethodId?: string;
+  /**
+   * Es una REIMPRESIÓN de un comprobante viejo.
+   *
+   * Reimprimir no mueve plata: la gaveta no tiene por qué abrirse. Abierta,
+   * cualquiera que reimprime un tiquete de la mañana deja el efectivo
+   * expuesto sin que haya una venta detrás.
+   */
+  esReimpresion?: boolean;
+}
+
+/**
+ * ¿ENTRÓ EFECTIVO EN ESTE COBRO?
+ *
+ * Es lo único que justifica abrir la gaveta. Antes el pulso del cajón iba en
+ * TODO tiquete impreso: una venta con tarjeta o SINPE abría el cajón igual,
+ * así que la plata quedaba a la vista en cobros donde nadie tenía que meter
+ * la mano, y el golpe del cajón dejaba de significar algo.
+ *
+ * Se mira primero el desglose (pago mixto), después el id del medio, y de
+ * último la etiqueta impresa —por los tiquetes viejos y los que se arman en
+ * otras pantallas—.
+ */
+export function cobroConEfectivo(r: {
+  paymentMethod?: string;
+  paymentMethodId?: string;
+  payments?: Array<{ method?: string; amount?: number }> | null;
+}): boolean {
+  const pays = Array.isArray(r?.payments) ? r.payments : [];
+  if (pays.length > 0) {
+    return pays.some(p => String(p?.method ?? '') === 'cash' && Number(p?.amount || 0) > 0);
+  }
+  const m = String(r?.paymentMethodId ?? r?.paymentMethod ?? '').trim().toLowerCase();
+  if (!m) return false;
+  if (m === 'cash' || m.startsWith('efectivo')) return true;
+  /* Mixto SIN desglose: no se puede saber qué entró, y acá sí se abre. Es el
+     caso donde casi siempre hay efectivo, y dejar al cajero sin poder dar el
+     vuelto es un problema del mostrador, con el cliente esperando. */
+  if (m === 'mixed' || m.includes('mixto')) return true;
+  return false;
 }
 
 /**
@@ -1207,6 +1254,32 @@ export class POSPrinterService {
     credits_total?: number;
     credits_count?: number;
     credits_sin_cuenta?: number;
+    /**
+     * LAS ANULACIONES DEL TURNO, CON SU MOTIVO.
+     *
+     * El total junto no se puede revisar contra nada: dice que se anularon
+     * ₡80.000 y ya. Con el número, el cliente y el motivo de cada una, el
+     * dueño puede preguntar por la que no cierra —y una anulación sin motivo
+     * anotado se ve, que es justo la que hay que preguntar—.
+     */
+    voids?: Array<{ numero?: string | null; cliente?: string | null; amount: number; motivo?: string | null }>;
+    /**
+     * ES UNA REIMPRESIÓN, no el cierre del momento.
+     *
+     * Va impreso en grande. Un arqueo reimpreso que se ve igual que el
+     * original puede reemplazar al que se firmó: dos papeles idénticos, uno
+     * con firma y otro sin, y nadie puede decir cuál es el bueno.
+     */
+    reimpresion?: boolean;
+    /**
+     * EL DETALLE NO ESTABA GUARDADO: se rearmó de las ventas del turno.
+     *
+     * Pasa con las cajas cerradas antes de que el cierre se guardara completo.
+     * Lo que el sistema registró se recupera; lo que el cajero contó por
+     * método no existe en ninguna parte, así que el papel lo dice en vez de
+     * imprimir ceros que se leen como un arqueo.
+     */
+    reconstruido?: boolean;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
     invoices_count: number;
     invoices_total: number;
@@ -1257,8 +1330,12 @@ export class POSPrinterService {
       const a4dSinpe = Number(report.sinpe_total ?? 0) - Number(report.system_sinpe ?? 0);
       const sMoney = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${money(Math.abs(n))}`;
       const lines: Array<{ t: string; a?: string; b?: string }> = [
-        { t: 'title', a: 'CIERRE DE CAJA' },
+        { t: 'title', a: report.reimpresion ? 'CIERRE DE CAJA — REIMPRESIÓN' : 'CIERRE DE CAJA' },
         ...(general?.businessName ? [{ t: 'center' as const, a: general.businessName }] : []),
+        ...(report.reimpresion
+          ? [{ t: 'center' as const, a: `Reimpreso ${new Date().toLocaleString('es-CR')}` }] : []),
+        ...(report.reconstruido
+          ? [{ t: 'text' as const, a: 'Rearmado de las ventas del turno: de este cierre no se guardó el detalle de lo que se contó por método.' }] : []),
         ...(report.cashier_name ? [{ t: 'center' as const, a: `Cajero: ${report.cashier_name}` }] : []),
         { t: 'center', a: `Abrió ${dt(report.opened_at)} · Cerró ${dt(report.closed_at)}` },
         { t: 'sep' }, { t: 'title', a: 'VENTAS (SISTEMA)' },
@@ -1296,6 +1373,18 @@ export class POSPrinterService {
             a: `   ${a.tipo === 'credito' ? 'Crédito' : 'Apartado'} ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`.trimEnd(),
             b: `${this.etiquetaCortaMedio(a.method)} ${money(a.amount)}`,
           })),
+        ] : []),
+        // Las anulaciones con su motivo. El arqueo es donde alguien las
+        // revisa, y sin el motivo no hay nada que preguntar.
+        ...((report.voids ?? []).length > 0 ? [
+          { t: 'sep' as const }, { t: 'title' as const, a: 'ANULACIONES' },
+          ...(report.voids ?? []).map(v => ({
+            t: 'row' as const,
+            a: `${v.numero ? `#${v.numero}` : ''} ${v.cliente || ''}`.trim()
+              + ` — ${v.motivo || 'SIN MOTIVO ANOTADO'}`,
+            b: money(v.amount),
+          })),
+          { t: 'row' as const, a: 'Total anulado', b: money(report.voids_total ?? 0) },
         ] : []),
         // El crédito del turno, con nombre: es la lista con la que se sale a
         // cobrar. El que no quedó como cuenta por cobrar va marcado, porque es
@@ -1804,6 +1893,18 @@ export class POSPrinterService {
 
     centerText('=== CIERRE DE CAJA ===');
     if (general?.businessName) centerText(general.businessName);
+    /* Una reimpresión tiene que verse distinta del original. Si salen
+       idénticos, el papel reimpreso puede ocupar el lugar del que se firmó y
+       después nadie sabe cuál de los dos es el arqueo bueno. */
+    if (report.reimpresion) {
+      centerText('*** REIMPRESION ***');
+      centerText(`Reimpreso ${new Date().toLocaleString('es-CR')}`);
+    }
+    if (report.reconstruido) {
+      centerText('Rearmado de las ventas');
+      centerText('del turno: lo contado por');
+      centerText('metodo no quedo guardado');
+    }
     sep();
     row('Apertura:', fmtDateTime(report.opened_at));
     row('Cierre:', fmtDateTime(report.closed_at));
@@ -1855,6 +1956,18 @@ export class POSPrinterService {
     if ((report.reparto_count ?? 0) > 0) {
       row('Cobros de reparto:', `${report.reparto_count} · ${fmt(report.reparto_total ?? 0)}`);
       row('', '(ya incluido arriba)');
+    }
+    /* Las anulaciones, una por una y con su motivo. */
+    const anuladasDet = report.voids ?? [];
+    if (anuladasDet.length > 0) {
+      sep();
+      centerText('ANULACIONES');
+      for (const v of anuladasDet) {
+        const quien = `${v.numero ? `#${v.numero}` : ''} ${v.cliente || ''}`.trim();
+        row(quien.slice(0, charWidth - 11), fmt(v.amount));
+        row(`  ${(v.motivo || 'SIN MOTIVO ANOTADO').slice(0, charWidth - 4)}`, '');
+      }
+      row('Total anulado:', fmt(report.voids_total ?? 0));
     }
     /* El crédito del turno, con nombre. Es la lista con la que se sale a
        cobrar, y el crédito SIN cuenta va marcado: en el tiquete queda algo que
@@ -2080,8 +2193,10 @@ export class POSPrinterService {
 <body>
 <div class="receipt">
 
-  <div class="title">CIERRE DE CAJA</div>
+  <div class="title">CIERRE DE CAJA${report.reimpresion ? ' — REIMPRESIÓN' : ''}</div>
   <div class="store-name">${storeName}</div>
+  ${report.reimpresion ? `<div class="meta">Reimpreso ${new Date().toLocaleString('es-CR')}</div>` : ''}
+  ${report.reconstruido ? '<div class="meta">Rearmado de las ventas del turno: de este cierre no se guardó el detalle de lo que se contó por método.</div>' : ''}
 
   <div class="meta"><strong>Apertura:</strong> ${fmtDateTime(report.opened_at)}</div>
   <div class="meta"><strong>Cierre:</strong> ${fmtDateTime(report.closed_at)}</div>
@@ -2103,6 +2218,18 @@ export class POSPrinterService {
     }</td><td style="text-align:right">${report.reservations_count} · ${fmt(report.reservations_total ?? 0)}</td></tr>` : ''}
     ${(report.reservations ?? []).map((a: any) => `<tr><td style="font-size:11px;padding-left:8px">${`${a.tipo === 'credito' ? 'Crédito' : 'Apartado'} ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`.trim()}</td><td style="text-align:right;font-size:11px">${this.etiquetaCortaMedio(a.method)} ${fmt(a.amount)}</td></tr>`).join('')}
   </table>
+
+  ${(report.voids ?? []).length > 0 ? `
+    <div class="section">ANULACIONES</div>
+    <table>
+      ${(report.voids ?? []).map((v: any) => `<tr><td>${
+        escHtml(`${v.numero ? `#${v.numero} ` : ''}${v.cliente || ''}`)
+      }<br><span style="font-size:11px${v.motivo ? '' : ';color:#b91c1c;font-weight:bold'}">${
+        escHtml(v.motivo || 'SIN MOTIVO ANOTADO')
+      }</span></td><td style="text-align:right">${fmt(v.amount)}</td></tr>`).join('')}
+      <tr><td><strong>Total anulado:</strong></td><td style="text-align:right"><strong>${fmt(report.voids_total ?? 0)}</strong></td></tr>
+    </table>
+  ` : ''}
 
   ${(report.credits ?? []).length > 0 ? `
     <div class="section">A CRÉDITO (QUEDA POR COBRAR)</div>
@@ -3800,12 +3927,27 @@ ${isA4 ? '' : `<script>
     if (!receiptData.hideThanks) centrarBloque('Vuelva pronto');
     if (pie || !receiptData.hideThanks) nl();
 
-    // Abrir cajón de dinero — ANTES del corte. Algunas impresoras descartan los
-    // comandos que llegan DESPUÉS de GS V (corte), por eso a veces no abría en
-    // ciertos pagos (p. ej. efectivo). Mandándolo antes del corte abre siempre.
-    // ESC p m t1 t2 — m=0 (pin 2), t1=25, t2=250 (duración del pulso).
-    // Se omite si el negocio desactivó la apertura de cajón (cfg.openDrawer === false).
-    if ((cfg as any).openDrawer !== false) {
+    /**
+     * ABRIR EL CAJÓN — ANTES del corte.
+     *
+     * Algunas impresoras descartan los comandos que llegan DESPUÉS de GS V
+     * (corte), por eso antes no abría en ciertos pagos. Mandándolo antes del
+     * corte abre siempre.
+     *
+     * ESC p m t1 t2 — m=0 (pin 2), t1=25, t2=250 (duración del pulso).
+     *
+     * Solo cuando entra EFECTIVO. El cajón se abre para guardar plata o dar
+     * vuelto; en una venta con tarjeta no hay nada que hacer ahí, y abrirlo
+     * igual deja el efectivo a la vista delante de quien sea y le quita
+     * significado al golpe del cajón. Tampoco se abre reimprimiendo un
+     * comprobante viejo ni imprimiendo un aviso de anulación: ninguno de los
+     * dos mueve dinero.
+     */
+    const abrirCajon = (cfg as any).openDrawer !== false
+      && !receiptData.esReimpresion
+      && !receiptData.voidNotice
+      && cobroConEfectivo(receiptData);
+    if (abrirCajon) {
       push(0x1B, 0x70, 0x00, 0x19, 0xFA);
     }
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Ban, Lock, AlertCircle, Loader2, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { invoicesService } from '@/services/invoice/invoiceService';
+import { MOTIVOS_ANULACION } from './motivosAnulacion';
 
 /**
  * Confirmación de anulación de UNA venta ya identificada.
@@ -41,7 +42,9 @@ export const VoidSaleDialog: React.FC<Props> = ({ sale, label, onClose, onVoided
   const [storedPin, setStoredPin] = useState<string>('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
-  const [reason, setReason] = useState('Anulación por error en facturación');
+  /* Vacío a propósito: con un motivo escrito de antemano, todas las
+     anulaciones quedaban con el mismo texto y el dato no servía. */
+  const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
 
   // El PIN es el MISMO de Ajustes → General que usa el POS: si el negocio ya
@@ -59,10 +62,11 @@ export const VoidSaleDialog: React.FC<Props> = ({ sale, label, onClose, onVoided
   const submit = async () => {
     if (storedPin && pin !== storedPin) { setError('PIN incorrecto'); setPin(''); return; }
     if (!navigator.onLine) { setError('Necesitás conexión para anular.'); return; }
-    const motivo = reason.trim() || 'Anulación por error en facturación';
+    const motivo = reason.trim();
+    if (motivo.length < 4) { setError('Elegí o escribí por qué se anula esta venta.'); return; }
     setBusy(true);
     try {
-      await invoicesService.cancelInvoice(sale.id);
+      await invoicesService.cancelInvoice(sale.id, motivo);
       // La factura YA quedó anulada en el sistema. Si la Nota de Crédito falla,
       // no se deshace nada: se avisa, porque queda pendiente ante Hacienda.
       if (needsNote) {
@@ -110,7 +114,20 @@ export const VoidSaleDialog: React.FC<Props> = ({ sale, label, onClose, onVoided
           </div>
 
           <div>
-            <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Motivo</label>
+            <label className="text-sm font-semibold text-gray-700 mb-1.5 block">
+              Motivo <span className="text-red-500">*</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {MOTIVOS_ANULACION.map(m => (
+                <button key={m.id} type="button" onClick={() => { setReason(m.texto); setError(''); }}
+                  className={`text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition ${
+                    reason.trim().toLowerCase() === m.texto.toLowerCase()
+                      ? 'bg-red-600 border-red-600 text-white'
+                      : 'bg-white border-gray-200 text-gray-600 hover:border-red-300'}`}>
+                  {m.texto}
+                </button>
+              ))}
+            </div>
             <textarea
               value={reason}
               onChange={e => setReason(e.target.value.slice(0, 160))}
@@ -121,6 +138,13 @@ export const VoidSaleDialog: React.FC<Props> = ({ sale, label, onClose, onVoided
             {needsNote && (
               <p className="text-[11px] text-gray-400 mt-1">Se usará como razón de la Nota de Crédito.</p>
             )}
+            {/* Acá no hay carrito donde rehacerla: desde el POS la anulación
+                sí puede devolver las líneas, y conviene decirlo antes de que
+                alguien anule desde el reporte y tenga que digitar de memoria. */}
+            <p className="text-[11px] text-gray-500 mt-1">
+              Si fue un error al facturar y hay que volver a cobrarla, anulala desde el POS
+              (Anular factura): ahí lo que llevaba vuelve al carrito para corregirlo.
+            </p>
           </div>
 
           {storedPin ? (

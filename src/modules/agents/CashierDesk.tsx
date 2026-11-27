@@ -15,7 +15,7 @@ import { CashCloseModal } from '@/modules/pos/cashManagement/CashCloseModal';
 import { CashMovementModal } from '@/modules/pos/cashManagement/CashMovementModal';
 import { PaymentConfirmationModal, type PaymentData } from '@/modules/pos/cashManagement/PaymentConfirmationModal';
 import { invoicesService } from '@/services/invoice/invoiceService';
-import { posPrinterService } from '@/services/pos/posPrinterService';
+import { posPrinterService, cobroConEfectivo } from '@/services/pos/posPrinterService';
 import { invoiceEmail } from '@/services/email/invoiceEmailService';
 import { marcarOcupado } from '@/utils/appBusy';
 import { agentOrdersService, type AgentOrder } from '@/services/agents/salesAgentsService';
@@ -225,9 +225,9 @@ export const CashierDesk: React.FC = () => {
       // La caja se abre igual cuando el cobro va en efectivo pero NO se imprime:
       // el pulso del cajón viaja dentro del recibo, así que sin recibo la caja
       // quedaba cerrada y había que abrirla con la llave para dar el vuelto.
-      const entraEfectivo = data.paymentMethod === 'cash'
-        || (data.payments ?? []).some((p: any) => p.method === 'cash' && Number(p.amount) > 0);
-      if (data.skipPrint && entraEfectivo) {
+      if (data.skipPrint && cobroConEfectivo({
+        paymentMethodId: data.paymentMethod, payments: data.payments ?? null,
+      })) {
         void posPrinterService.openCashDrawer(tenantId);
       }
 
@@ -244,6 +244,7 @@ export const CashierDesk: React.FC = () => {
           })),
           subtotal, tax, total,
           paymentMethod: data.paymentMethod,
+          paymentMethodId: data.paymentMethod,   // con esto se decide el cajón
           customerName: charging.customer_name ?? undefined,
           cashierName: user?.email,
         } as any, tenantId).catch(() => {});

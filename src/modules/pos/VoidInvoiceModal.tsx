@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { etiquetaMedioPago } from '@/utils/mediosDePago';
 import { X, Search, Ban, Lock, AlertCircle, WifiOff } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { MOTIVOS_ANULACION, esMotivoDeError } from './motivosAnulacion';
 import { invoicesService } from '@/services/invoice/invoiceService';
 import { posOfflineService } from '@/services/pos/posOfflineService';
 import { useTenantId } from '@/hooks/useTenant';
@@ -17,6 +18,8 @@ interface InvoiceRow {
   voided?: boolean; // legacy cache field (mismo significado que status='cancelled')
   fe_clave?: string | null;    // si tiene, la factura se emitió a Hacienda
   fe_nc_clave?: string | null; // si tiene, ya se le emitió Nota de Crédito
+  /** Por qué se anuló (migración 153). */
+  void_reason?: string | null;
 }
 
 const fmt = (n: number) =>
@@ -57,9 +60,33 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [voiding, setVoiding] = useState(false);
-  const [reason, setReason] = useState('Anulación por error en facturación');
+  /**
+   * EMPIEZA VACÍO a propósito.
+   *
+   * Antes venía con «Anulación por error en facturación» escrito, así que el
+   * 100% de las anulaciones quedaba con ese texto: un motivo que está en todas
+   * no dice nada de ninguna. Ahora hay que elegir, y es un toque.
+   */
+  const [reason, setReason] = useState('');
   /** Se puso mal: después de anular, vuelve al carrito para corregirla. */
   const [rehacer, setRehacer] = useState(false);
+  /** El cajero destildó «rehacer» a mano: no se vuelve a marcar solo. */
+  const [rehacerTocado, setRehacerTocado] = useState(false);
+
+  /**
+   * ELEGIR EL MOTIVO decide también si hay que rehacer la venta.
+   *
+   * Es la diferencia entre las dos cosas que se llaman «anular»: si fue un
+   * error al facturar, el cliente YA se llevó la mercadería y pagó —hay que
+   * volver a hacer la venta bien, o queda mercadería afuera sin venta y el
+   * inventario empieza a mentir—. Si la venta no va a existir (se arrepintió,
+   * estaba duplicada) no hay nada que rehacer.
+   */
+  const elegirMotivo = (texto: string, esError: boolean) => {
+    setReason(texto);
+    setPinError('');
+    if (!rehacerTocado && onRehacer) setRehacer(esError);
+  };
 
   const load = useCallback(async () => {
     if (!tenantId) return;
@@ -146,12 +173,16 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
       setPin('');
       return;
     }
-    const motivo = reason.trim() || 'Anulación por error en facturación';
+    const motivo = reason.trim();
+    if (motivo.length < 4) {
+      setPinError('Elegí o escribí por qué se anula esta venta.');
+      return;
+    }
     setVoiding(true);
     let ncWarning = '';
     try {
       if (isOnline) {
-        const res = await invoicesService.cancelInvoice(selected.id);
+        const res = await invoicesService.cancelInvoice(selected.id, motivo);
         // Si alguna línea no volvió al inventario hay que decirlo ahora: en el
         // conteo del mes ya no se sabe cuál factura fue.
         if ((res as any)?.restock_skipped) {
@@ -168,7 +199,9 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
           }
         }
       } else {
-        await posOfflineService.queueVoid(selected.id, selected.invoice_number);
+        /* El motivo viaja con la anulación encolada: sin él, una anulación
+           hecha sin internet llegaba al servidor sin explicación. */
+        await posOfflineService.queueVoid(selected.id, selected.invoice_number, motivo);
       }
       // Marcar inmediatamente como anulada en estado local + cache offline para
       // que aunque el modal se reabra sin re-fetch, la factura ya aparezca con
@@ -293,7 +326,22 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
 
             {/* Motivo de la anulación (va como razón de la Nota de Crédito en FE) */}
             <div>
-              <label className="text-sm font-semibold text-gray-700 mb-2 block">Motivo de la anulación</label>
+              <label className="text-sm font-semibold text-gray-700 mb-2 block">
+                Motivo de la anulación <span className="text-red-500">*</span>
+              </label>
+              {/* De un toque. Un campo libre obligatorio termina lleno de
+                  «error» y «.», y entonces el dato no sirve para nada. */}
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {MOTIVOS_ANULACION.map(m => (
+                  <button key={m.id} type="button" onClick={() => elegirMotivo(m.texto, m.esError)}
+                    className={`text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition ${
+                      reason.trim().toLowerCase() === m.texto.toLowerCase()
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'bg-white border-gray-200 text-gray-600 hover:border-red-300'}`}>
+                    {m.texto}
+                  </button>
+                ))}
+              </div>
               <textarea
                 value={reason}
                 onChange={e => setReason(e.target.value.slice(0, 160))}
@@ -311,7 +359,7 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                 una venta que se cayó. Sin esto el cajero anula y tiene que
                 volver a digitarla de memoria con el cliente enfrente. */}
             {onRehacer && (
-              <button type="button" onClick={() => setRehacer(v => !v)}
+              <button type="button" onClick={() => { setRehacerTocado(true); setRehacer(v => !v); }}
                 className={`w-full flex items-start gap-2.5 text-left px-3 py-2.5 rounded-xl border-2 transition ${
                   rehacer ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}>
                 <span className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
@@ -328,6 +376,18 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                   </span>
                 </span>
               </button>
+            )}
+
+            {/* El motivo dice que fue un error, pero no se va a rehacer. Se
+                avisa: la mercadería ya salió, y una venta que no se vuelve a
+                hacer deja el inventario diciendo que ese producto está en la
+                bodega. */}
+            {onRehacer && !rehacer && esMotivoDeError(reason) && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                El motivo dice que fue un error al facturar y no marcaste rehacerla. Si el cliente ya
+                se llevó la mercadería, hay que volver a cobrarla: si no, queda afuera sin ninguna
+                venta que la respalde.
+              </p>
             )}
 
             {storedPin ? (
@@ -445,6 +505,14 @@ export const VoidInvoiceModal: React.FC<Props> = ({ sessionId, onClose, onVoided
                           {formatWallClock(inv.issued_at, { hour: '2-digit', minute: '2-digit' })}
                           {' · '}{etiquetaMedioPago(inv.payment_method)}
                         </p>
+                        {/* POR QUÉ se anuló. Es el dato que contesta la
+                            pregunta que aparece cuando alguien revisa las
+                            anulaciones del día. */}
+                        {isCancelled && (
+                          <p className="text-[11px] text-red-500 mt-0.5 truncate">
+                            {inv.void_reason || 'sin motivo anotado'}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <span className={`font-bold text-sm ${isCancelled ? 'text-gray-400 line-through' : 'text-gray-800'}`}>

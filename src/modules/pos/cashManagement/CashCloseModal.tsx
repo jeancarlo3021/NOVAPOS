@@ -220,6 +220,15 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     creditos: CreditoDelTurno[];
     /** Crédito de clientes excluidos: va aparte porque no entra al arqueo. */
     creditExcluido: number;
+    /**
+     * LAS ANULACIONES DEL TURNO, CON SU MOTIVO.
+     *
+     * El cierre decía cuántas y por cuánto, y ahí terminaba. Las anulaciones
+     * son el agujero clásico de un POS —anular una venta cobrada y quedarse
+     * con la plata no deja rastro— y el arqueo es el momento en que alguien
+     * las está mirando. Con el motivo al lado, un patrón raro se ve.
+     */
+    voids: Array<{ number: string; cliente: string; total: number; motivo: string; time: string }>;
     loaded: boolean;
   }
   const [sys, setSys] = useState<SysTotals>({
@@ -229,7 +238,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
     repartoCount: 0, repartoTotal: 0, repartoPendientes: 0,
     excludedCount: 0, excludedTotal: 0,
     cashIn: 0, cashOut: 0, movements: [], sales: [], usdReceived: 0, usdChangeOut: 0, usdCrc: 0,
-    abonos: [], abonosTotal: 0, creditos: [], creditExcluido: 0, loaded: false,
+    abonos: [], abonosTotal: 0, creditos: [], creditExcluido: 0, voids: [], loaded: false,
   });
 
   // Ventas hechas sin conexión que TODAVÍA no subieron. El cierre se calcula con
@@ -394,6 +403,17 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
         const voidedInv = allInv.filter((i: any) => i.status === 'cancelled');
         const voidsCount = voidedInv.length;
         const voidsTotal = voidedInv.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
+        const voidsDetalle = voidedInv
+          .map((i: any) => ({
+            number: String(i.invoice_number ?? i.id ?? ''),
+            cliente: String(i.customer_name ?? ''),
+            total: Number(i.total || 0),
+            /* «sin motivo» no se esconde: una anulación sin explicación es
+               justamente la que hay que preguntar. */
+            motivo: String(i.void_reason ?? '').trim(),
+            time: String(i.voided_at ?? i.updated_at ?? i.issued_at ?? ''),
+          }))
+          .sort((a: any, b: any) => a.time.localeCompare(b.time));
         let sCash = 0, sCard = 0, sSinpe = 0, sCredit = 0, sTransfer = 0, sOther = 0;
         // Los abonos entran por su medio de pago, igual que una venta.
         const abonos: SysTotals['abonos'] = [
@@ -514,6 +534,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           cashIn, cashOut, movements, sales: salesDetail,
           abonos, abonosTotal,
           creditos, creditExcluido: sCreditExcluido,
+          voids: voidsDetalle,
           usdReceived, usdChangeOut, loaded: true,
         });
       } catch {
@@ -748,6 +769,101 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       };
 
 
+      /**
+       * EL CIERRE COMPLETO, en un solo objeto.
+       *
+       * Sirve para dos cosas a la vez: es lo que se imprime y es lo que se
+       * guarda con la caja (`cierre_detalle`). Antes solo se imprimía, así
+       * que del arqueo quedaba el monto y nada más: si el tiquete se perdía o
+       * la impresora estaba sin rollo, ese turno no se podía volver a sacar.
+       */
+      const detalleCierre = {
+          session_id: session.id,
+          opened_at: (parseServerDate((session as any).opening_date ?? session.opened_at ?? session.created_at)
+            ?? new Date()).toISOString(),
+          closed_at: closeData.closed_at,
+          cashier_name: user?.email,
+          opening_amount: openingAmount,
+          // Dólares en efectivo: apertura + recibidos − vuelto = esperado, vs contado.
+          opening_usd: Number((session as any).opening_usd ?? 0),
+          usd_received: sys.usdReceived,
+          usd_change_out: sys.usdChangeOut,
+          expected_usd: Number((session as any).opening_usd ?? 0) + sys.usdReceived - sys.usdChangeOut,
+          closing_usd: closingUsd,
+          // Lo que registró el sistema (ventas por método)
+          system_cash: sys.cash,
+          system_card: sys.card,
+          system_sinpe: sys.sinpe,
+          system_credit: sys.credit,
+          system_transfer: sys.transfer,
+          system_other: sys.other,
+          // Vendido en dólares, en su equivalente en colones. Va aparte para
+          // que el tiquete explique por qué el esperado en ₡ es menor que el
+          // total vendido: esa plata se arquea en dólares, no en colones.
+          system_usd_crc: sys.usdCrc,
+          // Abonos del turno (apartados y cuentas por cobrar): ya están sumados
+          // por método arriba, van aparte para que el tiquete los nombre.
+          reservations_total: sys.abonosTotal,
+          reservations_count: sys.abonos.length,
+          // Desglose por medio de pago: en papel es lo único que permite
+          // separar lo que debe estar en la gaveta de lo que entró por
+          // tarjeta o SINPE.
+          reservations_by_method: abonosPorMetodo,
+          // Detalle de cada abono, para poder cuadrar el turno uno por uno.
+          reservations: sys.abonos.map(a => ({
+            tipo: a.tipo,
+            numero: a.numero, cliente: a.cliente, method: a.method, amount: a.amount, time: a.time,
+          })),
+          // Lo que el cajero contó por método
+          cash_total: cashTotal,
+          card_total: cardTotal,
+          sinpe_total: sinpeTotal,
+          closing_amount: grandTotal,
+          // Efectivo: esperado vs contado → faltante/sobrante
+          expected_amount: expectedTotal,
+          // Ventas que NO se arquean (crédito y otros métodos). Van al tiquete
+          // para que quede claro por qué el esperado es menor que el total.
+          non_countable_sales: noArqueable,
+          /**
+           * CRÉDITO DEL TURNO, uno por uno y con su estado.
+           *
+           * En el tiquete queda a quién se le dio crédito y —lo importante—
+           * si la deuda quedó registrada. Un crédito sin cuenta por cobrar
+           * impreso en el cierre es algo que alguien puede ir a arreglar; el
+           * mismo crédito sin imprimir no existe para nadie.
+           */
+          credits: creditos.map(v => ({
+            numero: v.number, cliente: v.cliente, amount: v.total,
+            excluida: v.excluido, sin_cuenta: credEstado.sinCuenta.includes(v.id),
+          })),
+          credits_total: creditoTotal,
+          credits_count: creditos.length,
+          credits_sin_cuenta: credEstado.sinCuenta.length,
+          /* Las anulaciones del turno CON SU MOTIVO: el tiquete del arqueo es
+             donde alguien las revisa, y sin el motivo no se puede preguntar
+             nada sobre ellas. */
+          voids: sys.voids.map(v => ({
+            numero: v.number, cliente: v.cliente, amount: v.total, motivo: v.motivo,
+          })),
+          difference,
+          invoices_count: sys.invoicesCount,
+          invoices_total: sys.invoicesTotal,
+          voids_count: sys.voidsCount,
+          voids_total: sys.voidsTotal,
+          delivery_count: sys.deliveryCount,
+          delivery_total: sys.deliveryTotal,
+          reparto_count: sys.repartoCount,
+          reparto_total: sys.repartoTotal,
+          delivery_net: sys.deliveryNet,
+          excluded_count: sys.excludedCount,
+          excluded_total: sys.excludedTotal,
+          cash_movements: sys.movements,
+      };
+
+      /* El detalle viaja CON el cierre: así el arqueo queda guardado y se
+         puede reimprimir igual desde Reportes meses después. */
+      (closeData as any).cierre_detalle = detalleCierre;
+
       let updatedSession: CashSession;
 
       // Cierre OPTIMISTA guardado en la cola local. Se usa cuando no hay internet
@@ -786,83 +902,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       try {
         const tenantId = user?.tenant_id;
         if (tenantId) {
-          posPrinterService.printCashClose({
-            session_id: session.id,
-            opened_at: (parseServerDate((session as any).opening_date ?? session.opened_at ?? session.created_at)
-              ?? new Date()).toISOString(),
-            closed_at: (parseServerDate((updatedSession as any).closing_date ?? updatedSession.closed_at)
-              ?? new Date()).toISOString(),
-            cashier_name: user?.email,
-            opening_amount: openingAmount,
-            // Dólares en efectivo: apertura + recibidos − vuelto = esperado, vs contado.
-            opening_usd: Number((session as any).opening_usd ?? 0),
-            usd_received: sys.usdReceived,
-            usd_change_out: sys.usdChangeOut,
-            expected_usd: Number((session as any).opening_usd ?? 0) + sys.usdReceived - sys.usdChangeOut,
-            closing_usd: closingUsd,
-            // Lo que registró el sistema (ventas por método)
-            system_cash: sys.cash,
-            system_card: sys.card,
-            system_sinpe: sys.sinpe,
-            system_credit: sys.credit,
-            system_transfer: sys.transfer,
-            system_other: sys.other,
-            // Vendido en dólares, en su equivalente en colones. Va aparte para
-            // que el tiquete explique por qué el esperado en ₡ es menor que el
-            // total vendido: esa plata se arquea en dólares, no en colones.
-            system_usd_crc: sys.usdCrc,
-            // Abonos del turno (apartados y cuentas por cobrar): ya están sumados
-            // por método arriba, van aparte para que el tiquete los nombre.
-            reservations_total: sys.abonosTotal,
-            reservations_count: sys.abonos.length,
-            // Desglose por medio de pago: en papel es lo único que permite
-            // separar lo que debe estar en la gaveta de lo que entró por
-            // tarjeta o SINPE.
-            reservations_by_method: abonosPorMetodo,
-            // Detalle de cada abono, para poder cuadrar el turno uno por uno.
-            reservations: sys.abonos.map(a => ({
-              tipo: a.tipo,
-              numero: a.numero, cliente: a.cliente, method: a.method, amount: a.amount, time: a.time,
-            })),
-            // Lo que el cajero contó por método
-            cash_total: cashTotal,
-            card_total: cardTotal,
-            sinpe_total: sinpeTotal,
-            closing_amount: grandTotal,
-            // Efectivo: esperado vs contado → faltante/sobrante
-            expected_amount: expectedTotal,
-            // Ventas que NO se arquean (crédito y otros métodos). Van al tiquete
-            // para que quede claro por qué el esperado es menor que el total.
-            non_countable_sales: noArqueable,
-            /**
-             * CRÉDITO DEL TURNO, uno por uno y con su estado.
-             *
-             * En el tiquete queda a quién se le dio crédito y —lo importante—
-             * si la deuda quedó registrada. Un crédito sin cuenta por cobrar
-             * impreso en el cierre es algo que alguien puede ir a arreglar; el
-             * mismo crédito sin imprimir no existe para nadie.
-             */
-            credits: creditos.map(v => ({
-              numero: v.number, cliente: v.cliente, amount: v.total,
-              excluida: v.excluido, sin_cuenta: credEstado.sinCuenta.includes(v.id),
-            })),
-            credits_total: creditoTotal,
-            credits_count: creditos.length,
-            credits_sin_cuenta: credEstado.sinCuenta.length,
-            difference,
-            invoices_count: sys.invoicesCount,
-            invoices_total: sys.invoicesTotal,
-            voids_count: sys.voidsCount,
-            voids_total: sys.voidsTotal,
-            delivery_count: sys.deliveryCount,
-            delivery_total: sys.deliveryTotal,
-            reparto_count: sys.repartoCount,
-            reparto_total: sys.repartoTotal,
-            delivery_net: sys.deliveryNet,
-            excluded_count: sys.excludedCount,
-            excluded_total: sys.excludedTotal,
-            cash_movements: sys.movements,
-          }, tenantId).catch(() => {});
+          posPrinterService.printCashClose(detalleCierre, tenantId).catch(() => {});
         }
       } catch {
         // No bloquear el cierre por error en impresión
@@ -926,6 +966,15 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
           ...(sys.deliveryCount > 0 ? [{ heading: 'Delivery (aparte, no en caja)', rows: [
             ['Ventas delivery', `${sys.deliveryCount} · ${m(sys.deliveryTotal)}`],
             ['Neto delivery', m(sys.deliveryNet)],
+          ] }] : []),
+          // Las anulaciones, una por una y con su motivo. El total junto no
+          // se puede revisar: dice que se anularon ₡80.000 y nada más.
+          ...(sys.voids.length > 0 ? [{ heading: 'Anulaciones del turno', rows: [
+            ...sys.voids.map(v => [
+              `#${v.number}${v.cliente ? ` · ${v.cliente}` : ''} — ${v.motivo || 'SIN MOTIVO ANOTADO'}`,
+              m(v.total),
+            ] as [string, string]),
+            ['Total anulado', m(sys.voidsTotal)],
           ] }] : []),
           // El crédito del turno, con nombre y con su estado: es la lista con
           // la que alguien sale a cobrar, y la que delata un crédito que no
@@ -1218,6 +1267,34 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                   {[a.numero, a.cliente].filter(Boolean).length > 0 && ` · ${[a.numero, a.cliente].filter(Boolean).join(' · ')}`}
                   {' · ₡'}{a.amount.toLocaleString()}
                   {` · ${ETIQUETA_MEDIO_PAGO[a.method] ?? a.method}`}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Anulaciones del turno, con su motivo ──
+            El cierre decía cuántas y por cuánto. El motivo al lado es lo que
+            permite preguntar: una venta cobrada que se anula sin explicación
+            es exactamente lo que hay que mirar antes de firmar el arqueo. */}
+        {sys.voids.length > 0 && (
+          <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-2 sm:py-3 shrink-0">
+            <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+              <p className="text-xs font-black text-gray-500 uppercase">Anulaciones</p>
+              <span className="text-xs font-bold text-amber-700">
+                {sys.voids.length} · ₡{sys.voidsTotal.toLocaleString()}
+              </span>
+              <span className="text-[11px] text-gray-400">no suman a las ventas</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+              {sys.voids.map((v, i) => (
+                <span key={i}
+                  className={`text-[11px] font-bold px-2 py-1 rounded-lg ${
+                    v.motivo ? 'bg-amber-50 text-amber-800' : 'bg-red-100 text-red-800 ring-1 ring-red-300'}`}>
+                  #{v.number}
+                  {v.cliente ? ` · ${v.cliente}` : ''}
+                  {' · ₡'}{v.total.toLocaleString()}
+                  {' — '}{v.motivo || 'SIN MOTIVO'}
                 </span>
               ))}
             </div>

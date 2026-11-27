@@ -116,7 +116,7 @@ export async function syncOfflineDay(
 
     // ── 3) ANULACIONES ──────────────────────────────────────────────────────
     try {
-      const r = await posOfflineService.syncPendingVoids(async (invoiceId: string) => { await invoicesService.cancelInvoice(invoiceId); });
+      const r = await posOfflineService.syncPendingVoids(async (invoiceId: string, motivo?: string) => { await invoicesService.cancelInvoice(invoiceId, motivo); });
       res.voids = (r as any)?.synced ?? 0;
       for (const d of ((r as any)?.details ?? [])) {
         if (d?.error) res.errors.push(`Anulación: ${d.error}`);

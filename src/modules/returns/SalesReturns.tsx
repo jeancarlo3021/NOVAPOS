@@ -124,14 +124,23 @@ export const SalesReturns: React.FC = () => {
 
   const voidInvoice = async () => {
     if (!invoice) return;
+    /* El MOTIVO es obligatorio: una anulación sin motivo no se puede revisar
+       después, y acá se anula la venta entera. Se reusa el campo «Motivo» de
+       la devolución, que es el mismo dato. */
+    const motivo = reason.trim();
+    if (motivo.length < 4) {
+      setMsg({ kind: 'err', text: 'Escribí el motivo arriba antes de anular la factura.' });
+      return;
+    }
     if (!window.confirm(
       `¿ANULAR la factura ${invoice.invoice_number} completa?\n\n`
+      + `Motivo: ${motivo}\n\n`
       + 'La venta se cancela y vuelve TODO el stock. Si el cliente solo trae parte, '
       + 'usá la devolución parcial en vez de anular.'
     )) return;
     setSaving(true);
     try {
-      const res = await invoicesService.cancelInvoice(invoice.id);
+      const res = await invoicesService.cancelInvoice(invoice.id, motivo);
       const n = (res as any)?.restocked ?? 0;
       const donde = (res as any)?.restock_target === 'truck' ? 'al camión' : 'al inventario';
       const falta = (res as any)?.restock_skipped

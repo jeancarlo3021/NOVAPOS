@@ -167,6 +167,38 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
   }, [sessions, from, to, closed.length, open.length, totalSales, totalCash, totalCard,
     totalSinpe, totalIn, totalOut, voidsCount, totalVoids, totalAbonos, totalDisc, withDisc.length, tenantActual, tenantId]);
 
+  /**
+   * REIMPRIMIR EL CIERRE DE UNA CAJA.
+   *
+   * El arqueo del turno vivía solo en el papel: si el tiquete se perdía, se
+   * mojaba o la impresora estaba sin rollo, ese cierre no se podía volver a
+   * sacar —quedaba un monto en la pantalla sin el respaldo que se archiva—.
+   *
+   * De las cajas cerradas desde la migración 152 sale IDÉNTICO al original
+   * (con el conteo por denominación); de las anteriores se rearma con las
+   * ventas del turno, y el papel avisa que lo contado por método no quedó
+   * guardado. En los dos casos sale marcado como REIMPRESIÓN: dos arqueos que
+   * se ven iguales, uno firmado y otro no, no se pueden distinguir después.
+   */
+  const [reimprimiendo, setReimprimiendo] = useState<string | null>(null);
+  const [aviso, setAviso] = useState('');
+  const reimprimirCierre = useCallback(async (s: SessionRow) => {
+    setReimprimiendo(s.id); setError(''); setAviso('');
+    try {
+      const r = await apiFetch<{ detalle: any; reconstruido: boolean }>(
+        `/cash-sessions/${s.id}/cierre`);
+      await posPrinterService.printCashClose(
+        { ...r.detalle, reimpresion: true, reconstruido: !!r.reconstruido },
+        tenantActual ?? tenantId ?? '');
+      setAviso(r.reconstruido
+        ? `Cierre de ${s.cashier_name || 'la caja'} reimpreso. De ese turno no se había guardado `
+          + 'el detalle de lo contado por método: se rearmó con las ventas, y el papel lo dice.'
+        : `Cierre de ${s.cashier_name || 'la caja'} reimpreso, igual al original.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo reimprimir el cierre');
+    } finally { setReimprimiendo(null); }
+  }, [tenantActual, tenantId]);
+
   const downloadCSV = useCallback(() => {
     const rows: (string | number | null | undefined)[][] = [];
 
@@ -243,6 +275,12 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
   return (
     <div className="space-y-6">
 
+      {aviso && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-xl px-4 py-3 flex items-start gap-2">
+          <span className="flex-1">{aviso}</span>
+          <button onClick={() => setAviso('')} className="font-bold text-emerald-600">×</button>
+        </div>
+      )}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
       )}
@@ -391,6 +429,7 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Diferencia</th>
                   <th className="text-center px-4 py-3 text-xs font-bold text-gray-500 uppercase">Duración</th>
                   <th className="text-center px-4 py-3 text-xs font-bold text-gray-500 uppercase">Estado</th>
+                  <th className="px-3 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -463,6 +502,21 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
                             {hasDisc && <AlertTriangle size={10} />}
                           </span>
                         )}
+                      </td>
+                      {/* Reimprimir el arqueo de ESTE turno. Solo si está
+                          cerrada: de una caja abierta no hay cierre todavía. */}
+                      <td className="px-3 py-3 text-center">
+                        {s.status === 'closed' ? (
+                          <button type="button" onClick={() => void reimprimirCierre(s)}
+                            disabled={reimprimiendo === s.id}
+                            title="Reimprimir el cierre de esta caja"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 hover:border-gray-800 text-gray-600 hover:text-gray-900 text-xs font-bold disabled:opacity-40">
+                            {reimprimiendo === s.id
+                              ? <RefreshCw size={12} className="animate-spin" />
+                              : <Printer size={12} />}
+                            <span className="hidden sm:inline">Cierre</span>
+                          </button>
+                        ) : <span className="text-gray-300 text-xs">—</span>}
                       </td>
                     </tr>
                   );

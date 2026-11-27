@@ -242,12 +242,23 @@ export const invoicesService = {
 
   // Cancelar factura. La respuesta trae cuántas líneas volvieron al inventario
   // (o al camión, en ventas de ruta) y cuántas no se pudieron devolver.
-  async cancelInvoice(invoiceId: string) {
+  /**
+   * `reason` = POR QUÉ se anula.
+   *
+   * Se guarda en la factura. Antes la pantalla lo pedía y se tiraba: solo se
+   * usaba como razón de la Nota de Crédito, así que de una venta corriente no
+   * quedaba nada escrito —y una anulación sin motivo es el agujero por el que
+   * se va la plata sin dejar rastro—.
+   */
+  async cancelInvoice(invoiceId: string, reason?: string) {
     return apiFetch<Invoice & {
       restocked?: number;
       restock_target?: 'truck' | 'inventory';
       restock_skipped?: number;
-    }>('/invoices/' + invoiceId + '/void', { method: 'POST' });
+    }>('/invoices/' + invoiceId + '/void', {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason ?? null }),
+    });
   },
 
   // Anular el PAGO de una factura y dejarla a crédito (con saldo pendiente).

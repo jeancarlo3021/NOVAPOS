@@ -33,7 +33,7 @@ import {
 } from '@/services/promotions/promotionsService';
 import { invoicesService, localNowISO } from '@/services/invoice/invoiceService';
 import { posOfflineService, OfflineInvoicePayload, generateInvoiceNumber } from '@/services/pos/posOfflineService';
-import { posPrinterService } from '@/services/pos/posPrinterService';
+import { posPrinterService, cobroConEfectivo } from '@/services/pos/posPrinterService';
 import { apiFetch } from '@/lib/api';
 import { cashTotal } from '@/utils/priceUtils';
 import { POSHeader } from './POSHeader';
@@ -1509,6 +1509,9 @@ export const POSMain = () => {
         // Redondeo de caja: lo que se le quitó o se le completó al total.
         rounding: Math.round(rounding),
         paymentMethod: etiquetaMedioPago(paymentMethod),
+        /* Sin traducir: es con esto con lo que se decide si se abre el cajón.
+           La etiqueta («Efectivo») es para el papel, no para decidir. */
+        paymentMethodId: paymentMethod,
         bipper: currencyInfo?.bipper || undefined,   // localizador para el ticket
         // Datos del local (sin email)
         storeName: general?.businessName,
@@ -1722,9 +1725,9 @@ export const POSMain = () => {
      * conectado (la caja que imprime todo el día) la gaveta se abre como
      * siempre.
      */
-    const entraEfectivo = data.paymentMethod === 'cash'
-      || (data.payments ?? []).some((p: any) => p.method === 'cash' && Number(p.amount) > 0);
-    if (data.skipPrint && entraEfectivo) {
+    if (data.skipPrint && cobroConEfectivo({
+      paymentMethodId: data.paymentMethod, payments: data.payments ?? null,
+    })) {
       void posPrinterService.openCashDrawer(tenantId, { sinConectar: true });
     }
 

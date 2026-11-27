@@ -235,7 +235,9 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
           return;
         }
         await posPrinterService.printAuto(
-          { ...copia, invoiceNumber: `${copia.invoiceNumber} (Reimpresión)`, cashierName: cashierName ?? copia.cashierName },
+          { ...copia, invoiceNumber: `${copia.invoiceNumber} (Reimpresión)`, cashierName: cashierName ?? copia.cashierName,
+            /* Reimprimir no mueve plata: el cajón no se abre. */
+            esReimpresion: true },
           tenantId,
         );
         setDoneId(row.id);
@@ -253,7 +255,8 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
 
       if (!full) {
         await posPrinterService.printAuto(
-          { ...copia!, invoiceNumber: `${copia!.invoiceNumber} (Reimpresión)`, cashierName: cashierName ?? copia!.cashierName },
+          { ...copia!, invoiceNumber: `${copia!.invoiceNumber} (Reimpresión)`, cashierName: cashierName ?? copia!.cashierName,
+            esReimpresion: true },
           tenantId,
         );
         setDoneId(row.id);
@@ -291,6 +294,7 @@ export const ReprintInvoiceModal: React.FC<Props> = ({ onClose, cashierName }) =
       await posPrinterService.printAuto(
         {
           invoiceNumber: `${full.invoice_number} (Reimpresión)`,
+          esReimpresion: true,
           date: date.toLocaleDateString('es-CR'),
           time: date.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' }),
           items: (full.items ?? []).map(it => ({

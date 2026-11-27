@@ -50,6 +50,8 @@ export interface OfflineVoidPayload {
   id: string;
   invoiceId: string;
   invoiceNumber: string;
+  /** Motivo de la anulación: viaja con ella para no perderse al subir. */
+  reason?: string;
   timestamp: number;
   synced: 0 | 1;
   retries: number;
@@ -451,13 +453,15 @@ function generateUUID(): string {
   });
 }
 
-async function queueVoid(invoiceId: string, invoiceNumber: string): Promise<string> {
+/** `reason` = el motivo, para que no se pierda al subir la anulación. */
+async function queueVoid(invoiceId: string, invoiceNumber: string, reason?: string): Promise<string> {
   const db = await openDB();
   const id = generateUUID();
   const payload: OfflineVoidPayload = {
     id,
     invoiceId,
     invoiceNumber,
+    reason: reason || undefined,
     timestamp: Date.now(),
     synced: 0,
     retries: 0,
@@ -507,7 +511,7 @@ async function markVoidError(id: string, error: string): Promise<void> {
 }
 
 async function syncPendingVoids(
-  cancelInvoice: (id: string) => Promise<void>
+  cancelInvoice: (id: string, reason?: string) => Promise<void>
 ): Promise<{ synced: number; errors: number; details: SyncError[] }> {
   const pending = await getPendingVoids();
   let synced = 0;
@@ -516,7 +520,7 @@ async function syncPendingVoids(
 
   for (const void_op of pending) {
     try {
-      await cancelInvoice(void_op.invoiceId);
+      await cancelInvoice(void_op.invoiceId, void_op.reason);
       await markVoidSynced(void_op.id);
       synced++;
     } catch (err) {
