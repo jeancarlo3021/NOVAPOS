@@ -10,6 +10,7 @@ import { Monitor, ShoppingBag, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { proformasService } from '@/services/proformas/proformasService';
 import { resolverClienteDeProforma } from '@/modules/proformas/clienteDeProforma';
+import { repreciarLinea } from './reprecioDeCarrito';
 import { customersService } from '@/services/customers/customersService';
 import { useCashSession } from '@/hooks/useCashSession';
 import { createCashSession } from '@/services/cashManagement/cashSessionsService';
@@ -144,7 +145,23 @@ export const POSMain = () => {
           // El descuento efectivo de la línea, para que se vea en el carrito.
           discount_percent: porcentajes[i],
           subtotal,
-        };
+          /**
+           * EL PRECIO COTIZADO NO SE VUELVE A CALCULAR.
+           *
+           * El reprecio del carrito corre cada vez que cambian los precios del
+           * cliente —o sea cada vez que alguien toca el campo del cliente— y
+           * reemplaza el precio de la línea por el del catálogo cuando ese
+           * cliente no tiene precio propio para el producto. A una línea que
+           * acaba de agregar el cajero eso está bien; a una que viene de una
+           * COTIZACIÓN, no: el cliente tiene el papel en la mano con un monto,
+           * y al seleccionarlo las líneas se iban al precio de lista. Pedir el
+           * cliente para poder facturarle terminaba subiéndole la cuenta.
+           *
+           * Es el mismo caso de la cuenta de una mesa y de la tarifa de envío:
+           * un precio que alguien decidió, no un precio de catálogo.
+           */
+          __precioFijo: true,
+        } as any;
       });
       setCartItems(cart);
       if (pf.customer_name) setTabCustomerName(pf.customer_name);
@@ -1146,27 +1163,29 @@ export const POSMain = () => {
     return customerPrices[product.id] ?? product.unit_price;
   };
 
-  // Re-precificar el carrito cuando cambian los precios del cliente o el modo.
+  /**
+   * Re-precificar el carrito cuando cambian los precios del cliente o el modo.
+   *
+   * La regla vive en `repreciarLinea` y tiene pruebas: qué línea se reprecia y
+   * cuál no es justo donde se cuela un cobro equivocado. Las que llegan con
+   * precio dado —la cuenta de una mesa con sus adicionales, la tarifa de envío,
+   * la línea de una cotización— se devuelven tal cual.
+   *
+   * También corre al cambiar de PLATAFORMA: si el cajero empezó en Uber y pasa
+   * a Didi, las líneas ya puestas tienen que tomar el precio de Didi. Dejarlas
+   * con el anterior es cobrar el precio de una plataforma en otra.
+   */
   useEffect(() => {
-    setCartItems(prev => prev.map(item => {
-      /* Las líneas que llegan con precio dado (la cuenta de una mesa, con sus
-         adicionales adentro) NO se reprecian: tomar el precio de lista les
-         borraba los adicionales. */
-      if ((item as any).__precioFijo) return item;
-      /* También cuando cambia la PLATAFORMA: si el cajero empezó en Uber y
-         pasa a Didi, las líneas ya puestas tienen que tomar el precio de
-         Didi. Dejarlas con el anterior es cobrar el precio de una plataforma
-         en otra, que es justo lo que esto viene a resolver. */
-      const dp = item.product ? precioDeliveryDe(item.product as Product, plataformaDelivery) : 0;
-      const base = (isDeliveryMode && dp > 0)
-        ? dp
-        : (customerPrices[item.product_id] ?? item.product?.unit_price ?? item.unit_price);
-      if (round2(base) === item.unit_price) return item;
-      const subtotal = round2(item.promo
-        ? calcPromoSubtotal(base, item.quantity, item.promo as any)
-        : item.quantity * base * (1 - (item.discount_percent ?? 0) / 100));
-      return { ...item, unit_price: round2(base), subtotal };
-    }));
+    setCartItems(prev => prev.map(item => repreciarLinea(
+      item as any,
+      {
+        customerPrices,
+        precioDeCatalogo: Number(item.product?.unit_price ?? item.unit_price) || 0,
+        precioDelivery: item.product ? precioDeliveryDe(item.product as Product, plataformaDelivery) : 0,
+        modoDelivery: isDeliveryMode,
+      },
+      calcPromoSubtotal as any,
+    ) as any));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerPrices, isDeliveryMode, plataformaDelivery]);
 
