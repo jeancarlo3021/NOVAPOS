@@ -190,10 +190,20 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
       await posPrinterService.printCashClose(
         { ...r.detalle, reimpresion: true, reconstruido: !!r.reconstruido },
         tenantActual ?? tenantId ?? '');
-      setAviso(r.reconstruido
-        ? `Cierre de ${s.cashier_name || 'la caja'} reimpreso. De ese turno no se había guardado `
-          + 'el detalle de lo contado por método: se rearmó con las ventas, y el papel lo dice.'
-        : `Cierre de ${s.cashier_name || 'la caja'} reimpreso, igual al original.`);
+      /* Tres casos distintos, y el aviso dice cuál: igual al original, rearmado
+         con el arqueo recuperado, o rearmado sin el arqueo por método. Decir
+         «igual al original» cuando no lo es es lo único que no se puede hacer:
+         de un arqueo lo que se firma es que los números son los que fueron. */
+      const quien = s.cashier_name || 'la caja';
+      const conArqueo = (r.detalle as any)?.conteo_recuperado !== false;
+      setAviso(!r.reconstruido
+        ? `Cierre de ${quien} reimpreso, igual al original.`
+        : conArqueo
+          ? `Cierre de ${quien} reimpreso. Es de antes de que el cierre se guardara completo: `
+            + 'los montos y el arqueo por método son los de ese día, pero el conteo billete '
+            + 'por billete no se guardó. El papel lo dice.'
+          : `Cierre de ${quien} reimpreso. De ese turno no se guardó lo que se contó por `
+            + 'método: se rearmó con las ventas del turno, y el papel lo dice.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo reimprimir el cierre');
     } finally { setReimprimiendo(null); }
@@ -429,7 +439,12 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase">Diferencia</th>
                   <th className="text-center px-4 py-3 text-xs font-bold text-gray-500 uppercase">Duración</th>
                   <th className="text-center px-4 py-3 text-xs font-bold text-gray-500 uppercase">Estado</th>
-                  <th className="px-3 py-3" />
+                  {/* Se queda pegada a la derecha: es la columna 17 de una tabla
+                      que se corre a lo ancho, y un botón que hay que ir a buscar
+                      scrolleando es un botón que no existe. */}
+                  <th className="sticky right-0 z-10 bg-gray-50 text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase border-l border-gray-200">
+                    Reimprimir
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -505,12 +520,14 @@ export const CashSessionsReport: React.FC<Props> = ({ tenantId, from, to }) => {
                       </td>
                       {/* Reimprimir el arqueo de ESTE turno. Solo si está
                           cerrada: de una caja abierta no hay cierre todavía. */}
-                      <td className="px-3 py-3 text-center">
+                      <td className={`sticky right-0 z-10 px-3 py-3 text-center border-l border-gray-200 ${
+                        hasDisc ? 'bg-red-50' : 'bg-white'
+                      }`}>
                         {s.status === 'closed' ? (
                           <button type="button" onClick={() => void reimprimirCierre(s)}
                             disabled={reimprimiendo === s.id}
-                            title="Reimprimir el cierre de esta caja"
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 hover:border-gray-800 text-gray-600 hover:text-gray-900 text-xs font-bold disabled:opacity-40">
+                            title="Reimprimir el arqueo de esta caja"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-gray-300 hover:border-gray-900 hover:bg-gray-900 hover:text-white text-gray-700 text-xs font-bold transition disabled:opacity-40">
                             {reimprimiendo === s.id
                               ? <RefreshCw size={12} className="animate-spin" />
                               : <Printer size={12} />}

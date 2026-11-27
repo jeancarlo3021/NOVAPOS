@@ -1280,6 +1280,16 @@ export class POSPrinterService {
      * imprimir ceros que se leen como un arqueo.
      */
     reconstruido?: boolean;
+    /**
+     * DEL REARMADO, ¿se recuperó lo que se contó por método?
+     *
+     * Sí en casi todos los casos: el cierre viene guardando ese desglose en la
+     * nota desde mucho antes. Lo que no se puede recuperar nunca es el conteo
+     * por denominación. El papel distingue las dos cosas porque no son lo
+     * mismo: una reimpresión con el arqueo del día sirve de respaldo, y una sin
+     * él solo sirve para ver qué se vendió.
+     */
+    conteo_recuperado?: boolean;
     difference: number;          // efectivo contado - esperado (faltante/sobrante)
     invoices_count: number;
     invoices_total: number;
@@ -1335,7 +1345,10 @@ export class POSPrinterService {
         ...(report.reimpresion
           ? [{ t: 'center' as const, a: `Reimpreso ${new Date().toLocaleString('es-CR')}` }] : []),
         ...(report.reconstruido
-          ? [{ t: 'text' as const, a: 'Rearmado de las ventas del turno: de este cierre no se guardó el detalle de lo que se contó por método.' }] : []),
+          ? [{ t: 'text' as const, a: report.conteo_recuperado === false
+              ? 'Rearmado de las ventas del turno: de este cierre no se guardó el detalle de lo que se contó por método.'
+              : 'Rearmado: es de antes de que el cierre se guardara completo. Los montos y el arqueo por método son los de ese día; el conteo billete por billete no se guardó.' }]
+          : []),
         ...(report.cashier_name ? [{ t: 'center' as const, a: `Cajero: ${report.cashier_name}` }] : []),
         { t: 'center', a: `Abrió ${dt(report.opened_at)} · Cerró ${dt(report.closed_at)}` },
         { t: 'sep' }, { t: 'title', a: 'VENTAS (SISTEMA)' },
@@ -1901,9 +1914,16 @@ export class POSPrinterService {
       centerText(`Reimpreso ${new Date().toLocaleString('es-CR')}`);
     }
     if (report.reconstruido) {
-      centerText('Rearmado de las ventas');
-      centerText('del turno: lo contado por');
-      centerText('metodo no quedo guardado');
+      if (report.conteo_recuperado === false) {
+        centerText('Rearmado de las ventas');
+        centerText('del turno: lo contado por');
+        centerText('metodo no quedo guardado');
+      } else {
+        centerText('Rearmado: los montos y el');
+        centerText('arqueo son los de ese dia.');
+        centerText('El conteo por denominacion');
+        centerText('no quedo guardado.');
+      }
     }
     sep();
     row('Apertura:', fmtDateTime(report.opened_at));
@@ -2196,7 +2216,11 @@ export class POSPrinterService {
   <div class="title">CIERRE DE CAJA${report.reimpresion ? ' — REIMPRESIÓN' : ''}</div>
   <div class="store-name">${storeName}</div>
   ${report.reimpresion ? `<div class="meta">Reimpreso ${new Date().toLocaleString('es-CR')}</div>` : ''}
-  ${report.reconstruido ? '<div class="meta">Rearmado de las ventas del turno: de este cierre no se guardó el detalle de lo que se contó por método.</div>' : ''}
+  ${report.reconstruido
+    ? (report.conteo_recuperado === false
+      ? '<div class="meta">Rearmado de las ventas del turno: de este cierre no se guardó el detalle de lo que se contó por método.</div>'
+      : '<div class="meta">Rearmado: es de antes de que el cierre se guardara completo. Los montos y el arqueo por método son los de ese día; el conteo billete por billete no se guardó.</div>')
+    : ''}
 
   <div class="meta"><strong>Apertura:</strong> ${fmtDateTime(report.opened_at)}</div>
   <div class="meta"><strong>Cierre:</strong> ${fmtDateTime(report.closed_at)}</div>
