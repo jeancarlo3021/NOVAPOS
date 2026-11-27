@@ -11,6 +11,7 @@ import { apiFetch } from '@/lib/api';
 import { localNowISO } from '@/services/invoice/invoiceService';
 import { ETIQUETA_MEDIO_PAGO } from '@/utils/mediosDePago';
 import { creditosDelTurno, type CreditoDelTurno } from './creditosDelTurno';
+import { abonosAutomaticos, sumaDeAbonos, abonosDuplicados, descuadresVisibles } from './arqueoDeAbonos';
 import { useAuth } from '@/context/AuthContext';
 import { CashSession } from '@/types/Types_POS';
 import { useSimpleCashCount } from '@/hooks/useSimpleCashCount';
@@ -551,8 +552,36 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
   const cashTotal = simpleCash
     ? Math.max(0, parseFloat(simpleAmount) || 0)
     : DENOMINATIONS.reduce((s, d) => s + d.value * (quantities[d.value] ?? 0), 0);
-  const cardTotal = parseFloat(cardAmount) || 0;
-  const sinpeTotal = sinpeEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+
+  /**
+   * LOS ABONOS QUE NO SE VUELVEN A TECLEAR.
+   *
+   * Un abono por SINPE o por tarjeta ya entró al sistema con su monto y su
+   * medio de pago: lo registró el mismo cajero cuando lo recibió. Pedirle que
+   * lo vuelva a escribir en el cierre no controla nada —el número ya está, y
+   * se lo dio él— y sí deja la puerta abierta a olvidarlo.
+   *
+   * Es exactamente lo que pasó: un turno con ₡10.600 de ventas por SINPE y dos
+   * abonos por SINPE de ₡12.000 y ₡103.200. El cajero anotó las ventas, que es
+   * lo que vio pasar por el mostrador, y el cierre salió con ₡116.000 de
+   * faltante que nunca existió. Un faltante inventado de ese tamaño es peor que
+   * no cuadrar: al día siguiente nadie puede distinguirlo de un robo.
+   *
+   * El EFECTIVO no va acá: un abono en efectivo son billetes en la gaveta y hay
+   * que contarlos como cualquier otro billete.
+   */
+  const abonosSinpe = React.useMemo(
+    () => abonosAutomaticos(sys.abonos, 'sinpe'), [sys.abonos]);
+  const abonosCard = React.useMemo(
+    () => abonosAutomaticos(sys.abonos, 'card'), [sys.abonos]);
+  const abonosSinpeTotal = sumaDeAbonos(abonosSinpe);
+  const abonosCardTotal = sumaDeAbonos(abonosCard);
+
+  /** Lo que el cajero teclea, aparte de los abonos que ya venían registrados. */
+  const cardTecleado = parseFloat(cardAmount) || 0;
+  const sinpeTecleado = sinpeEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+  const cardTotal = cardTecleado + abonosCardTotal;
+  const sinpeTotal = sinpeTecleado + abonosSinpeTotal;
   const grandTotal = cashTotal + cardTotal + sinpeTotal;
 
   // Total de ventas del día registradas por el sistema (todos los métodos).
@@ -745,11 +774,67 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
       if (!seguir) return;
     }
 
+    /**
+     * EL MISMO ABONO ANOTADO DOS VECES.
+     *
+     * Los abonos por SINPE ya entran solos. Si además hay una transferencia
+     * tecleada por el mismo monto exacto, casi siempre es el abono escrito a
+     * mano antes de que entrara solo —y duplicarlo inventa un SOBRANTE igual
+     * de difícil de explicar que un faltante.
+     */
+    const duplicados = abonosDuplicados(sinpeEntries, abonosSinpe);
+
+    if (duplicados.length > 0) {
+      const seguir = window.confirm(
+        'Hay transferencias anotadas a mano por el mismo monto de un abono que ya '
+        + `entra solo:\n\n${duplicados.map(a => `· ₡${a.toLocaleString('es-CR')}`).join('\n')}\n\n`
+        + 'Si es el mismo cobro, quedaría contado dos veces y el cierre va a mostrar '
+        + 'un sobrante. ¿Cerrar de todas formas?',
+      );
+      if (!seguir) return;
+    }
+
+    /**
+     * SINPE O TARJETA QUE NO CUADRAN.
+     *
+     * Del EFECTIVO no se dice nada a propósito (ver el pie del modal): decirle
+     * al cajero cuánto se espera en la gaveta antes de cerrar es decirle cuánto
+     * tiene que poner, y ahí se acaba el arqueo.
+     *
+     * Con SINPE y tarjeta no hay nada que tapar: esa plata nunca pasó por las
+     * manos del cajero, ya está en el banco. Lo único que puede haber es un
+     * cobro registrado con el medio equivocado, y eso conviene encontrarlo hoy
+     * —con el cajero enfrente y el teléfono a mano— y no mañana leyendo un
+     * tiquete con un faltante sin dueño.
+     */
+    const descuadrados = descuadresVisibles([
+      { label: 'SINPE', sistema: sys.sinpe, contado: sinpeTotal },
+      { label: 'Tarjeta', sistema: sys.card, contado: cardTotal },
+    ]);
+
+    if (descuadrados.length > 0) {
+      const detalle = descuadrados.map(m =>
+        `· ${m.label}: el sistema registra ₡${Math.round(m.sistema).toLocaleString('es-CR')}`
+        + ` y vos contaste ₡${Math.round(m.contado).toLocaleString('es-CR')}`
+        + ` (${m.diferencia > 0 ? 'sobran' : 'faltan'} ₡${Math.abs(m.diferencia).toLocaleString('es-CR')})`,
+      ).join('\n');
+      const seguir = window.confirm(
+        `Esto no cuadra:\n\n${detalle}\n\n`
+        + 'Revisá que cada cobro del turno quedara con el medio de pago correcto. '
+        + '¿Cerrar de todas formas?',
+      );
+      if (!seguir) return;
+    }
+
     setLoading(true);
     setError('');
     try {
       const breakdown = JSON.stringify({
         counted: { cash: cashTotal, card: cardTotal, sinpe: sinpeTotal },
+        // De lo contado, cuánto entró solo por abonos ya registrados. Sin esto,
+        // mañana no hay forma de saber si el SINPE lo anotó el cajero o lo trajo
+        // el sistema, y es la primera pregunta cuando un cierre no cuadra.
+        abonosAuto: { sinpe: abonosSinpeTotal, card: abonosCardTotal },
         system: {
           cash: sys.cash, card: sys.card, sinpe: sys.sinpe,
           credit: sys.credit, transfer: sys.transfer, other: sys.other,
@@ -1507,7 +1592,7 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             <div className="space-y-4">
               <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl px-5 py-4 text-center">
                 <p className="text-blue-700 font-black text-lg">Datáfono</p>
-                <p className="text-blue-500 text-sm mt-1">Ingresa el total cobrado por tarjeta</p>
+                <p className="text-blue-500 text-sm mt-1">Ingresa el total de ventas que marca el datáfono</p>
               </div>
               <div>
                 <p className="text-gray-500 text-sm font-black uppercase tracking-wider mb-2">Monto total tarjeta</p>
@@ -1520,10 +1605,33 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
                   className="w-full text-right text-4xl font-black text-gray-900 bg-white border-2 border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-400 transition"
                 />
               </div>
+              {/* Igual que en SINPE: el abono por tarjeta ya quedó registrado. */}
+              {abonosCardTotal > 0 && (
+                <div className="bg-blue-50/60 border-2 border-blue-200 rounded-2xl px-4 py-3">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-blue-800 font-bold">
+                      + {abonosCard.length} abono{abonosCard.length === 1 ? '' : 's'} por tarjeta del turno
+                    </span>
+                    <span className="text-blue-900 font-black shrink-0">₡{abonosCardTotal.toLocaleString()}</span>
+                  </div>
+                  <p className="text-[11px] text-blue-500 leading-snug mt-1">
+                    Ya quedaron registrados al recibirlos. Arriba va solo el total del
+                    datáfono por las ventas.
+                  </p>
+                </div>
+              )}
+
               {cardTotal > 0 && (
-                <div className="flex items-center justify-between bg-blue-500 rounded-2xl px-6 py-4">
-                  <span className="text-blue-100 text-lg font-bold">Total tarjeta</span>
-                  <span className="text-white text-3xl font-black">₡{cardTotal.toLocaleString()}</span>
+                <div className="bg-blue-500 rounded-2xl px-6 py-4 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-blue-100 text-lg font-bold">Total tarjeta</span>
+                    <span className="text-white text-3xl font-black">₡{cardTotal.toLocaleString()}</span>
+                  </div>
+                  {abonosCardTotal > 0 && (
+                    <p className="text-blue-100/80 text-xs font-semibold">
+                      ₡{cardTecleado.toLocaleString()} de ventas + ₡{abonosCardTotal.toLocaleString()} de abonos
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -1534,8 +1642,35 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
             <div className="space-y-4">
               <div className="bg-violet-50 border-2 border-violet-200 rounded-2xl px-5 py-4 text-center">
                 <p className="text-violet-700 font-black text-lg">SINPE Móvil</p>
-                <p className="text-violet-500 text-sm mt-1">Agrega cada transferencia recibida</p>
+                <p className="text-violet-500 text-sm mt-1">Agrega cada transferencia recibida por una venta</p>
               </div>
+
+              {/* Los abonos por SINPE ya vienen registrados: se muestran, no se
+                  teclean. Volver a escribirlos no controla nada y olvidarlos
+                  inventa un faltante por el monto completo del abono. */}
+              {abonosSinpe.length > 0 && (
+                <div className="bg-violet-50/60 border-2 border-violet-200 rounded-2xl p-4 space-y-2">
+                  <p className="text-[11px] font-black text-violet-700 uppercase tracking-wider">
+                    Abonos por SINPE del turno · ya contados
+                  </p>
+                  {abonosSinpe.map((a, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-violet-900 font-semibold truncate">
+                        {a.cliente || 'Sin nombre'}
+                        <span className="text-violet-400 font-normal">
+                          {' · '}{a.tipo === 'apartado' ? 'apartado' : 'crédito'}{a.numero ? ` ${a.numero}` : ''}
+                        </span>
+                      </span>
+                      <span className="text-violet-900 font-black shrink-0">₡{a.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-violet-500 leading-snug pt-1">
+                    Quedaron registrados al recibirlos, con su monto y su medio de pago.
+                    No hay que volver a escribirlos: abajo van solo las transferencias de
+                    las ventas.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-3">
                 {sinpeEntries.map((entry, idx) => (
@@ -1575,9 +1710,15 @@ export const CashCloseModal: React.FC<CashCloseModalProps> = ({ session, onSucce
               </button>
 
               {sinpeTotal > 0 && (
-                <div className="flex items-center justify-between bg-violet-500 rounded-2xl px-6 py-4">
-                  <span className="text-violet-100 text-lg font-bold">Total SINPE ({sinpeEntries.filter(e => parseFloat(e.amount) > 0).length} transacciones)</span>
-                  <span className="text-white text-3xl font-black">₡{sinpeTotal.toLocaleString()}</span>
+                <div className="bg-violet-500 rounded-2xl px-6 py-4 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-violet-100 text-lg font-bold">Total SINPE</span>
+                    <span className="text-white text-3xl font-black">₡{sinpeTotal.toLocaleString()}</span>
+                  </div>
+                  <p className="text-violet-100/80 text-xs font-semibold">
+                    {sinpeEntries.filter(e => parseFloat(e.amount) > 0).length} de ventas · ₡{sinpeTecleado.toLocaleString()}
+                    {abonosSinpeTotal > 0 && ` + ${abonosSinpe.length} abono${abonosSinpe.length === 1 ? '' : 's'} · ₡${abonosSinpeTotal.toLocaleString()}`}
+                  </p>
                 </div>
               )}
             </div>
